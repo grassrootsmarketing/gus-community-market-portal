@@ -205,6 +205,23 @@
         .password-modal-body > p { color: var(--bark-500); margin-bottom: 20px; font-size: 0.95rem; }
         .password-error { color: #b91c1c; font-size: 0.85rem; margin-top: 8px; }
         .empty-row td { text-align: center; color: var(--bark-500); padding: 32px; font-style: italic; }
+        .search-input { padding: 8px 12px; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); font-family: inherit; font-size: 0.9rem; min-width: 240px; color: var(--forest-800); background: white; }
+        .search-input:focus { outline: none; border-color: var(--forest-400); }
+        .view-toggle { display: inline-flex; background: var(--sand-200); border-radius: var(--radius-sm); padding: 3px; }
+        .view-toggle button { padding: 6px 14px; font-size: 0.85rem; background: transparent; border: none; border-radius: 4px; cursor: pointer; color: var(--bark-500); font-family: inherit; font-weight: 500; }
+        .view-toggle button.active { background: white; color: var(--forest-700); box-shadow: var(--shadow-sm); }
+        .demo-cal-wrap { padding: 24px; }
+        .demo-cal-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .demo-cal-nav h4 { font-family: 'Fraunces', Georgia, serif; font-weight: 500; color: var(--forest-800); font-size: 1.15rem; }
+        .demo-cal-nav button { background: white; border: 1px solid var(--sand-300); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 1rem; color: var(--forest-700); }
+        .demo-cal-nav button:hover { background: var(--sand-100); }
+        .demo-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .demo-cal-dow { font-size: 0.7rem; font-weight: 600; color: var(--bark-500); text-align: center; padding: 8px 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+        .demo-cal-cell { background: var(--sand-100); border-radius: var(--radius-sm); padding: 8px; min-height: 90px; font-size: 0.85rem; color: var(--forest-800); }
+        .demo-cal-cell.empty { background: transparent; }
+        .demo-cal-cell .demo-day-num { font-weight: 600; margin-bottom: 6px; color: var(--forest-700); font-size: 0.85rem; }
+        .cal-demo { background: var(--forest-100); color: var(--forest-800); padding: 4px 6px; border-radius: 4px; font-size: 0.72rem; margin-bottom: 3px; line-height: 1.35; }
+        .cal-demo strong { display: block; font-weight: 600; color: var(--forest-700); }
 
         @media (max-width: 900px) {
             .booking-layout { grid-template-columns: 1fr; }
@@ -425,15 +442,46 @@
                     <div class="stat-card"><div class="stat-label">Demo Fee</div><div class="stat-value">$30</div></div>
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-header"><h3 class="table-title">Upcoming Demos</h3></div>
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Upcoming Demos</h3>
+                        <div class="toolbar-controls">
+                            <input type="text" id="demoSearch" placeholder="Search demos…" class="search-input" oninput="renderDemos()">
+                            <div class="view-toggle" id="demoViewToggle">
+                                <button class="active" data-view="table" onclick="setDemoView('table')">Table</button>
+                                <button data-view="calendar" onclick="setDemoView('calendar')">Calendar</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="demosTableView">
+                        <table>
+                            <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th></tr></thead>
+                            <tbody id="demosTableBody"></tbody>
+                        </table>
+                    </div>
+                    <div id="demosCalendarView" class="demo-cal-wrap" style="display:none;">
+                        <div class="demo-cal-nav">
+                            <button onclick="changeDemoCalMonth(-1)" aria-label="Previous month">‹</button>
+                            <h4 id="demoCalMonthLabel"></h4>
+                            <button onclick="changeDemoCalMonth(1)" aria-label="Next month">›</button>
+                        </div>
+                        <div class="demo-cal-grid" id="demoCalGrid"></div>
+                    </div>
+                </div>
+                <div class="table-card" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Internal Contacts</h3>
+                        <div class="toolbar-controls">
+                            <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
+                                <option value="venue">Sort by Venue</option>
+                                <option value="name">Sort by Name</option>
+                                <option value="company">Sort by Role</option>
+                            </select>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Internal Contact</button>
+                        </div>
+                    </div>
                     <table>
-                        <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th></tr></thead>
-                        <tbody>
-                            <tr><td>Feb 16, 2026 • 11:00 AM</td><td>Sunrise Foods</td><td>John Smith</td><td>Organic Granola Line</td><td><span class="status-badge status-confirmed">Confirmed</span></td></tr>
-                            <tr><td>Feb 18, 2026 • 3:00 PM</td><td>Bay Beverages</td><td>Sarah Chen</td><td>Cold Brew Coffee</td><td><span class="status-badge status-confirmed">Confirmed</span></td></tr>
-                            <tr><td>Feb 20, 2026 • 11:00 AM</td><td>Green Valley Farms</td><td>Mike Johnson</td><td>Plant-Based Cheese</td><td><span class="status-badge status-confirmed">Confirmed</span></td></tr>
-                            <tr><td>Feb 22, 2026 • 3:00 PM</td><td>Artisan Crackers Co</td><td>Lisa Wong</td><td>Sourdough Crackers</td><td><span class="status-badge status-confirmed">Confirmed</span></td></tr>
-                        </tbody>
+                        <thead><tr><th>Name</th><th>Role</th><th>Venue</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="internalContactsTableBody"></tbody>
                     </table>
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
@@ -453,23 +501,6 @@
                         <tbody id="brandContactsTableBody"></tbody>
                     </table>
                 </div>
-                <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Internal Contacts</h3>
-                        <div class="toolbar-controls">
-                            <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
-                                <option value="venue">Sort by Venue</option>
-                                <option value="name">Sort by Name</option>
-                                <option value="company">Sort by Role</option>
-                            </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Internal Contact</button>
-                        </div>
-                    </div>
-                    <table>
-                        <thead><tr><th>Name</th><th>Role</th><th>Venue</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="internalContactsTableBody"></tbody>
-                    </table>
-                </div>
                 <div class="settings-grid">
                     <div class="settings-card">
                         <div class="settings-card-header"><h3>Availability</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;">Edit</button></div>
@@ -484,11 +515,11 @@
                         </div>
                     </div>
                     <div class="settings-card">
-                        <div class="settings-card-header"><h3>Settings</h3></div>
+                        <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
-                            <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" value="$30.00"></div>
-                            <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" value="3 hours" disabled></div>
-                            <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" value="14 days minimum" disabled></div>
+                            <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
+                            <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" id="settingDemoDuration" value="3 hours" disabled></div>
+                            <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" id="settingAdvanceBooking" value="14 days minimum" disabled></div>
                             <div class="form-group"><label class="form-label">Calendar Sync</label><button class="btn btn-secondary" style="width: 100%; justify-content: center;"><svg viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Connect Outlook</button></div>
                         </div>
                     </div>
@@ -586,7 +617,7 @@
             }
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(view + 'View').classList.add('active');
-            if (view === 'admin') renderContacts();
+            if (view === 'admin') { renderContacts(); renderDemos(); loadSettings(); }
         }
         
         function selectLocation(location) {
@@ -1011,6 +1042,138 @@ END:VEVENT
             const all = loadContacts(type).filter(c => c.id !== id);
             saveContactsLS(type, all);
             renderContacts(type);
+        }
+
+        // ===== Upcoming Demos: search + table/calendar =====
+        const UPCOMING_DEMOS = [
+            { date: '2026-02-16', time: '11:00 AM', company: 'Sunrise Foods', contact: 'John Smith', product: 'Organic Granola Line', status: 'Confirmed' },
+            { date: '2026-02-18', time: '3:00 PM', company: 'Bay Beverages', contact: 'Sarah Chen', product: 'Cold Brew Coffee', status: 'Confirmed' },
+            { date: '2026-02-20', time: '11:00 AM', company: 'Green Valley Farms', contact: 'Mike Johnson', product: 'Plant-Based Cheese', status: 'Confirmed' },
+            { date: '2026-02-22', time: '3:00 PM', company: 'Artisan Crackers Co', contact: 'Lisa Wong', product: 'Sourdough Crackers', status: 'Confirmed' }
+        ];
+        let demoView = 'table';
+        let demoCalMonth = 1;
+        let demoCalYear = 2026;
+        const DEMO_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+        function formatDemoDate(iso) {
+            const d = new Date(iso + 'T00:00:00');
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+        function getFilteredDemos() {
+            const inp = document.getElementById('demoSearch');
+            const q = (inp && inp.value ? inp.value : '').trim().toLowerCase();
+            if (!q) return UPCOMING_DEMOS.slice();
+            return UPCOMING_DEMOS.filter(d =>
+                d.company.toLowerCase().includes(q) ||
+                d.contact.toLowerCase().includes(q) ||
+                d.product.toLowerCase().includes(q) ||
+                d.status.toLowerCase().includes(q) ||
+                d.time.toLowerCase().includes(q) ||
+                d.date.includes(q) ||
+                formatDemoDate(d.date).toLowerCase().includes(q)
+            );
+        }
+        function renderDemos() {
+            renderDemosTable();
+            if (demoView === 'calendar') renderDemosCalendar();
+        }
+        function renderDemosTable() {
+            const tbody = document.getElementById('demosTableBody');
+            if (!tbody) return;
+            const list = getFilteredDemos().slice().sort((a, b) => a.date.localeCompare(b.date));
+            if (list.length === 0) {
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No demos match your search.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = list.map(d =>
+                '<tr>'
+                + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
+                + '<td>' + escapeHtml(d.company) + '</td>'
+                + '<td>' + escapeHtml(d.contact) + '</td>'
+                + '<td>' + escapeHtml(d.product) + '</td>'
+                + '<td><span class="status-badge status-confirmed">' + escapeHtml(d.status) + '</span></td>'
+                + '</tr>'
+            ).join('');
+        }
+        function setDemoView(view) {
+            demoView = view;
+            document.querySelectorAll('#demoViewToggle button').forEach(b => {
+                b.classList.toggle('active', b.getAttribute('data-view') === view);
+            });
+            const t = document.getElementById('demosTableView');
+            const c = document.getElementById('demosCalendarView');
+            if (t) t.style.display = view === 'table' ? '' : 'none';
+            if (c) c.style.display = view === 'calendar' ? '' : 'none';
+            if (view === 'calendar') renderDemosCalendar();
+        }
+        function changeDemoCalMonth(delta) {
+            demoCalMonth += delta;
+            if (demoCalMonth < 0) { demoCalMonth = 11; demoCalYear -= 1; }
+            if (demoCalMonth > 11) { demoCalMonth = 0; demoCalYear += 1; }
+            renderDemosCalendar();
+        }
+        function renderDemosCalendar() {
+            const label = document.getElementById('demoCalMonthLabel');
+            const grid = document.getElementById('demoCalGrid');
+            if (!label || !grid) return;
+            label.textContent = DEMO_MONTHS[demoCalMonth] + ' ' + demoCalYear;
+            const firstDay = new Date(demoCalYear, demoCalMonth, 1);
+            const lastDay = new Date(demoCalYear, demoCalMonth + 1, 0);
+            const startDow = firstDay.getDay();
+            const daysInMonth = lastDay.getDate();
+            const demoMap = {};
+            getFilteredDemos().forEach(d => {
+                const dt = new Date(d.date + 'T00:00:00');
+                if (dt.getFullYear() === demoCalYear && dt.getMonth() === demoCalMonth) {
+                    const day = dt.getDate();
+                    if (!demoMap[day]) demoMap[day] = [];
+                    demoMap[day].push(d);
+                }
+            });
+            let html = '';
+            ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => { html += '<div class="demo-cal-dow">' + d + '</div>'; });
+            for (let i = 0; i < startDow; i++) html += '<div class="demo-cal-cell empty"></div>';
+            for (let day = 1; day <= daysInMonth; day++) {
+                const list = demoMap[day] || [];
+                const inner = list.map(d => '<div class="cal-demo"><strong>' + escapeHtml(d.time) + '</strong>' + escapeHtml(d.company) + '</div>').join('');
+                html += '<div class="demo-cal-cell"><div class="demo-day-num">' + day + '</div>' + inner + '</div>';
+            }
+            grid.innerHTML = html;
+        }
+
+        // ===== Settings edit toggle =====
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem('marketSettings');
+                if (saved) {
+                    const s = JSON.parse(saved);
+                    if (s.demoFee != null) document.getElementById('settingDemoFee').value = s.demoFee;
+                    if (s.demoDuration != null) document.getElementById('settingDemoDuration').value = s.demoDuration;
+                    if (s.advanceBooking != null) document.getElementById('settingAdvanceBooking').value = s.advanceBooking;
+                }
+            } catch (e) {}
+        }
+        function toggleSettingsEdit() {
+            const btn = document.getElementById('settingsEditBtn');
+            const ids = ['settingDemoFee', 'settingDemoDuration', 'settingAdvanceBooking'];
+            const inputs = ids.map(id => document.getElementById(id));
+            const editing = btn.textContent.trim() === 'Save';
+            if (editing) {
+                try {
+                    localStorage.setItem('marketSettings', JSON.stringify({
+                        demoFee: inputs[0].value,
+                        demoDuration: inputs[1].value,
+                        advanceBooking: inputs[2].value
+                    }));
+                } catch (e) {}
+                inputs.forEach(i => i.disabled = true);
+                btn.textContent = 'Edit';
+            } else {
+                inputs.forEach(i => i.disabled = false);
+                btn.textContent = 'Save';
+                setTimeout(() => inputs[0].focus(), 50);
+            }
         }
         </script>
 </body>
