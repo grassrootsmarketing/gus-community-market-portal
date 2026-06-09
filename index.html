@@ -438,19 +438,36 @@
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Contacts</h3>
+                        <h3 class="table-title">Brand Contacts</h3>
                         <div class="toolbar-controls">
-                            <select class="sort-select" id="contactSort" onchange="renderContacts()">
+                            <select class="sort-select" id="brandContactSort" onchange="renderContacts('brand')">
                                 <option value="venue">Sort by Venue</option>
                                 <option value="name">Sort by Name</option>
                                 <option value="company">Sort by Company</option>
                             </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal()">+ Add Contact</button>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('brand')">+ Add Brand Contact</button>
                         </div>
                     </div>
                     <table>
                         <thead><tr><th>Name</th><th>Company</th><th>Venue</th><th>Address</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="contactsTableBody"></tbody>
+                        <tbody id="brandContactsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-card" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Internal Contacts</h3>
+                        <div class="toolbar-controls">
+                            <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
+                                <option value="venue">Sort by Venue</option>
+                                <option value="name">Sort by Name</option>
+                                <option value="company">Sort by Role</option>
+                            </select>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Internal Contact</button>
+                        </div>
+                    </div>
+                    <table>
+                        <thead><tr><th>Name</th><th>Role</th><th>Venue</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="internalContactsTableBody"></tbody>
                     </table>
                 </div>
                 <div class="settings-grid">
@@ -500,8 +517,9 @@
             <div class="modal-body" style="text-align: left; padding: 32px;">
                 <h3 id="contactModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px;">Add Contact</h3>
                 <input type="hidden" id="contactId">
+                <input type="hidden" id="contactType" value="brand">
                 <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="contactName" placeholder="Jane Doe"></div>
-                <div class="form-group"><label class="form-label">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
+                <div class="form-group"><label class="form-label" id="contactCompanyLabel">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
                 <div class="form-group"><label class="form-label">Venue</label>
                     <select class="form-input" id="contactVenue">
                         <option value="Mission Bay">Mission Bay</option>
@@ -511,7 +529,7 @@
                         <option value="Canyon">Canyon</option>
                     </select>
                 </div>
-                <div class="form-group"><label class="form-label">Address</label><input type="text" class="form-input" id="contactAddress" placeholder="123 Market St, San Francisco, CA"></div>
+                <div class="form-group" id="contactAddressGroup"><label class="form-label">Address</label><input type="text" class="form-input" id="contactAddress" placeholder="123 Market St, San Francisco, CA"></div>
                 <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="contactEmail" placeholder="jane@acme.com"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="contactPhone" placeholder="555-123-4567"></div>
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
@@ -852,51 +870,96 @@ END:VEVENT
             }
         }
 
-        // ===== Contacts =====
-        const DEFAULT_CONTACTS = [
-            { id: 'c1', name: 'John Smith', company: 'Sunrise Foods', venue: 'Mission Bay', address: '1234 3rd St, San Francisco, CA 94158', email: 'john@sunrisefoods.com', phone: '415-555-0142' },
-            { id: 'c2', name: 'Sarah Chen', company: 'Bay Beverages', venue: 'Mission', address: '2890 16th St, San Francisco, CA 94103', email: 'sarah@baybev.com', phone: '415-555-0188' },
-            { id: 'c3', name: 'Mike Johnson', company: 'Green Valley Farms', venue: 'Haight St.', address: '1650 Haight St, San Francisco, CA 94117', email: 'mike@greenvalley.com', phone: '415-555-0167' },
-            { id: 'c4', name: 'Lisa Wong', company: 'Artisan Crackers Co', venue: 'Noriega', address: '3960 Noriega St, San Francisco, CA 94122', email: 'lisa@artisancrackers.com', phone: '415-555-0193' },
-            { id: 'c5', name: 'Tom Park', company: 'Pacific Beans', venue: 'Canyon', address: '301 Park Presidio, San Francisco, CA 94118', email: 'tom@pacificbeans.com', phone: '415-555-0211' }
-        ];
-        function loadContacts() {
-            try { const saved = localStorage.getItem('contacts'); if (saved) return JSON.parse(saved); } catch (e) {}
-            return [...DEFAULT_CONTACTS];
+        // ===== Contacts (Brand + Internal) =====
+        const CONTACT_CONFIGS = {
+            brand: {
+                storageKey: 'contacts',
+                tableBodyId: 'brandContactsTableBody',
+                sortSelectId: 'brandContactSort',
+                addLabel: 'Add Brand Contact',
+                editLabel: 'Edit Brand Contact',
+                companyLabel: 'Company',
+                showAddress: true,
+                columns: 7,
+                emptyLabel: 'brand',
+                defaults: [
+                    { id: 'c1', name: 'John Smith', company: 'Sunrise Foods', venue: 'Mission Bay', address: '1234 3rd St, San Francisco, CA 94158', email: 'john@sunrisefoods.com', phone: '415-555-0142' },
+                    { id: 'c2', name: 'Sarah Chen', company: 'Bay Beverages', venue: 'Mission', address: '2890 16th St, San Francisco, CA 94103', email: 'sarah@baybev.com', phone: '415-555-0188' },
+                    { id: 'c3', name: 'Mike Johnson', company: 'Green Valley Farms', venue: 'Haight St.', address: '1650 Haight St, San Francisco, CA 94117', email: 'mike@greenvalley.com', phone: '415-555-0167' },
+                    { id: 'c4', name: 'Lisa Wong', company: 'Artisan Crackers Co', venue: 'Noriega', address: '3960 Noriega St, San Francisco, CA 94122', email: 'lisa@artisancrackers.com', phone: '415-555-0193' },
+                    { id: 'c5', name: 'Tom Park', company: 'Pacific Beans', venue: 'Canyon', address: '301 Park Presidio, San Francisco, CA 94118', email: 'tom@pacificbeans.com', phone: '415-555-0211' }
+                ]
+            },
+            internal: {
+                storageKey: 'internalContacts',
+                tableBodyId: 'internalContactsTableBody',
+                sortSelectId: 'internalContactSort',
+                addLabel: 'Add Internal Contact',
+                editLabel: 'Edit Internal Contact',
+                companyLabel: 'Role / Title',
+                showAddress: false,
+                columns: 6,
+                emptyLabel: 'internal',
+                defaults: [
+                    { id: 'i1', name: 'Avery Chen', company: 'Market Manager', venue: 'Mission Bay', address: '', email: 'avery@guscommunitymarket.com', phone: '415-555-0301' },
+                    { id: 'i2', name: 'Jordan Park', company: 'Demo Coordinator', venue: 'Mission', address: '', email: 'jordan@guscommunitymarket.com', phone: '415-555-0302' },
+                    { id: 'i3', name: 'Sam Rivera', company: 'Operations Lead', venue: 'Haight St.', address: '', email: 'sam@guscommunitymarket.com', phone: '415-555-0303' },
+                    { id: 'i4', name: 'Casey Brooks', company: 'Customer Success', venue: 'Noriega', address: '', email: 'casey@guscommunitymarket.com', phone: '415-555-0304' },
+                    { id: 'i5', name: 'Dana Wu', company: 'Marketing', venue: 'Canyon', address: '', email: 'dana@guscommunitymarket.com', phone: '415-555-0305' }
+                ]
+            }
+        };
+        function loadContacts(type) {
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg) return [];
+            try { const saved = localStorage.getItem(cfg.storageKey); if (saved) return JSON.parse(saved); } catch (e) {}
+            return JSON.parse(JSON.stringify(cfg.defaults));
         }
-        function saveContactsLS(arr) {
-            try { localStorage.setItem('contacts', JSON.stringify(arr)); } catch (e) {}
+        function saveContactsLS(type, arr) {
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg) return;
+            try { localStorage.setItem(cfg.storageKey, JSON.stringify(arr)); } catch (e) {}
         }
         function escapeHtml(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
-        function renderContacts() {
-            const tbody = document.getElementById('contactsTableBody');
+        function renderContacts(type) {
+            if (!type) { renderContacts('brand'); renderContacts('internal'); return; }
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg) return;
+            const tbody = document.getElementById(cfg.tableBodyId);
             if (!tbody) return;
-            const sortBy = (document.getElementById('contactSort') && document.getElementById('contactSort').value) || 'venue';
-            const list = loadContacts().slice().sort((a, b) => String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')));
+            const sortSel = document.getElementById(cfg.sortSelectId);
+            const sortBy = (sortSel && sortSel.value) || 'venue';
+            const list = loadContacts(type).slice().sort((a, b) => String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')));
             if (list.length === 0) {
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No contacts yet. Click "+ Add Contact" to get started.</td></tr>';
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="' + cfg.columns + '">No ' + cfg.emptyLabel + ' contacts yet. Click "+ ' + cfg.addLabel + '" to get started.</td></tr>';
                 return;
             }
-            tbody.innerHTML = list.map(c => '<tr>'
-                + '<td>' + escapeHtml(c.name) + '</td>'
-                + '<td>' + escapeHtml(c.company) + '</td>'
-                + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>'
-                + '<td>' + escapeHtml(c.address) + '</td>'
-                + '<td>' + escapeHtml(c.email) + '</td>'
-                + '<td>' + escapeHtml(c.phone) + '</td>'
-                + '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + c.id + '\')">Delete</button></div></td>'
-                + '</tr>').join('');
+            tbody.innerHTML = list.map(c => {
+                let cells = '<td>' + escapeHtml(c.name) + '</td>'
+                    + '<td>' + escapeHtml(c.company) + '</td>'
+                    + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
+                if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
+                cells += '<td>' + escapeHtml(c.email) + '</td>'
+                    + '<td>' + escapeHtml(c.phone) + '</td>'
+                    + '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + type + '\', \'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + type + '\', \'' + c.id + '\')">Delete</button></div></td>';
+                return '<tr>' + cells + '</tr>';
+            }).join('');
         }
-        function openContactModal(id) {
+        function openContactModal(type, id) {
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg) return;
             const m = document.getElementById('contactModal');
-            const title = document.getElementById('contactModalTitle');
+            document.getElementById('contactType').value = type;
+            document.getElementById('contactCompanyLabel').textContent = cfg.companyLabel;
+            document.getElementById('contactAddressGroup').style.display = cfg.showAddress ? '' : 'none';
             const fields = ['contactName','contactCompany','contactAddress','contactEmail','contactPhone'];
+            const title = document.getElementById('contactModalTitle');
             if (id) {
-                const c = loadContacts().find(x => x.id === id);
+                const c = loadContacts(type).find(x => x.id === id);
                 if (!c) return;
-                title.textContent = 'Edit Contact';
+                title.textContent = cfg.editLabel;
                 document.getElementById('contactId').value = c.id;
                 document.getElementById('contactName').value = c.name || '';
                 document.getElementById('contactCompany').value = c.company || '';
@@ -905,7 +968,7 @@ END:VEVENT
                 document.getElementById('contactEmail').value = c.email || '';
                 document.getElementById('contactPhone').value = c.phone || '';
             } else {
-                title.textContent = 'Add Contact';
+                title.textContent = cfg.addLabel;
                 document.getElementById('contactId').value = '';
                 fields.forEach(f => document.getElementById(f).value = '');
                 document.getElementById('contactVenue').value = 'Mission Bay';
@@ -916,35 +979,39 @@ END:VEVENT
             document.getElementById('contactModal').classList.remove('active');
         }
         function saveContact() {
+            const type = document.getElementById('contactType').value;
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg) return;
             const id = document.getElementById('contactId').value;
             const name = document.getElementById('contactName').value.trim();
             if (!name) { alert('Name is required.'); return; }
+            const prefix = type === 'internal' ? 'i' : 'c';
             const contact = {
-                id: id || 'c' + Date.now(),
+                id: id || prefix + Date.now(),
                 name: name,
                 company: document.getElementById('contactCompany').value.trim(),
                 venue: document.getElementById('contactVenue').value,
-                address: document.getElementById('contactAddress').value.trim(),
+                address: cfg.showAddress ? document.getElementById('contactAddress').value.trim() : '',
                 email: document.getElementById('contactEmail').value.trim(),
                 phone: document.getElementById('contactPhone').value.trim()
             };
-            const all = loadContacts();
+            const all = loadContacts(type);
             if (id) {
                 const idx = all.findIndex(c => c.id === id);
                 if (idx >= 0) all[idx] = contact; else all.push(contact);
             } else {
                 all.push(contact);
             }
-            saveContactsLS(all);
+            saveContactsLS(type, all);
             closeContactModal();
-            renderContacts();
+            renderContacts(type);
         }
-        function deleteContact(id) {
+        function deleteContact(type, id) {
             if (!confirm('Delete this contact?')) return;
-            const all = loadContacts().filter(c => c.id !== id);
-            saveContactsLS(all);
-            renderContacts();
+            const all = loadContacts(type).filter(c => c.id !== id);
+            saveContactsLS(type, all);
+            renderContacts(type);
         }
-    </script>
+        </script>
 </body>
 </html>
