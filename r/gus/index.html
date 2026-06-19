@@ -205,6 +205,17 @@
         .password-modal-body > p { color: var(--bark-500); margin-bottom: 20px; font-size: 0.95rem; }
         .password-error { color: #b91c1c; font-size: 0.85rem; margin-top: 8px; }
         .empty-row td { text-align: center; color: var(--bark-500); padding: 32px; font-style: italic; }
+        .chart-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 24px; margin-bottom: 32px; }
+        .chart-card h3 { font-size: 1.15rem; font-family: 'Fraunces', Georgia, serif; color: var(--forest-800); font-weight: 500; margin-bottom: 16px; }
+        .chart-wrap { position: relative; height: 240px; }
+        .comp-badge { font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 99px; display: inline-flex; align-items: center; gap: 5px; }
+        .comp-badge.ok { background: #d4edda; color: #1f4a26; }
+        .comp-badge.soon { background: #fef3c7; color: #92400e; }
+        .comp-badge.expired { background: #fde2e2; color: #9b2c2c; }
+        .comp-badge.partial { background: #fef3c7; color: #92400e; }
+        .comp-badge.none { background: var(--sand-200); color: var(--bark-500); }
+        .comp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
         .search-input { padding: 8px 12px; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); font-family: inherit; font-size: 0.9rem; min-width: 240px; color: var(--forest-800); background: white; }
         .search-input:focus { outline: none; border-color: var(--forest-400); }
         .view-toggle { display: inline-flex; background: var(--sand-200); border-radius: var(--radius-sm); padding: 3px; }
@@ -240,6 +251,7 @@
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <div class="view landing active" id="landingView">
@@ -437,10 +449,14 @@
                     <p class="page-subtitle">Manage your demo schedule and view earnings</p>
                 </div>
                 <div class="stats-grid">
-                    <div class="stat-card"><div class="stat-label">This Month's Demos</div><div class="stat-value">12</div><div class="stat-change">↑ 3 from last month</div></div>
-                    <div class="stat-card"><div class="stat-label">Your Revenue (80%)</div><div class="stat-value">$288</div><div class="stat-change">From $360 total</div></div>
-                    <div class="stat-card"><div class="stat-label">Platform Fee (20%)</div><div class="stat-value">$72</div></div>
-                    <div class="stat-card"><div class="stat-label">Demo Fee</div><div class="stat-value">$30</div></div>
+                    <div class="stat-card"><div class="stat-label">This Month's Demos</div><div class="stat-value" id="statMonthDemos">—</div><div class="stat-change" id="statMonthDemosDelta">&nbsp;</div></div>
+                    <div class="stat-card"><div class="stat-label">Revenue (this month)</div><div class="stat-value" id="statRevenue">—</div><div class="stat-change" id="statRevenueSub">&nbsp;</div></div>
+                    <div class="stat-card"><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">—</div><div class="stat-change" id="statBrandsSub">&nbsp;</div></div>
+                    <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">—</div><div class="stat-change" id="statComplianceSub">&nbsp;</div></div>
+                </div>
+                <div class="chart-card">
+                    <h3>Demos per month</h3>
+                    <div class="chart-wrap"><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
@@ -498,8 +514,25 @@
                         </div>
                     </div>
                     <table>
-                        <thead><tr><th>Name</th><th>Company</th><th>Venue</th><th>Address</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Company</th><th>Venue</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="brandContactsTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="table-card" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Compliance Records</h3>
+                        <div class="toolbar-controls">
+                            <select class="sort-select" id="complianceSort" onchange="renderCompliance()">
+                                <option value="expires_at">Sort by Expiry</option>
+                                <option value="brand">Sort by Brand</option>
+                                <option value="doc_type">Sort by Type</option>
+                            </select>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openComplianceModal()">+ Add Record</button>
+                        </div>
+                    </div>
+                    <table>
+                        <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="complianceTableBody"></tbody>
                     </table>
                 </div>
                 <div class="settings-grid">
@@ -539,6 +572,37 @@
                 <div style="display: flex; gap: 8px; margin-top: 20px;">
                     <button class="btn btn-secondary" onclick="closePasswordModal()" style="flex:1; justify-content: center;">Cancel</button>
                     <button class="btn btn-primary" onclick="submitPassword()" style="flex:1; justify-content: center;">Unlock</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="complianceModal">
+        <div class="modal" style="max-width: 540px;">
+            <div class="modal-body" style="text-align: left; padding: 32px;">
+                <h3 id="complianceModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px;">Add Compliance Record</h3>
+                <input type="hidden" id="complianceId">
+                <div class="form-group"><label class="form-label">Brand</label>
+                    <select class="form-input" id="complianceBrand"></select>
+                </div>
+                <div class="form-group"><label class="form-label">Document Type</label>
+                    <select class="form-input" id="complianceDocType">
+                        <option value="coi">Certificate of Insurance (COI)</option>
+                        <option value="food_handler">Food Handler Certification</option>
+                        <option value="agreement">Signed Agreement</option>
+                        <option value="other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Document Number</label><input type="text" class="form-input" id="complianceNumber" placeholder="ABC-12345"></div>
+                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                    <div class="form-group"><label class="form-label">Issued</label><input type="date" class="form-input" id="complianceIssued"></div>
+                    <div class="form-group"><label class="form-label">Expires</label><input type="date" class="form-input" id="complianceExpires"></div>
+                </div>
+                <div class="form-group"><label class="form-label">File URL (optional)</label><input type="url" class="form-input" id="complianceFileUrl" placeholder="https://..."></div>
+                <div class="form-group"><label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--forest-800);"><input type="checkbox" id="complianceVerified"> Verified</label></div>
+                <div style="display: flex; gap: 8px; margin-top: 24px;">
+                    <button class="btn btn-secondary" onclick="closeComplianceModal()" style="flex:1; justify-content: center;">Cancel</button>
+                    <button class="btn btn-primary" onclick="saveCompliance()" style="flex:1; justify-content: center;">Save</button>
                 </div>
             </div>
         </div>
@@ -908,7 +972,7 @@ END:VEVENT
         const RETAILER_SLUG = 'gus';
         let sb = null;
         let RETAILER_ID = null;
-        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null };
+        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [] };
 
         async function initSupabase() {
             try {
@@ -922,11 +986,12 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp] = await Promise.all([
+            const [brandResp, internalResp, demosResp, settingsResp, complianceResp] = await Promise.all([
                 sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
                 sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
+                sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
             ]);
             window.state.brandContacts = brandResp.data || [];
             window.state.internalContacts = internalResp.data || [];
@@ -938,14 +1003,18 @@ END:VEVENT
                 contact: d.contact_name,
                 product: d.product,
                 status: (d.status || 'confirmed').replace(/^./, ch => ch.toUpperCase()),
+                demo_fee: d.demo_fee,
             }));
             UPCOMING_DEMOS = window.state.demos;
             window.state.settings = settingsResp.data || null;
-            // Re-render whatever's active
+            window.state.compliance = complianceResp.data || [];
             if (document.getElementById('demosTableBody')) renderDemos();
             if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
+            if (document.getElementById('complianceTableBody')) renderCompliance();
             applySettingsToInputs();
+            updateStats();
+            renderMonthlyChart();
         }
 
         function applySettingsToInputs() {
@@ -971,7 +1040,7 @@ END:VEVENT
                 companyLabel: 'Company',
                 companyField: 'company',
                 showAddress: true,
-                columns: 7,
+                columns: 8,
                 emptyLabel: 'brand',
             },
             internal: {
@@ -1007,6 +1076,32 @@ END:VEVENT
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
 
+        function getBrandComplianceStatus(brandId) {
+            const records = (window.state.compliance || []).filter(r => r.brand_contact_id === brandId);
+            if (records.length === 0) return { status: 'none', label: 'Not tracked' };
+            const today = new Date();
+            const soon = new Date(today.getTime() + 30*86400000);
+            const required = ['coi','food_handler'];
+            let expired = false, soonExp = false, missing = false;
+            for (const t of required) {
+                const r = records.find(x => x.doc_type === t);
+                if (!r) { missing = true; continue; }
+                if (r.expires_at) {
+                    const ex = new Date(r.expires_at);
+                    if (ex < today) expired = true;
+                    else if (ex < soon) soonExp = true;
+                }
+            }
+            if (expired) return { status: 'expired', label: 'Expired' };
+            if (missing) return { status: 'partial', label: 'Incomplete' };
+            if (soonExp) return { status: 'soon', label: 'Expiring soon' };
+            return { status: 'ok', label: 'Compliant' };
+        }
+        function complianceBadgeHtml(brandId) {
+            const s = getBrandComplianceStatus(brandId);
+            return '<span class="comp-badge ' + s.status + '"><span class="comp-dot"></span>' + escapeHtml(s.label) + '</span>';
+        }
+
         function renderContacts(type) {
             if (!type) { renderContacts('brand'); renderContacts('internal'); return; }
             const cfg = CONTACT_CONFIGS[type];
@@ -1026,8 +1121,9 @@ END:VEVENT
                     + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
                 if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
                 cells += '<td>' + escapeHtml(c.email) + '</td>'
-                    + '<td>' + escapeHtml(c.phone) + '</td>'
-                    + '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + type + '\', \'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + type + '\', \'' + c.id + '\')">Delete</button></div></td>';
+                    + '<td>' + escapeHtml(c.phone) + '</td>';
+                if (type === 'brand') cells += '<td>' + complianceBadgeHtml(c.id) + '</td>';
+                cells += '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + type + '\', \'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + type + '\', \'' + c.id + '\')">Delete</button></div></td>';
                 return '<tr>' + cells + '</tr>';
             }).join('');
         }
@@ -1195,6 +1291,151 @@ END:VEVENT
 
         // ===== Settings edit toggle =====
         function loadSettings() { applySettingsToInputs(); }
+        // ===== Stats =====
+        function updateStats() {
+            const now = new Date();
+            const m = now.getMonth(), y = now.getFullYear();
+            const lastM = (m === 0 ? 11 : m - 1), lastY = (m === 0 ? y - 1 : y);
+            const thisMonth = (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === m && dt.getFullYear() === y; });
+            const lastMonth = (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === lastM && dt.getFullYear() === lastY; });
+            const rev = thisMonth.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const lastRev = lastMonth.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const brands = (window.state.brandContacts || []).length;
+            // Compliance rate: % brands with status 'ok'
+            const ok = (window.state.brandContacts || []).filter(b => getBrandComplianceStatus(b.id).status === 'ok').length;
+            const rate = brands > 0 ? Math.round((ok / brands) * 100) : 0;
+            const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+            set('statMonthDemos', thisMonth.length);
+            const delta = thisMonth.length - lastMonth.length;
+            set('statMonthDemosDelta', delta === 0 ? 'Same as last month' : (delta > 0 ? ('↑ ' + delta + ' from last month') : ('↓ ' + Math.abs(delta) + ' from last month')));
+            set('statRevenue', '$' + rev.toFixed(0));
+            set('statRevenueSub', lastRev > 0 ? ('Last month: $' + lastRev.toFixed(0)) : '');
+            set('statBrands', brands);
+            set('statBrandsSub', brands === 0 ? 'No brands yet' : (brands === 1 ? '1 brand on file' : brands + ' brands on file'));
+            set('statCompliance', rate + '%');
+            set('statComplianceSub', ok + ' of ' + brands + ' fully compliant');
+        }
+
+        // ===== Demos per month chart =====
+        let demosChart = null;
+        function renderMonthlyChart() {
+            const canvas = document.getElementById('demosMonthlyChart');
+            if (!canvas || !window.Chart) return;
+            const now = new Date();
+            const months = [];
+            for (let i = 5; i >= 0; i--) {
+                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('en-US',{month:'short'}) });
+            }
+            const counts = months.map(M => (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === M.m && dt.getFullYear() === M.y; }).length);
+            if (demosChart) demosChart.destroy();
+            demosChart = new Chart(canvas, {
+                type: 'bar',
+                data: { labels: months.map(M => M.label), datasets: [{ label: 'Demos', data: counts, backgroundColor: '#3a7142', borderRadius: 6 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+            });
+        }
+
+        // ===== Compliance CRUD =====
+        function renderCompliance() {
+            const tbody = document.getElementById('complianceTableBody');
+            if (!tbody) return;
+            const sortSel = document.getElementById('complianceSort');
+            const sortBy = sortSel?.value || 'expires_at';
+            const records = (window.state.compliance || []).slice();
+            const brandsById = Object.fromEntries((window.state.brandContacts || []).map(b => [b.id, b]));
+            records.sort((a, b) => {
+                if (sortBy === 'brand') return (brandsById[a.brand_contact_id]?.company || '').localeCompare(brandsById[b.brand_contact_id]?.company || '');
+                if (sortBy === 'doc_type') return (a.doc_type || '').localeCompare(b.doc_type || '');
+                return (a.expires_at || '9999').localeCompare(b.expires_at || '9999');
+            });
+            if (records.length === 0) {
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No compliance records yet. Click "+ Add Record" to track COIs, certifications, and agreements.</td></tr>';
+                return;
+            }
+            const docLabel = { coi: 'COI', food_handler: 'Food Handler', agreement: 'Agreement', other: 'Other' };
+            const today = new Date();
+            const soon = new Date(today.getTime() + 30*86400000);
+            tbody.innerHTML = records.map(r => {
+                const b = brandsById[r.brand_contact_id];
+                let status = 'ok', label = 'Valid';
+                if (r.expires_at) {
+                    const ex = new Date(r.expires_at);
+                    if (ex < today) { status = 'expired'; label = 'Expired'; }
+                    else if (ex < soon) { status = 'soon'; label = 'Expiring soon'; }
+                }
+                const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}) : '—';
+                return '<tr>'
+                    + '<td>' + escapeHtml(b ? (b.company || b.name) : 'Unknown') + '</td>'
+                    + '<td>' + escapeHtml(docLabel[r.doc_type] || r.doc_type) + '</td>'
+                    + '<td>' + escapeHtml(r.doc_number || '—') + '</td>'
+                    + '<td>' + expiresFmt + '</td>'
+                    + '<td><span class="comp-badge ' + status + '"><span class="comp-dot"></span>' + label + '</span></td>'
+                    + '<td><div class="row-actions"><button class="btn-icon" onclick="openComplianceModal(\'' + r.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteCompliance(\'' + r.id + '\')">Delete</button></div></td>'
+                    + '</tr>';
+            }).join('');
+        }
+
+        function openComplianceModal(id) {
+            const m = document.getElementById('complianceModal');
+            const brandSel = document.getElementById('complianceBrand');
+            brandSel.innerHTML = (window.state.brandContacts || []).map(b => '<option value="' + b.id + '">' + escapeHtml(b.company || b.name) + '</option>').join('');
+            const title = document.getElementById('complianceModalTitle');
+            const fields = { complianceNumber: '', complianceIssued: '', complianceExpires: '', complianceFileUrl: '' };
+            if (id) {
+                const r = (window.state.compliance || []).find(x => x.id === id);
+                if (!r) return;
+                title.textContent = 'Edit Compliance Record';
+                document.getElementById('complianceId').value = r.id;
+                brandSel.value = r.brand_contact_id || '';
+                document.getElementById('complianceDocType').value = r.doc_type || 'coi';
+                document.getElementById('complianceNumber').value = r.doc_number || '';
+                document.getElementById('complianceIssued').value = r.issued_at || '';
+                document.getElementById('complianceExpires').value = r.expires_at || '';
+                document.getElementById('complianceFileUrl').value = r.file_url || '';
+                document.getElementById('complianceVerified').checked = !!r.verified;
+            } else {
+                title.textContent = 'Add Compliance Record';
+                document.getElementById('complianceId').value = '';
+                document.getElementById('complianceDocType').value = 'coi';
+                Object.keys(fields).forEach(f => { const el = document.getElementById(f); if (el) el.value = ''; });
+                document.getElementById('complianceVerified').checked = false;
+            }
+            m.classList.add('active');
+        }
+
+        function closeComplianceModal() {
+            document.getElementById('complianceModal').classList.remove('active');
+        }
+
+        async function saveCompliance() {
+            if (!sb || !RETAILER_ID) { alert('Database not ready'); return; }
+            const id = document.getElementById('complianceId').value;
+            const payload = {
+                retailer_id: RETAILER_ID,
+                brand_contact_id: document.getElementById('complianceBrand').value || null,
+                doc_type: document.getElementById('complianceDocType').value,
+                doc_number: document.getElementById('complianceNumber').value.trim() || null,
+                issued_at: document.getElementById('complianceIssued').value || null,
+                expires_at: document.getElementById('complianceExpires').value || null,
+                file_url: document.getElementById('complianceFileUrl').value.trim() || null,
+                verified: document.getElementById('complianceVerified').checked,
+            };
+            const { error } = id
+                ? await sb.from('compliance_records').update(payload).eq('id', id)
+                : await sb.from('compliance_records').insert(payload);
+            if (error) { alert('Save failed: ' + error.message); return; }
+            closeComplianceModal();
+            await refreshAll();
+        }
+
+        async function deleteCompliance(id) {
+            if (!confirm('Delete this compliance record?')) return;
+            const { error } = await sb.from('compliance_records').delete().eq('id', id);
+            if (error) { alert('Delete failed: ' + error.message); return; }
+            await refreshAll();
+        }
+
         async function toggleSettingsEdit() {
             const btn = document.getElementById('settingsEditBtn');
             const ids = ['settingDemoFee', 'settingDemoDuration', 'settingAdvanceBooking'];
