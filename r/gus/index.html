@@ -550,11 +550,45 @@
             document.getElementById('headerLocation').textContent = location;
             document.getElementById('summaryLocation').textContent = location + ', San Francisco';
             showView('client');
+            selectedDate = null;
+            const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
             renderCalendar();
+            applyTimeSlotAvailability();
         }
         
+        // ===== Venue availability helpers =====
+        function getCurrentVenue() {
+            return (window.state && window.state.venues || []).find(v => v.name === currentLocation) || null;
+        }
+        function getVenueDaySchedule(venue, dow) {
+            // dow: 0=Sun..6=Sat. Returns {open, close} or null when closed.
+            if (!venue || !venue.availability || !venue.availability.schedule) return null;
+            return venue.availability.schedule[String(dow)] || null;
+        }
+        function timeStrToMinutes(s) {
+            // Accepts "HH:MM" (24h) or "h:mm AM/PM"
+            if (!s) return null;
+            s = String(s).trim();
+            const ampm = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+            if (ampm) {
+                let h = parseInt(ampm[1], 10) % 12; if (ampm[3].toUpperCase() === 'PM') h += 12;
+                return h * 60 + parseInt(ampm[2], 10);
+            }
+            const m = s.match(/^(\d{1,2}):(\d{2})$/);
+            if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+            return null;
+        }
+        function slotFitsInWindow(slotStart, slotDurMin, open, close) {
+            const s = timeStrToMinutes(slotStart);
+            const o = timeStrToMinutes(open);
+            const c = timeStrToMinutes(close);
+            if (s == null || o == null || c == null) return false;
+            return s >= o && (s + slotDurMin) <= c;
+        }
+
         function renderCalendar() {
             const grid = document.getElementById('calendarGrid');
+            if (!grid) return;
             document.getElementById('calendarMonth').textContent = months[currentMonth] + ' ' + currentYear;
             const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
             let html = dayNames.map(d => '<div class="calendar-day-name">' + d + '</div>').join('');
@@ -562,15 +596,48 @@
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const today = new Date();
             const minDate = new Date(today); minDate.setDate(today.getDate() + 14);
+            const venue = getCurrentVenue();
+            // If we have venues loaded but not for this location yet, treat unknown as "all days open" (no over-filtering)
             for (let i = 0; i < firstDay; i++) html += '<div class="calendar-day empty"></div>';
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dow = date.getDay();
-                const disabled = date < minDate;
+                let disabled = date < minDate;
+                // Disable days where the venue is closed
+                if (!disabled && venue) {
+                    const sched = getVenueDaySchedule(venue, dow);
+                    if (!sched) disabled = true;
+                }
                 const selected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth && selectedDate.getFullYear() === currentYear;
                 html += '<div class="calendar-day' + (disabled ? ' disabled' : '') + (selected ? ' selected' : '') + '" onclick="selectDate(' + day + ',' + disabled + ')">' + day + '</div>';
             }
             grid.innerHTML = html;
+        }
+
+        function applyTimeSlotAvailability() {
+            // Iterate hardcoded .time-slot elements; mark unavailable when outside venue hours that day
+            const slots = document.querySelectorAll('.time-slots .time-slot');
+            if (!slots.length) return;
+            const venue = getCurrentVenue();
+            slots.forEach(el => {
+                el.classList.remove('unavailable');
+                el.style.opacity = '';
+                el.style.pointerEvents = '';
+                if (!selectedDate || !venue) return;
+                const dow = selectedDate.getDay();
+                const sched = getVenueDaySchedule(venue, dow);
+                // Pull the slot start time from onclick attr ("11:00 AM" or "3:00 PM")
+                const onclick = el.getAttribute('onclick') || '';
+                const m = onclick.match(/selectTime\(this,\s*'([^']+)'\)/);
+                if (!m) return;
+                const slotStart = m[1];
+                const fits = sched && slotFitsInWindow(slotStart, 180, sched.open, sched.close);
+                if (!fits) {
+                    el.classList.add('unavailable');
+                    el.style.opacity = '0.35';
+                    el.style.pointerEvents = 'none';
+                }
+            });
         }
         
         function prevMonth() { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentYear--; } renderCalendar(); }
@@ -581,6 +648,7 @@
             selectedDate = new Date(currentYear, currentMonth, day);
             renderCalendar();
             document.getElementById('selectedDateLabel').textContent = '- ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            applyTimeSlotAvailability();
         }
         
         function selectTime(el, time) {
@@ -888,7 +956,7 @@ END:VEVENT
         const RETAILER_SLUG = 'gus';
         let sb = null;
         let RETAILER_ID = null;
-        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [] };
+        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [] };
 
         async function initSupabase() {
             try {
@@ -902,13 +970,17 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp, complianceResp] = await Promise.all([
+            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp] = await Promise.all([
                 sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
                 sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
                 sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
+                sb.from('venues').select('*').eq('retailer_id', RETAILER_ID).order('name'),
             ]);
+            window.state.venues = venuesResp.data || [];
+            // Refresh visible calendar/time slots once venues arrive
+            if (document.getElementById('calendarGrid')) { renderCalendar(); applyTimeSlotAvailability(); }
             window.state.brandContacts = brandResp.data || [];
             window.state.internalContacts = internalResp.data || [];
             window.state.demos = (demosResp.data || []).map(d => ({
