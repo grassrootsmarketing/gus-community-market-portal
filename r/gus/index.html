@@ -373,7 +373,7 @@
                 </div>
             </div>
             
-            <a href="#" class="admin-link" onclick="showView('admin'); return false;">
+            <a href="/r/gus/admin" class="admin-link">
                 <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                 Admin Dashboard
             </a>
@@ -388,7 +388,7 @@
             </div>
             <div class="header-nav">
                 <button class="active">Book Demo</button>
-                <button onclick="showView('admin')">Admin</button>
+                <button onclick="location.href='/r/gus/admin'">Admin</button>
             </div>
         </header>
         <div class="main-scroll">
@@ -477,237 +477,7 @@
         </div>
     </div>
 
-    <div class="view" id="adminView">
-        <header class="header">
-            <div class="brand" onclick="showView('landing')">
-                <div class="brand-icon"><svg viewBox="0 0 24 24"><path d="M12 2L8 6H4v4l-4 4 4 4v4h4l4 4 4-4h4v-4l4-4-4-4V6h-4l-4-4z"/></svg></div>
-                <div class="brand-text"><h1>Woodlands Market</h1><span>Admin Dashboard</span></div>
-            </div>
-            <div class="header-nav">
-                <button onclick="showView('client')">Book Demo</button>
-                <button class="active">Admin</button>
-            </div>
-        </header>
-        <div class="main-scroll">
-            <div class="container">
-                <div class="page-header">
-                    <h2 class="page-title">Dashboard</h2>
-                    <p class="page-subtitle">Manage your demo schedule and view earnings</p>
-                </div>
-                <div class="stats-grid">
-                    <div class="stat-card"><div class="stat-label">This Month's Demos</div><div class="stat-value" id="statMonthDemos">—</div><div class="stat-change" id="statMonthDemosDelta">&nbsp;</div></div>
-                    <div class="stat-card"><div class="stat-label">Revenue (this month)</div><div class="stat-value" id="statRevenue">—</div><div class="stat-change" id="statRevenueSub">&nbsp;</div></div>
-                    <div class="stat-card"><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">—</div><div class="stat-change" id="statBrandsSub">&nbsp;</div></div>
-                    <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">—</div><div class="stat-change" id="statComplianceSub">&nbsp;</div></div>
-                </div>
-                <div class="big-cal-card">
-                    <div class="big-cal-head">
-                        <div class="big-cal-title">Demo Calendar</div>
-                        <div class="big-cal-nav">
-                            <button onclick="bigCalPrev()" aria-label="Previous month">&lsaquo;</button>
-                            <span class="month-label" id="bigCalMonthLabel"></span>
-                            <button onclick="bigCalNext()" aria-label="Next month">&rsaquo;</button>
-                            <button class="today-btn" onclick="bigCalToday()">Today</button>
-                        </div>
-                    </div>
-                    <div class="big-cal-legend" id="bigCalLegend"></div>
-                    <div class="big-cal-grid" id="bigCalGrid"></div>
-                </div>
-                <div class="chart-card">
-                    <h3>Demos per month</h3>
-                    <div class="chart-wrap"><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
-                </div>
-                <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Upcoming Demos</h3>
-                        <div class="toolbar-controls">
-                            <input type="text" id="demoSearch" placeholder="Search demos…" class="search-input" oninput="renderDemos()">
-                            <div class="view-toggle" id="demoViewToggle">
-                                <button class="active" data-view="table" onclick="setDemoView('table')">Table</button>
-                                <button data-view="calendar" onclick="setDemoView('calendar')">Calendar</button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="demosTableView">
-                        <table>
-                            <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th></tr></thead>
-                            <tbody id="demosTableBody"></tbody>
-                        </table>
-                    </div>
-                    <div id="demosCalendarView" class="demo-cal-wrap" style="display:none;">
-                        <div class="demo-cal-nav">
-                            <button onclick="changeDemoCalMonth(-1)" aria-label="Previous month">‹</button>
-                            <h4 id="demoCalMonthLabel"></h4>
-                            <button onclick="changeDemoCalMonth(1)" aria-label="Next month">›</button>
-                        </div>
-                        <div class="demo-cal-grid" id="demoCalGrid"></div>
-                    </div>
-                </div>
-                <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Internal Contacts</h3>
-                        <div class="toolbar-controls">
-                            <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
-                                <option value="venue">Sort by Venue</option>
-                                <option value="name">Sort by Name</option>
-                                <option value="company">Sort by Role</option>
-                            </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Internal Contact</button>
-                        </div>
-                    </div>
-                    <table>
-                        <thead><tr><th>Name</th><th>Role</th><th>Venue</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="internalContactsTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Brand Contacts</h3>
-                        <div class="toolbar-controls">
-                            <select class="sort-select" id="brandContactSort" onchange="renderContacts('brand')">
-                                <option value="venue">Sort by Venue</option>
-                                <option value="name">Sort by Name</option>
-                                <option value="company">Sort by Company</option>
-                            </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('brand')">+ Add Brand Contact</button>
-                        </div>
-                    </div>
-                    <table>
-                        <thead><tr><th>Name</th><th>Company</th><th>Venue</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="brandContactsTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="table-card" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Compliance Records</h3>
-                        <div class="toolbar-controls">
-                            <select class="sort-select" id="complianceSort" onchange="renderCompliance()">
-                                <option value="expires_at">Sort by Expiry</option>
-                                <option value="brand">Sort by Brand</option>
-                                <option value="doc_type">Sort by Type</option>
-                            </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openComplianceModal()">+ Add Record</button>
-                        </div>
-                    </div>
-                    <table>
-                        <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="complianceTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="billing-card">
-                    <div class="billing-head">
-                        <div class="billing-title">Billing & Statements</div>
-                        <div class="billing-controls">
-                            <select class="sort-select" id="billingMonthSelect" onchange="renderBilling()"></select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStatement()">Download Statement</button>
-                        </div>
-                    </div>
-                    <div class="billing-summary" id="billingSummary"></div>
-                    <table>
-                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead>
-                        <tbody id="billingTableBody"></tbody>
-                    </table>
-                </div>
-                <div class="settings-grid">
-                    <div class="settings-card">
-                        <div class="settings-card-header"><h3>Availability</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;">Edit</button></div>
-                        <div class="settings-card-body">
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Monday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Tuesday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Wednesday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Thursday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Friday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label><span class="availability-day-name">Saturday</span><div class="availability-times">Closed</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label><span class="availability-day-name">Sunday</span><div class="availability-times">Closed</div></div>
-                        </div>
-                    </div>
-                    <div class="settings-card">
-                        <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
-                        <div class="settings-card-body">
-                            <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
-                            <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" id="settingDemoDuration" value="3 hours" disabled></div>
-                            <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" id="settingAdvanceBooking" value="14 days minimum" disabled></div>
-                            <div class="form-group"><label class="form-label">Calendar Sync</label><button class="btn btn-secondary" style="width: 100%; justify-content: center;"><svg viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Connect Outlook</button></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="passwordModal">
-        <div class="modal">
-            <div class="modal-body password-modal-body">
-                <h3>Admin Access</h3>
-                <p>Enter the password to access the admin dashboard.</p>
-                <input type="password" class="form-input" id="passwordInput" placeholder="Password" onkeydown="if(event.key==='Enter')submitPassword()">
-                <div class="password-error" id="passwordError" style="display:none;">Incorrect password. Try again.</div>
-                <div style="display: flex; gap: 8px; margin-top: 20px;">
-                    <button class="btn btn-secondary" onclick="closePasswordModal()" style="flex:1; justify-content: center;">Cancel</button>
-                    <button class="btn btn-primary" onclick="submitPassword()" style="flex:1; justify-content: center;">Unlock</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="complianceModal">
-        <div class="modal" style="max-width: 540px;">
-            <div class="modal-body" style="text-align: left; padding: 32px;">
-                <h3 id="complianceModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px;">Add Compliance Record</h3>
-                <input type="hidden" id="complianceId">
-                <div class="form-group"><label class="form-label">Brand</label>
-                    <select class="form-input" id="complianceBrand"></select>
-                </div>
-                <div class="form-group"><label class="form-label">Document Type</label>
-                    <select class="form-input" id="complianceDocType">
-                        <option value="coi">Certificate of Insurance (COI)</option>
-                        <option value="food_handler">Food Handler Certification</option>
-                        <option value="agreement">Signed Agreement</option>
-                        <option value="other">Other</option>
-                    </select>
-                </div>
-                <div class="form-group"><label class="form-label">Document Number</label><input type="text" class="form-input" id="complianceNumber" placeholder="ABC-12345"></div>
-                <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-                    <div class="form-group"><label class="form-label">Issued</label><input type="date" class="form-input" id="complianceIssued"></div>
-                    <div class="form-group"><label class="form-label">Expires</label><input type="date" class="form-input" id="complianceExpires"></div>
-                </div>
-                <div class="form-group"><label class="form-label">File URL (optional)</label><input type="url" class="form-input" id="complianceFileUrl" placeholder="https://..."></div>
-                <div class="form-group"><label style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--forest-800);"><input type="checkbox" id="complianceVerified"> Verified</label></div>
-                <div style="display: flex; gap: 8px; margin-top: 24px;">
-                    <button class="btn btn-secondary" onclick="closeComplianceModal()" style="flex:1; justify-content: center;">Cancel</button>
-                    <button class="btn btn-primary" onclick="saveCompliance()" style="flex:1; justify-content: center;">Save</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="contactModal">
-        <div class="modal" style="max-width: 560px;">
-            <div class="modal-body" style="text-align: left; padding: 32px;">
-                <h3 id="contactModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px;">Add Contact</h3>
-                <input type="hidden" id="contactId">
-                <input type="hidden" id="contactType" value="brand">
-                <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="contactName" placeholder="Jane Doe"></div>
-                <div class="form-group"><label class="form-label" id="contactCompanyLabel">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
-                <div class="form-group"><label class="form-label">Venue</label>
-                    <select class="form-input" id="contactVenue">
-                        <option value="Mission Bay">Mission Bay</option>
-                        <option value="Mission">Mission</option>
-                        <option value="Haight St.">Haight St.</option>
-                        <option value="Noriega">Noriega</option>
-                        <option value="Canyon">Canyon</option>
-                    </select>
-                </div>
-                <div class="form-group" id="contactAddressGroup"><label class="form-label">Address</label><input type="text" class="form-input" id="contactAddress" placeholder="123 Market St, San Francisco, CA"></div>
-                <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="contactEmail" placeholder="jane@acme.com"></div>
-                <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="contactPhone" placeholder="555-123-4567"></div>
-                <div style="display: flex; gap: 8px; margin-top: 24px;">
-                    <button class="btn btn-secondary" onclick="closeContactModal()" style="flex:1; justify-content: center;">Cancel</button>
-                    <button class="btn btn-primary" onclick="saveContact()" style="flex:1; justify-content: center;">Save</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    
 
     <div class="modal-overlay" id="contactInfoModal">
         <div class="modal" style="max-width: 540px;">
@@ -769,10 +539,7 @@
         document.addEventListener('DOMContentLoaded', () => { renderCalendar(); initSupabase(); });
         
         function showView(view) {
-            if (view === 'admin' && !sessionStorage.getItem('adminUnlocked')) {
-                openPasswordModal();
-                return;
-            }
+            // admin gate removed — admin lives at /r/gus/admin behind Cloudflare Access
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(view + 'View').classList.add('active');
             if (view === 'admin') { renderContacts(); renderDemos(); loadSettings(); }
