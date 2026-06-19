@@ -1228,6 +1228,26 @@ END:VEVENT
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
 
+        // ===== Admin proxy (writes use service_role via /api/admin) =====
+        async function adminWrite(method, table, id, payload) {
+            const qs = id ? `?table=${encodeURIComponent(table)}&id=${encodeURIComponent(id)}` : `?table=${encodeURIComponent(table)}`;
+            const opts = { method, headers: { 'Content-Type': 'application/json' } };
+            if (payload !== undefined && method !== 'DELETE') opts.body = JSON.stringify(payload);
+            const resp = await fetch('/api/admin' + qs, opts);
+            const text = await resp.text();
+            let json = null;
+            try { json = text ? JSON.parse(text) : null; } catch (_) {}
+            if (!resp.ok) {
+                const msg = (json && (json.error || json.message)) || text || `HTTP ${resp.status}`;
+                throw new Error(msg);
+            }
+            return json;
+        }
+        const adminInsert = (table, payload) => adminWrite('POST', table, null, payload);
+        const adminUpdate = (table, id, payload) => adminWrite('PATCH', table, id, payload);
+        const adminDelete = (table, id) => adminWrite('DELETE', table, id);
+
+
         function getBrandComplianceStatus(brandId) {
             const records = (window.state.compliance || []).filter(r => r.brand_contact_id === brandId);
             if (records.length === 0) return { status: 'none', label: 'Not tracked' };
@@ -1314,7 +1334,7 @@ END:VEVENT
         }
 
         async function saveContact() {
-            if (!sb || !RETAILER_ID) { alert('Database not ready, please refresh'); return; }
+            if (!RETAILER_ID) { alert('Loading, try again in a moment'); return; }
             const type = document.getElementById('contactType').value;
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return;
@@ -1330,11 +1350,10 @@ END:VEVENT
             };
             payload[cfg.companyField] = document.getElementById('contactCompany').value.trim();
             if (cfg.showAddress) payload.address = document.getElementById('contactAddress').value.trim();
-
-            const { error } = id
-                ? await sb.from(cfg.table).update(payload).eq('id', id)
-                : await sb.from(cfg.table).insert(payload);
-            if (error) { alert('Save failed: ' + error.message); return; }
+            try {
+                if (id) await adminUpdate(cfg.table, id, payload);
+                else    await adminInsert(cfg.table, payload);
+            } catch (e) { alert('Save failed: ' + e.message); return; }
             closeContactModal();
             await refreshAll();
         }
@@ -1342,9 +1361,9 @@ END:VEVENT
         async function deleteContact(type, id) {
             if (!confirm('Delete this contact?')) return;
             const cfg = CONTACT_CONFIGS[type];
-            if (!cfg || !sb) return;
-            const { error } = await sb.from(cfg.table).delete().eq('id', id);
-            if (error) { alert('Delete failed: ' + error.message); return; }
+            if (!cfg) return;
+            try { await adminDelete(cfg.table, id); }
+            catch (e) { alert('Delete failed: ' + e.message); return; }
             await refreshAll();
         }
 
@@ -1561,7 +1580,7 @@ END:VEVENT
         }
 
         async function saveCompliance() {
-            if (!sb || !RETAILER_ID) { alert('Database not ready'); return; }
+            if (!RETAILER_ID) { alert('Loading, try again'); return; }
             const id = document.getElementById('complianceId').value;
             const payload = {
                 retailer_id: RETAILER_ID,
@@ -1573,18 +1592,18 @@ END:VEVENT
                 file_url: document.getElementById('complianceFileUrl').value.trim() || null,
                 verified: document.getElementById('complianceVerified').checked,
             };
-            const { error } = id
-                ? await sb.from('compliance_records').update(payload).eq('id', id)
-                : await sb.from('compliance_records').insert(payload);
-            if (error) { alert('Save failed: ' + error.message); return; }
+            try {
+                if (id) await adminUpdate('compliance_records', id, payload);
+                else    await adminInsert('compliance_records', payload);
+            } catch (e) { alert('Save failed: ' + e.message); return; }
             closeComplianceModal();
             await refreshAll();
         }
 
         async function deleteCompliance(id) {
             if (!confirm('Delete this compliance record?')) return;
-            const { error } = await sb.from('compliance_records').delete().eq('id', id);
-            if (error) { alert('Delete failed: ' + error.message); return; }
+            try { await adminDelete('compliance_records', id); }
+            catch (e) { alert('Delete failed: ' + e.message); return; }
             await refreshAll();
         }
 
@@ -1804,16 +1823,17 @@ END:VEVENT
             const inputs = ids.map(id => document.getElementById(id));
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
-                if (sb && RETAILER_ID) {
+                if (window.state.settings && window.state.settings.id) {
                     const feeStr = inputs[0].value.replace(/[^0-9.]/g,'');
                     const advStr = inputs[2].value.replace(/[^0-9]/g,'');
-                    const { error } = await sb.from('settings').update({
-                        demo_fee: parseFloat(feeStr) || 30,
-                        demo_duration: inputs[1].value,
-                        advance_booking_days: parseInt(advStr,10) || 14,
-                    }).eq('retailer_id', RETAILER_ID);
-                    if (error) { alert('Save failed: ' + error.message); return; }
-                    await refreshAll();
+                    try {
+                        await adminUpdate('settings', window.state.settings.id, {
+                            demo_fee: parseFloat(feeStr) || 30,
+                            demo_duration: inputs[1].value,
+                            advance_booking_days: parseInt(advStr,10) || 14,
+                        });
+                        await refreshAll();
+                    } catch (e) { alert('Save failed: ' + e.message); return; }
                 }
                 inputs.forEach(i => i.disabled = true);
                 btn.textContent = 'Edit';
