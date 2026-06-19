@@ -529,7 +529,11 @@
         const PRICE_PER_DEMO = 30;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         
-        document.addEventListener('DOMContentLoaded', () => { renderCalendar(); initSupabase(); });
+        document.addEventListener('DOMContentLoaded', () => {
+            // renderCalendar() is for the public booking calendar; admin page doesn't have it
+            if (document.getElementById('calendarMonth')) { try { renderCalendar(); } catch(e){} }
+            initSupabase();
+        });
         
         function showView(view) {
             // Cloudflare Access gates the URL — no JS gate needed
@@ -741,7 +745,7 @@
             renderCalendar();
         }
         
-        document.getElementById('successModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
+        (function(){ var m = document.getElementById('successModal'); if (m) m.addEventListener('click', function(e) { if (e.target === this) closeModal(); }); })();
         
         // Calendar Functions
         function formatDateForICS(date, time) {
