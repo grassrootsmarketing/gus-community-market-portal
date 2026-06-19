@@ -432,17 +432,17 @@
                     </table>
                 </div>
                 <div class="settings-grid">
-                    <div class="settings-card">
-                        <div class="settings-card-header"><h3>Availability</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;">Edit</button></div>
-                        <div class="settings-card-body">
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Monday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Tuesday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Wednesday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Thursday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox" checked><span class="toggle-slider"></span></label><span class="availability-day-name">Friday</span><div class="availability-times">11:00 AM – 6:00 PM</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label><span class="availability-day-name">Saturday</span><div class="availability-times">Closed</div></div>
-                            <div class="availability-day"><label class="toggle"><input type="checkbox"><span class="toggle-slider"></span></label><span class="availability-day-name">Sunday</span><div class="availability-times">Closed</div></div>
+                    <div class="settings-card" id="availabilityCard">
+                        <div class="settings-card-header">
+                            <h3>Store Availability</h3>
+                            <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
                         </div>
+                        <div style="padding: 4px 24px 12px;">
+                            <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Store</label>
+                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%;"></select>
+                            <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
+                        </div>
+                        <div class="settings-card-body" id="availabilityEditorBody"></div>
                     </div>
                     <div class="settings-card">
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
@@ -885,7 +885,7 @@ END:VEVENT
         const RETAILER_SLUG = 'gus';
         let sb = null;
         let RETAILER_ID = null;
-        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [] };
+        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [] };
 
         async function initSupabase() {
             try {
@@ -899,13 +899,15 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp, complianceResp] = await Promise.all([
+            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp] = await Promise.all([
                 sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
                 sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
                 sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
+                sb.from('venues').select('*').eq('retailer_id', RETAILER_ID).order('name'),
             ]);
+            window.state.venues = venuesResp.data || [];
             window.state.brandContacts = brandResp.data || [];
             window.state.internalContacts = internalResp.data || [];
             window.state.demos = (demosResp.data || []).map(d => ({
@@ -931,6 +933,110 @@ END:VEVENT
             renderBigCalendar();
             populateBillingMonths();
             renderBilling();
+            populateAvailabilityVenueSelect();
+            renderAvailabilityEditor();
+        }
+
+        // ===== Store Availability =====
+        const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+        function populateAvailabilityVenueSelect() {
+            const sel = document.getElementById('availabilityVenueSelect');
+            if (!sel) return;
+            const prev = sel.value;
+            const venues = window.state.venues || [];
+            sel.innerHTML = venues.map(v => `<option value="${v.id}">${escapeHtml(v.name)}</option>`).join('');
+            if (prev && venues.some(v => v.id === prev)) sel.value = prev;
+        }
+
+        function getSelectedVenue() {
+            const id = document.getElementById('availabilityVenueSelect')?.value;
+            return (window.state.venues || []).find(v => v.id === id) || null;
+        }
+
+        function renderAvailabilityEditor() {
+            const body = document.getElementById('availabilityEditorBody');
+            if (!body) return;
+            const v = getSelectedVenue();
+            if (!v) { body.innerHTML = '<div style="padding:24px; color: var(--ink-500); font-size:0.9rem;">No store selected.</div>'; return; }
+            const schedule = (v.availability && v.availability.schedule) || {};
+            let html = '';
+            for (let d = 0; d < 7; d++) {
+                const cfg = schedule[String(d)] || null;
+                const isOpen = !!cfg;
+                const openTime = cfg?.open || '10:00';
+                const closeTime = cfg?.close || '18:00';
+                html += `
+                <div class="availability-day" data-day="${d}">
+                    <label class="toggle">
+                        <input type="checkbox" data-day-toggle="${d}" ${isOpen ? 'checked' : ''} onchange="onAvailabilityToggle(${d})">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <span class="availability-day-name">${DAY_NAMES[d]}</span>
+                    <div class="availability-times" id="availTimes-${d}">
+                        ${isOpen
+                            ? `<input type="time" data-day-open="${d}" value="${openTime}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+                               <span style="margin:0 6px; color:var(--ink-500);">–</span>
+                               <input type="time" data-day-close="${d}" value="${closeTime}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">`
+                            : `<span style="color:var(--ink-500);">Closed</span>`
+                        }
+                    </div>
+                </div>`;
+            }
+            body.innerHTML = html;
+            const status = document.getElementById('availabilityStatus');
+            if (status) status.textContent = '';
+        }
+
+        function onAvailabilityToggle(day) {
+            // Re-render to swap times input vs "Closed" — but preserve checkbox state
+            const v = getSelectedVenue();
+            if (!v) return;
+            const cb = document.querySelector(`[data-day-toggle="${day}"]`);
+            const isOpen = cb && cb.checked;
+            const cell = document.getElementById('availTimes-' + day);
+            if (!cell) return;
+            if (isOpen) {
+                const prevSchedule = (v.availability && v.availability.schedule) || {};
+                const prev = prevSchedule[String(day)] || { open: '10:00', close: '18:00' };
+                cell.innerHTML = `<input type="time" data-day-open="${day}" value="${prev.open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+                                  <span style="margin:0 6px; color:var(--ink-500);">–</span>
+                                  <input type="time" data-day-close="${day}" value="${prev.close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">`;
+            } else {
+                cell.innerHTML = '<span style="color:var(--ink-500);">Closed</span>';
+            }
+        }
+
+        async function saveAvailability() {
+            const v = getSelectedVenue();
+            const status = document.getElementById('availabilityStatus');
+            if (!v) { if (status) status.textContent = 'No store selected.'; return; }
+            const schedule = {};
+            for (let d = 0; d < 7; d++) {
+                const cb = document.querySelector(`[data-day-toggle="${d}"]`);
+                if (cb && cb.checked) {
+                    const o = document.querySelector(`[data-day-open="${d}"]`)?.value || '10:00';
+                    const c = document.querySelector(`[data-day-close="${d}"]`)?.value || '18:00';
+                    schedule[String(d)] = { open: o, close: c };
+                } else {
+                    schedule[String(d)] = null;
+                }
+            }
+            const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] } };
+            const btn = document.getElementById('availabilitySaveBtn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+            if (status) status.textContent = '';
+            try {
+                await adminUpdate('venues', v.id, payload);
+                // Update local cache so re-renders don't lose the change
+                const idx = window.state.venues.findIndex(x => x.id === v.id);
+                if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability };
+                if (status) { status.textContent = 'Saved ✓'; status.style.color = 'var(--forest-600)'; }
+            } catch (e) {
+                if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+            }
         }
 
         function applySettingsToInputs() {
