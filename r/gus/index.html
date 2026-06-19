@@ -709,6 +709,26 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="contactInfoModal">
+        <div class="modal" style="max-width: 540px;">
+            <div class="modal-body" style="text-align: left; padding: 32px;">
+                <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;">Your contact info</h3>
+                <p style="color: var(--bark-500); margin-bottom: 20px; font-size: 0.95rem;">We'll use this to confirm your booking by email.</p>
+                <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
+                <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
+                <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com"></div>
+                <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
+                <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-input" id="bookProduct" placeholder="Organic Granola Line"></div>
+                <div class="form-group"><label class="form-label">Notes (optional)</label><input type="text" class="form-input" id="bookNotes" placeholder="Any special requirements"></div>
+                <div id="bookErrorMsg" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:8px;"></div>
+                <div style="display: flex; gap: 8px; margin-top: 24px;">
+                    <button class="btn btn-secondary" onclick="closeContactInfoModal()" style="flex:1; justify-content: center;">Cancel</button>
+                    <button class="btn btn-primary" id="bookSubmitBtn" onclick="submitContactInfo()" style="flex:1; justify-content: center;">Confirm Booking</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="successModal">
         <div class="modal">
             <div class="modal-body">
@@ -875,19 +895,75 @@
         
         function confirmBooking() {
             if (cart.length === 0) return;
-            
-            // Build confirmation details
-            let detailsHtml = '<div class="summary-line"><span>Confirmation #</span><span>GCM-2026-' + String(Math.floor(Math.random() * 9000) + 1000) + '</span></div>';
-            detailsHtml += '<div class="summary-line"><span>Total Paid</span><span>$' + (cart.length * PRICE_PER_DEMO).toFixed(2) + '</span></div>';
+            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookProduct','bookNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
+            document.getElementById('contactInfoModal').classList.add('active');
+        }
+        function closeContactInfoModal() { document.getElementById('contactInfoModal').classList.remove('active'); }
+        async function submitContactInfo() {
+            const brandName    = document.getElementById('bookBrandName').value.trim();
+            const contactName  = document.getElementById('bookContactName').value.trim();
+            const contactEmail = document.getElementById('bookContactEmail').value.trim();
+            const contactPhone = document.getElementById('bookContactPhone').value.trim();
+            const product      = document.getElementById('bookProduct').value.trim();
+            const notes        = document.getElementById('bookNotes').value.trim();
+            const errMsg = document.getElementById('bookErrorMsg');
+            errMsg.style.display = 'none';
+            errMsg.textContent = '';
+            if (!brandName || !contactEmail) { errMsg.textContent = 'Brand name and email are required.'; errMsg.style.display = 'block'; return; }
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
+            const btn = document.getElementById('bookSubmitBtn');
+            btn.disabled = true;
+            const origLabel = btn.textContent;
+            btn.textContent = 'Booking…';
+            let okAll = true;
+            const errors = [];
+            let emailWarned = false;
+            for (const item of cart) {
+                try {
+                    const resp = await fetch('/api/booking', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            brand_name: brandName,
+                            contact_name: contactName,
+                            contact_email: contactEmail,
+                            contact_phone: contactPhone,
+                            product: product,
+                            venue: item.location,
+                            demo_date: item.dateStr,
+                            demo_time: item.time,
+                            notes: notes,
+                        }),
+                    });
+                    const json = await resp.json().catch(() => ({}));
+                    if (!resp.ok || !json.success) {
+                        okAll = false;
+                        errors.push(json.error || ('HTTP ' + resp.status));
+                    } else if (!json.email_sent && !emailWarned) {
+                        emailWarned = true;
+                        console.warn('Email send failed:', json.email_error);
+                    }
+                } catch (e) {
+                    okAll = false;
+                    errors.push(e.message || String(e));
+                }
+            }
+            btn.disabled = false;
+            btn.textContent = origLabel;
+            if (!okAll) {
+                errMsg.textContent = 'Some bookings failed: ' + errors.join('; ');
+                errMsg.style.display = 'block';
+                return;
+            }
+            // Success — show success modal with details
+            document.getElementById('contactInfoModal').classList.remove('active');
+            let detailsHtml = '<div class="summary-line"><span>Confirmation #</span><span>DH-' + String(Math.floor(Math.random() * 90000) + 10000) + '</span></div>';
+            detailsHtml += '<div class="summary-line"><span>Confirmation email</span><span>' + (emailWarned ? 'Sent shortly' : 'Sent to ' + contactEmail) + '</span></div>';
             detailsHtml += '<div style="margin-top: 16px; font-weight: 600; color: var(--forest-800); margin-bottom: 8px;">Booked Demos:</div>';
-            
             cart.forEach(item => {
-                detailsHtml += '<div class="confirmation-booking">' +
-                    '<div style="font-weight: 600;">' + item.displayDate + ' • ' + item.time + '</div>' +
-                    '<div style="font-size: 0.85rem; color: var(--bark-500);">Gus\'s Community Market, ' + item.location + '</div>' +
-                '</div>';
+                detailsHtml += '<div class="confirmation-booking"><div style="font-weight: 600;">' + item.displayDate + ' • ' + item.time + '</div><div style="font-size: 0.85rem; color: var(--bark-500);">Gus\'s Community Market, ' + item.location + '</div></div>';
             });
-            
             document.getElementById('confirmationDetails').innerHTML = detailsHtml;
             document.getElementById('successModal').classList.add('active');
         }
