@@ -215,6 +215,40 @@
         .comp-badge.partial { background: #fef3c7; color: #92400e; }
         .comp-badge.none { background: var(--sand-200); color: var(--bark-500); }
         .comp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .big-cal-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
+        .big-cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .big-cal-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
+        .big-cal-nav { display: flex; align-items: center; gap: 10px; }
+        .big-cal-nav .month-label { font-family: 'Fraunces', Georgia, serif; color: var(--forest-800); font-size: 1.05rem; font-weight: 500; min-width: 150px; text-align: center; }
+        .big-cal-nav button { background: white; border: 1px solid var(--sand-300); width: 32px; height: 32px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 1.1rem; color: var(--forest-700); display: grid; place-items: center; transition: all 0.15s; }
+        .big-cal-nav button:hover { background: var(--sand-100); border-color: var(--forest-400); }
+        .big-cal-nav .today-btn { width: auto; padding: 0 14px; font-size: 0.85rem; font-weight: 600; }
+        .big-cal-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--sand-200); }
+        .big-cal-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--bark-500); }
+        .big-cal-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+        .big-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .big-cal-dow { font-size: 0.72rem; font-weight: 700; color: var(--bark-500); text-align: center; padding: 8px 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+        .big-cal-cell { background: var(--sand-100); border-radius: var(--radius-sm); padding: 8px; min-height: 100px; font-size: 0.85rem; position: relative; display: flex; flex-direction: column; }
+        .big-cal-cell.empty { background: transparent; }
+        .big-cal-cell.today { border: 2px solid var(--forest-500); background: var(--forest-50); }
+        .big-cal-cell.weekend { background: var(--cream-50); }
+        .big-cal-day-num { font-family: 'Fraunces', serif; font-weight: 500; color: var(--forest-800); font-size: 0.9rem; margin-bottom: 4px; line-height: 1; }
+        .big-cal-cell.today .big-cal-day-num { color: var(--forest-700); font-weight: 600; }
+        .big-cal-event { background: white; border-left: 3px solid var(--forest-500); padding: 3px 6px 3px 6px; border-radius: 3px; font-size: 0.7rem; line-height: 1.3; margin-bottom: 3px; cursor: pointer; transition: transform 0.1s; }
+        .big-cal-event:hover { transform: translateX(2px); box-shadow: var(--shadow-sm); }
+        .big-cal-event-time { font-weight: 600; color: var(--forest-800); }
+        .big-cal-event-name { color: var(--bark-700); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .big-cal-event.venue-0 { border-left-color: #3a7142; }
+        .big-cal-event.venue-1 { border-left-color: #c46e3a; }
+        .big-cal-event.venue-2 { border-left-color: #6b4ea8; }
+        .big-cal-event.venue-3 { border-left-color: #2d6a8f; }
+        .big-cal-event.venue-4 { border-left-color: #b8860b; }
+        .big-cal-legend-dot.venue-0 { background: #3a7142; }
+        .big-cal-legend-dot.venue-1 { background: #c46e3a; }
+        .big-cal-legend-dot.venue-2 { background: #6b4ea8; }
+        .big-cal-legend-dot.venue-3 { background: #2d6a8f; }
+        .big-cal-legend-dot.venue-4 { background: #b8860b; }
+
 
         .search-input { padding: 8px 12px; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); font-family: inherit; font-size: 0.9rem; min-width: 240px; color: var(--forest-800); background: white; }
         .search-input:focus { outline: none; border-color: var(--forest-400); }
@@ -453,6 +487,19 @@
                     <div class="stat-card"><div class="stat-label">Revenue (this month)</div><div class="stat-value" id="statRevenue">—</div><div class="stat-change" id="statRevenueSub">&nbsp;</div></div>
                     <div class="stat-card"><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">—</div><div class="stat-change" id="statBrandsSub">&nbsp;</div></div>
                     <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">—</div><div class="stat-change" id="statComplianceSub">&nbsp;</div></div>
+                </div>
+                <div class="big-cal-card">
+                    <div class="big-cal-head">
+                        <div class="big-cal-title">Demo Calendar</div>
+                        <div class="big-cal-nav">
+                            <button onclick="bigCalPrev()" aria-label="Previous month">&lsaquo;</button>
+                            <span class="month-label" id="bigCalMonthLabel"></span>
+                            <button onclick="bigCalNext()" aria-label="Next month">&rsaquo;</button>
+                            <button class="today-btn" onclick="bigCalToday()">Today</button>
+                        </div>
+                    </div>
+                    <div class="big-cal-legend" id="bigCalLegend"></div>
+                    <div class="big-cal-grid" id="bigCalGrid"></div>
                 </div>
                 <div class="chart-card">
                     <h3>Demos per month</h3>
@@ -1015,6 +1062,7 @@ END:VEVENT
             applySettingsToInputs();
             updateStats();
             renderMonthlyChart();
+            renderBigCalendar();
         }
 
         function applySettingsToInputs() {
@@ -1434,6 +1482,74 @@ END:VEVENT
             const { error } = await sb.from('compliance_records').delete().eq('id', id);
             if (error) { alert('Delete failed: ' + error.message); return; }
             await refreshAll();
+        }
+
+        // ===== Big Calendar =====
+        let bigCalDate = new Date(2026, 1, 1);
+        const VENUE_COLOR_ORDER = ['Mission Bay','Mission','Haight St.','Noriega','Canyon'];
+        function venueIndex(name) {
+            const idx = VENUE_COLOR_ORDER.indexOf(name);
+            return idx >= 0 ? idx : 0;
+        }
+        function bigCalPrev() { bigCalDate = new Date(bigCalDate.getFullYear(), bigCalDate.getMonth() - 1, 1); renderBigCalendar(); }
+        function bigCalNext() { bigCalDate = new Date(bigCalDate.getFullYear(), bigCalDate.getMonth() + 1, 1); renderBigCalendar(); }
+        function bigCalToday() { bigCalDate = new Date(); renderBigCalendar(); }
+        function renderBigLegend() {
+            const lg = document.getElementById('bigCalLegend');
+            if (!lg) return;
+            lg.innerHTML = VENUE_COLOR_ORDER.map((v, i) =>
+                '<div class="big-cal-legend-item"><span class="big-cal-legend-dot venue-' + i + '"></span>' + escapeHtml(v) + '</div>'
+            ).join('');
+        }
+        function getDemoVenue(demo) {
+            // Try to infer venue from product+context; otherwise look up via brand contact's venue.
+            // Demos table doesn't store venue directly, so we map via brand_contacts by company name.
+            const brand = (window.state.brandContacts || []).find(b => b.company === demo.company);
+            return brand ? brand.venue : null;
+        }
+        function renderBigCalendar() {
+            const grid = document.getElementById('bigCalGrid');
+            const label = document.getElementById('bigCalMonthLabel');
+            if (!grid || !label) return;
+            renderBigLegend();
+            const y = bigCalDate.getFullYear(), m = bigCalDate.getMonth();
+            const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+            label.textContent = monthNames[m] + ' ' + y;
+            const first = new Date(y, m, 1);
+            const last = new Date(y, m + 1, 0);
+            const startDow = first.getDay();
+            const days = last.getDate();
+            const today = new Date();
+            const todayStr = today.toISOString().slice(0,10);
+            // Index demos by date
+            const demosByDay = {};
+            (window.state.demos || []).forEach(d => {
+                const dt = new Date(d.date + 'T00:00:00');
+                if (dt.getMonth() === m && dt.getFullYear() === y) {
+                    const day = dt.getDate();
+                    (demosByDay[day] = demosByDay[day] || []).push(d);
+                }
+            });
+            let html = '';
+            ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => { html += '<div class="big-cal-dow">' + d + '</div>'; });
+            for (let i = 0; i < startDow; i++) html += '<div class="big-cal-cell empty"></div>';
+            for (let day = 1; day <= days; day++) {
+                const dateStr = y + '-' + String(m+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+                const dow = new Date(y, m, day).getDay();
+                const isWeekend = (dow === 0 || dow === 6);
+                const isToday = (dateStr === todayStr);
+                const list = demosByDay[day] || [];
+                let cellClass = 'big-cal-cell';
+                if (isToday) cellClass += ' today';
+                else if (isWeekend) cellClass += ' weekend';
+                const events = list.map(d => {
+                    const venue = getDemoVenue(d);
+                    const vi = venueIndex(venue);
+                    return '<div class="big-cal-event venue-' + vi + '" title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + '</span></div>';
+                }).join('');
+                html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
+            }
+            grid.innerHTML = html;
         }
 
         async function toggleSettingsEdit() {
