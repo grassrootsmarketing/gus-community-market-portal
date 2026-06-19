@@ -239,6 +239,7 @@
             .landing h1 { font-size: 1.75rem; }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div class="view landing active" id="landingView">
@@ -608,7 +609,7 @@
         const PRICE_PER_DEMO = 30;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         
-        document.addEventListener('DOMContentLoaded', renderCalendar);
+        document.addEventListener('DOMContentLoaded', () => { renderCalendar(); initSupabase(); });
         
         function showView(view) {
             if (view === 'admin' && !sessionStorage.getItem('adminUnlocked')) {
@@ -901,59 +902,111 @@ END:VEVENT
             }
         }
 
-        // ===== Contacts (Brand + Internal) =====
+        // ===== Supabase client + cached state =====
+        const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+        const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+        const RETAILER_SLUG = 'gus';
+        let sb = null;
+        let RETAILER_ID = null;
+        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null };
+
+        async function initSupabase() {
+            try {
+                sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                const { data: retailer } = await sb.from('retailers').select('id').eq('slug', RETAILER_SLUG).single();
+                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); return; }
+                RETAILER_ID = retailer.id;
+                await refreshAll();
+            } catch (e) { console.error('Supabase init failed:', e); }
+        }
+
+        async function refreshAll() {
+            if (!sb || !RETAILER_ID) return;
+            const [brandResp, internalResp, demosResp, settingsResp] = await Promise.all([
+                sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
+                sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
+                sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
+                sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
+            ]);
+            window.state.brandContacts = brandResp.data || [];
+            window.state.internalContacts = internalResp.data || [];
+            window.state.demos = (demosResp.data || []).map(d => ({
+                id: d.id,
+                date: d.demo_date,
+                time: d.demo_time,
+                company: d.company_name,
+                contact: d.contact_name,
+                product: d.product,
+                status: (d.status || 'confirmed').replace(/^./, ch => ch.toUpperCase()),
+            }));
+            UPCOMING_DEMOS = window.state.demos;
+            window.state.settings = settingsResp.data || null;
+            // Re-render whatever's active
+            if (document.getElementById('demosTableBody')) renderDemos();
+            if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
+            if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
+            applySettingsToInputs();
+        }
+
+        function applySettingsToInputs() {
+            if (!window.state.settings) return;
+            const s = window.state.settings;
+            const fee = document.getElementById('settingDemoFee');
+            const dur = document.getElementById('settingDemoDuration');
+            const adv = document.getElementById('settingAdvanceBooking');
+            if (fee) fee.value = '$' + Number(s.demo_fee).toFixed(2);
+            if (dur) dur.value = s.demo_duration || '3 hours';
+            if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
+        }
+
+        // ===== Contacts (Brand + Internal) — Supabase-backed =====
         const CONTACT_CONFIGS = {
             brand: {
-                storageKey: 'contacts',
+                table: 'brand_contacts',
+                stateKey: 'brandContacts',
                 tableBodyId: 'brandContactsTableBody',
                 sortSelectId: 'brandContactSort',
                 addLabel: 'Add Brand Contact',
                 editLabel: 'Edit Brand Contact',
                 companyLabel: 'Company',
+                companyField: 'company',
                 showAddress: true,
                 columns: 7,
                 emptyLabel: 'brand',
-                defaults: [
-                    { id: 'c1', name: 'John Smith', company: 'Sunrise Foods', venue: 'Mission Bay', address: '1234 3rd St, San Francisco, CA 94158', email: 'john@sunrisefoods.com', phone: '415-555-0142' },
-                    { id: 'c2', name: 'Sarah Chen', company: 'Bay Beverages', venue: 'Mission', address: '2890 16th St, San Francisco, CA 94103', email: 'sarah@baybev.com', phone: '415-555-0188' },
-                    { id: 'c3', name: 'Mike Johnson', company: 'Green Valley Farms', venue: 'Haight St.', address: '1650 Haight St, San Francisco, CA 94117', email: 'mike@greenvalley.com', phone: '415-555-0167' },
-                    { id: 'c4', name: 'Lisa Wong', company: 'Artisan Crackers Co', venue: 'Noriega', address: '3960 Noriega St, San Francisco, CA 94122', email: 'lisa@artisancrackers.com', phone: '415-555-0193' },
-                    { id: 'c5', name: 'Tom Park', company: 'Pacific Beans', venue: 'Canyon', address: '301 Park Presidio, San Francisco, CA 94118', email: 'tom@pacificbeans.com', phone: '415-555-0211' }
-                ]
             },
             internal: {
-                storageKey: 'internalContacts',
+                table: 'internal_contacts',
+                stateKey: 'internalContacts',
                 tableBodyId: 'internalContactsTableBody',
                 sortSelectId: 'internalContactSort',
                 addLabel: 'Add Internal Contact',
                 editLabel: 'Edit Internal Contact',
                 companyLabel: 'Role / Title',
+                companyField: 'role',
                 showAddress: false,
                 columns: 6,
                 emptyLabel: 'internal',
-                defaults: [
-                    { id: 'i1', name: 'Avery Chen', company: 'Market Manager', venue: 'Mission Bay', address: '', email: 'avery@guscommunitymarket.com', phone: '415-555-0301' },
-                    { id: 'i2', name: 'Jordan Park', company: 'Demo Coordinator', venue: 'Mission', address: '', email: 'jordan@guscommunitymarket.com', phone: '415-555-0302' },
-                    { id: 'i3', name: 'Sam Rivera', company: 'Operations Lead', venue: 'Haight St.', address: '', email: 'sam@guscommunitymarket.com', phone: '415-555-0303' },
-                    { id: 'i4', name: 'Casey Brooks', company: 'Customer Success', venue: 'Noriega', address: '', email: 'casey@guscommunitymarket.com', phone: '415-555-0304' },
-                    { id: 'i5', name: 'Dana Wu', company: 'Marketing', venue: 'Canyon', address: '', email: 'dana@guscommunitymarket.com', phone: '415-555-0305' }
-                ]
             }
         };
+
         function loadContacts(type) {
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return [];
-            try { const saved = localStorage.getItem(cfg.storageKey); if (saved) return JSON.parse(saved); } catch (e) {}
-            return JSON.parse(JSON.stringify(cfg.defaults));
+            return (window.state[cfg.stateKey] || []).map(c => ({
+                id: c.id,
+                name: c.name,
+                company: c[cfg.companyField] || '',
+                venue: c.venue,
+                address: c.address || '',
+                email: c.email,
+                phone: c.phone,
+            }));
         }
-        function saveContactsLS(type, arr) {
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return;
-            try { localStorage.setItem(cfg.storageKey, JSON.stringify(arr)); } catch (e) {}
-        }
+
         function escapeHtml(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
+
         function renderContacts(type) {
             if (!type) { renderContacts('brand'); renderContacts('internal'); return; }
             const cfg = CONTACT_CONFIGS[type];
@@ -978,6 +1031,7 @@ END:VEVENT
                 return '<tr>' + cells + '</tr>';
             }).join('');
         }
+
         function openContactModal(type, id) {
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return;
@@ -1006,51 +1060,48 @@ END:VEVENT
             }
             m.classList.add('active');
         }
+
         function closeContactModal() {
             document.getElementById('contactModal').classList.remove('active');
         }
-        function saveContact() {
+
+        async function saveContact() {
+            if (!sb || !RETAILER_ID) { alert('Database not ready, please refresh'); return; }
             const type = document.getElementById('contactType').value;
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return;
             const id = document.getElementById('contactId').value;
             const name = document.getElementById('contactName').value.trim();
             if (!name) { alert('Name is required.'); return; }
-            const prefix = type === 'internal' ? 'i' : 'c';
-            const contact = {
-                id: id || prefix + Date.now(),
+            const payload = {
+                retailer_id: RETAILER_ID,
                 name: name,
-                company: document.getElementById('contactCompany').value.trim(),
                 venue: document.getElementById('contactVenue').value,
-                address: cfg.showAddress ? document.getElementById('contactAddress').value.trim() : '',
                 email: document.getElementById('contactEmail').value.trim(),
-                phone: document.getElementById('contactPhone').value.trim()
+                phone: document.getElementById('contactPhone').value.trim(),
             };
-            const all = loadContacts(type);
-            if (id) {
-                const idx = all.findIndex(c => c.id === id);
-                if (idx >= 0) all[idx] = contact; else all.push(contact);
-            } else {
-                all.push(contact);
-            }
-            saveContactsLS(type, all);
+            payload[cfg.companyField] = document.getElementById('contactCompany').value.trim();
+            if (cfg.showAddress) payload.address = document.getElementById('contactAddress').value.trim();
+
+            const { error } = id
+                ? await sb.from(cfg.table).update(payload).eq('id', id)
+                : await sb.from(cfg.table).insert(payload);
+            if (error) { alert('Save failed: ' + error.message); return; }
             closeContactModal();
-            renderContacts(type);
+            await refreshAll();
         }
-        function deleteContact(type, id) {
+
+        async function deleteContact(type, id) {
             if (!confirm('Delete this contact?')) return;
-            const all = loadContacts(type).filter(c => c.id !== id);
-            saveContactsLS(type, all);
-            renderContacts(type);
+            const cfg = CONTACT_CONFIGS[type];
+            if (!cfg || !sb) return;
+            const { error } = await sb.from(cfg.table).delete().eq('id', id);
+            if (error) { alert('Delete failed: ' + error.message); return; }
+            await refreshAll();
         }
 
         // ===== Upcoming Demos: search + table/calendar =====
-        const UPCOMING_DEMOS = [
-            { date: '2026-02-16', time: '11:00 AM', company: 'Sunrise Foods', contact: 'John Smith', product: 'Organic Granola Line', status: 'Confirmed' },
-            { date: '2026-02-18', time: '3:00 PM', company: 'Bay Beverages', contact: 'Sarah Chen', product: 'Cold Brew Coffee', status: 'Confirmed' },
-            { date: '2026-02-20', time: '11:00 AM', company: 'Green Valley Farms', contact: 'Mike Johnson', product: 'Plant-Based Cheese', status: 'Confirmed' },
-            { date: '2026-02-22', time: '3:00 PM', company: 'Artisan Crackers Co', contact: 'Lisa Wong', product: 'Sourdough Crackers', status: 'Confirmed' }
-        ];
+        let UPCOMING_DEMOS = [];
         let demoView = 'table';
         let demoCalMonth = 1;
         let demoCalYear = 2026;
@@ -1143,30 +1194,24 @@ END:VEVENT
         }
 
         // ===== Settings edit toggle =====
-        function loadSettings() {
-            try {
-                const saved = localStorage.getItem('marketSettings');
-                if (saved) {
-                    const s = JSON.parse(saved);
-                    if (s.demoFee != null) document.getElementById('settingDemoFee').value = s.demoFee;
-                    if (s.demoDuration != null) document.getElementById('settingDemoDuration').value = s.demoDuration;
-                    if (s.advanceBooking != null) document.getElementById('settingAdvanceBooking').value = s.advanceBooking;
-                }
-            } catch (e) {}
-        }
-        function toggleSettingsEdit() {
+        function loadSettings() { applySettingsToInputs(); }
+        async function toggleSettingsEdit() {
             const btn = document.getElementById('settingsEditBtn');
             const ids = ['settingDemoFee', 'settingDemoDuration', 'settingAdvanceBooking'];
             const inputs = ids.map(id => document.getElementById(id));
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
-                try {
-                    localStorage.setItem('marketSettings', JSON.stringify({
-                        demoFee: inputs[0].value,
-                        demoDuration: inputs[1].value,
-                        advanceBooking: inputs[2].value
-                    }));
-                } catch (e) {}
+                if (sb && RETAILER_ID) {
+                    const feeStr = inputs[0].value.replace(/[^0-9.]/g,'');
+                    const advStr = inputs[2].value.replace(/[^0-9]/g,'');
+                    const { error } = await sb.from('settings').update({
+                        demo_fee: parseFloat(feeStr) || 30,
+                        demo_duration: inputs[1].value,
+                        advance_booking_days: parseInt(advStr,10) || 14,
+                    }).eq('retailer_id', RETAILER_ID);
+                    if (error) { alert('Save failed: ' + error.message); return; }
+                    await refreshAll();
+                }
                 inputs.forEach(i => i.disabled = true);
                 btn.textContent = 'Edit';
             } else {
