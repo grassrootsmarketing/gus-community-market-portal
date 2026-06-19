@@ -248,6 +248,18 @@
         .big-cal-legend-dot.venue-2 { background: #6b4ea8; }
         .big-cal-legend-dot.venue-3 { background: #2d6a8f; }
         .big-cal-legend-dot.venue-4 { background: #b8860b; }
+        .billing-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
+        .billing-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .billing-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
+        .billing-controls { display: flex; gap: 10px; align-items: center; }
+        .billing-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+        .billing-stat { padding: 18px; background: var(--forest-50); border-radius: var(--radius-sm); border: 1px solid rgba(15,44,23,0.05); }
+        .billing-stat-num { font-family: 'Fraunces', serif; font-size: 1.8rem; color: var(--forest-800); line-height: 1; font-weight: 500; }
+        .billing-stat-lbl { font-size: 0.72rem; color: var(--bark-500); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; font-weight: 600; }
+        .billing-stat-sub { font-size: 0.78rem; color: var(--bark-500); margin-top: 4px; }
+        .billing-empty { text-align: center; padding: 40px; color: var(--bark-500); font-style: italic; }
+        @media (max-width: 720px) { .billing-summary { grid-template-columns: repeat(2, 1fr); } }
+
 
 
         .search-input { padding: 8px 12px; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); font-family: inherit; font-size: 0.9rem; min-width: 240px; color: var(--forest-800); background: white; }
@@ -580,6 +592,20 @@
                     <table>
                         <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="complianceTableBody"></tbody>
+                    </table>
+                </div>
+                <div class="billing-card">
+                    <div class="billing-head">
+                        <div class="billing-title">Billing & Statements</div>
+                        <div class="billing-controls">
+                            <select class="sort-select" id="billingMonthSelect" onchange="renderBilling()"></select>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStatement()">Download Statement</button>
+                        </div>
+                    </div>
+                    <div class="billing-summary" id="billingSummary"></div>
+                    <table>
+                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead>
+                        <tbody id="billingTableBody"></tbody>
                     </table>
                 </div>
                 <div class="settings-grid">
@@ -1063,6 +1089,8 @@ END:VEVENT
             updateStats();
             renderMonthlyChart();
             renderBigCalendar();
+            populateBillingMonths();
+            renderBilling();
         }
 
         function applySettingsToInputs() {
@@ -1507,6 +1535,148 @@ END:VEVENT
             const brand = (window.state.brandContacts || []).find(b => b.company === demo.company);
             return brand ? brand.venue : null;
         }
+        // ===== Billing & Statement =====
+        function getBillingMonths() {
+            // Last 12 months from latest demo, default to current month
+            const all = (window.state.demos || []).map(d => d.date).filter(Boolean);
+            const set = new Set();
+            const now = new Date();
+            // Always include the current month
+            set.add(now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0'));
+            // Include months with demos
+            all.forEach(d => { const dt = new Date(d + 'T00:00:00'); set.add(dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0')); });
+            // Include last 12 months
+            for (let i = 0; i < 12; i++) {
+                const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                set.add(dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'));
+            }
+            return [...set].sort().reverse();
+        }
+        function monthLabel(ym) {
+            const [y,m] = ym.split('-').map(Number);
+            const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+            return monthNames[m-1] + ' ' + y;
+        }
+        function populateBillingMonths() {
+            const sel = document.getElementById('billingMonthSelect');
+            if (!sel) return;
+            const months = getBillingMonths();
+            const prev = sel.value;
+            sel.innerHTML = months.map(ym => '<option value="' + ym + '">' + monthLabel(ym) + '</option>').join('');
+            // Default to Feb 2026 (where seeded demos are) if not set
+            if (prev && months.includes(prev)) sel.value = prev;
+            else if (months.includes('2026-02')) sel.value = '2026-02';
+        }
+        function renderBilling() {
+            const sel = document.getElementById('billingMonthSelect');
+            if (!sel) return;
+            if (!sel.value) populateBillingMonths();
+            const ym = sel.value;
+            const [yy, mm] = ym.split('-').map(Number);
+            const demos = (window.state.demos || []).filter(d => {
+                if (!d.date) return false;
+                const dt = new Date(d.date + 'T00:00:00');
+                return dt.getFullYear() === yy && dt.getMonth() === (mm - 1);
+            }).sort((a,b) => a.date.localeCompare(b.date));
+            const total = demos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const count = demos.length;
+            const avg = count > 0 ? total / count : 0;
+            // YTD
+            const ytdDemos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt <= new Date(yy, mm, 0); });
+            const ytd = ytdDemos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            // Render summary
+            const summary = document.getElementById('billingSummary');
+            summary.innerHTML =
+                '<div class="billing-stat"><div class="billing-stat-num">$' + total.toFixed(0) + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' total</div><div class="billing-stat-sub">' + count + ' demo' + (count===1?'':'s') + '</div></div>'
+                + '<div class="billing-stat"><div class="billing-stat-num">$' + ytd.toFixed(0) + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Through ' + monthLabel(ym) + '</div></div>'
+                + '<div class="billing-stat"><div class="billing-stat-num">$' + avg.toFixed(0) + '</div><div class="billing-stat-lbl">Avg per demo</div><div class="billing-stat-sub">' + (count > 0 ? 'Based on ' + count + ' bookings' : 'No bookings') + '</div></div>'
+                + '<div class="billing-stat"><div class="billing-stat-num">' + count + '</div><div class="billing-stat-lbl">Demos billed</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>';
+            // Line items
+            const tbody = document.getElementById('billingTableBody');
+            const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
+            if (demos.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="billing-empty">No demos billed for ' + monthLabel(ym) + '.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = demos.map(d => {
+                const dateLabel = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
+                const venue = brandsByCompany[d.company]?.venue || '—';
+                return '<tr>'
+                    + '<td>' + escapeHtml(dateLabel) + (d.time ? ' · ' + escapeHtml(d.time) : '') + '</td>'
+                    + '<td>' + escapeHtml(d.company) + '</td>'
+                    + '<td>' + escapeHtml(d.product || '—') + '</td>'
+                    + '<td>' + escapeHtml(venue) + '</td>'
+                    + '<td style="text-align:right;">$' + (parseFloat(d.demo_fee) || 0).toFixed(2) + '</td>'
+                    + '</tr>';
+            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>';
+        }
+
+        function openStatement() {
+            const sel = document.getElementById('billingMonthSelect');
+            if (!sel || !sel.value) { alert('Select a month first'); return; }
+            const ym = sel.value;
+            const [yy, mm] = ym.split('-').map(Number);
+            const demos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt.getMonth() === (mm - 1); }).sort((a,b) => a.date.localeCompare(b.date));
+            const total = demos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
+            const today = new Date().toLocaleDateString('en-US',{month:'long', day:'numeric', year:'numeric'});
+
+            const rows = demos.map(d => {
+                const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
+                const venue = brandsByCompany[d.company]?.venue || '—';
+                return '<tr><td>' + escapeHtml(dl) + '</td><td>' + escapeHtml(d.company) + '</td><td>' + escapeHtml(d.product || '') + '</td><td>' + escapeHtml(venue) + '</td><td style="text-align:right;">$' + (parseFloat(d.demo_fee) || 0).toFixed(2) + '</td></tr>';
+            }).join('');
+
+            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ' + monthLabel(ym) + ' — Gus\'s Community Market</title>'
+                + '<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">'
+                + '<style>'
+                + 'body { font-family: \'Inter\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
+                + 'h1, h2, h3 { font-family: \'Fraunces\', Georgia, serif; font-weight: 500; color: #0f2c17; }'
+                + 'h1 { font-size: 2.4rem; margin: 0 0 6px; letter-spacing: -0.02em; }'
+                + '.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }'
+                + '.brand-mark { width: 44px; height: 44px; }'
+                + '.brand-name { font-family: \'Inter\', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.04em; color: #0f2c17; }'
+                + '.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; color: #a14e2a; margin-bottom: 14px; }'
+                + '.parties { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin: 32px 0 40px; }'
+                + '.party h3 { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #6b6a64; margin-bottom: 8px; font-family: \'Inter\', sans-serif; }'
+                + '.party-body { color: #1c1c1a; line-height: 1.5; }'
+                + '.party-body strong { font-weight: 600; color: #0f2c17; }'
+                + 'table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.95rem; }'
+                + 'th { text-align: left; padding: 12px 12px; background: #f4f7ef; border-bottom: 2px solid #1f4a26; font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: #1a3d22; }'
+                + 'td { padding: 14px 12px; border-bottom: 1px solid #ede3d0; }'
+                + 'tr:last-child td { border-bottom: none; }'
+                + '.total-row { background: #f4f7ef; font-weight: 700; }'
+                + '.total-row td { padding: 16px 12px; border-bottom: 2px solid #0f2c17; border-top: 2px solid #0f2c17; }'
+                + '.foot { margin-top: 56px; padding-top: 24px; border-top: 1px solid #ede3d0; font-size: 0.85rem; color: #6b6a64; line-height: 1.6; }'
+                + '.print-btn { position: fixed; top: 20px; right: 20px; background: #0f2c17; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-family: inherit; font-weight: 600; cursor: pointer; }'
+                + '@media print { .print-btn { display: none; } body { padding: 24px; } }'
+                + '</style></head><body>'
+                + '<button class="print-btn" onclick="window.print()">Print / Save as PDF</button>'
+                + '<div class="brand">'
+                + '<svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>'
+                + '<div class="brand-name">demohub</div>'
+                + '</div>'
+                + '<div class="eyebrow">Monthly statement</div>'
+                + '<h1>' + monthLabel(ym) + '</h1>'
+                + '<div class="parties">'
+                + '<div class="party"><h3>From</h3><div class="party-body"><strong>Demohub</strong><br>hello@demohubhq.com<br>demohubhq.com</div></div>'
+                + '<div class="party"><h3>To</h3><div class="party-body"><strong>Gus\'s Community Market</strong><br>5 stores · San Francisco, CA<br>billing@guscommunitymarket.com</div></div>'
+                + '</div>'
+                + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
+                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead><tbody>'
+                + rows
+                + '<tr class="total-row"><td colspan="4" style="text-align:right;">Total billed</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
+                + '</tbody></table>')
+                + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
+                + '</body></html>';
+
+            const win = window.open('', '_blank');
+            if (!win) { alert('Statement window was blocked — allow pop-ups for this site.'); return; }
+            win.document.open();
+            win.document.write(html);
+            win.document.close();
+        }
+
         function renderBigCalendar() {
             const grid = document.getElementById('bigCalGrid');
             const label = document.getElementById('bigCalMonthLabel');
