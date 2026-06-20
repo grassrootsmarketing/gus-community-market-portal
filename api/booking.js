@@ -3,8 +3,6 @@
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-const RETAILER_ID = '11111111-1111-1111-1111-111111111111';
-const RETAILER_NAME = "Gus's Community Market";
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -48,11 +46,28 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes } = body || {};
+    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes } = body || {};
 
-    if (!contact_email || !brand_name || !venue || !demo_date || !demo_time) {
+    if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // Look up retailer by slug, get id and name
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    });
+    const retailers = await retailerResp.json();
+    const retailer = Array.isArray(retailers) ? retailers[0] : null;
+    if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
+    const RETAILER_ID = retailer.id;
+    const RETAILER_NAME = retailer.name;
+
+    // Look up venue by retailer + name (for venue_id on the row)
+    const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id`, {
+      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    });
+    const venues = await venueResp.json();
+    const venueRow = Array.isArray(venues) ? venues[0] : null;
 
     // Insert booking row
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
@@ -65,6 +80,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         retailer_id: RETAILER_ID,
+        venue_id: venueRow ? venueRow.id : null,
         brand_name,
         contact_name: contact_name || null,
         contact_email,
