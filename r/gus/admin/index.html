@@ -323,6 +323,20 @@
                     <div class="stat-card"><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">—</div><div class="stat-change" id="statBrandsSub">&nbsp;</div></div>
                     <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">—</div><div class="stat-change" id="statComplianceSub">&nbsp;</div></div>
                 </div>
+
+                <!-- Pending Bookings Inbox -->
+                <div class="table-card" id="pendingBookingsCard" style="margin-bottom: 24px; display:none;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Pending Bookings <span id="pendingBookingsCount" style="font-weight:400; color:var(--clay-700); margin-left:6px;"></span></h3>
+                        <div style="font-size:0.85rem; color:var(--ink-500);">Confirm or decline incoming requests from brands.</div>
+                    </div>
+                    <div style="overflow:auto;">
+                        <table class="data-table">
+                            <thead><tr><th>Date</th><th>Time</th><th>Store</th><th>Brand</th><th>Contact</th><th>Product</th><th style="text-align:right;">Actions</th></tr></thead>
+                            <tbody id="pendingBookingsBody"></tbody>
+                        </table>
+                    </div>
+                </div>
                 <div class="big-cal-card">
                     <div class="big-cal-head">
                         <div class="big-cal-title">Demo Calendar</div>
@@ -439,8 +453,11 @@
                         </div>
                         <div style="padding: 4px 24px 12px;">
                             <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Store</label>
-                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%;"></select>
-                            <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
+                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; margin-bottom:14px;"></select>
+                            <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Max demos per time slot</label>
+                            <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem;">
+                            <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this store.</div>
+                            <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                         </div>
                         <div class="settings-card-body" id="availabilityEditorBody"></div>
                     </div>
@@ -885,7 +902,7 @@ END:VEVENT
         const RETAILER_SLUG = 'gus';
         let sb = null;
         let RETAILER_ID = null;
-        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [] };
+        window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [], bookings: [] };
 
         async function initSupabase() {
             try {
@@ -899,15 +916,17 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp] = await Promise.all([
+            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp, bookingsResp] = await Promise.all([
                 sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
                 sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
                 sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
                 sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
                 sb.from('venues').select('*').eq('retailer_id', RETAILER_ID).order('name'),
+                sb.from('bookings').select('*').eq('retailer_id', RETAILER_ID).order('created_at', { ascending: false }),
             ]);
             window.state.venues = venuesResp.data || [];
+            window.state.bookings = bookingsResp.data || [];
             window.state.brandContacts = brandResp.data || [];
             window.state.internalContacts = internalResp.data || [];
             window.state.demos = (demosResp.data || []).map(d => ({
@@ -935,6 +954,80 @@ END:VEVENT
             renderBilling();
             populateAvailabilityVenueSelect();
             renderAvailabilityEditor();
+            renderPendingBookings();
+        }
+
+        // ===== Pending Bookings inbox =====
+        function renderPendingBookings() {
+            const tbody = document.getElementById('pendingBookingsBody');
+            const card = document.getElementById('pendingBookingsCard');
+            const countLbl = document.getElementById('pendingBookingsCount');
+            if (!tbody || !card) return;
+            const venueById = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
+            const pending = (window.state.bookings || []).filter(b => b.status === 'pending');
+            if (countLbl) countLbl.textContent = pending.length ? `(${pending.length})` : '';
+            if (!pending.length) {
+                card.style.display = 'none';
+                tbody.innerHTML = '';
+                return;
+            }
+            card.style.display = '';
+            tbody.innerHTML = pending.map(b => {
+                const dateLabel = b.demo_date ? new Date(b.demo_date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+                return `<tr data-booking-id="${b.id}">
+                    <td>${escapeHtml(dateLabel)}</td>
+                    <td>${escapeHtml(b.demo_time || '—')}</td>
+                    <td>${escapeHtml(venueById[b.venue_id] || '—')}</td>
+                    <td><strong>${escapeHtml(b.brand_name || '—')}</strong></td>
+                    <td>${escapeHtml(b.contact_name || '')}${b.contact_email ? ('<div style="font-size:0.8rem;color:var(--ink-500);">' + escapeHtml(b.contact_email) + '</div>') : ''}</td>
+                    <td>${escapeHtml(b.product || '—')}</td>
+                    <td style="text-align:right; white-space:nowrap;">
+                        <button class="btn btn-secondary" style="padding:6px 12px; font-size:0.85rem; margin-right:6px;" onclick="declineBooking('${b.id}')">Decline</button>
+                        <button class="btn" style="padding:6px 14px; font-size:0.85rem; background:var(--forest-600); color:white;" onclick="confirmBooking('${b.id}')">Confirm</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function bookingAction(bookingId, action, reason) {
+            const payload = { booking_id: bookingId, action };
+            if (action === 'decline' && reason) payload.reason = reason;
+            const r = await fetch('/api/booking-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const text = await r.text();
+            let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
+            if (!r.ok) throw new Error((json && json.error) || text || ('HTTP ' + r.status));
+            return json;
+        }
+
+        async function confirmBooking(id) {
+            if (!confirm('Confirm this booking? The brand will get a confirmation email and a demo will be created.')) return;
+            const row = document.querySelector(`tr[data-booking-id="${id}"]`);
+            if (row) row.style.opacity = '0.5';
+            try {
+                await bookingAction(id, 'confirm');
+                await refreshAll();
+            } catch (e) {
+                alert('Could not confirm: ' + e.message);
+                if (row) row.style.opacity = '';
+            }
+        }
+
+        async function declineBooking(id) {
+            const reason = prompt('Decline reason (optional, shown to the brand):', '');
+            if (reason === null) return; // user cancelled
+            const row = document.querySelector(`tr[data-booking-id="${id}"]`);
+            if (row) row.style.opacity = '0.5';
+            try {
+                await bookingAction(id, 'decline', reason || '');
+                await refreshAll();
+            } catch (e) {
+                alert('Could not decline: ' + e.message);
+                if (row) row.style.opacity = '';
+            }
         }
 
         // ===== Store Availability =====
@@ -958,7 +1051,9 @@ END:VEVENT
             const body = document.getElementById('availabilityEditorBody');
             if (!body) return;
             const v = getSelectedVenue();
-            if (!v) { body.innerHTML = '<div style="padding:24px; color: var(--ink-500); font-size:0.9rem;">No store selected.</div>'; return; }
+            const maxInput = document.getElementById('availabilityMaxPerSlot');
+            if (!v) { body.innerHTML = '<div style="padding:24px; color: var(--ink-500); font-size:0.9rem;">No store selected.</div>'; if (maxInput) maxInput.value = 1; return; }
+            if (maxInput) maxInput.value = v.max_demos_per_slot != null ? v.max_demos_per_slot : 1;
             const schedule = (v.availability && v.availability.schedule) || {};
             let html = '';
             for (let d = 0; d < 7; d++) {
@@ -1022,7 +1117,9 @@ END:VEVENT
                     schedule[String(d)] = null;
                 }
             }
-            const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] } };
+            const maxInput = document.getElementById('availabilityMaxPerSlot');
+            const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
+            const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] }, max_demos_per_slot: maxPerSlot };
             const btn = document.getElementById('availabilitySaveBtn');
             if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
             if (status) status.textContent = '';
@@ -1030,7 +1127,7 @@ END:VEVENT
                 await adminUpdate('venues', v.id, payload);
                 // Update local cache so re-renders don't lose the change
                 const idx = window.state.venues.findIndex(x => x.id === v.id);
-                if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability };
+                if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
                 if (status) { status.textContent = 'Saved ✓'; status.style.color = 'var(--forest-600)'; }
             } catch (e) {
                 if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
