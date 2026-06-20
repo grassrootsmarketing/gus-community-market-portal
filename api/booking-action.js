@@ -75,16 +75,36 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { booking_id, action, reason, demo_fee } = body || {};
+    const { booking_id, action, reason, demo_fee, session_id } = body || {};
     if (!booking_id || !['confirm', 'decline'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline required' });
     }
+
+    // === Session check ===
+    if (!session_id) return res.status(401).json({ error: 'Invalid or missing admin session' });
+    const sessRows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
+    const session = Array.isArray(sessRows) ? sessRows[0] : null;
+    if (!session) return res.status(401).json({ error: 'Invalid admin session' });
+    if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
 
     // Fetch booking + retailer + venue (for the email + the demo row)
     const bookings = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=*`);
     const booking = Array.isArray(bookings) ? bookings[0] : null;
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.status !== 'pending') return res.status(409).json({ error: 'Booking already ' + booking.status });
+    if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+
+    // === P1: Race check at confirmation ===
+    // Before creating a demo row, re-verify that this venue/date/time slot still has capacity.
+    if (action === 'confirm') {
+      const cap = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=max_demos_per_slot`);
+      const venueCap = (Array.isArray(cap) && cap[0]) ? Math.max(1, parseInt(cap[0].max_demos_per_slot, 10) || 1) : 1;
+      const dupRows = await sb(`demos?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&venue_id=eq.${encodeURIComponent(booking.venue_id)}&demo_date=eq.${encodeURIComponent(booking.demo_date)}&demo_time=eq.${encodeURIComponent(booking.demo_time)}&status=in.(confirmed,completed)&select=id`);
+      const takenCount = Array.isArray(dupRows) ? dupRows.length : 0;
+      if (takenCount >= venueCap) {
+        return res.status(409).json({ error: `Slot is at capacity (${takenCount}/${venueCap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
+      }
+    }
 
     const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
     const venue = Array.isArray(venues) ? venues[0] : null;
