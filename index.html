@@ -3,225 +3,553 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Demohub — Every demo. Every store. One place.</title>
+    <title>Demohub — Every demo, every store, one place.</title>
     <meta name="description" content="The demo operations platform built for independent retailers. Schedule brand demos, track compliance, and run every store from one dashboard.">
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --forest-950: #0a1e10; --forest-900: #0f2c17; --forest-800: #1a3d22;
-            --forest-700: #1f4a26; --forest-600: #2a5b32; --forest-500: #3a7142;
-            --forest-400: #5a8e62; --forest-300: #87b08e; --forest-200: #c5d8c8;
-            --forest-100: #e3edd6; --forest-50: #f4f7ef;
-            --cream-50: #fbf7f0; --cream-100: #f6f0e4; --cream-200: #ede3d0; --cream-300: #e0d2b8;
-            --clay-800: #82381a; --clay-700: #a14e2a; --clay-600: #c46e3a; --clay-100: #f7e4d4;
-            --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64; --ink-400: #8b8a83; --ink-300: #b0aea6;
-            --shadow-sm: 0 1px 3px rgba(15,44,23,0.05);
-            --shadow-md: 0 4px 18px rgba(15,44,23,0.06);
-            --shadow-lg: 0 14px 40px rgba(15,44,23,0.10);
-            --radius-sm: 4px; --radius-md: 8px; --radius-lg: 16px;
+            /* Whole Foods-inspired forest greens, deeper and more refined */
+            --forest-950: #0a1e10;
+            --forest-900: #0f2c17;
+            --forest-800: #1a3d22;
+            --forest-700: #1f4a26;
+            --forest-600: #2a5b32;
+            --forest-500: #3a7142;
+            --forest-400: #5a8e62;
+            --forest-300: #87b08e;
+            --forest-200: #c5d8c8;
+            --forest-100: #e3edd6;
+            --forest-50: #f4f7ef;
+
+            /* Warm WFM-style cream + tan */
+            --cream-50: #fbf7f0;
+            --cream-100: #f6f0e4;
+            --cream-200: #ede3d0;
+            --cream-300: #e0d2b8;
+
+            /* Terracotta accent — used sparingly, like WFM's department highlights */
+            --clay-700: #a14e2a;
+            --clay-600: #c46e3a;
+            --clay-500: #d68856;
+            --clay-100: #f7e4d4;
+
+            /* Neutrals */
+            --ink-900: #1c1c1a;
+            --ink-700: #3a3a36;
+            --ink-500: #6b6a64;
+            --ink-300: #b0aea6;
+
+            --shadow-sm: 0 1px 3px rgba(15, 44, 23, 0.06);
+            --shadow-md: 0 6px 24px rgba(15, 44, 23, 0.08);
+            --shadow-lg: 0 18px 56px rgba(15, 44, 23, 0.14);
+            --shadow-xl: 0 32px 80px rgba(15, 44, 23, 0.18);
+
+            --radius-sm: 4px;
+            --radius-md: 10px;
+            --radius-lg: 20px;
+            --radius-xl: 32px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { scroll-behavior: smooth; }
-        body { font-family: 'Inter', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.55; -webkit-font-smoothing: antialiased; }
-        h1, h2, h3, h4, h5 { font-family: 'Fraunces', Georgia, serif; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); }
-        a { color: inherit; text-decoration: none; }
-        .container { max-width: 1200px; margin: 0 auto; padding: 0 40px; }
-
-        /* Header */
-        .site-header { position: sticky; top: 0; z-index: 50; background: rgba(251,247,240,0.92); backdrop-filter: blur(16px); border-bottom: 1px solid rgba(15,44,23,0.06); }
-        .site-header .container { display: flex; align-items: center; justify-content: space-between; padding: 18px 40px; }
-        .brand { display: flex; align-items: center; gap: 10px; font-family: 'Plus Jakarta Sans', 'Inter', sans-serif; font-weight: 800; font-size: 1.35rem; color: var(--forest-900); letter-spacing: -0.04em; text-transform: lowercase; }
-        .brand-mark { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; }
-        .brand-mark svg { width: 36px; height: 36px; display: block; }
-        .nav-links { display: flex; align-items: center; gap: 32px; }
-        .nav-links a { color: var(--ink-700); font-weight: 500; font-size: 0.95rem; transition: color 0.2s; }
-        .nav-links a:hover { color: var(--forest-700); }
-        .nav-cta { background: var(--forest-800); color: var(--cream-50) !important; padding: 10px 20px; border-radius: 99px; font-weight: 600; font-size: 0.9rem; }
-        .nav-cta:hover { background: var(--forest-900); }
-
-        /* Buttons */
-        .btn { display: inline-flex; align-items: center; gap: 10px; padding: 16px 28px; border-radius: 99px; font-weight: 600; font-size: 0.98rem; cursor: pointer; border: none; font-family: inherit; transition: all 0.2s; }
-        .btn-primary { background: var(--forest-800); color: var(--cream-50); }
-        .btn-primary:hover { background: var(--forest-900); }
-        .btn-secondary { background: transparent; color: var(--forest-800); border: 1.5px solid rgba(15,44,23,0.18); }
-        .btn-secondary:hover { border-color: var(--forest-600); background: var(--forest-50); }
-        .btn-clay { background: var(--clay-700); color: white; }
-        .btn-clay:hover { background: var(--clay-800); }
-        .btn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; }
-
-        /* Hero — calmer background, no tilt on visual */
-        .hero { padding: 96px 0 80px; background: var(--cream-50); position: relative; overflow: hidden; }
-        .hero::before {
-            content: ''; position: absolute; top: -40%; right: -10%; width: 60%; height: 80%;
-            background: radial-gradient(circle, var(--forest-50) 0%, transparent 65%);
-            pointer-events: none;
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--cream-50);
+            color: var(--ink-900);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+            font-feature-settings: 'ss01';
         }
-        .hero-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 80px; align-items: center; position: relative; }
-        .hero-eyebrow { display: inline-block; font-size: 0.82rem; font-weight: 600; color: var(--clay-700); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 24px; }
+        h1, h2, h3, h4, h5 {
+            font-family: 'Fraunces', Georgia, serif;
+            font-weight: 400;
+            line-height: 1.1;
+            letter-spacing: -0.025em;
+            color: var(--forest-900);
+            font-variation-settings: 'opsz' 144;
+        }
+        a { color: inherit; text-decoration: none; }
+        img { max-width: 100%; display: block; }
+
+        .container { max-width: 1240px; margin: 0 auto; padding: 0 40px; }
+
+        /* ====== Header ====== */
+        .site-header {
+            position: sticky; top: 0; z-index: 50;
+            background: rgba(251, 247, 240, 0.9);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(15, 44, 23, 0.08);
+        }
+        .site-header .container {
+            display: flex; align-items: center; justify-content: space-between;
+            padding-top: 20px; padding-bottom: 20px;
+        }
+        .brand {
+            display: flex; align-items: center; gap: 12px;
+            font-family: 'Fraunces', serif; font-weight: 500;
+            font-size: 1.45rem;
+            color: var(--forest-900);
+            letter-spacing: -0.02em;
+        }
+        .brand-mark {
+            width: 38px; height: 38px;
+            background: var(--forest-700);
+            border-radius: 50%;
+            display: grid; place-items: center;
+        }
+        .brand-mark svg { width: 18px; height: 18px; stroke: var(--cream-50); fill: none; stroke-width: 2.2; }
+
+        .nav-links { display: flex; align-items: center; gap: 32px; }
+        .nav-links a {
+            color: var(--ink-700); font-weight: 500; font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+        .nav-links a:hover { color: var(--forest-700); }
+        .nav-cta {
+            background: var(--forest-800); color: var(--cream-50) !important;
+            padding: 11px 22px; border-radius: 99px;
+            font-weight: 600; font-size: 0.95rem;
+            transition: background 0.2s, transform 0.1s;
+        }
+        .nav-cta:hover { background: var(--forest-900); }
+        .nav-cta:active { transform: translateY(1px); }
+
+        /* ====== Buttons ====== */
+        .btn {
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 18px 30px; border-radius: 99px;
+            font-weight: 600; font-size: 1rem; cursor: pointer; border: none;
+            font-family: inherit;
+            transition: transform 0.1s, box-shadow 0.2s, background 0.2s, color 0.2s;
+        }
+        .btn-primary { background: var(--forest-800); color: var(--cream-50); box-shadow: var(--shadow-md); }
+        .btn-primary:hover { background: var(--forest-900); box-shadow: var(--shadow-lg); }
+        .btn-primary:active { transform: translateY(1px); }
+        .btn-secondary {
+            background: transparent; color: var(--forest-800);
+            border: 1.5px solid var(--forest-300);
+        }
+        .btn-secondary:hover { background: var(--forest-50); border-color: var(--forest-500); }
+        .btn-clay { background: var(--clay-600); color: white; box-shadow: var(--shadow-md); }
+        .btn-clay:hover { background: var(--clay-700); }
+        .btn svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; }
+
+        /* ====== Hero ====== */
+        .hero {
+            padding: 80px 0 100px;
+            background:
+                radial-gradient(ellipse 70% 50% at 20% 0%, var(--forest-50) 0%, transparent 60%),
+                radial-gradient(ellipse 60% 40% at 90% 30%, var(--clay-100) 0%, transparent 50%),
+                var(--cream-50);
+            position: relative;
+        }
+        .hero-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 80px; align-items: center; }
+        .hero-eyebrow {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 0.85rem; font-weight: 600;
+            color: var(--clay-700);
+            background: var(--clay-100);
+            padding: 8px 16px; border-radius: 99px;
+            margin-bottom: 28px;
+            letter-spacing: 0.02em;
+        }
+        .hero-eyebrow .dot { width: 6px; height: 6px; background: var(--clay-600); border-radius: 50%; }
         .hero h1 {
-            font-size: clamp(2.6rem, 5.2vw, 4.4rem);
+            font-size: clamp(2.8rem, 6vw, 5.2rem);
             margin-bottom: 28px;
             font-weight: 400;
-            letter-spacing: -0.03em;
-            line-height: 1.04;
+            letter-spacing: -0.035em;
         }
-        .hero h1 .stack { display: block; }
-        .hero h1 .punch { color: var(--clay-700); }
-        .hero-sub { font-size: 1.2rem; color: var(--ink-700); margin-bottom: 36px; max-width: 540px; line-height: 1.55; }
-        .hero-cta-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
-        .hero-meta { display: flex; gap: 24px; flex-wrap: wrap; }
-        .hero-meta-item { display: flex; align-items: center; gap: 7px; color: var(--ink-500); font-size: 0.88rem; }
-        .hero-meta-item svg { width: 14px; height: 14px; stroke: var(--forest-600); fill: none; stroke-width: 2.5; }
+        .hero h1 em {
+            font-style: italic;
+            color: var(--forest-700);
+            font-weight: 300;
+        }
+        .hero-sub {
+            font-size: 1.25rem;
+            color: var(--ink-700);
+            margin-bottom: 40px;
+            max-width: 540px;
+            line-height: 1.55;
+        }
+        .hero-cta-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 40px; }
+        .hero-meta { display: flex; gap: 28px; flex-wrap: wrap; }
+        .hero-meta-item { display: flex; align-items: center; gap: 8px; color: var(--ink-500); font-size: 0.9rem; }
+        .hero-meta-item svg { width: 16px; height: 16px; stroke: var(--forest-600); fill: none; stroke-width: 2.5; flex-shrink: 0; }
 
-        /* Hero visual — straight, not tilted */
-        .dash-frame { background: white; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; border: 1px solid rgba(15,44,23,0.06); }
-        .dash-titlebar { background: var(--cream-100); padding: 11px 14px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--cream-200); }
-        .dot-mac { width: 10px; height: 10px; border-radius: 50%; }
-        .dash-url { margin-left: 12px; font-size: 0.75rem; color: var(--ink-500); background: white; padding: 4px 10px; border-radius: 5px; }
-        .dash-body { padding: 22px; }
-        .dash-greeting { font-family: 'Fraunces', serif; font-size: 1.3rem; color: var(--forest-900); margin-bottom: 2px; }
-        .dash-date { font-size: 0.78rem; color: var(--ink-500); margin-bottom: 18px; }
-        .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
-        .dash-stat { background: var(--forest-50); padding: 13px; border-radius: var(--radius-md); border: 1px solid rgba(15,44,23,0.05); }
-        .dash-stat-num { font-family: 'Fraunces', serif; font-size: 1.7rem; color: var(--forest-800); line-height: 1; }
-        .dash-stat-lbl { font-size: 0.68rem; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 5px; }
-        .dash-stat-delta { font-size: 0.68rem; color: var(--forest-600); margin-top: 3px; font-weight: 600; }
-        .dash-section-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.09em; color: var(--ink-500); font-weight: 700; margin-bottom: 9px; }
-        .dash-row { display: flex; align-items: center; gap: 11px; padding: 11px; background: white; border: 1px solid var(--cream-200); border-radius: var(--radius-md); margin-bottom: 5px; }
-        .dash-row-icon { width: 32px; height: 32px; background: var(--forest-100); border-radius: 50%; display: grid; place-items: center; font-family: 'Fraunces', serif; color: var(--forest-700); font-weight: 600; font-size: 0.78rem; flex-shrink: 0; }
+        /* ====== Hero visual: dashboard mockup ====== */
+        .hero-visual {
+            position: relative;
+        }
+        .dash-frame {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-xl);
+            overflow: hidden;
+            transform: perspective(1400px) rotateY(-4deg) rotateX(2deg);
+            border: 1px solid rgba(15, 44, 23, 0.06);
+        }
+        .dash-frame::before {
+            content: ''; position: absolute;
+            inset: 30px -30px -40px 30px;
+            border-radius: var(--radius-lg);
+            background: linear-gradient(135deg, var(--forest-100), transparent 60%);
+            z-index: -1;
+        }
+        .dash-titlebar {
+            background: var(--cream-100);
+            padding: 12px 16px;
+            display: flex; align-items: center; gap: 8px;
+            border-bottom: 1px solid var(--cream-200);
+        }
+        .dash-titlebar .dot-mac { width: 11px; height: 11px; border-radius: 50%; background: var(--ink-300); }
+        .dash-url {
+            margin-left: 14px; font-size: 0.78rem; color: var(--ink-500);
+            font-family: 'Inter', monospace;
+            background: white; padding: 4px 12px; border-radius: 6px;
+            flex: 1; max-width: 240px;
+        }
+        .dash-body { padding: 24px; }
+        .dash-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
+        .dash-greeting { font-family: 'Fraunces', serif; font-size: 1.4rem; color: var(--forest-900); font-weight: 500; }
+        .dash-date { font-size: 0.8rem; color: var(--ink-500); }
+        .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px; }
+        .dash-stat {
+            background: var(--forest-50);
+            padding: 14px;
+            border-radius: var(--radius-md);
+            border: 1px solid rgba(15, 44, 23, 0.06);
+        }
+        .dash-stat-num {
+            font-family: 'Fraunces', serif;
+            font-size: 1.8rem;
+            color: var(--forest-800);
+            font-weight: 500;
+            line-height: 1;
+        }
+        .dash-stat-lbl { font-size: 0.72rem; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 6px; }
+        .dash-stat-delta { font-size: 0.7rem; color: var(--forest-600); margin-top: 4px; font-weight: 600; }
+        .dash-section-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); font-weight: 700; margin-bottom: 10px; }
+        .dash-row {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px;
+            background: white;
+            border: 1px solid var(--cream-200);
+            border-radius: var(--radius-md);
+            margin-bottom: 6px;
+        }
+        .dash-row-icon {
+            width: 36px; height: 36px;
+            background: var(--forest-100);
+            border-radius: 50%;
+            display: grid; place-items: center;
+            font-family: 'Fraunces', serif;
+            color: var(--forest-700);
+            font-weight: 600;
+            font-size: 0.85rem;
+            flex-shrink: 0;
+        }
         .dash-row.alert .dash-row-icon { background: var(--clay-100); color: var(--clay-700); }
         .dash-row-main { flex: 1; min-width: 0; }
-        .dash-row-title { font-size: 0.85rem; color: var(--ink-900); font-weight: 600; }
-        .dash-row-sub { font-size: 0.72rem; color: var(--ink-500); margin-top: 1px; }
-        .dash-row-badge { font-size: 0.66rem; font-weight: 600; padding: 4px 9px; border-radius: 99px; background: var(--forest-100); color: var(--forest-700); flex-shrink: 0; }
+        .dash-row-title { font-size: 0.88rem; color: var(--ink-900); font-weight: 600; }
+        .dash-row-sub { font-size: 0.74rem; color: var(--ink-500); margin-top: 2px; }
+        .dash-row-badge {
+            font-size: 0.7rem; font-weight: 600;
+            padding: 4px 10px; border-radius: 99px;
+            background: var(--forest-100); color: var(--forest-700);
+            flex-shrink: 0;
+        }
         .dash-row.alert .dash-row-badge { background: var(--clay-100); color: var(--clay-700); }
 
-        /* Stat bar — simpler, no italic */
-        .stat-bar { background: var(--forest-900); padding: 48px 0; color: var(--cream-100); }
+        /* ====== Stat bar ====== */
+        .stat-bar { background: var(--forest-900); padding: 40px 0; color: var(--cream-100); }
         .stat-bar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
-        .stat-bar-item { display: flex; flex-direction: column; gap: 8px; }
-        .stat-bar-num { font-family: 'Fraunces', serif; font-size: 2.6rem; color: var(--cream-50); font-weight: 400; line-height: 1; letter-spacing: -0.02em; }
-        .stat-bar-lbl { font-size: 0.88rem; color: var(--forest-200); line-height: 1.4; }
+        .stat-bar-item { text-align: center; }
+        .stat-bar-num {
+            font-family: 'Fraunces', serif;
+            font-size: clamp(2.4rem, 4vw, 3.2rem);
+            color: var(--cream-50);
+            font-weight: 400;
+            line-height: 1;
+            letter-spacing: -0.02em;
+        }
+        .stat-bar-num em { color: var(--forest-300); font-style: italic; }
+        .stat-bar-lbl { font-size: 0.85rem; color: var(--forest-200); margin-top: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
 
-        /* Section base — varied emphasis (NOT all italic) */
-        section { padding: 96px 0; }
-        .section-eyebrow { font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; color: var(--clay-700); margin-bottom: 18px; display: block; }
-        .section-title { font-size: clamp(1.9rem, 4vw, 3rem); color: var(--forest-900); margin-bottom: 18px; max-width: 700px; font-weight: 400; letter-spacing: -0.02em; line-height: 1.1; }
-        .section-lead { font-size: 1.12rem; color: var(--ink-700); max-width: 620px; margin-bottom: 64px; line-height: 1.55; }
+        /* ====== Sections ====== */
+        section { padding: 120px 0; }
+        .section-eyebrow {
+            font-size: 0.78rem; font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: var(--clay-700);
+            margin-bottom: 20px;
+        }
+        .section-title {
+            font-size: clamp(2rem, 4.5vw, 3.6rem);
+            color: var(--forest-900);
+            margin-bottom: 20px;
+            max-width: 760px;
+            letter-spacing: -0.025em;
+            font-weight: 400;
+        }
+        .section-title em { font-style: italic; color: var(--forest-700); font-weight: 300; }
+        .section-lead {
+            font-size: 1.2rem;
+            color: var(--ink-700);
+            max-width: 640px;
+            margin-bottom: 72px;
+            line-height: 1.55;
+        }
 
-        /* Pillars — simpler cards, small inline icons */
+        /* ====== Pillars (3 col with images) ====== */
         .pillars { background: white; }
-        .pillars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+        .pillars-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; }
         .pillar {
-            padding: 36px 30px;
+            background: var(--cream-50);
+            border-radius: var(--radius-lg);
+            padding: 0;
+            overflow: hidden;
+            transition: transform 0.3s, box-shadow 0.3s;
+            border: 1px solid var(--cream-200);
+        }
+        .pillar:hover { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+        .pillar-visual {
+            height: 200px;
+            background: var(--forest-100);
+            position: relative;
+            overflow: hidden;
+        }
+        .pillar-visual svg.bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+        .pillar-icon-large {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 80px; height: 80px;
+            background: white; border-radius: 50%;
+            display: grid; place-items: center;
+            box-shadow: var(--shadow-md);
+        }
+        .pillar-icon-large svg { width: 36px; height: 36px; stroke: var(--forest-700); fill: none; stroke-width: 1.8; }
+        .pillar-visual.warm { background: var(--clay-100); }
+        .pillar-visual.warm .pillar-icon-large svg { stroke: var(--clay-700); }
+        .pillar-visual.sand { background: var(--cream-200); }
+        .pillar-content { padding: 32px 32px 36px; }
+        .pillar-content h3 {
+            font-size: 1.55rem;
+            color: var(--forest-900);
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+        .pillar-content p { color: var(--ink-700); font-size: 1rem; line-height: 1.55; }
+
+        /* ====== Features detail (alternating image+text) ====== */
+        .feature-detail { background: var(--cream-50); }
+        .feature-row {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 80px;
+            align-items: center;
+            margin-bottom: 120px;
+        }
+        .feature-row:last-child { margin-bottom: 0; }
+        .feature-row.reverse { direction: rtl; }
+        .feature-row.reverse > * { direction: ltr; }
+        .feature-text .section-eyebrow { color: var(--forest-600); }
+        .feature-text h3 {
+            font-size: clamp(1.8rem, 3vw, 2.4rem);
+            color: var(--forest-900);
+            margin-bottom: 18px;
+            font-weight: 400;
+        }
+        .feature-text p { color: var(--ink-700); font-size: 1.1rem; margin-bottom: 24px; line-height: 1.55; }
+        .feature-bullets { list-style: none; display: flex; flex-direction: column; gap: 14px; }
+        .feature-bullets li { display: flex; gap: 12px; color: var(--ink-700); font-size: 1rem; }
+        .feature-bullets li::before {
+            content: ''; width: 20px; height: 20px;
+            background: var(--forest-600);
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat;
+            -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat;
+            flex-shrink: 0; margin-top: 3px;
+        }
+        .feature-visual {
+            background: white;
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--cream-200);
+            min-height: 360px;
+            display: flex; flex-direction: column;
+        }
+        .vis-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .vis-table th { text-align: left; padding: 10px 12px; color: var(--ink-500); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--cream-200); }
+        .vis-table td { padding: 14px 12px; border-bottom: 1px solid var(--cream-100); color: var(--ink-900); }
+        .vis-table tr:last-child td { border-bottom: none; }
+        .vis-badge { font-size: 0.7rem; font-weight: 600; padding: 3px 10px; border-radius: 99px; background: var(--forest-100); color: var(--forest-700); }
+        .vis-badge.warn { background: var(--clay-100); color: var(--clay-700); }
+        .vis-badge.danger { background: #fde2e2; color: #9b2c2c; }
+
+        .vis-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; flex: 1; }
+        .vis-cal-cell {
+            aspect-ratio: 1;
+            background: var(--cream-100);
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.7rem;
+            color: var(--ink-500);
+            position: relative;
+        }
+        .vis-cal-cell.has-event { background: var(--forest-50); color: var(--forest-800); font-weight: 600; }
+        .vis-cal-cell.has-event::after { content: ''; position: absolute; bottom: 6px; left: 6px; right: 6px; height: 4px; background: var(--forest-500); border-radius: 2px; }
+        .vis-cal-cell.has-many::after { background: var(--clay-600); }
+
+        .vis-chart {
+            display: flex; align-items: flex-end; gap: 12px;
+            flex: 1; padding-top: 20px;
+        }
+        .vis-bar { flex: 1; background: linear-gradient(180deg, var(--forest-400), var(--forest-700)); border-radius: 6px 6px 0 0; position: relative; }
+        .vis-bar-lbl { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: var(--ink-500); }
+
+        /* ====== Audience ====== */
+        .audience { background: white; }
+        .audience-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-top: 24px; }
+        .audience-card {
+            padding: 32px 28px;
             background: var(--cream-50);
             border-radius: var(--radius-lg);
             border: 1px solid var(--cream-200);
             transition: all 0.2s;
         }
-        .pillar:hover { background: white; border-color: var(--forest-200); box-shadow: var(--shadow-md); transform: translateY(-2px); }
-        .pillar-icon { width: 44px; height: 44px; background: var(--forest-100); border-radius: var(--radius-md); display: grid; place-items: center; margin-bottom: 20px; }
-        .pillar.accent .pillar-icon { background: var(--clay-100); }
-        .pillar-icon svg { width: 22px; height: 22px; stroke: var(--forest-700); fill: none; stroke-width: 2; }
-        .pillar.accent .pillar-icon svg { stroke: var(--clay-700); }
-        .pillar h3 { font-size: 1.4rem; color: var(--forest-900); margin-bottom: 10px; font-weight: 500; }
-        .pillar p { color: var(--ink-700); font-size: 0.98rem; line-height: 1.55; }
+        .audience-card:hover { background: white; border-color: var(--forest-300); box-shadow: var(--shadow-md); }
+        .audience-card-icon { font-family: 'Fraunces', serif; font-size: 2.4rem; color: var(--clay-600); margin-bottom: 12px; line-height: 1; font-weight: 300; }
+        .audience-card h4 { font-size: 1.2rem; color: var(--forest-900); margin-bottom: 10px; font-weight: 500; }
+        .audience-card p { color: var(--ink-700); font-size: 0.95rem; line-height: 1.55; }
 
-        /* Feature detail — keep alternating rows, simpler visuals */
-        .feature-detail { background: var(--cream-50); }
-        .feature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center; margin-bottom: 96px; }
-        .feature-row:last-child { margin-bottom: 0; }
-        .feature-row.reverse { direction: rtl; }
-        .feature-row.reverse > * { direction: ltr; }
-        .feature-text .step-num { font-family: 'Fraunces', serif; font-size: 2.4rem; color: var(--clay-700); line-height: 1; margin-bottom: 14px; font-weight: 400; }
-        .feature-text h3 { font-size: clamp(1.6rem, 2.6vw, 2.1rem); color: var(--forest-900); margin-bottom: 16px; font-weight: 500; }
-        .feature-text p { color: var(--ink-700); font-size: 1.05rem; margin-bottom: 22px; line-height: 1.55; }
-        .feature-bullets { list-style: none; display: flex; flex-direction: column; gap: 12px; }
-        .feature-bullets li { display: flex; gap: 11px; color: var(--ink-700); font-size: 0.98rem; }
-        .feature-bullets li::before { content: ''; width: 16px; height: 16px; background: var(--forest-700); border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
-        .feature-visual { background: white; border-radius: var(--radius-lg); padding: 28px; box-shadow: var(--shadow-md); border: 1px solid var(--cream-200); min-height: 320px; display: flex; flex-direction: column; }
-        .vis-label { font-size: 0.78rem; color: var(--ink-500); margin-bottom: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; }
-        .vis-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
-        .vis-table th { text-align: left; padding: 9px 10px; color: var(--ink-500); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid var(--cream-200); }
-        .vis-table td { padding: 13px 10px; border-bottom: 1px solid var(--cream-100); color: var(--ink-900); }
-        .vis-table tr:last-child td { border-bottom: none; }
-        .vis-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; flex: 1; }
-        .vis-cal-cell { aspect-ratio: 1; background: var(--cream-100); border-radius: 5px; padding: 6px; font-size: 0.7rem; color: var(--ink-500); position: relative; }
-        .vis-cal-cell.has-event { background: var(--forest-50); color: var(--forest-800); font-weight: 600; }
-        .vis-cal-cell.has-event::after { content: ''; position: absolute; bottom: 6px; left: 6px; right: 6px; height: 3px; background: var(--forest-500); border-radius: 2px; }
-        .vis-cal-cell.has-many::after { background: var(--clay-600); }
-        .vis-chart { display: flex; align-items: flex-end; gap: 12px; flex: 1; padding-top: 24px; }
-        .vis-bar { flex: 1; background: var(--forest-700); border-radius: 4px 4px 0 0; position: relative; }
-        .vis-bar-lbl { position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: var(--ink-500); white-space: nowrap; }
-
-        /* Audience — leaner */
-        .audience { background: white; }
-        .audience-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
-        .audience-card { padding: 28px 24px; background: var(--cream-50); border-radius: var(--radius-md); border: 1px solid var(--cream-200); }
-        .audience-card h4 { font-size: 1.1rem; color: var(--forest-900); margin-bottom: 8px; font-weight: 500; font-family: 'Fraunces', serif; }
-        .audience-card p { color: var(--ink-700); font-size: 0.92rem; line-height: 1.5; }
-        .audience-card-marker { font-size: 0.7rem; color: var(--clay-700); text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 14px; }
-
-        /* Quote */
-        .quote { background: var(--forest-50); padding: 88px 0; }
-        .quote-content { max-width: 880px; margin: 0 auto; text-align: center; }
-        .quote-text { font-family: 'Fraunces', serif; font-size: clamp(1.4rem, 2.6vw, 2rem); line-height: 1.4; color: var(--forest-900); margin-bottom: 28px; font-weight: 400; }
-        .quote-author { display: flex; align-items: center; justify-content: center; gap: 12px; }
-        .quote-author-avatar { width: 48px; height: 48px; border-radius: 50%; background: var(--forest-700); display: grid; place-items: center; color: var(--cream-50); font-family: 'Fraunces', serif; font-size: 1.2rem; }
+        /* ====== Testimonial ====== */
+        .quote { background: var(--forest-50); padding: 100px 0; }
+        .quote-content { max-width: 920px; margin: 0 auto; text-align: center; }
+        .quote-mark { font-family: 'Fraunces', serif; font-size: 6rem; color: var(--forest-300); line-height: 0.6; margin-bottom: 0; }
+        .quote-text {
+            font-family: 'Fraunces', serif;
+            font-size: clamp(1.5rem, 3vw, 2.2rem);
+            line-height: 1.35;
+            color: var(--forest-900);
+            margin-bottom: 32px;
+            font-weight: 400;
+            font-style: italic;
+            letter-spacing: -0.015em;
+        }
+        .quote-author { display: flex; align-items: center; justify-content: center; gap: 14px; }
+        .quote-author-avatar {
+            width: 56px; height: 56px; border-radius: 50%;
+            background: var(--forest-700);
+            display: grid; place-items: center;
+            color: var(--cream-50);
+            font-family: 'Fraunces', serif;
+            font-size: 1.4rem;
+        }
         .quote-author-info { text-align: left; }
-        .quote-author-name { font-weight: 600; color: var(--forest-900); font-size: 0.95rem; }
-        .quote-author-title { font-size: 0.85rem; color: var(--ink-500); }
+        .quote-author-name { font-weight: 600; color: var(--forest-900); }
+        .quote-author-title { font-size: 0.9rem; color: var(--ink-500); }
 
-        /* CTA banner */
-        .cta-banner { background: var(--forest-900); color: var(--cream-100); padding: 88px 0; }
-        .cta-banner-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 48px; align-items: center; }
-        .cta-banner h2 { color: var(--cream-50); font-size: clamp(1.9rem, 3.6vw, 2.8rem); max-width: 620px; margin-bottom: 14px; font-weight: 400; letter-spacing: -0.02em; }
-        .cta-banner p { color: var(--forest-200); max-width: 540px; font-size: 1.05rem; line-height: 1.5; }
-        .cta-banner .btn-clay { padding: 18px 32px; }
+        /* ====== CTA banner ====== */
+        .cta-banner {
+            background: var(--forest-900);
+            color: var(--cream-100);
+            padding: 100px 0;
+            position: relative;
+            overflow: hidden;
+        }
+        .cta-banner::before {
+            content: ''; position: absolute;
+            top: -50%; right: -10%; width: 60%; height: 200%;
+            background: radial-gradient(circle, var(--forest-700) 0%, transparent 60%);
+            opacity: 0.6;
+        }
+        .cta-banner .container { position: relative; }
+        .cta-banner-grid {
+            display: grid; grid-template-columns: 2fr 1fr; gap: 60px;
+            align-items: center;
+        }
+        .cta-banner h2 {
+            color: var(--cream-50);
+            font-size: clamp(2rem, 4vw, 3.4rem);
+            max-width: 680px;
+            margin-bottom: 18px;
+            font-weight: 400;
+        }
+        .cta-banner h2 em { color: var(--forest-300); font-style: italic; font-weight: 300; }
+        .cta-banner p {
+            color: var(--forest-200);
+            max-width: 580px;
+            font-size: 1.15rem;
+            line-height: 1.5;
+        }
+        .cta-banner .btn-clay { padding: 20px 36px; font-size: 1.05rem; }
 
-        /* Footer */
-        footer { background: var(--forest-950); color: var(--forest-200); padding: 64px 0 32px; }
-        .footer-top { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr; gap: 48px; margin-bottom: 48px; }
-        .footer-brand .brand { color: white; margin-bottom: 16px; }
-        .footer-brand p { color: var(--forest-300); font-size: 0.92rem; max-width: 280px; line-height: 1.5; }
-        .footer-col h5 { font-family: 'Inter', sans-serif; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--cream-100); margin-bottom: 16px; }
-        .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
-        .footer-col a { color: var(--forest-300); font-size: 0.92rem; }
+        /* ====== Footer ====== */
+        footer {
+            background: var(--forest-950);
+            color: var(--forest-200);
+            padding: 80px 0 40px;
+        }
+        .footer-top {
+            display: grid; grid-template-columns: 1.5fr 1fr 1fr 1fr;
+            gap: 56px;
+            margin-bottom: 56px;
+        }
+        .footer-brand .brand { color: white; margin-bottom: 20px; }
+        .footer-brand .brand-mark { background: var(--forest-700); }
+        .footer-brand p { color: var(--forest-300); font-size: 0.95rem; max-width: 280px; line-height: 1.55; }
+        .footer-col h5 {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 0.14em; color: var(--cream-100); margin-bottom: 20px;
+        }
+        .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+        .footer-col a { color: var(--forest-300); font-size: 0.95rem; transition: color 0.2s; }
         .footer-col a:hover { color: white; }
-        .footer-bottom { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 24px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; color: var(--forest-300); font-size: 0.85rem; }
+        .footer-bottom {
+            border-top: 1px solid rgba(255,255,255,0.06);
+            padding-top: 28px;
+            display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+            color: var(--forest-300); font-size: 0.9rem;
+        }
 
+        /* ====== Responsive ====== */
         @media (max-width: 1040px) {
-            .hero-grid { grid-template-columns: 1fr; gap: 56px; }
-            .feature-row { grid-template-columns: 1fr; gap: 40px; margin-bottom: 64px; }
+            .hero-grid { grid-template-columns: 1fr; gap: 60px; }
+            .feature-row { grid-template-columns: 1fr; gap: 48px; margin-bottom: 80px; }
             .pillars-grid, .audience-grid { grid-template-columns: repeat(2, 1fr); }
-            .stat-bar-grid { grid-template-columns: repeat(2, 1fr); }
-            .cta-banner-grid { grid-template-columns: 1fr; }
-            section { padding: 64px 0; }
+            .stat-bar-grid { grid-template-columns: repeat(2, 1fr); gap: 40px; }
+            .cta-banner-grid { grid-template-columns: 1fr; gap: 32px; }
+            section { padding: 80px 0; }
         }
         @media (max-width: 640px) {
-            .container { padding: 0 20px; }
-            .nav-links { gap: 14px; }
+            .container { padding: 0 22px; }
+            .nav-links { gap: 16px; }
             .nav-links a:not(.nav-cta) { display: none; }
             .pillars-grid, .audience-grid { grid-template-columns: 1fr; }
-            .footer-top { grid-template-columns: 1fr 1fr; }
+            .footer-top { grid-template-columns: 1fr 1fr; gap: 32px; }
             .footer-top .footer-brand { grid-column: 1 / -1; }
-            .stat-bar-grid { grid-template-columns: 1fr 1fr; }
+            .stat-bar-grid { grid-template-columns: repeat(2, 1fr); }
+            .hero h1 { font-size: 2.6rem; }
+            section { padding: 64px 0; }
         }
     </style>
 </head>
 <body>
+
 <header class="site-header">
     <div class="container">
         <a href="/" class="brand">
-            <div class="brand-mark"><svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></div>
-            demohub
+            <div class="brand-mark">
+                <svg viewBox="0 0 24 24"><path d="M12 2C8 6 6 9 6 13a6 6 0 0 0 12 0c0-4-2-7-6-11z"/></svg>
+            </div>
+            Demohub
         </a>
         <nav class="nav-links">
             <a href="#platform">Platform</a>
             <a href="#how-it-works">How it works</a>
             <a href="#for-who">Who it's for</a>
             <a href="#pricing">Pricing</a>
-            <a href="/r/gus" class="nav-cta">Sign in</a>
+            <a href="/signin" class="nav-cta">Sign in</a>
         </nav>
     </div>
 </header>
@@ -229,52 +557,78 @@
 <section class="hero">
     <div class="container hero-grid">
         <div>
-            <div class="hero-eyebrow">For independent retailers</div>
-            <h1>
-                <span class="stack">Every demo.</span>
-                <span class="stack">Every store.</span>
-                <span class="stack punch">One place.</span>
-            </h1>
-            <p class="hero-sub">Demohub gives independent retailers a calm place to schedule brand demos, track compliance, and run every store from one dashboard. Less spreadsheet. More revenue.</p>
+            <div class="hero-eyebrow"><span class="dot"></span> Built for independent retailers</div>
+            <h1>Every demo. <em>Every store.</em> One place.</h1>
+            <p class="hero-sub">Demohub gives independent retailers a single, calm place to schedule brand demos, track compliance, and run every store from one dashboard — without the spreadsheet nightmare.</p>
             <div class="hero-cta-row">
-                <a href="#platform" class="btn btn-primary">Learn more<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg></a>
+                <a href="#platform" class="btn btn-primary">
+                    Learn more
+                    <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </a>
                 <a href="#cta" class="btn btn-secondary">Request a walkthrough</a>
             </div>
             <div class="hero-meta">
-                <div class="hero-meta-item"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> 30-day free trial</div>
-                <div class="hero-meta-item"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Earn from your first booking</div>
+                <div class="hero-meta-item"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Free 30-day trial</div>
+                <div class="hero-meta-item"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> No credit card to start</div>
                 <div class="hero-meta-item"><svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg> Set up in an afternoon</div>
             </div>
         </div>
-        <div>
+
+        <div class="hero-visual">
             <div class="dash-frame">
                 <div class="dash-titlebar">
                     <div class="dot-mac" style="background:#ed6a5e;"></div>
                     <div class="dot-mac" style="background:#f4bf4f;"></div>
                     <div class="dot-mac" style="background:#61c454;"></div>
+                    <div class="dash-url">demohubhq.com/r/gus/admin</div>
                 </div>
                 <div class="dash-body">
-                    <div class="dash-greeting">This week</div>
-                    <div class="dash-date">Feb 16 – Feb 22</div>
+                    <div class="dash-header">
+                        <div>
+                            <div class="dash-greeting">This week</div>
+                            <div class="dash-date">Feb 16 – Feb 22, 2026</div>
+                        </div>
+                    </div>
                     <div class="dash-stats">
-                        <div class="dash-stat"><div class="dash-stat-num">12</div><div class="dash-stat-lbl">Demos</div><div class="dash-stat-delta">↑ 3 vs last</div></div>
-                        <div class="dash-stat"><div class="dash-stat-num">$360</div><div class="dash-stat-lbl">Revenue</div><div class="dash-stat-delta">↑ 25%</div></div>
-                        <div class="dash-stat"><div class="dash-stat-num">5</div><div class="dash-stat-lbl">Stores</div><div class="dash-stat-delta">All active</div></div>
+                        <div class="dash-stat">
+                            <div class="dash-stat-num">12</div>
+                            <div class="dash-stat-lbl">Demos</div>
+                            <div class="dash-stat-delta">↑ 3 vs last</div>
+                        </div>
+                        <div class="dash-stat">
+                            <div class="dash-stat-num">$360</div>
+                            <div class="dash-stat-lbl">Revenue</div>
+                            <div class="dash-stat-delta">↑ 25%</div>
+                        </div>
+                        <div class="dash-stat">
+                            <div class="dash-stat-num">5</div>
+                            <div class="dash-stat-lbl">Stores</div>
+                            <div class="dash-stat-delta">All active</div>
+                        </div>
                     </div>
                     <div class="dash-section-label">Upcoming this week</div>
                     <div class="dash-row">
                         <div class="dash-row-icon">SF</div>
-                        <div class="dash-row-main"><div class="dash-row-title">Sunrise Foods — Organic Granola</div><div class="dash-row-sub">Mission Bay · Feb 16 · 11:00 AM</div></div>
+                        <div class="dash-row-main">
+                            <div class="dash-row-title">Sunrise Foods — Organic Granola</div>
+                            <div class="dash-row-sub">Mission Bay · Feb 16 · 11:00 AM</div>
+                        </div>
                         <div class="dash-row-badge">Confirmed</div>
                     </div>
                     <div class="dash-row alert">
                         <div class="dash-row-icon">GV</div>
-                        <div class="dash-row-main"><div class="dash-row-title">Green Valley Farms — Plant Cheese</div><div class="dash-row-sub">Haight St. · COI expires in 6 days</div></div>
+                        <div class="dash-row-main">
+                            <div class="dash-row-title">Green Valley Farms — Plant Cheese</div>
+                            <div class="dash-row-sub">Haight St. · COI expires in 6 days</div>
+                        </div>
                         <div class="dash-row-badge">Action needed</div>
                     </div>
                     <div class="dash-row">
                         <div class="dash-row-icon">BB</div>
-                        <div class="dash-row-main"><div class="dash-row-title">Bay Beverages — Cold Brew</div><div class="dash-row-sub">Mission · Feb 18 · 3:00 PM</div></div>
+                        <div class="dash-row-main">
+                            <div class="dash-row-title">Bay Beverages — Cold Brew</div>
+                            <div class="dash-row-sub">Mission · Feb 18 · 3:00 PM</div>
+                        </div>
                         <div class="dash-row-badge">Confirmed</div>
                     </div>
                 </div>
@@ -286,34 +640,79 @@
 <section class="stat-bar">
     <div class="container">
         <div class="stat-bar-grid">
-            <div class="stat-bar-item"><div class="stat-bar-num">15 min</div><div class="stat-bar-lbl">Average setup time, start to first demo booked</div></div>
-            <div class="stat-bar-item"><div class="stat-bar-num">Zero</div><div class="stat-bar-lbl">Email threads to coordinate any demo</div></div>
-            <div class="stat-bar-item"><div class="stat-bar-num">100%</div><div class="stat-bar-lbl">Brands compliant the moment they book</div></div>
-            <div class="stat-bar-item"><div class="stat-bar-num">One</div><div class="stat-bar-lbl">Dashboard for every store's data</div></div>
+            <div class="stat-bar-item">
+                <div class="stat-bar-num">15<em>min</em></div>
+                <div class="stat-bar-lbl">Average setup time</div>
+            </div>
+            <div class="stat-bar-item">
+                <div class="stat-bar-num">0</div>
+                <div class="stat-bar-lbl">Email threads to coordinate a demo</div>
+            </div>
+            <div class="stat-bar-item">
+                <div class="stat-bar-num">100<em>%</em></div>
+                <div class="stat-bar-lbl">Brands compliant at booking</div>
+            </div>
+            <div class="stat-bar-item">
+                <div class="stat-bar-num">1</div>
+                <div class="stat-bar-lbl">Place for every store's data</div>
+            </div>
         </div>
     </div>
 </section>
 
 <section id="platform" class="pillars">
     <div class="container">
-        <span class="section-eyebrow">The platform</span>
-        <h2 class="section-title">Built for how independent retailers actually work.</h2>
+        <div class="section-eyebrow">The platform</div>
+        <h2 class="section-title">Built around <em>how independent retailers actually work.</em></h2>
         <p class="section-lead">Not a CRM. Not a scheduling app. A purpose-built operations layer for retailers who care about brand discovery and shopper experience.</p>
+
         <div class="pillars-grid">
             <article class="pillar">
-                <div class="pillar-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
-                <h3>Booking that runs itself</h3>
-                <p>Brands self-serve on your portal. Pick a store, pick a time, sign the agreement, done. You wake up to a full week.</p>
+                <div class="pillar-visual">
+                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
+                        <defs><pattern id="grid1" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(15,44,23,0.06)" stroke-width="1"/></pattern></defs>
+                        <rect width="400" height="200" fill="url(#grid1)"/>
+                    </svg>
+                    <div class="pillar-icon-large">
+                        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15" r="2" fill="currentColor"/></svg>
+                    </div>
+                </div>
+                <div class="pillar-content">
+                    <h3>Booking that runs itself</h3>
+                    <p>Brands self-serve on your portal. Pick a store, pick a time, sign the agreement, done. You wake up to a full week.</p>
+                </div>
             </article>
-            <article class="pillar accent">
-                <div class="pillar-icon"><svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.68.94 6.36 2.64"/></svg></div>
-                <h3>Compliance, automated</h3>
-                <p>Track COIs, food handler certs, signed agreements — per brand, per contact. Auto-alerts before anything expires.</p>
-            </article>
+
             <article class="pillar">
-                <div class="pillar-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
-                <h3>Numbers that move things</h3>
-                <p>Revenue per store. Top brands. Seasonal trends. Real metrics, no manual exports. Make next quarter's plan in twenty minutes.</p>
+                <div class="pillar-visual warm">
+                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
+                        <defs><pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(161,78,42,0.08)" stroke-width="1"/></pattern></defs>
+                        <rect width="400" height="200" fill="url(#grid2)"/>
+                    </svg>
+                    <div class="pillar-icon-large">
+                        <svg viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><path d="M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.39 0 4.68.94 6.36 2.64"/></svg>
+                    </div>
+                </div>
+                <div class="pillar-content">
+                    <h3>Compliance, automated</h3>
+                    <p>Track COIs, food handler certs, signed agreements — per brand, per contact. Auto-alerts before anything expires.</p>
+                </div>
+            </article>
+
+            <article class="pillar">
+                <div class="pillar-visual sand">
+                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
+                        <defs><pattern id="grid3" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(15,44,23,0.06)" stroke-width="1"/></pattern></defs>
+                        <rect width="400" height="200" fill="url(#grid3)"/>
+                    </svg>
+                    <div class="pillar-icon-large">
+                        <svg viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    </div>
+                </div>
+                <div class="pillar-content">
+                    <h3>Numbers that move things</h3>
+                    <p>Revenue per store. Top brands. Seasonal trends. Real metrics, no manual exports. Make next quarter's plan in twenty minutes.</p>
+                </div>
             </article>
         </div>
     </div>
@@ -321,22 +720,21 @@
 
 <section id="how-it-works" class="feature-detail">
     <div class="container">
-        <span class="section-eyebrow">How it works</span>
-        <h2 class="section-title">A working demo program in an afternoon.</h2>
+        <div class="section-eyebrow">How it works</div>
+        <h2 class="section-title">A working demo program <em>in an afternoon.</em></h2>
 
         <div class="feature-row">
             <div class="feature-text">
-                <div class="step-num">01</div>
+                <div class="section-eyebrow">01 — Set up</div>
                 <h3>Configure your stores in fifteen minutes.</h3>
                 <p>Add each location, set demo availability per store, configure your fee. We'll seed your contacts and venues so you're not starting from scratch.</p>
                 <ul class="feature-bullets">
                     <li>Per-store availability and pricing</li>
                     <li>Import contacts from CSV or your CRM</li>
-                    <li>Brand templates and compliance requirements</li>
+                    <li>Set up brand templates and compliance requirements</li>
                 </ul>
             </div>
             <div class="feature-visual">
-                <div class="vis-label">Your stores</div>
                 <table class="vis-table">
                     <thead><tr><th>Store</th><th>Days</th><th>Hours</th><th>Fee</th></tr></thead>
                     <tbody>
@@ -352,38 +750,56 @@
 
         <div class="feature-row reverse">
             <div class="feature-text">
-                <div class="step-num">02</div>
-                <h3>Share your portal link with every brand.</h3>
-                <p>Brands click, pick, sign, pay. No back-and-forth. No double-bookings. No "did Sarah confirm?" messages at 9 PM.</p>
+                <div class="section-eyebrow">02 — Share</div>
+                <h3>Your portal link goes to every brand you work with.</h3>
+                <p>Brands click, pick, sign, pay. No back-and-forth. No double-bookings. No "did Sarah confirm?" Slack messages at 9 PM.</p>
                 <ul class="feature-bullets">
                     <li>Branded with your store's identity</li>
-                    <li>Real-time availability across all locations</li>
-                    <li>Compliance checks at booking, not after</li>
+                    <li>Real-time availability across all your locations</li>
+                    <li>Compliance checks happen at booking, not after</li>
                 </ul>
             </div>
             <div class="feature-visual">
-                <div class="vis-label">February 2026</div>
+                <div style="font-size: 0.85rem; color: var(--ink-500); margin-bottom: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">February 2026</div>
                 <div class="vis-cal">
-                    <div class="vis-cal-cell">1</div><div class="vis-cal-cell">2</div><div class="vis-cal-cell has-event">3</div><div class="vis-cal-cell">4</div><div class="vis-cal-cell has-event">5</div><div class="vis-cal-cell">6</div><div class="vis-cal-cell">7</div>
-                    <div class="vis-cal-cell has-event">8</div><div class="vis-cal-cell">9</div><div class="vis-cal-cell has-many">10</div><div class="vis-cal-cell">11</div><div class="vis-cal-cell has-event">12</div><div class="vis-cal-cell">13</div><div class="vis-cal-cell">14</div>
-                    <div class="vis-cal-cell">15</div><div class="vis-cal-cell has-event">16</div><div class="vis-cal-cell">17</div><div class="vis-cal-cell has-event">18</div><div class="vis-cal-cell">19</div><div class="vis-cal-cell has-many">20</div><div class="vis-cal-cell">21</div>
+                    <div class="vis-cal-cell">1</div>
+                    <div class="vis-cal-cell">2</div>
+                    <div class="vis-cal-cell has-event">3</div>
+                    <div class="vis-cal-cell">4</div>
+                    <div class="vis-cal-cell has-event">5</div>
+                    <div class="vis-cal-cell">6</div>
+                    <div class="vis-cal-cell">7</div>
+                    <div class="vis-cal-cell has-event">8</div>
+                    <div class="vis-cal-cell">9</div>
+                    <div class="vis-cal-cell has-many">10</div>
+                    <div class="vis-cal-cell">11</div>
+                    <div class="vis-cal-cell has-event">12</div>
+                    <div class="vis-cal-cell">13</div>
+                    <div class="vis-cal-cell">14</div>
+                    <div class="vis-cal-cell">15</div>
+                    <div class="vis-cal-cell has-event">16</div>
+                    <div class="vis-cal-cell">17</div>
+                    <div class="vis-cal-cell has-event">18</div>
+                    <div class="vis-cal-cell">19</div>
+                    <div class="vis-cal-cell has-many">20</div>
+                    <div class="vis-cal-cell">21</div>
                 </div>
             </div>
         </div>
 
         <div class="feature-row">
             <div class="feature-text">
-                <div class="step-num">03</div>
+                <div class="section-eyebrow">03 — Run</div>
                 <h3>One dashboard. Every store. Every week.</h3>
                 <p>See what's booked, who's compliant, what's expiring, what's earning. Generate monthly statements with one click. No more month-end scramble.</p>
                 <ul class="feature-bullets">
-                    <li>Daily and weekly views across stores</li>
+                    <li>Daily and weekly views of every demo across stores</li>
                     <li>Per-brand compliance status at a glance</li>
                     <li>Downloadable statements for accounting</li>
                 </ul>
             </div>
             <div class="feature-visual">
-                <div class="vis-label">Revenue by store · This quarter</div>
+                <div style="font-size: 0.85rem; color: var(--ink-500); margin-bottom: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">Revenue by store · This quarter</div>
                 <div class="vis-chart">
                     <div class="vis-bar" style="height: 55%;"><div class="vis-bar-lbl">Mission Bay</div></div>
                     <div class="vis-bar" style="height: 78%;"><div class="vis-bar-lbl">Mission</div></div>
@@ -398,14 +814,31 @@
 
 <section id="for-who" class="audience">
     <div class="container">
-        <span class="section-eyebrow">Who it's for</span>
-        <h2 class="section-title">For retailers who care about what's on their shelves.</h2>
+        <div class="section-eyebrow">Who it's for</div>
+        <h2 class="section-title">For retailers who <em>care about what's on their shelves.</em></h2>
         <p class="section-lead">Independent grocers, specialty food markets, beverage shops, and small chains — anywhere a great brand meets a curious shopper.</p>
+
         <div class="audience-grid">
-            <div class="audience-card"><div class="audience-card-marker">For</div><h4>Independent grocers</h4><p>Single-store and small-chain grocers championing local brands and curating discovery.</p></div>
-            <div class="audience-card"><div class="audience-card-marker">For</div><h4>Specialty food shops</h4><p>Cheese counters, bakeries, butchers, charcuteries — wherever expertise meets tasting.</p></div>
-            <div class="audience-card"><div class="audience-card-marker">For</div><h4>Beverage retailers</h4><p>Wine shops, craft beer outlets, coffee roasters running structured tasting events.</p></div>
-            <div class="audience-card"><div class="audience-card-marker">For</div><h4>Co-ops & natural markets</h4><p>Member-owned grocers focused on local sourcing and the brands their community wants.</p></div>
+            <div class="audience-card">
+                <div class="audience-card-icon">01</div>
+                <h4>Independent grocers</h4>
+                <p>Single-store and small-chain grocers championing local brands and curating discovery moments.</p>
+            </div>
+            <div class="audience-card">
+                <div class="audience-card-icon">02</div>
+                <h4>Specialty food shops</h4>
+                <p>Cheese counters, bakeries, butchers, charcuteries — anywhere expertise meets tasting.</p>
+            </div>
+            <div class="audience-card">
+                <div class="audience-card-icon">03</div>
+                <h4>Beverage retailers</h4>
+                <p>Wine shops, craft beer outlets, coffee roasters running structured tasting events.</p>
+            </div>
+            <div class="audience-card">
+                <div class="audience-card-icon">04</div>
+                <h4>Co-ops & natural markets</h4>
+                <p>Member-owned grocers focused on local sourcing and the brands their community wants.</p>
+            </div>
         </div>
     </div>
 </section>
@@ -413,10 +846,14 @@
 <section class="quote">
     <div class="container">
         <div class="quote-content">
+            <div class="quote-mark">"</div>
             <p class="quote-text">Before Demohub, demos were chaos — five stores, five spreadsheets, five email threads. Now I open one dashboard and see exactly what's happening this week. It gave us our Mondays back.</p>
             <div class="quote-author">
                 <div class="quote-author-avatar">A</div>
-                <div class="quote-author-info"><div class="quote-author-name">Avery Chen</div><div class="quote-author-title">Operations Lead, Gus's Community Market</div></div>
+                <div class="quote-author-info">
+                    <div class="quote-author-name">Avery Chen</div>
+                    <div class="quote-author-title">Operations Lead · Gus's Community Market</div>
+                </div>
             </div>
         </div>
     </div>
@@ -426,10 +863,15 @@
     <div class="container">
         <div class="cta-banner-grid">
             <div>
-                <h2>Ready to get your Mondays back?</h2>
-                <p>See Demohub with your store's data. Twenty-minute walkthrough, no slides, no sales pressure.</p>
+                <h2>Ready to <em>get your Mondays back?</em></h2>
+                <p>See Demohub with your store's data. Twenty-minute walkthrough, no slides, no sales pressure. You decide if it fits.</p>
             </div>
-            <div><a href="mailto:hello@demohubhq.com?subject=Demohub%20walkthrough%20request" class="btn btn-clay">Request a walkthrough<svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a></div>
+            <div>
+                <a href="mailto:hello@demohubhq.com?subject=Demohub%20walkthrough%20request" class="btn btn-clay">
+                    Request a walkthrough
+                    <svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                </a>
+            </div>
         </div>
     </div>
 </section>
@@ -438,12 +880,37 @@
     <div class="container">
         <div class="footer-top">
             <div class="footer-brand">
-                <div class="brand"><div class="brand-mark"><svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></div>demohub</div>
+                <div class="brand">
+                    <div class="brand-mark">
+                        <svg viewBox="0 0 24 24"><path d="M12 2C8 6 6 9 6 13a6 6 0 0 0 12 0c0-4-2-7-6-11z"/></svg>
+                    </div>
+                    Demohub
+                </div>
                 <p>The demo operations platform built for independent retailers.</p>
             </div>
-            <div class="footer-col"><h5>Product</h5><ul><li><a href="#platform">Platform</a></li><li><a href="#how-it-works">How it works</a></li><li><a href="#for-who">Who it's for</a></li><li><a href="#pricing">Pricing</a></li></ul></div>
-            <div class="footer-col"><h5>Get started</h5><ul><li><a href="#cta">Request a walkthrough</a></li><li><a href="/r/gus">Sign in</a></li><li><a href="mailto:hello@demohubhq.com">Contact</a></li></ul></div>
-            <div class="footer-col"><h5>Company</h5><ul><li><a href="mailto:hello@demohubhq.com">Email us</a></li></ul></div>
+            <div class="footer-col">
+                <h5>Product</h5>
+                <ul>
+                    <li><a href="#platform">Platform</a></li>
+                    <li><a href="#how-it-works">How it works</a></li>
+                    <li><a href="#for-who">Who it's for</a></li>
+                    <li><a href="#pricing">Pricing</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h5>Get started</h5>
+                <ul>
+                    <li><a href="#cta">Request a walkthrough</a></li>
+                    <li><a href="/signin">Sign in</a></li>
+                    <li><a href="mailto:hello@demohubhq.com">Contact</a></li>
+                </ul>
+            </div>
+            <div class="footer-col">
+                <h5>Company</h5>
+                <ul>
+                    <li><a href="mailto:hello@demohubhq.com">Email us</a></li>
+                </ul>
+            </div>
         </div>
         <div class="footer-bottom">
             <div>© 2026 Demohub. All rights reserved.</div>
