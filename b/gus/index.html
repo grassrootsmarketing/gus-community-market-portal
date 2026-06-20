@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brand Portal — Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --forest-900: #0f2c17; --forest-700: #1f4a26; --forest-600: #2a5b32; --forest-500: #3a7142;
+  --forest-100: #e3edd6; --forest-50: #f4f7ef;
+  --cream-50: #fbf7f0; --cream-100: #f6f0e4; --cream-200: #ede3d0;
+  --clay-700: #a14e2a; --clay-600: #c46e3a;
+  --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.55; min-height: 100vh; }
+.nav { padding: 18px 28px; display: flex; align-items: center; justify-content: space-between; background: white; border-bottom: 1px solid rgba(15,44,23,0.06); }
+.nav .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.nav .brand-mark { width: 30px; height: 30px; }
+.nav .brand-text { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.1rem; letter-spacing: -0.04em; color: var(--forest-900); }
+.nav .who { font-size: 0.85rem; color: var(--ink-500); }
+.nav .who a { color: var(--clay-700); text-decoration: none; margin-left: 12px; }
+.container { max-width: 880px; margin: 32px auto; padding: 0 24px; }
+h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.2rem; font-weight: 400; color: var(--forest-900); margin-bottom: 6px; }
+h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; font-weight: 400; color: var(--forest-900); margin: 28px 0 12px; }
+.lede { color: var(--ink-700); margin-bottom: 28px; }
+.card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+.label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
+.input { width: 100%; padding: 12px 14px; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; font-size: 0.95rem; font-family: inherit; background: white; color: var(--ink-900); }
+.input:focus { outline: none; border-color: var(--forest-500); }
+.btn { padding: 12px 22px; background: var(--forest-900); color: white; border: none; border-radius: 10px; font-size: 0.95rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+.btn:hover { background: var(--forest-700); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-secondary { background: white; color: var(--forest-900); border: 1.5px solid rgba(15,44,23,0.12); }
+.btn-secondary:hover { background: var(--cream-100); }
+.notice { padding: 14px 18px; border-radius: 10px; font-size: 0.9rem; margin-bottom: 16px; }
+.notice.ok { background: var(--forest-50); color: var(--forest-700); border-left: 3px solid var(--forest-600); }
+.notice.err { background: #fdebe5; color: var(--clay-700); border-left: 3px solid var(--clay-700); }
+.notice.info { background: var(--cream-100); color: var(--ink-700); border-left: 3px solid var(--ink-500); }
+table { width: 100%; border-collapse: collapse; }
+th { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); font-weight: 700; text-align: left; padding: 10px 12px; border-bottom: 1px solid rgba(15,44,23,0.08); }
+td { padding: 14px 12px; border-bottom: 1px solid rgba(15,44,23,0.04); font-size: 0.95rem; color: var(--ink-900); }
+.status { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.status.confirmed { background: var(--forest-100); color: var(--forest-700); }
+.status.pending { background: #fff3e0; color: var(--clay-700); }
+.status.completed { background: var(--cream-200); color: var(--ink-700); }
+.status.expired { background: #fdebe5; color: var(--clay-700); }
+.empty { text-align: center; padding: 40px 20px; color: var(--ink-500); font-size: 0.95rem; }
+.hide { display: none !important; }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="36" cy="36" r="36" fill="#0f2c17"/>
+      <circle cx="36" cy="40" r="18" fill="#ed682f"/>
+      <rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/>
+      <path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/>
+    </svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <div class="who" id="who"></div>
+</nav>
+
+<main class="container">
+
+  <!-- LOGIN VIEW -->
+  <div id="loginView">
+    <h1>Brand portal</h1>
+    <p class="lede">Enter your email to see your upcoming demos and manage your compliance docs. We'll send you a one-time sign-in link.</p>
+    <div class="card">
+      <div id="loginNotice" class="notice hide"></div>
+      <form id="loginForm">
+        <div style="margin-bottom:16px;">
+          <label class="label" for="email">Email address</label>
+          <input class="input" id="email" type="email" placeholder="you@yourbrand.com" required>
+        </div>
+        <button class="btn" type="submit" id="loginBtn">Send sign-in link</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- DASHBOARD VIEW -->
+  <div id="dashboardView" class="hide">
+    <h1 id="brandHeading">Your demos</h1>
+    <p class="lede" id="brandSub"></p>
+
+    <h2>Upcoming &amp; recent demos</h2>
+    <div class="card" id="demosCard">
+      <div class="empty">Loading…</div>
+    </div>
+
+    <h2>Compliance documents</h2>
+    <div class="card" id="complianceCard">
+      <div class="empty">Loading…</div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const RETAILER_SLUG = (location.pathname.match(/\/b\/([^/]+)/) || [])[1] || '';
+const SESSION_KEY = 'demohub_brand_session_' + RETAILER_SLUG;
+
+const els = {
+  loginView: document.getElementById('loginView'),
+  dashView: document.getElementById('dashboardView'),
+  loginForm: document.getElementById('loginForm'),
+  emailInput: document.getElementById('email'),
+  loginBtn: document.getElementById('loginBtn'),
+  loginNotice: document.getElementById('loginNotice'),
+  who: document.getElementById('who'),
+  brandHeading: document.getElementById('brandHeading'),
+  brandSub: document.getElementById('brandSub'),
+  demosCard: document.getElementById('demosCard'),
+  complianceCard: document.getElementById('complianceCard'),
+};
+
+function setNotice(text, kind) {
+  els.loginNotice.textContent = text;
+  els.loginNotice.className = 'notice ' + (kind || 'info');
+  els.loginNotice.classList.remove('hide');
+}
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function api(payload) {
+  const r = await fetch('/api/brand-portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  return j;
+}
+
+function showLogin() {
+  els.loginView.classList.remove('hide');
+  els.dashView.classList.add('hide');
+  els.who.innerHTML = '';
+}
+
+function showDash() {
+  els.loginView.classList.add('hide');
+  els.dashView.classList.remove('hide');
+}
+
+function logout() {
+  localStorage.removeItem(SESSION_KEY);
+  showLogin();
+  setNotice('Signed out.', 'info');
+}
+
+async function loadDashboard() {
+  const session_id = localStorage.getItem(SESSION_KEY);
+  if (!session_id) { showLogin(); return; }
+  try {
+    const data = await api({ action: 'data', session_id, retailer_slug: RETAILER_SLUG });
+    showDash();
+    els.brandHeading.textContent = data.brand.company || data.brand.name || 'Your demos';
+    els.brandSub.textContent = `Hi ${data.brand.name || ''} — here's what's coming up at ${data.retailer.name}.`;
+    els.who.innerHTML = `Signed in as <strong style="color:var(--ink-900);">${escapeHtml(data.brand.email)}</strong> <a href="#" id="logoutLink">Sign out</a>`;
+    document.getElementById('logoutLink').addEventListener('click', e => { e.preventDefault(); logout(); });
+
+    // Demos
+    const venueById = Object.fromEntries((data.venues || []).map(v => [v.id, v.name]));
+    const demos = data.demos || [];
+    if (demos.length === 0) {
+      els.demosCard.innerHTML = '<div class="empty">No demos on file yet. Book one at <a href="/r/' + RETAILER_SLUG + '" style="color:var(--forest-700);">/r/' + escapeHtml(RETAILER_SLUG) + '</a>.</div>';
+    } else {
+      els.demosCard.innerHTML = '<table><thead><tr><th>Date</th><th>Time</th><th>Store</th><th>Product</th><th>Status</th></tr></thead><tbody>' + demos.map(d => {
+        const dateLabel = d.demo_date ? new Date(d.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+        const status = (d.status || 'confirmed').toLowerCase();
+        return `<tr>
+          <td>${escapeHtml(dateLabel)}</td>
+          <td>${escapeHtml(d.demo_time || '—')}</td>
+          <td>${escapeHtml(venueById[d.venue_id] || '—')}</td>
+          <td>${escapeHtml(d.product || '—')}</td>
+          <td><span class="status ${status}">${escapeHtml(status.charAt(0).toUpperCase() + status.slice(1))}</span></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+    }
+
+    // Compliance
+    const comp = data.compliance || [];
+    if (comp.length === 0) {
+      els.complianceCard.innerHTML = '<div class="empty">No compliance docs on file yet. Email <a href="mailto:bookings@demohubhq.com" style="color:var(--forest-700);">bookings@demohubhq.com</a> with your COI to upload.</div>';
+    } else {
+      els.complianceCard.innerHTML = '<table><thead><tr><th>Document</th><th>Type</th><th>Doc #</th><th>Expires</th><th>Status</th></tr></thead><tbody>' + comp.map(r => {
+        const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+        let cls = 'confirmed', label = 'OK';
+        if (r.expires_at) {
+          const days = Math.round((new Date(r.expires_at + 'T00:00:00') - new Date()) / 86400000);
+          if (days < 0) { cls = 'expired'; label = 'Expired'; }
+          else if (days < 30) { cls = 'pending'; label = 'Expiring soon'; }
+        }
+        return `<tr>
+          <td><strong>${escapeHtml(r.document_name || r.doc_type || '—')}</strong></td>
+          <td>${escapeHtml(r.doc_type || '—')}</td>
+          <td>${escapeHtml(r.doc_number || '—')}</td>
+          <td>${escapeHtml(expiresFmt)}</td>
+          <td><span class="status ${cls}">${escapeHtml(label)}</span></td>
+        </tr>`;
+      }).join('') + '</tbody></table>';
+    }
+  } catch (e) {
+    // Invalid/expired session → drop it and show login
+    localStorage.removeItem(SESSION_KEY);
+    showLogin();
+    setNotice('Your sign-in expired. Please request a new link.', 'info');
+  }
+}
+
+async function init() {
+  // If there's a ?token=... in the URL, exchange it for a session
+  const params = new URLSearchParams(location.search);
+  const token = params.get('token');
+  if (token) {
+    try {
+      const j = await api({ action: 'verify', token });
+      if (j.session_id) {
+        localStorage.setItem(SESSION_KEY, j.session_id);
+        // Clean the URL so the token isn't shareable in the address bar
+        history.replaceState({}, '', location.pathname);
+      }
+    } catch (e) {
+      setNotice('That sign-in link is invalid or expired.', 'err');
+    }
+  }
+  await loadDashboard();
+}
+
+els.loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  els.loginBtn.disabled = true; els.loginBtn.textContent = 'Sending…';
+  try {
+    await api({ action: 'login', email: els.emailInput.value.trim(), retailer_slug: RETAILER_SLUG });
+    setNotice('Check your inbox — we sent a sign-in link to ' + els.emailInput.value.trim() + '. Open it on this device.', 'ok');
+  } catch (e) {
+    setNotice(e.message, 'err');
+  } finally {
+    els.loginBtn.disabled = false; els.loginBtn.textContent = 'Send sign-in link';
+  }
+});
+
+init();
+</script>
+
+</body>
+</html>
