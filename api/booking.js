@@ -7,7 +7,7 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel }) {
+function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
@@ -21,7 +21,7 @@ function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_t
 <tr><td style="padding:36px 36px 28px;">
 <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Demo booking received</div>
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Thanks${contact_name ? ', ' + html(contact_name) : ''}!</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 24px;">We've received your demo request for <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong>. The store team will reach out within one business day to confirm.</p>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 24px;">We've received your demo request for <strong style="color:#0f2c17;">${html(retailerName)}</strong>. The store team will reach out within one business day to confirm.</p>
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:24px;">
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:14px 18px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name)}</td></tr>
 ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(product)}</td></tr>` : ''}
@@ -119,8 +119,8 @@ export default async function handler(req, res) {
           from: FROM_ADDRESS,
           to: contact_email,
           reply_to: 'hello@demohubhq.com',
-          subject: `Demo confirmed — ${RETAILER_NAME}`,
-          html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel }),
+          subject: `Demo request received — ${RETAILER_NAME}`,
+          html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName: RETAILER_NAME }),
         }),
       });
       emailOk = emailResp.ok;
