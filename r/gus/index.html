@@ -819,6 +819,7 @@
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
+                            retailer_slug: RETAILER_SLUG,
                             brand_name: brandName,
                             contact_name: contactName,
                             contact_email: contactEmail,
@@ -1012,7 +1013,7 @@ END:VEVENT
         // ===== Supabase client + cached state =====
         const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
         const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-        const RETAILER_SLUG = 'gus';
+        const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || 'gus';
         let sb = null;
         let RETAILER_ID = null;
         window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [] };
