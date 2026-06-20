@@ -614,8 +614,42 @@
             grid.innerHTML = html;
         }
 
+        function countConfirmedDemos(venueId, dateStr, slotTime) {
+            // Count confirmed demos at this venue/date/slot (capacity check)
+            const demos = (window.state && window.state.demos) || [];
+            return demos.filter(d => {
+                const status = (d.status || '').toLowerCase();
+                if (status !== 'confirmed' && status !== 'completed') return false;
+                if (d.date !== dateStr) return false;
+                if (d.time !== slotTime) return false;
+                // demos store uses venue_id only if we mapped it; the public mapper drops it.
+                // Fall back to matching by company location string if needed.
+                // Easier: also compare by venue name when we have it in raw form.
+                return true; // venue match handled below via per-venue filter
+            });
+        }
+
+        function dateToYmd(d) {
+            // Local date → YYYY-MM-DD (matches what the DB stores in demos.demo_date)
+            const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const day = String(d.getDate()).padStart(2, '0');
+            return `${y}-${m}-${day}`;
+        }
+
+        function countConfirmedDemosForVenue(venueId, venueName, dateStr, slotTime) {
+            // Walk the raw demos cache (we kept raw rows including venue_id under window.state.demosRaw)
+            const raw = (window.state && window.state.demosRaw) || [];
+            return raw.filter(d => {
+                const status = (d.status || '').toLowerCase();
+                if (status !== 'confirmed' && status !== 'completed') return false;
+                if (d.demo_date !== dateStr) return false;
+                if (d.demo_time !== slotTime) return false;
+                if (d.venue_id && d.venue_id !== venueId) return false;
+                return true;
+            }).length;
+        }
+
         function applyTimeSlotAvailability() {
-            // Iterate hardcoded .time-slot elements; mark unavailable when outside venue hours that day
+            // Iterate hardcoded .time-slot elements; mark unavailable when outside venue hours OR at capacity
             const slots = document.querySelectorAll('.time-slots .time-slot');
             if (!slots.length) return;
             const venue = getCurrentVenue();
@@ -623,10 +657,12 @@
                 el.classList.remove('unavailable');
                 el.style.opacity = '';
                 el.style.pointerEvents = '';
+                // Clean any prior badge
+                const oldBadge = el.querySelector('.slot-status-badge');
+                if (oldBadge) oldBadge.remove();
                 if (!selectedDate || !venue) return;
                 const dow = selectedDate.getDay();
                 const sched = getVenueDaySchedule(venue, dow);
-                // Pull the slot start time from onclick attr ("11:00 AM" or "3:00 PM")
                 const onclick = el.getAttribute('onclick') || '';
                 const m = onclick.match(/selectTime\(this,\s*'([^']+)'\)/);
                 if (!m) return;
@@ -636,6 +672,29 @@
                     el.classList.add('unavailable');
                     el.style.opacity = '0.35';
                     el.style.pointerEvents = 'none';
+                    return;
+                }
+                // Capacity check: count confirmed demos at venue/date/slot, compare to venue.max_demos_per_slot
+                const ymd = dateToYmd(selectedDate);
+                const taken = countConfirmedDemosForVenue(venue.id, venue.name, ymd, slotStart);
+                const cap = Math.max(1, parseInt(venue.max_demos_per_slot || 1, 10));
+                if (taken >= cap) {
+                    el.classList.add('unavailable');
+                    el.style.opacity = '0.35';
+                    el.style.pointerEvents = 'none';
+                    const badge = document.createElement('span');
+                    badge.className = 'slot-status-badge';
+                    badge.textContent = 'Full';
+                    badge.style.cssText = 'font-size:0.75rem;color:#a14e2a;background:#fdebe5;padding:2px 8px;border-radius:999px;margin-left:8px;';
+                    el.querySelector('.time-slot-duration')?.appendChild(badge);
+                } else if (cap > 1 && taken > 0) {
+                    // Show "X / cap booked" indicator
+                    const remaining = cap - taken;
+                    const badge = document.createElement('span');
+                    badge.className = 'slot-status-badge';
+                    badge.textContent = remaining + ' left';
+                    badge.style.cssText = 'font-size:0.75rem;color:#2a5b32;background:#e3edd6;padding:2px 8px;border-radius:999px;margin-left:8px;';
+                    el.querySelector('.time-slot-duration')?.appendChild(badge);
                 }
             });
         }
@@ -983,6 +1042,8 @@ END:VEVENT
             if (document.getElementById('calendarGrid')) { renderCalendar(); applyTimeSlotAvailability(); }
             window.state.brandContacts = brandResp.data || [];
             window.state.internalContacts = internalResp.data || [];
+            // Keep raw demos for capacity checks (need venue_id + raw demo_time)
+            window.state.demosRaw = demosResp.data || [];
             window.state.demos = (demosResp.data || []).map(d => ({
                 id: d.id,
                 date: d.demo_date,
