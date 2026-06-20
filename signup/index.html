@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Get started — Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --forest-900: #0f2c17; --forest-700: #1f4a26; --forest-600: #2a5b32; --forest-500: #3a7142;
+  --forest-100: #e3edd6; --forest-50: #f4f7ef;
+  --cream-50: #fbf7f0; --cream-100: #f6f0e4;
+  --clay-700: #a14e2a; --clay-bright: #ed682f;
+  --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.55; min-height: 100vh; }
+.nav { padding: 24px 32px; display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; }
+.nav .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.nav .brand-mark { width: 32px; height: 32px; }
+.nav .brand-text { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.04em; color: var(--forest-900); }
+.nav .signin { font-size: 0.9rem; color: var(--ink-500); text-decoration: none; }
+.container { max-width: 540px; margin: 40px auto 80px; padding: 0 24px; }
+.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 18px; }
+h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); margin-bottom: 14px; }
+h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
+.lede { font-size: 1.1rem; color: var(--ink-700); margin-bottom: 36px; max-width: 460px; }
+.card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); }
+.form-row { margin-bottom: 18px; }
+.form-row.split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
+.hint { font-size: 0.78rem; color: var(--ink-500); margin-top: 4px; }
+.input, .select { width: 100%; padding: 12px 14px; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; font-size: 0.95rem; font-family: inherit; background: white; color: var(--ink-900); transition: border-color 0.15s; }
+.input:focus, .select:focus { outline: none; border-color: var(--forest-500); }
+.btn { width: 100%; padding: 14px 20px; background: var(--forest-900); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: inherit; }
+.btn:hover { background: var(--forest-700); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.error { background: #fdebe5; color: var(--clay-700); padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px; display: none; }
+.success { display: none; text-align: center; padding: 12px 0; }
+.success .check { width: 56px; height: 56px; border-radius: 50%; background: var(--forest-100); color: var(--forest-700); display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 30px; font-weight: 700; }
+.success h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.8rem; font-weight: 400; color: var(--forest-900); margin-bottom: 10px; }
+.success p { color: var(--ink-700); margin-bottom: 24px; }
+.url-card { background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; text-align: left; }
+.url-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-500); font-weight: 700; margin-bottom: 4px; }
+.url-value { font-size: 0.95rem; color: var(--forest-900); word-break: break-all; }
+.url-value a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
+.terms { font-size: 0.78rem; color: var(--ink-500); text-align: center; margin-top: 16px; }
+.terms a { color: var(--ink-500); }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="36" cy="36" r="36" fill="#0f2c17"/>
+      <circle cx="36" cy="40" r="18" fill="#ed682f"/>
+      <rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/>
+      <path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/>
+    </svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <a href="/" class="signin">← Back</a>
+</nav>
+<main class="container">
+  <div class="eyebrow">Get started</div>
+  <h1>Set up your <em>store</em> on Demohub</h1>
+  <p class="lede">Takes about a minute. You'll get a public booking link and an admin hub. No credit card required.</p>
+  <div class="card" id="formCard">
+    <div class="error" id="errorBox"></div>
+    <form id="signupForm">
+      <div class="form-row">
+        <label class="label" for="retailerName">Business name</label>
+        <input class="input" id="retailerName" name="retailer_name" type="text" placeholder="e.g., Acme Market" required autocomplete="organization">
+      </div>
+      <div class="form-row">
+        <label class="label" for="contactName">Your name</label>
+        <input class="input" id="contactName" name="contact_name" type="text" placeholder="First and last" autocomplete="name">
+      </div>
+      <div class="form-row">
+        <label class="label" for="billingEmail">Email</label>
+        <input class="input" id="billingEmail" name="billing_email" type="email" placeholder="you@yourbusiness.com" required autocomplete="email">
+        <div class="hint">We'll send your admin URL here.</div>
+      </div>
+      <div class="form-row split">
+        <div>
+          <label class="label" for="storeCount">How many stores?</label>
+          <select class="select" id="storeCount" name="store_count">
+            <option value="1">1 store</option>
+            <option value="2">2 stores</option>
+            <option value="3">3 stores</option>
+            <option value="5">5 stores</option>
+            <option value="10">10+ stores</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="demoFee">Demo fee ($)</label>
+          <input class="input" id="demoFee" name="demo_fee" type="number" min="0" step="5" value="30">
+        </div>
+      </div>
+      <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
+    </form>
+    <div class="terms">By creating an account you agree to our <a href="#">Terms</a> and <a href="#">Privacy Policy</a>.</div>
+  </div>
+  <div class="card success" id="successCard">
+    <div class="check">&#10003;</div>
+    <h2>You're live</h2>
+    <p>Your portal is ready. We've also sent a welcome email with these links.</p>
+    <div class="url-card">
+      <div class="url-label">Admin hub</div>
+      <div class="url-value"><a id="adminLink" href="#">—</a></div>
+    </div>
+    <div class="url-card">
+      <div class="url-label">Public booking link</div>
+      <div class="url-value"><a id="publicLink" href="#">—</a></div>
+    </div>
+    <button class="btn" id="openAdminBtn" style="margin-top:20px;">Open admin &rarr;</button>
+  </div>
+</main>
+<script>
+const form = document.getElementById('signupForm');
+const errBox = document.getElementById('errorBox');
+const btn = document.getElementById('submitBtn');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.style.display = 'none'; errBox.textContent = '';
+  btn.disabled = true; btn.textContent = 'Creating…';
+  const data = Object.fromEntries(new FormData(form));
+  try {
+    const r = await fetch('/api/signup', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    const json = await r.json();
+    if (!r.ok) throw new Error(json.error || ('HTTP ' + r.status));
+    document.getElementById('formCard').style.display = 'none';
+    document.getElementById('successCard').style.display = 'block';
+    const a = document.getElementById('adminLink'); a.href = json.admin_url; a.textContent = json.admin_url;
+    const p = document.getElementById('publicLink'); p.href = json.public_url; p.textContent = json.public_url;
+    document.getElementById('openAdminBtn').onclick = () => { window.location.href = json.admin_url; };
+  } catch (err) {
+    errBox.textContent = err.message; errBox.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Create my Demohub';
+  }
+});
+</script>
+</body>
+</html>
