@@ -1,4 +1,12 @@
 {
   "cleanUrls": true,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    { "source": "/r/:slug/admin", "destination": "/r/gus/admin/index.html" },
+    { "source": "/r/:slug/admin/", "destination": "/r/gus/admin/index.html" },
+    { "source": "/r/:slug", "destination": "/r/gus/index.html" },
+    { "source": "/r/:slug/", "destination": "/r/gus/index.html" },
+    { "source": "/b/:slug", "destination": "/b/gus/index.html" },
+    { "source": "/b/:slug/", "destination": "/b/gus/index.html" }
+  ]
 }
