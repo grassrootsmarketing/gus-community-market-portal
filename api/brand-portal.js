@@ -83,7 +83,7 @@ export default async function handler(req, res) {
             await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ from: FROM_ADDRESS, to: email, subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }),
+              body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }),
             });
           } catch (_) { /* swallow */ }
         }

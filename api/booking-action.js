@@ -156,7 +156,7 @@ export default async function handler(req, res) {
         const r = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: FROM_ADDRESS, to: booking.contact_email, subject, html: htmlBody }),
+          body: JSON.stringify({ from: FROM_ADDRESS, to: booking.contact_email, reply_to: 'david@demohubhq.com', subject, html: htmlBody }),
         });
         emailOk = r.ok;
       } catch (_) { emailOk = false; }
