@@ -69,6 +69,17 @@ export default async function handler(req, res) {
     const venues = await venueResp.json();
     const venueRow = Array.isArray(venues) ? venues[0] : null;
 
+    // Auto-link to a brand account if email matches an existing brand
+    // (cross-retailer brand profiles — the brand sees this in /brand/dashboard)
+    let brandId = null;
+    try {
+      const brandLookup = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      const brandRows = await brandLookup.json();
+      brandId = Array.isArray(brandRows) && brandRows[0] ? brandRows[0].id : null;
+    } catch (_) { /* non-fatal */ }
+
     // Insert booking row
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
@@ -90,6 +101,7 @@ export default async function handler(req, res) {
         demo_time,
         notes: notes || null,
         status: 'pending',
+        brand_id: brandId,
       }),
     });
 

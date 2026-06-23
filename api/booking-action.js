@@ -120,9 +120,13 @@ export default async function handler(req, res) {
     });
 
     let demoId = null;
-    // 2) If confirmed, create the demo row
+    // 2) If confirmed, create the demo row + ensure brand_contact exists for this retailer
     if (action === 'confirm') {
       const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : 30);
+
+      // Brand profile cross-retailer linkage: carry brand_id from booking → demo
+      const brandId = booking.brand_id || null;
+
       const created = await sb(`demos`, {
         method: 'POST',
         body: JSON.stringify({
@@ -137,9 +141,40 @@ export default async function handler(req, res) {
           status: 'confirmed',
           demo_fee: fee,
           notes: booking.notes || null,
+          brand_id: brandId,
         }),
       });
       demoId = Array.isArray(created) ? created[0]?.id : null;
+
+      // Ensure a brand_contacts row exists for this (retailer, email).
+      // Privacy: scoped to retailer_id — never exposes cross-retailer data.
+      // Retailer-wins: if a row already exists, we don't overwrite it.
+      if (booking.contact_email) {
+        try {
+          const existing = await sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&email=eq.${encodeURIComponent(booking.contact_email)}&select=id,brand_id`);
+          const row = Array.isArray(existing) ? existing[0] : null;
+          if (!row) {
+            // Create a new retailer-scoped contact row
+            await sb(`brand_contacts`, {
+              method: 'POST',
+              body: JSON.stringify({
+                retailer_id: booking.retailer_id,
+                name: booking.contact_name || booking.brand_name || '',
+                company: booking.brand_name || '',
+                email: booking.contact_email,
+                phone: booking.contact_phone || null,
+                brand_id: brandId,
+              }),
+            });
+          } else if (!row.brand_id && brandId) {
+            // Link existing contact to brand if not already linked (retailer-edited values stay)
+            await sb(`brand_contacts?id=eq.${encodeURIComponent(row.id)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ brand_id: brandId }),
+            });
+          }
+        } catch (e) { console.warn('brand_contacts upsert failed:', e); }
+      }
     }
 
     // 3) Send email (best-effort)
