@@ -81,7 +81,8 @@ export default async function handler(req, res) {
       const phone = String(body.phone || '').trim() || null;
       const website = String(body.website || '').trim() || null;
       const defaultCategories = String(body.default_categories || '').trim() || null;
-      if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company_name' });
+      if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company name' });
+      if (!website) return jsonResp(res, 400, { error: 'Website is required so retailers can verify your brand' });
 
       // upsert by email
       const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id`);
