@@ -32,6 +32,17 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .hint { font-size: 0.78rem; color: var(--ink-500); margin-top: 4px; }
 .input, .select { width: 100%; padding: 12px 14px; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; font-size: 0.95rem; font-family: inherit; background: white; color: var(--ink-900); transition: border-color 0.15s; }
 .input:focus, .select:focus { outline: none; border-color: var(--forest-500); }
+/* Stepper for numeric input */
+.stepper { display: inline-flex; align-items: stretch; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; overflow: hidden; background: white; transition: border-color 0.15s; }
+.stepper:focus-within { border-color: var(--forest-500); }
+.stepper button { width: 48px; height: 48px; border: none; background: transparent; color: var(--forest-900); font-size: 1.4rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; font-family: inherit; }
+.stepper button:hover { background: var(--cream-100); }
+.stepper button:disabled { color: var(--ink-300); cursor: not-allowed; }
+.stepper button:disabled:hover { background: transparent; }
+.stepper input { width: 64px; text-align: center; border: none; outline: none; font-size: 1.05rem; font-weight: 600; color: var(--forest-900); font-family: inherit; background: transparent; border-left: 1.5px solid rgba(15,44,23,0.08); border-right: 1.5px solid rgba(15,44,23,0.08); -moz-appearance: textfield; }
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.stepper-row { display: flex; align-items: center; gap: 12px; }
+.stepper-unit { color: var(--ink-700); font-size: 0.95rem; }
 .btn { width: 100%; padding: 14px 20px; background: var(--forest-900); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: inherit; }
 .btn:hover { background: var(--forest-700); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -83,19 +94,14 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
       </div>
       <div class="form-row">
         <label class="label" for="storeCount">How many stores?</label>
-        <select class="select" id="storeCount" name="store_count">
-          <option value="1">1 store</option>
-          <option value="2">2 stores</option>
-          <option value="3">3 stores</option>
-          <option value="4">4 stores</option>
-          <option value="5">5 stores</option>
-          <option value="6">6 stores</option>
-          <option value="7">7 stores</option>
-          <option value="8">8 stores</option>
-          <option value="9">9 stores</option>
-          <option value="10">10 stores</option>
-          <option value="11">11+ stores</option>
-        </select>
+        <div class="stepper-row">
+          <div class="stepper">
+            <button type="button" id="storeMinus" aria-label="Decrease stores">−</button>
+            <input id="storeCount" name="store_count" type="number" min="1" max="99" value="1" inputmode="numeric">
+            <button type="button" id="storePlus" aria-label="Increase stores">+</button>
+          </div>
+          <span class="stepper-unit" id="storeUnit">store</span>
+        </div>
         <div class="hint">You can set your demo fee + per-store details after sign-up.</div>
       </div>
       <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
@@ -118,6 +124,23 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
   </div>
 </main>
 <script>
+// Store-count stepper
+const storeInput = document.getElementById('storeCount');
+const storeMinus = document.getElementById('storeMinus');
+const storePlus = document.getElementById('storePlus');
+const storeUnit = document.getElementById('storeUnit');
+function setStoreCount(n) {
+  n = Math.max(1, Math.min(99, parseInt(n, 10) || 1));
+  storeInput.value = n;
+  storeUnit.textContent = n === 1 ? 'store' : 'stores';
+  storeMinus.disabled = n <= 1;
+}
+storeMinus.addEventListener('click', () => setStoreCount(parseInt(storeInput.value, 10) - 1));
+storePlus.addEventListener('click', () => setStoreCount(parseInt(storeInput.value, 10) + 1));
+storeInput.addEventListener('input', () => setStoreCount(storeInput.value));
+storeInput.addEventListener('blur', () => setStoreCount(storeInput.value));
+setStoreCount(1);
+
 const form = document.getElementById('signupForm');
 const errBox = document.getElementById('errorBox');
 const btn = document.getElementById('submitBtn');
