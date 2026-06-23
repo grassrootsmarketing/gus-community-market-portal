@@ -205,12 +205,72 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
+    // -------- UPLOAD-AVATAR: brand uploads/replaces their logo --------
+    if (action === 'upload-avatar') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+
+      const dataUrl = String(body.image || '');
+      const m = dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
+      if (!m) return jsonResp(res, 400, { error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      const mime = m[1];
+      const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
+      const bytes = Buffer.from(m[2], 'base64');
+      if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large — max 2MB' });
+
+      // Upload to Supabase Storage. Path: brands/{brand_id}.{ext} — use upsert so re-upload overwrites.
+      const path = `brands/${brandId}.${ext}`;
+      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}?upsert=true`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          apikey: SUPABASE_SERVICE_KEY,
+          'Content-Type': mime,
+          'x-upsert': 'true',
+        },
+        body: bytes,
+      });
+      if (!uploadResp.ok) {
+        const errText = await uploadResp.text();
+        return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
+      }
+      // Public URL + cache-busting query so the browser picks up the new image immediately
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
+      await sb(`brands?id=eq.${brandId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logo_url: publicUrl, updated_at: new Date().toISOString() }),
+      });
+      return jsonResp(res, 200, { ok: true, logo_url: publicUrl });
+    }
+
+    // -------- REMOVE-AVATAR: clear the brand's logo --------
+    if (action === 'remove-avatar') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      await sb(`brands?id=eq.${brandId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ logo_url: null, updated_at: new Date().toISOString() }),
+      });
+      return jsonResp(res, 200, { ok: true });
+    }
+
     // -------- LOGOUT --------
     if (action === 'logout') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       if (sessionToken) {
         await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}`, { method: 'DELETE' });
       }
+      return jsonResp(res, 200, { ok: true });
+    }
+
+    // -------- LOGOUT-EVERYWHERE: kill ALL sessions for this brand --------
+    if (action === 'logout-everywhere') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
       return jsonResp(res, 200, { ok: true });
     }
 
