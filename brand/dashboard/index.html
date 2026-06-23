@@ -199,6 +199,24 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
     </div>
   `;
 
+  // First-login welcome banner: only show if 0 demos AND not dismissed
+  const welcomeDismissedKey = 'demohub_brand_welcome_dismissed_' + (profile.id || 'none');
+  const showWelcome = demos.length === 0 && !localStorage.getItem(welcomeDismissedKey);
+  const needsCoi = !profile.default_coi_url;
+  const needsProfile = !profile.phone && !profile.website && !profile.default_categories;
+  const welcomeHtml = showWelcome ? `
+    <div id="brandWelcomeBanner" style="background:var(--forest-50); border:1px solid rgba(15,44,23,0.12); border-radius:14px; padding:24px 28px; margin-bottom:28px; position:relative;">
+      <button onclick="dismissBrandWelcome()" aria-label="Dismiss" style="position:absolute; top:14px; right:16px; background:none; border:none; font-size:1.4rem; color:var(--ink-500); cursor:pointer; line-height:1;">&times;</button>
+      <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:10px;">Welcome to Demohub</div>
+      <h3 style="font-family:'Instrument Serif',Georgia,serif; font-size:1.5rem; font-weight:400; color:var(--forest-900); margin-bottom:12px; line-height:1.2;">Two quick things to finish setting up.</h3>
+      <ol style="font-size:0.98rem; color:var(--ink-700); line-height:1.6; margin:0 0 14px 18px; padding:0;">
+        <li style="margin-bottom:6px;"><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong> — ${needsCoi ? 'Add your certificate of insurance to your profile so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#" onclick="document.querySelector('[data-tab=&quot;compliance&quot;]')?.click(); document.getElementById('f_default_coi_url')?.focus(); return false;" style="color:var(--forest-700); font-weight:600;">${needsCoi ? 'Add COI →' : 'Edit profile →'}</a></li>
+        <li><strong>Share your Demohub link with retailers you work with</strong> — let them know they can book demos with you faster if they're on Demohub.</li>
+      </ol>
+      <p style="font-size:0.88rem; color:var(--ink-500); margin:0;">Once you book your first demo at any Demohub retailer, it shows up here automatically.</p>
+    </div>
+  ` : '';
+
   main.innerHTML = `
     <div class="page-head">
       <div>
@@ -206,6 +224,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
         <div class="sub">One profile, every Demohub retailer.</div>
       </div>
     </div>
+    ${welcomeHtml}
     ${stats}
     <div class="layout">
       <div class="card">
@@ -220,6 +239,13 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
       </div>
     </div>
   `;
+
+  // Welcome banner dismiss (only available if welcome was rendered)
+  window.dismissBrandWelcome = function() {
+    localStorage.setItem(welcomeDismissedKey, '1');
+    const banner = document.getElementById('brandWelcomeBanner');
+    if (banner) banner.style.display = 'none';
+  };
 
   // Tab switching
   document.querySelectorAll('.tab-bar button').forEach(b => {
