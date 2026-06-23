@@ -244,6 +244,69 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, logo_url: publicUrl });
     }
 
+    // -------- UPLOAD-COI: upload certificate of insurance (PDF or image) --------
+    if (action === 'upload-coi') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+
+      const dataUrl = String(body.file || '');
+      const m = dataUrl.match(/^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,(.+)$/);
+      if (!m) return jsonResp(res, 400, { error: 'Invalid file — must be PDF, JPG, PNG, or WEBP' });
+      const mime = m[1];
+      const ext = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mime];
+      const bytes = Buffer.from(m[2], 'base64');
+      if (bytes.length > 10 * 1024 * 1024) return jsonResp(res, 400, { error: 'File too large — max 10MB' });
+
+      // Path: brands/{brand_id}.{ext} — upsert overwrites prior COI
+      const path = `brands/${brandId}.${ext}`;
+      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/coi-docs/${path}?upsert=true`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+          apikey: SUPABASE_SERVICE_KEY,
+          'Content-Type': mime,
+          'x-upsert': 'true',
+        },
+        body: bytes,
+      });
+      if (!uploadResp.ok) {
+        const errText = await uploadResp.text();
+        return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
+      }
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/coi-docs/${path}?v=${Date.now()}`;
+      // Store the URL + filename + mime so we can render a clean filename later
+      const originalName = String(body.filename || `certificate-of-insurance.${ext}`).slice(0, 120);
+      await sb(`brands?id=eq.${brandId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          default_coi_url: publicUrl,
+          default_coi_filename: originalName,
+          default_coi_mime: mime,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      return jsonResp(res, 200, { ok: true, coi_url: publicUrl, filename: originalName, mime });
+    }
+
+    // -------- REMOVE-COI: clear the brand's COI --------
+    if (action === 'remove-coi') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      await sb(`brands?id=eq.${brandId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          default_coi_url: null,
+          default_coi_filename: null,
+          default_coi_mime: null,
+          default_coi_expires: null,
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      return jsonResp(res, 200, { ok: true });
+    }
+
     // -------- REMOVE-AVATAR: clear the brand's logo --------
     if (action === 'remove-avatar') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
