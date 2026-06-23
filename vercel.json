@@ -5,6 +5,8 @@
     { "source": "/r/:slug/admin/:rest*", "destination": "/r/gus/admin/:rest*" },
     { "source": "/r/:slug/admin", "destination": "/r/gus/admin" },
     { "source": "/r/:slug", "destination": "/r/gus" },
-    { "source": "/b/:slug", "destination": "/b/gus" }
+    { "source": "/b/:slug", "destination": "/b/gus" },
+    { "source": "/brand", "destination": "/brand/signin" },
+    { "source": "/brand/signup", "destination": "/brand/signin" }
   ]
 }
