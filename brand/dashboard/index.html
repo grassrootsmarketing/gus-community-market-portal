@@ -65,9 +65,28 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .tab-bar button.active { color:var(--forest-900); border-bottom-color:var(--forest-500); }
 .tab-pane { display:none; }
 .tab-pane.active { display:block; }
-.chip { display:inline-block; padding:6px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.82rem; color:var(--ink-700); cursor:pointer; transition:all 0.15s; background:white; font-family:inherit; user-select:none; }
-.chip:hover { border-color:var(--forest-500); }
-.chip.selected { background:var(--forest-900); color:white; border-color:var(--forest-900); }
+/* Category multi-select picker */
+.catpicker { position:relative; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; background:white; padding:5px 7px; display:flex; flex-wrap:wrap; align-items:center; gap:5px; min-height:40px; cursor:text; transition:border-color 0.15s; }
+.catpicker:focus-within { border-color:var(--forest-500); }
+.catpicker .pill { display:inline-flex; align-items:center; gap:5px; padding:3px 9px 3px 11px; background:var(--forest-900); color:white; border-radius:99px; font-size:0.78rem; font-weight:500; }
+.catpicker .pill button { background:none; border:none; color:rgba(255,255,255,0.7); cursor:pointer; font-size:1rem; padding:0; line-height:1; display:flex; align-items:center; }
+.catpicker .pill button:hover { color:white; }
+.catpicker .search { flex:1; min-width:110px; border:none; outline:none; font-family:inherit; font-size:0.88rem; padding:5px 4px; background:transparent; color:var(--ink-900); }
+.catpicker .dropdown { position:absolute; top:calc(100% + 5px); left:0; right:0; background:white; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; max-height:220px; overflow-y:auto; z-index:20; box-shadow:0 8px 24px rgba(15,44,23,0.08); display:none; }
+.catpicker .dropdown.open { display:block; }
+.catpicker .dropdown .opt { padding:9px 13px; font-size:0.88rem; color:var(--ink-900); cursor:pointer; }
+.catpicker .dropdown .opt:hover, .catpicker .dropdown .opt.active { background:var(--cream-100); }
+.catpicker .dropdown .empty { padding:13px; color:var(--ink-500); font-size:0.85rem; text-align:center; }
+/* Your retailers list */
+.retailer-row { display:flex; align-items:center; gap:14px; padding:13px 0; border-bottom:1px solid rgba(15,44,23,0.06); }
+.retailer-row:last-child { border-bottom:0; }
+.retailer-info { flex:1; min-width:0; }
+.retailer-name { font-weight:600; font-size:0.96rem; color:var(--forest-900); }
+.retailer-meta { font-size:0.82rem; color:var(--ink-500); margin-top:2px; }
+.retailer-meta .badge { display:inline-block; padding:2px 8px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-left:6px; }
+.retailer-meta .badge.inactive { background:#e8e6e1; color:var(--ink-700); }
+.retailer-row .btn-book { padding:7px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; }
+.retailer-row .btn-book:hover { background:var(--cream-100); }
 .perf-row { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; margin-bottom:28px; }
 @media (max-width:880px) { .perf-row { grid-template-columns:1fr; } }
 .perf-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:22px 24px; }
@@ -130,6 +149,63 @@ function fmtDate(iso) {
 }
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// Reusable category picker (searchable multi-select with pills)
+function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, initial = [] }) {
+  const selected = new Set(initial);
+  let activeIdx = 0;
+  function syncHidden() { hiddenEl.value = Array.from(selected).join(', '); }
+  function renderPills() {
+    pickerEl.querySelectorAll('.pill').forEach(p => p.remove());
+    Array.from(selected).reverse().forEach(cat => {
+      const pill = document.createElement('span');
+      pill.className = 'pill';
+      pill.innerHTML = `<span>${cat}</span><button type="button" aria-label="Remove">&times;</button>`;
+      pill.querySelector('button').addEventListener('click', (e) => {
+        e.stopPropagation(); selected.delete(cat);
+        renderPills(); renderDropdown(); syncHidden();
+      });
+      pickerEl.insertBefore(pill, searchEl);
+    });
+  }
+  function renderDropdown() {
+    const q = searchEl.value.trim().toLowerCase();
+    const available = options.filter(o => !selected.has(o));
+    const matches = available.filter(o => !q || o.toLowerCase().includes(q));
+    if (matches.length === 0) {
+      dropdownEl.innerHTML = `<div class="empty">${available.length === 0 ? 'All categories picked.' : 'No matches.'}</div>`;
+      return;
+    }
+    activeIdx = Math.min(activeIdx, matches.length - 1);
+    if (activeIdx < 0) activeIdx = 0;
+    dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${m}">${m}</div>`).join('');
+    dropdownEl.querySelectorAll('.opt').forEach(opt => {
+      opt.addEventListener('mousedown', (e) => e.preventDefault());
+      opt.addEventListener('click', () => {
+        selected.add(opt.dataset.cat); searchEl.value = ''; activeIdx = 0;
+        renderPills(); renderDropdown(); syncHidden(); searchEl.focus();
+      });
+    });
+  }
+  function open() { dropdownEl.classList.add('open'); renderDropdown(); }
+  function close() { dropdownEl.classList.remove('open'); }
+  pickerEl.addEventListener('click', () => searchEl.focus());
+  searchEl.addEventListener('focus', open);
+  searchEl.addEventListener('input', () => { activeIdx = 0; renderDropdown(); if (!dropdownEl.classList.contains('open')) open(); });
+  searchEl.addEventListener('keydown', (e) => {
+    const opts = Array.from(dropdownEl.querySelectorAll('.opt'));
+    if (e.key === 'ArrowDown') { e.preventDefault(); activeIdx = Math.min(activeIdx + 1, opts.length - 1); renderDropdown(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); renderDropdown(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (opts[activeIdx]) opts[activeIdx].click(); }
+    else if (e.key === 'Escape') { close(); searchEl.blur(); }
+    else if (e.key === 'Backspace' && !searchEl.value && selected.size > 0) {
+      const last = Array.from(selected).pop(); selected.delete(last);
+      renderPills(); renderDropdown(); syncHidden();
+    }
+  });
+  document.addEventListener('click', (e) => { if (!pickerEl.contains(e.target)) close(); });
+  renderPills(); syncHidden();
+}
+
 (async () => {
   let data;
   try {
@@ -180,53 +256,76 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
   const finishedCount = demos.filter(d => ['completed', 'cancelled', 'declined'].includes(d.status)).length;
   const completionRate = finishedCount > 0 ? Math.round((completed / finishedCount) * 100) : null;
 
-  // Top retailers by demo count
-  const retailerCounts = {};
+  // Your retailers — union of demos.retailer_id and contacts.retailer_id, with relationship metadata
+  const contacts = data.contacts || [];
+  const retailerMap = {};
   demos.forEach(d => {
     const rid = d.retailer_id;
-    const rname = d.retailers?.name || 'Unknown';
     if (!rid) return;
-    if (!retailerCounts[rid]) retailerCounts[rid] = { name: rname, count: 0 };
-    retailerCounts[rid].count++;
+    if (!retailerMap[rid]) retailerMap[rid] = { id: rid, name: d.retailers?.name || 'Unknown', slug: d.retailers?.slug || '', demoCount: 0, lastDemoDate: null };
+    retailerMap[rid].demoCount++;
+    if (!retailerMap[rid].lastDemoDate || d.demo_date > retailerMap[rid].lastDemoDate) retailerMap[rid].lastDemoDate = d.demo_date;
   });
-  const topRetailers = Object.values(retailerCounts).sort((a, b) => b.count - a.count).slice(0, 5);
+  contacts.forEach(c => {
+    const rid = c.retailer_id;
+    if (!rid || retailerMap[rid]) return;
+    retailerMap[rid] = { id: rid, name: c.retailers?.name || 'Unknown', slug: c.retailers?.slug || '', demoCount: 0, lastDemoDate: null };
+  });
+  // Sort: most recent activity first, then by demo count, then alphabetically
+  const yourRetailers = Object.values(retailerMap).sort((a, b) => {
+    if (a.lastDemoDate && b.lastDemoDate) return b.lastDemoDate.localeCompare(a.lastDemoDate);
+    if (a.lastDemoDate) return -1;
+    if (b.lastDemoDate) return 1;
+    return b.demoCount - a.demoCount || a.name.localeCompare(b.name);
+  });
 
   const hasAnyDemos = demos.length > 0;
   const performance = hasAnyDemos ? `
-    <div class="perf-row">
-      <div class="perf-card">
-        <h2>Performance</h2>
-        <div class="sub">Your activity across every Demohub retailer.</div>
-        <div class="perf-stats">
-          <div class="perf-stat"><div class="val">$${Math.round(totalInvested).toLocaleString()}</div><div class="lbl">Demo fees paid</div></div>
-          <div class="perf-stat"><div class="val">${completionRate == null ? '—' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
-          <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
-        </div>
-        <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month — last 6 months</div>
-        <div class="perf-chart">
-          ${monthKeys.map(k => {
-            const b = monthBuckets[k];
-            const heightPct = (b.count / maxMonthCount) * 100;
-            return `<div class="bar-col">
-              <div class="bar" style="height:${heightPct}%;">${b.count > 0 ? `<div class="bar-val">${b.count}</div>` : ''}</div>
-              <div class="bar-lbl">${b.label}</div>
-            </div>`;
-          }).join('')}
-        </div>
+    <div class="perf-card" style="margin-bottom:24px;">
+      <h2>Performance</h2>
+      <div class="sub">Your activity across every Demohub retailer.</div>
+      <div class="perf-stats">
+        <div class="perf-stat"><div class="val">$${Math.round(totalInvested).toLocaleString()}</div><div class="lbl">Demo fees paid</div></div>
+        <div class="perf-stat"><div class="val">${completionRate == null ? '—' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
+        <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
       </div>
-      <div class="perf-card">
-        <h2>Top retailers</h2>
-        <div class="sub">Where you demo most.</div>
-        ${topRetailers.length === 0 ? `<div class="empty">No demos yet.</div>` : topRetailers.map((r, i) => `
-          <div class="top-retailer">
-            <div style="font-family:'Instrument Serif',Georgia,serif; font-size:1.4rem; color:var(--clay-bright); font-weight:400; width:24px;">${i + 1}</div>
-            <div class="top-retailer-name">${escapeHtml(r.name)}</div>
-            <div class="top-retailer-count">${r.count} demo${r.count === 1 ? '' : 's'}</div>
-          </div>
-        `).join('')}
+      <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month — last 6 months</div>
+      <div class="perf-chart">
+        ${monthKeys.map(k => {
+          const b = monthBuckets[k];
+          const heightPct = (b.count / maxMonthCount) * 100;
+          return `<div class="bar-col">
+            <div class="bar" style="height:${heightPct}%;">${b.count > 0 ? `<div class="bar-val">${b.count}</div>` : ''}</div>
+            <div class="bar-lbl">${b.label}</div>
+          </div>`;
+        }).join('')}
       </div>
     </div>
   ` : '';
+
+  // Your retailers card — list of all retailers brand has any relationship with
+  const yourRetailersHtml = yourRetailers.length === 0 ? '' : `
+    <div class="perf-card" style="margin-bottom:24px;">
+      <h2>Your retailers</h2>
+      <div class="sub">Every Demohub retailer you have a relationship with. Click through to book another demo.</div>
+      ${yourRetailers.map(r => {
+        const lastDate = r.lastDemoDate
+          ? new Date(r.lastDemoDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : null;
+        const isActive = r.lastDemoDate && (Date.now() - new Date(r.lastDemoDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180;
+        const badge = r.demoCount === 0
+          ? '<span class="badge inactive">No demos yet</span>'
+          : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
+        return `<div class="retailer-row">
+          <div class="retailer-info">
+            <div class="retailer-name">${escapeHtml(r.name)}${badge}</div>
+            <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created — no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
+          </div>
+          ${r.slug ? `<a href="/r/${escapeHtml(r.slug)}" class="btn-book" target="_blank">Book a demo →</a>` : ''}
+        </div>`;
+      }).join('')}
+    </div>
+  `;
 
   const demosHtml = demos.length === 0
     ? `<div class="empty">No demos yet. When you book at a Demohub retailer, your demos show up here.</div>`
@@ -275,7 +374,10 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
     <div class="tab-pane" id="tabProduct">
       <div class="form-row">
         <label class="label">Categories</label>
-        <div id="dashCategoryChips" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;"></div>
+        <div class="catpicker" id="dashCatPicker">
+          <input type="text" class="search" id="dashCatSearch" placeholder="Search categories…" autocomplete="off">
+          <div class="dropdown" id="dashCatDropdown"></div>
+        </div>
         <input type="hidden" id="f_default_categories" value="${escapeHtml(profile.default_categories || '')}">
       </div>
       <div class="form-row">
@@ -318,6 +420,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
     ${welcomeHtml}
     ${stats}
     ${performance}
+    ${yourRetailersHtml}
     <div class="layout">
       <div class="card">
         <h2>Your demos</h2>
@@ -349,7 +452,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
     });
   });
 
-  // Category chips on profile editor
+  // Category picker on profile editor (searchable multi-select)
   const CATEGORY_OPTIONS = [
     'Beverages', 'Coffee & tea', 'Wine, beer & spirits',
     'Snacks & chips', 'Chocolate & candy', 'Bakery & bread',
@@ -360,21 +463,17 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
     'Personal care & beauty', 'Pet supplies', 'Home & household',
     'Baby & kids', 'CBD & hemp', 'Other'
   ];
-  const dashCatContainer = document.getElementById('dashCategoryChips');
-  const dashCatHidden = document.getElementById('f_default_categories');
-  if (dashCatContainer && dashCatHidden) {
-    const existing = new Set((dashCatHidden.value || '').split(',').map(s => s.trim()).filter(Boolean));
-    CATEGORY_OPTIONS.forEach(cat => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'chip' + (existing.has(cat) ? ' selected' : '');
-      b.textContent = cat;
-      b.addEventListener('click', () => {
-        if (existing.has(cat)) { existing.delete(cat); b.classList.remove('selected'); }
-        else { existing.add(cat); b.classList.add('selected'); }
-        dashCatHidden.value = Array.from(existing).join(', ');
-      });
-      dashCatContainer.appendChild(b);
+  const dashPickerEl = document.getElementById('dashCatPicker');
+  const dashHidden = document.getElementById('f_default_categories');
+  if (dashPickerEl && dashHidden) {
+    const initial = (dashHidden.value || '').split(',').map(s => s.trim()).filter(Boolean);
+    initCatPicker({
+      pickerEl: dashPickerEl,
+      searchEl: document.getElementById('dashCatSearch'),
+      dropdownEl: document.getElementById('dashCatDropdown'),
+      hiddenEl: dashHidden,
+      options: CATEGORY_OPTIONS,
+      initial,
     });
   }
 
