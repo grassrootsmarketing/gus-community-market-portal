@@ -921,7 +921,35 @@
         requestAnimationFrame(step);
     }
 
-    // 1) Bar chart in pillar 03 — grow bars to target height when in view
+    // Helper: is an element entirely above the current viewport?
+    function isAboveViewport(el) {
+        const r = el.getBoundingClientRect();
+        return r.bottom < 0;
+    }
+
+    function applyChartFinal(chart) {
+        chart.querySelectorAll('.vis-bar').forEach(bar => {
+            const h = bar.getAttribute('data-target-height');
+            if (h) {
+                // Skip transition so it doesn't visibly animate from 0 to target
+                const origTransition = bar.style.transition;
+                bar.style.transition = 'none';
+                bar.style.height = h + '%';
+                // Force reflow before restoring transition (avoid any later flicker)
+                void bar.offsetHeight;
+                bar.style.transition = origTransition;
+            }
+        });
+    }
+
+    function applyNumFinal(el) {
+        const target = parseInt(el.getAttribute('data-count'), 10);
+        const suffix = el.getAttribute('data-suffix') || '';
+        if (!isNaN(target)) el.innerHTML = target + suffix;
+    }
+
+    // 1) Bar chart — grow bars to target height when in view; if user refreshed and
+    //    we're already past the chart, just snap it to final state (no flicker).
     const chartIo = new IntersectionObserver((entries) => {
         entries.forEach(e => {
             if (!e.isIntersecting) return;
@@ -932,9 +960,15 @@
             chartIo.unobserve(e.target);
         });
     }, { threshold: 0.3 });
-    document.querySelectorAll('.vis-chart').forEach(c => chartIo.observe(c));
+    document.querySelectorAll('.vis-chart').forEach(c => {
+        if (isAboveViewport(c)) {
+            applyChartFinal(c);  // already scrolled past — show final state
+        } else {
+            chartIo.observe(c);
+        }
+    });
 
-    // 2) Stat-bar numbers — count up when in view
+    // 2) Stat-bar numbers — count up when in view; snap if already scrolled past.
     const numIo = new IntersectionObserver((entries) => {
         entries.forEach(e => {
             if (!e.isIntersecting) return;
@@ -943,7 +977,13 @@
             numIo.unobserve(e.target);
         });
     }, { threshold: 0.5 });
-    document.querySelectorAll('.stat-bar-num[data-count]').forEach(n => numIo.observe(n));
+    document.querySelectorAll('.stat-bar-num[data-count]').forEach(n => {
+        if (isAboveViewport(n)) {
+            applyNumFinal(n);
+        } else {
+            numIo.observe(n);
+        }
+    });
 })();
 </script>
 
