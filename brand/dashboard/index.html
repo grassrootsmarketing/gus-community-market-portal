@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your brand profile — Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
+.nav { padding:18px 32px; display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.12); position:sticky; top:0; z-index:50; }
+.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
+.nav .brand-mark { width:30px; height:30px; }
+.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.15rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.nav-right { display:flex; align-items:center; gap:18px; font-size:0.88rem; }
+.nav-right .who { color:var(--ink-700); }
+.nav-right a { color:var(--ink-500); text-decoration:none; }
+.nav-right a:hover { color:var(--forest-700); }
+.container { max-width:1100px; margin:36px auto 80px; padding:0 24px; }
+.page-head { margin-bottom:28px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+.page-head h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2.4rem; font-weight:400; line-height:1.1; color:var(--forest-900); margin-bottom:8px; }
+.page-head .sub { color:var(--ink-700); font-size:1rem; }
+.stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:28px; }
+.stat { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:18px 20px; }
+.stat-num { font-family:'Instrument Serif',Georgia,serif; font-size:2rem; color:var(--forest-900); font-weight:400; line-height:1; margin-bottom:6px; }
+.stat-lbl { font-size:0.82rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+.layout { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; }
+@media (max-width:880px) { .layout { grid-template-columns:1fr; } }
+.card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 26px; }
+.card h2 { font-family:'Instrument Serif',Georgia,serif; font-size:1.45rem; font-weight:400; color:var(--forest-900); margin-bottom:6px; }
+.card .sub { font-size:0.88rem; color:var(--ink-500); margin-bottom:18px; }
+.demos-row { display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); }
+.demos-row:last-child { border-bottom:0; }
+.demos-date { min-width:64px; text-align:center; padding:6px 0; background:var(--forest-50); border-radius:8px; }
+.demos-date .day { font-family:'Instrument Serif',Georgia,serif; font-size:1.5rem; color:var(--forest-900); line-height:1; font-weight:400; }
+.demos-date .mon { font-size:0.7rem; text-transform:uppercase; color:var(--ink-500); letter-spacing:0.08em; font-weight:700; margin-top:2px; }
+.demos-info { flex:1; min-width:0; }
+.demos-retailer { font-weight:600; font-size:0.98rem; color:var(--forest-900); }
+.demos-venue { font-size:0.86rem; color:var(--ink-500); margin-top:2px; }
+.demos-product { font-size:0.85rem; color:var(--ink-700); margin-top:4px; font-style:italic; }
+.demos-status { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; padding:4px 10px; border-radius:99px; }
+.demos-status.confirmed { background:var(--forest-100); color:var(--forest-700); }
+.demos-status.pending { background:#fff3d6; color:#a16928; }
+.demos-status.completed { background:#e8e6e1; color:var(--ink-700); }
+.demos-status.cancelled { background:#fae5e0; color:var(--clay-700); }
+.empty { padding:28px 0; text-align:center; color:var(--ink-500); font-size:0.92rem; }
+.form-row { margin-bottom:14px; }
+.form-row.split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.label { display:block; font-size:0.78rem; font-weight:600; color:var(--forest-900); margin-bottom:5px; }
+.input, .textarea { width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.92rem; font-family:inherit; background:white; color:var(--ink-900); }
+.input:focus, .textarea:focus { outline:none; border-color:var(--forest-500); }
+.textarea { min-height:72px; resize:vertical; }
+.btn { padding:11px 22px; background:var(--forest-900); color:white; border:none; border-radius:8px; font-size:0.92rem; font-weight:600; cursor:pointer; font-family:inherit; }
+.btn:hover { background:var(--forest-700); }
+.btn-ghost { background:transparent; color:var(--ink-700); border:1.5px solid rgba(15,44,23,0.12); }
+.btn-ghost:hover { background:var(--cream-100); color:var(--forest-900); }
+.saved { display:inline-block; margin-left:10px; color:var(--forest-500); font-size:0.85rem; font-weight:600; opacity:0; transition:opacity 0.3s; }
+.saved.show { opacity:1; }
+.loading { text-align:center; padding:60px 20px; color:var(--ink-500); }
+.spinner { display:inline-block; width:30px; height:30px; border:3px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:14px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+.tab-bar { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid rgba(15,44,23,0.08); }
+.tab-bar button { padding:10px 16px; background:transparent; border:none; border-bottom:2px solid transparent; font-family:inherit; font-size:0.9rem; font-weight:600; color:var(--ink-500); cursor:pointer; transition:all 0.15s; margin-bottom:-1px; }
+.tab-bar button.active { color:var(--forest-900); border-bottom-color:var(--forest-500); }
+.tab-pane { display:none; }
+.tab-pane.active { display:block; }
+.help { font-size:0.78rem; color:var(--ink-500); margin-top:4px; }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <div class="nav-right">
+    <span class="who" id="whoami">—</span>
+    <a href="#" id="logoutLink">Sign out</a>
+  </div>
+</nav>
+
+<main class="container" id="mainContent">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div>Loading your brand profile…</div>
+  </div>
+</main>
+
+<script>
+const SESSION_KEY = 'demohub_brand_account_session';
+const sessionToken = localStorage.getItem(SESSION_KEY);
+const main = document.getElementById('mainContent');
+const whoami = document.getElementById('whoami');
+
+if (!sessionToken) { window.location.href = '/brand/signin'; }
+
+document.getElementById('logoutLink').addEventListener('click', async (e) => {
+  e.preventDefault();
+  try { await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' }); } catch {}
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/';
+});
+
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T00:00:00');
+  return { day: d.getDate(), mon: d.toLocaleDateString('en-US', { month: 'short' }) };
+}
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+(async () => {
+  let data;
+  try {
+    const r = await fetch('/api/brand-account?action=data&session_id=' + encodeURIComponent(sessionToken));
+    if (r.status === 401) { localStorage.removeItem(SESSION_KEY); window.location.href = '/brand/signin'; return; }
+    data = await r.json();
+  } catch (e) {
+    main.innerHTML = `<div class="empty">Couldn't load your profile. <a href="/brand/signin">Sign in again</a>.</div>`;
+    return;
+  }
+  const profile = data.profile || {};
+  const demos = (data.demos || []).slice().sort((a, b) => (b.demo_date || '').localeCompare(a.demo_date || ''));
+  whoami.textContent = profile.company_name || profile.email || '';
+
+  const today = new Date().toISOString().slice(0,10);
+  const upcoming = demos.filter(d => d.demo_date >= today && (d.status === 'confirmed' || d.status === 'pending')).length;
+  const completed = demos.filter(d => d.status === 'completed').length;
+  const retailerSet = new Set(demos.map(d => d.retailer_id).filter(Boolean));
+  const totalRetailers = retailerSet.size;
+
+  const stats = `
+    <div class="stat-row">
+      <div class="stat"><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
+      <div class="stat"><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
+      <div class="stat"><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
+      <div class="stat"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
+    </div>
+  `;
+
+  const demosHtml = demos.length === 0
+    ? `<div class="empty">No demos yet. When you book at a Demohub retailer, your demos show up here.</div>`
+    : demos.map(d => {
+        const f = fmtDate(d.demo_date) || {};
+        const retailerName = d.retailers?.name || 'Unknown retailer';
+        const venueName = d.venues?.name || '';
+        return `
+          <div class="demos-row">
+            <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
+            <div class="demos-info">
+              <div class="demos-retailer">${escapeHtml(retailerName)}</div>
+              <div class="demos-venue">${escapeHtml(venueName)} · ${escapeHtml(d.demo_time || '')}</div>
+              ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
+            </div>
+            <div class="demos-status ${d.status}">${d.status}</div>
+          </div>
+        `;
+      }).join('');
+
+  const profileForm = `
+    <div class="tab-bar">
+      <button class="active" data-tab="contact">Contact</button>
+      <button data-tab="compliance">Compliance</button>
+      <button data-tab="product">Product</button>
+    </div>
+    <div class="tab-pane active" id="tabContact">
+      <div class="form-row"><label class="label">Brand / company name</label><input class="input" id="f_company_name" value="${escapeHtml(profile.company_name || '')}"></div>
+      <div class="form-row split">
+        <div><label class="label">Your name</label><input class="input" id="f_contact_name" value="${escapeHtml(profile.contact_name || '')}"></div>
+        <div><label class="label">Phone</label><input class="input" id="f_phone" value="${escapeHtml(profile.phone || '')}"></div>
+      </div>
+      <div class="form-row"><label class="label">Website</label><input class="input" id="f_website" type="url" placeholder="https://" value="${escapeHtml(profile.website || '')}"></div>
+    </div>
+    <div class="tab-pane" id="tabCompliance">
+      <div class="form-row">
+        <label class="label">Certificate of Insurance (URL)</label>
+        <input class="input" id="f_default_coi_url" type="url" placeholder="https://drive.google.com/..." value="${escapeHtml(profile.default_coi_url || '')}">
+        <div class="help">Paste a publicly-readable link (Google Drive, Dropbox, etc.). New bookings will auto-attach this.</div>
+      </div>
+      <div class="form-row">
+        <label class="label">COI expires</label>
+        <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}">
+      </div>
+    </div>
+    <div class="tab-pane" id="tabProduct">
+      <div class="form-row">
+        <label class="label">Categories (comma-separated)</label>
+        <input class="input" id="f_default_categories" placeholder="beverages, snacks, wine" value="${escapeHtml(profile.default_categories || '')}">
+      </div>
+      <div class="form-row">
+        <label class="label">Default product info</label>
+        <textarea class="textarea" id="f_default_product_info" placeholder="What you typically demo">${escapeHtml(profile.default_product_info || '')}</textarea>
+        <div class="help">Auto-fills the "Product" field when you book at any Demohub retailer.</div>
+      </div>
+    </div>
+    <div style="margin-top:18px;display:flex;align-items:center;">
+      <button class="btn" id="saveProfile">Save changes</button>
+      <span class="saved" id="savedFlag">Saved ✓</span>
+    </div>
+  `;
+
+  main.innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
+        <div class="sub">One profile, every Demohub retailer.</div>
+      </div>
+    </div>
+    ${stats}
+    <div class="layout">
+      <div class="card">
+        <h2>Your demos</h2>
+        <div class="sub">Confirmed and pending across all retailers you've booked with.</div>
+        ${demosHtml}
+      </div>
+      <div class="card">
+        <h2>Brand profile</h2>
+        <div class="sub">Your defaults. Retailers can still edit their own copy of your info.</div>
+        ${profileForm}
+      </div>
+    </div>
+  `;
+
+  // Tab switching
+  document.querySelectorAll('.tab-bar button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.tab-bar button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.getElementById('tab' + b.dataset.tab.charAt(0).toUpperCase() + b.dataset.tab.slice(1)).classList.add('active');
+    });
+  });
+
+  // Save handler
+  document.getElementById('saveProfile').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const patch = {
+      company_name: document.getElementById('f_company_name').value.trim(),
+      contact_name: document.getElementById('f_contact_name').value.trim(),
+      phone: document.getElementById('f_phone').value.trim(),
+      website: document.getElementById('f_website').value.trim(),
+      default_coi_url: document.getElementById('f_default_coi_url').value.trim(),
+      default_coi_expires: document.getElementById('f_default_coi_expires').value || null,
+      default_categories: document.getElementById('f_default_categories').value.trim(),
+      default_product_info: document.getElementById('f_default_product_info').value.trim(),
+    };
+    try {
+      const r = await fetch('/api/brand-account?action=profile-update&session_id=' + encodeURIComponent(sessionToken), {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(patch),
+      });
+      if (!r.ok) throw new Error('Failed to save');
+      const flag = document.getElementById('savedFlag');
+      flag.classList.add('show');
+      setTimeout(() => flag.classList.remove('show'), 2200);
+    } catch (err) {
+      alert('Could not save: ' + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save changes';
+    }
+  });
+})();
+</script>
+</body>
+</html>
