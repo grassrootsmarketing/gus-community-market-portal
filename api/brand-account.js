@@ -79,7 +79,8 @@ export default async function handler(req, res) {
       const companyName = String(body.company_name || '').trim();
       const contactName = String(body.contact_name || '').trim() || null;
       const phone = String(body.phone || '').trim() || null;
-      const website = String(body.website || '').trim() || null;
+      let website = String(body.website || '').trim() || null;
+      if (website && !/^https?:\/\//i.test(website)) website = 'https://' + website;
       const defaultCategories = String(body.default_categories || '').trim() || null;
       if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company name' });
       if (!website) return jsonResp(res, 400, { error: 'Website is required so retailers can verify your brand' });
@@ -167,19 +168,21 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, session_token: sessionToken });
     }
 
-    // -------- DATA: fetch brand profile + all demos across retailers --------
+    // -------- DATA: fetch brand profile + all demos + retailer relationships --------
     if (action === 'data') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
 
-      const [profileR, demosR] = await Promise.all([
+      const [profileR, demosR, contactsR] = await Promise.all([
         sb(`brands?id=eq.${brandId}&select=*`),
         sb(`demos?brand_id=eq.${brandId}&select=*,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
+        sb(`brand_contacts?brand_id=eq.${brandId}&select=retailer_id,created_at,retailers(id,name,slug)`),
       ]);
       const profile = (await profileR.json())[0] || null;
       const demos = await demosR.json();
-      return jsonResp(res, 200, { profile, demos });
+      const contacts = await contactsR.json();
+      return jsonResp(res, 200, { profile, demos, contacts });
     }
 
     // -------- PROFILE-UPDATE: brand edits their own profile --------
@@ -192,6 +195,10 @@ export default async function handler(req, res) {
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) patch[k] = body[k] === '' ? null : body[k];
+      }
+      // Normalize website URL: prepend https:// if missing
+      if (patch.website && typeof patch.website === 'string' && !/^https?:\/\//i.test(patch.website)) {
+        patch.website = 'https://' + patch.website.trim();
       }
       const r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) });
       if (!r.ok) return jsonResp(res, 500, { error: 'Failed to update' });
