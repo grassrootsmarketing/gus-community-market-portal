@@ -636,19 +636,19 @@
     <div class="container">
         <div class="stat-bar-grid">
             <div class="stat-bar-item">
-                <div class="stat-bar-num">15<em>min</em></div>
+                <div class="stat-bar-num" data-count="15" data-suffix="<em>min</em>">0<em>min</em></div>
                 <div class="stat-bar-lbl">Average setup time</div>
             </div>
             <div class="stat-bar-item">
-                <div class="stat-bar-num">0</div>
+                <div class="stat-bar-num" data-count="0">0</div>
                 <div class="stat-bar-lbl">Email threads to coordinate a demo</div>
             </div>
             <div class="stat-bar-item">
-                <div class="stat-bar-num">100<em>%</em></div>
+                <div class="stat-bar-num" data-count="100" data-suffix="<em>%</em>">0<em>%</em></div>
                 <div class="stat-bar-lbl">Brands compliant at booking</div>
             </div>
             <div class="stat-bar-item">
-                <div class="stat-bar-num">1</div>
+                <div class="stat-bar-num" data-count="1">0</div>
                 <div class="stat-bar-lbl">Place for every store's data</div>
             </div>
         </div>
@@ -796,11 +796,11 @@
             <div class="feature-visual">
                 <div style="font-size: 0.85rem; color: var(--ink-500); margin-bottom: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">Revenue by store · This quarter</div>
                 <div class="vis-chart">
-                    <div class="vis-bar" style="height: 55%;"><div class="vis-bar-lbl">Mission Bay</div></div>
-                    <div class="vis-bar" style="height: 78%;"><div class="vis-bar-lbl">Mission</div></div>
-                    <div class="vis-bar" style="height: 92%;"><div class="vis-bar-lbl">Haight</div></div>
-                    <div class="vis-bar" style="height: 64%;"><div class="vis-bar-lbl">Noriega</div></div>
-                    <div class="vis-bar" style="height: 41%;"><div class="vis-bar-lbl">Canyon</div></div>
+                    <div class="vis-bar" data-target-height="55" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1);"><div class="vis-bar-lbl">Mission Bay</div></div>
+                    <div class="vis-bar" data-target-height="78" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.08s;"><div class="vis-bar-lbl">Mission</div></div>
+                    <div class="vis-bar" data-target-height="92" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.16s;"><div class="vis-bar-lbl">Haight</div></div>
+                    <div class="vis-bar" data-target-height="64" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.24s;"><div class="vis-bar-lbl">Noriega</div></div>
+                    <div class="vis-bar" data-target-height="41" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.32s;"><div class="vis-bar-lbl">Canyon</div></div>
                 </div>
             </div>
         </div>
@@ -881,7 +881,8 @@
                 <ul>
                     <li><a href="https://calendly.com/demohubhq/walkthrough" target="_blank" rel="noopener">Request a walkthrough</a></li>
                     <li><a href="/signin">Sign in</a></li>
-                    <li><a href="mailto:hello@demohubhq.com">Contact</a></li>
+                    <li><a href="/faq">FAQ</a></li>
+                    <li><a href="mailto:david@demohubhq.com">Contact</a></li>
                 </ul>
             </div>
             <div class="footer-col">
@@ -897,6 +898,53 @@
         </div>
     </div>
 </footer>
+
+<script>
+// Subtle entrance animations on scroll: chart bars grow + stat numbers count up.
+// Uses IntersectionObserver; no library, no dependency.
+(function () {
+    if (typeof IntersectionObserver === 'undefined') return;
+
+    function animateNumber(el, target, durationMs) {
+        const suffix = el.getAttribute('data-suffix') || '';
+        const start = performance.now();
+        const startVal = 0;
+        function step(t) {
+            const p = Math.min(1, (t - start) / durationMs);
+            // ease-out cubic
+            const eased = 1 - Math.pow(1 - p, 3);
+            const v = Math.round(startVal + (target - startVal) * eased);
+            el.innerHTML = v + suffix;
+            if (p < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    // 1) Bar chart in pillar 03 — grow bars to target height when in view
+    const chartIo = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+            if (!e.isIntersecting) return;
+            e.target.querySelectorAll('.vis-bar').forEach(bar => {
+                const h = bar.getAttribute('data-target-height');
+                if (h) bar.style.height = h + '%';
+            });
+            chartIo.unobserve(e.target);
+        });
+    }, { threshold: 0.3 });
+    document.querySelectorAll('.vis-chart').forEach(c => chartIo.observe(c));
+
+    // 2) Stat-bar numbers — count up when in view
+    const numIo = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+            if (!e.isIntersecting) return;
+            const target = parseInt(e.target.getAttribute('data-count'), 10);
+            if (!isNaN(target)) animateNumber(e.target, target, 1200);
+            numIo.unobserve(e.target);
+        });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.stat-bar-num[data-count]').forEach(n => numIo.observe(n));
+})();
+</script>
 
 </body>
 </html>
