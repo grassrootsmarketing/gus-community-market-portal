@@ -561,9 +561,18 @@
             return (window.state && window.state.venues || []).find(v => v.name === currentLocation) || null;
         }
         function getVenueDaySchedule(venue, dow) {
-            // dow: 0=Sun..6=Sat. Returns {open, close} or null when closed.
-            if (!venue || !venue.availability || !venue.availability.schedule) return null;
-            return venue.availability.schedule[String(dow)] || null;
+            // Legacy shim — returns first window or null. Prefer getVenueDayWindows.
+            const windows = getVenueDayWindows(venue, dow);
+            return windows.length > 0 ? windows[0] : null;
+        }
+        function getVenueDayWindows(venue, dow) {
+            // dow: 0=Sun..6=Sat. Returns array of {open, close} windows (0..3).
+            if (!venue || !venue.availability || !venue.availability.schedule) return [];
+            const d = venue.availability.schedule[String(dow)];
+            if (!d) return [];
+            if (Array.isArray(d)) return d.filter(w => w && w.open && w.close);
+            if (d.open && d.close) return [d];
+            return [];
         }
         function timeStrToMinutes(s) {
             // Accepts "HH:MM" (24h) or "h:mm AM/PM"
@@ -603,10 +612,10 @@
                 const date = new Date(currentYear, currentMonth, day);
                 const dow = date.getDay();
                 let disabled = date < minDate;
-                // Disable days where the venue is closed
+                // Disable days where the venue has no open windows
                 if (!disabled && venue) {
-                    const sched = getVenueDaySchedule(venue, dow);
-                    if (!sched) disabled = true;
+                    const windows = getVenueDayWindows(venue, dow);
+                    if (windows.length === 0) disabled = true;
                 }
                 const selected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth && selectedDate.getFullYear() === currentYear;
                 html += '<div class="calendar-day' + (disabled ? ' disabled' : '') + (selected ? ' selected' : '') + '" onclick="selectDate(' + day + ',' + disabled + ')">' + day + '</div>';
@@ -671,12 +680,12 @@
                 if (oldBadge) oldBadge.remove();
                 if (!selectedDate || !venue) return;
                 const dow = selectedDate.getDay();
-                const sched = getVenueDaySchedule(venue, dow);
+                const windows = getVenueDayWindows(venue, dow);
                 const onclick = el.getAttribute('onclick') || '';
                 const m = onclick.match(/selectTime\(this,\s*'([^']+)'\)/);
                 if (!m) return;
                 const slotStart = m[1];
-                const fits = sched && slotFitsInWindow(slotStart, 180, sched.open, sched.close);
+                const fits = windows.length > 0 && windows.some(w => slotFitsInWindow(slotStart, 180, w.open, w.close));
                 if (!fits) {
                     el.classList.add('unavailable');
                     el.style.opacity = '0.35';
