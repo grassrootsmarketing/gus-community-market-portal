@@ -487,11 +487,27 @@
                         <tbody id="billingTableBody"></tbody>
                     </table>
                 </div>
+
+                <!-- Stores editor -->
+                <div class="table-card" id="storesCard" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Stores</h3>
+                        <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStoreModal()">+ Add Store</button>
+                    </div>
+                    <table class="data-table">
+                        <thead><tr><th>Name</th><th>Address</th><th style="text-align:right;">Demo Fee</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="storesTableBody"></tbody>
+                    </table>
+                </div>
+
                 <div class="settings-grid">
                     <div class="settings-card" id="availabilityCard">
                         <div class="settings-card-header">
                             <h3>Store Availability</h3>
-                            <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
+                            <div style="display:flex; gap:8px;">
+                                <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this store's schedule + capacity to every store">Apply to all stores</button>
+                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
+                            </div>
                         </div>
                         <div style="padding: 4px 24px 12px;">
                             <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Store</label>
@@ -573,6 +589,25 @@
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
                     <button class="btn btn-secondary" onclick="closeComplianceModal()" style="flex:1; justify-content: center;">Cancel</button>
                     <button class="btn btn-primary" onclick="saveCompliance()" style="flex:1; justify-content: center;">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Store edit modal -->
+    <div class="modal-overlay" id="storeModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
+        <div class="modal" style="max-width: 520px; background:white; border-radius:16px; padding:32px; width:100%; max-height:90vh; overflow-y:auto; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
+            <h3 id="storeModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px; font-family:'Fraunces', serif; font-weight:400;">Add Store</h3>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Store name</label><input type="text" class="form-input" id="storeName" placeholder="e.g., Mission Bay" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Address</label><input type="text" class="form-input" id="storeAddress" placeholder="123 Main St, City, State ZIP" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Demo fee (USD)</label><input type="number" class="form-input" id="storeFee" min="0" step="5" value="30" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:18px;"><label style="display:flex; align-items:center; gap:8px; font-size:0.92rem; color:var(--forest-900); cursor:pointer;"><input type="checkbox" id="storeActive" checked> Active (accepting bookings)</label></div>
+            <div id="storeModalError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-top:8px;">
+                <button id="storeDeleteBtn" class="btn btn-secondary" style="padding:10px 16px; font-size:0.9rem; color:var(--clay-700); display:none;" onclick="deleteStore()">Delete</button>
+                <div style="display:flex; gap:10px; margin-left:auto;">
+                    <button class="btn btn-secondary" style="padding:10px 18px;" onclick="closeStoreModal()">Cancel</button>
+                    <button class="btn btn-primary" style="padding:10px 18px;" onclick="saveStore()" id="storeSaveBtn">Save</button>
                 </div>
             </div>
         </div>
@@ -1104,6 +1139,7 @@ END:VEVENT
             populateAvailabilityVenueSelect();
             renderAvailabilityEditor();
             renderPendingBookings();
+            renderStores();
             renderWelcomeBanner();
         }
 
@@ -1217,6 +1253,15 @@ END:VEVENT
             return (window.state.venues || []).find(v => v.id === id) || null;
         }
 
+        // Normalize a day's schedule into an array of {open, close} windows.
+        // Accepts: null, single {open, close} (legacy), or array of {open, close} (new).
+        function normalizeDayWindows(d) {
+            if (!d) return [];
+            if (Array.isArray(d)) return d.filter(w => w && w.open && w.close);
+            if (d.open && d.close) return [d];
+            return [];
+        }
+
         function renderAvailabilityEditor() {
             const body = document.getElementById('availabilityEditorBody');
             if (!body) return;
@@ -1227,24 +1272,17 @@ END:VEVENT
             const schedule = (v.availability && v.availability.schedule) || {};
             let html = '';
             for (let d = 0; d < 7; d++) {
-                const cfg = schedule[String(d)] || null;
-                const isOpen = !!cfg;
-                const openTime = cfg?.open || '10:00';
-                const closeTime = cfg?.close || '18:00';
+                const windows = normalizeDayWindows(schedule[String(d)]);
+                const isOpen = windows.length > 0;
                 html += `
-                <div class="availability-day" data-day="${d}">
-                    <label class="toggle">
+                <div class="availability-day" data-day="${d}" style="align-items:flex-start;">
+                    <label class="toggle" style="margin-top:6px;">
                         <input type="checkbox" data-day-toggle="${d}" ${isOpen ? 'checked' : ''} onchange="onAvailabilityToggle(${d})">
                         <span class="toggle-slider"></span>
                     </label>
-                    <span class="availability-day-name">${DAY_NAMES[d]}</span>
-                    <div class="availability-times" id="availTimes-${d}">
-                        ${isOpen
-                            ? `<input type="time" data-day-open="${d}" value="${openTime}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
-                               <span style="margin:0 6px; color:var(--ink-500);">–</span>
-                               <input type="time" data-day-close="${d}" value="${closeTime}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">`
-                            : `<span style="color:var(--ink-500);">Closed</span>`
-                        }
+                    <span class="availability-day-name" style="padding-top:6px;">${DAY_NAMES[d]}</span>
+                    <div class="availability-times" id="availTimes-${d}" style="flex:1;">
+                        ${isOpen ? renderDayWindowsHtml(d, windows) : `<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>`}
                     </div>
                 </div>`;
             }
@@ -1253,8 +1291,54 @@ END:VEVENT
             if (status) status.textContent = '';
         }
 
+        function renderDayWindowsHtml(day, windows) {
+            let html = '<div class="windows-list" data-day-windows="' + day + '">';
+            windows.forEach((w, i) => {
+                html += renderWindowRow(day, i, w.open, w.close, windows.length > 1);
+            });
+            html += '</div>';
+            if (windows.length < 3) {
+                html += `<button type="button" onclick="addWindow(${day})" style="margin-top:6px; background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add window</button>`;
+            }
+            return html;
+        }
+
+        function renderWindowRow(day, idx, open, close, deletable) {
+            return `<div class="window-row" data-window-idx="${idx}" style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+                <input type="time" data-day="${day}" data-idx="${idx}" data-field="open" value="${open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+                <span style="color:var(--ink-500);">–</span>
+                <input type="time" data-day="${day}" data-idx="${idx}" data-field="close" value="${close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+                ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" aria-label="Remove window" style="background:none; border:none; color:var(--ink-300); cursor:pointer; font-size:1.1rem; line-height:1; padding:0 4px;">&times;</button>` : ''}
+            </div>`;
+        }
+
+        function readDayWindowsFromDom(day) {
+            const rows = document.querySelectorAll(`#availTimes-${day} .window-row`);
+            const out = [];
+            rows.forEach((row, i) => {
+                const o = row.querySelector(`[data-field="open"]`)?.value;
+                const c = row.querySelector(`[data-field="close"]`)?.value;
+                if (o && c) out.push({ open: o, close: c });
+            });
+            return out;
+        }
+
+        function addWindow(day) {
+            const current = readDayWindowsFromDom(day);
+            if (current.length >= 3) return;
+            current.push({ open: '10:00', close: '18:00' });
+            const cell = document.getElementById('availTimes-' + day);
+            if (cell) cell.innerHTML = renderDayWindowsHtml(day, current);
+        }
+
+        function removeWindow(day, idx) {
+            const current = readDayWindowsFromDom(day);
+            current.splice(idx, 1);
+            const cell = document.getElementById('availTimes-' + day);
+            if (cell) cell.innerHTML = current.length > 0 ? renderDayWindowsHtml(day, current) : '<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>';
+        }
+
         function onAvailabilityToggle(day) {
-            // Re-render to swap times input vs "Closed" — but preserve checkbox state
             const v = getSelectedVenue();
             if (!v) return;
             const cb = document.querySelector(`[data-day-toggle="${day}"]`);
@@ -1263,30 +1347,33 @@ END:VEVENT
             if (!cell) return;
             if (isOpen) {
                 const prevSchedule = (v.availability && v.availability.schedule) || {};
-                const prev = prevSchedule[String(day)] || { open: '10:00', close: '18:00' };
-                cell.innerHTML = `<input type="time" data-day-open="${day}" value="${prev.open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
-                                  <span style="margin:0 6px; color:var(--ink-500);">–</span>
-                                  <input type="time" data-day-close="${day}" value="${prev.close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">`;
+                const prevWindows = normalizeDayWindows(prevSchedule[String(day)]);
+                const windows = prevWindows.length > 0 ? prevWindows : [{ open: '10:00', close: '18:00' }];
+                cell.innerHTML = renderDayWindowsHtml(day, windows);
             } else {
-                cell.innerHTML = '<span style="color:var(--ink-500);">Closed</span>';
+                cell.innerHTML = '<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>';
             }
+        }
+
+        function buildScheduleFromDom() {
+            const schedule = {};
+            for (let d = 0; d < 7; d++) {
+                const cb = document.querySelector(`[data-day-toggle="${d}"]`);
+                if (cb && cb.checked) {
+                    const windows = readDayWindowsFromDom(d);
+                    schedule[String(d)] = windows.length > 0 ? windows : null;
+                } else {
+                    schedule[String(d)] = null;
+                }
+            }
+            return schedule;
         }
 
         async function saveAvailability() {
             const v = getSelectedVenue();
             const status = document.getElementById('availabilityStatus');
             if (!v) { if (status) status.textContent = 'No store selected.'; return; }
-            const schedule = {};
-            for (let d = 0; d < 7; d++) {
-                const cb = document.querySelector(`[data-day-toggle="${d}"]`);
-                if (cb && cb.checked) {
-                    const o = document.querySelector(`[data-day-open="${d}"]`)?.value || '10:00';
-                    const c = document.querySelector(`[data-day-close="${d}"]`)?.value || '18:00';
-                    schedule[String(d)] = { open: o, close: c };
-                } else {
-                    schedule[String(d)] = null;
-                }
-            }
+            const schedule = buildScheduleFromDom();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
             const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
             const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] }, max_demos_per_slot: maxPerSlot };
@@ -1295,7 +1382,6 @@ END:VEVENT
             if (status) status.textContent = '';
             try {
                 await adminUpdate('venues', v.id, payload);
-                // Update local cache so re-renders don't lose the change
                 const idx = window.state.venues.findIndex(x => x.id === v.id);
                 if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
                 if (status) { status.textContent = 'Saved ✓'; status.style.color = 'var(--forest-600)'; }
@@ -1303,6 +1389,37 @@ END:VEVENT
                 if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+            }
+        }
+
+        async function applyScheduleToAllStores() {
+            const v = getSelectedVenue();
+            const status = document.getElementById('availabilityStatus');
+            if (!v) { if (status) status.textContent = 'No store selected.'; return; }
+            const otherVenues = (window.state.venues || []).filter(x => x.id !== v.id);
+            if (otherVenues.length === 0) { if (status) status.textContent = 'No other stores to apply to.'; return; }
+            if (!confirm(`Copy ${v.name}'s hours + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule.`)) return;
+            const schedule = buildScheduleFromDom();
+            const maxInput = document.getElementById('availabilityMaxPerSlot');
+            const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
+            const payload = { availability: { schedule, blackouts: [] }, max_demos_per_slot: maxPerSlot };
+            const btn = document.getElementById('availabilityApplyAllBtn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+            if (status) status.textContent = '';
+            try {
+                // Also save the current one (so the visible state is consistent)
+                await adminUpdate('venues', v.id, payload);
+                // Then push to all others
+                for (const other of otherVenues) {
+                    await adminUpdate('venues', other.id, payload);
+                }
+                // Refresh local cache
+                window.state.venues = window.state.venues.map(x => ({ ...x, availability: payload.availability, max_demos_per_slot: maxPerSlot }));
+                if (status) { status.textContent = `Applied to ${otherVenues.length + 1} stores ✓`; status.style.color = 'var(--forest-600)'; }
+            } catch (e) {
+                if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Apply to all stores'; }
             }
         }
 
@@ -1315,6 +1432,116 @@ END:VEVENT
             if (fee) fee.value = '$' + Number(s.demo_fee).toFixed(2);
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
+        }
+
+        // ===== Stores editor =====
+        let editingStoreId = null;
+        function renderStores() {
+            const tbody = document.getElementById('storesTableBody');
+            if (!tbody) return;
+            const venues = (window.state.venues || []).slice().sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || (a.name || '').localeCompare(b.name || ''));
+            if (venues.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:32px 20px; color: var(--ink-500);">No stores yet. Click <strong>+ Add Store</strong> to add your first location.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = venues.map(v => {
+                const active = v.active !== false;
+                const fee = v.demo_fee != null ? '$' + Number(v.demo_fee).toFixed(0) : '—';
+                return `<tr>
+                    <td><strong>${escapeHtml(v.name)}</strong></td>
+                    <td style="color:var(--ink-500);">${escapeHtml(v.address || '—')}</td>
+                    <td style="text-align:right;">${fee}</td>
+                    <td>${active ? '<span style="display:inline-block; padding:2px 10px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.78rem; font-weight:600;">Active</span>' : '<span style="display:inline-block; padding:2px 10px; background:var(--cream-200); color:var(--ink-500); border-radius:99px; font-size:0.78rem; font-weight:600;">Paused</span>'}</td>
+                    <td style="text-align:right;"><button class="btn btn-secondary" style="padding:5px 12px; font-size:0.82rem;" onclick="openStoreModal('${v.id}')">Edit</button></td>
+                </tr>`;
+            }).join('');
+        }
+
+        function openStoreModal(storeId) {
+            editingStoreId = storeId || null;
+            const modal = document.getElementById('storeModal');
+            const title = document.getElementById('storeModalTitle');
+            const nameInput = document.getElementById('storeName');
+            const addressInput = document.getElementById('storeAddress');
+            const feeInput = document.getElementById('storeFee');
+            const activeInput = document.getElementById('storeActive');
+            const delBtn = document.getElementById('storeDeleteBtn');
+            const errBox = document.getElementById('storeModalError');
+            errBox.style.display = 'none';
+            if (storeId) {
+                const v = (window.state.venues || []).find(x => x.id === storeId);
+                if (!v) return;
+                title.textContent = 'Edit Store';
+                nameInput.value = v.name || '';
+                addressInput.value = v.address || '';
+                feeInput.value = v.demo_fee != null ? v.demo_fee : 30;
+                activeInput.checked = v.active !== false;
+                delBtn.style.display = 'inline-block';
+            } else {
+                title.textContent = 'Add Store';
+                nameInput.value = '';
+                addressInput.value = '';
+                feeInput.value = 30;
+                activeInput.checked = true;
+                delBtn.style.display = 'none';
+            }
+            modal.style.display = 'flex';
+            setTimeout(() => nameInput.focus(), 50);
+        }
+
+        function closeStoreModal() {
+            document.getElementById('storeModal').style.display = 'none';
+            editingStoreId = null;
+        }
+
+        async function saveStore() {
+            const name = document.getElementById('storeName').value.trim();
+            const address = document.getElementById('storeAddress').value.trim();
+            const fee = Math.max(0, Number(document.getElementById('storeFee').value) || 0);
+            const active = document.getElementById('storeActive').checked;
+            const errBox = document.getElementById('storeModalError');
+            const btn = document.getElementById('storeSaveBtn');
+            if (!name) { errBox.textContent = 'Store name is required.'; errBox.style.display = 'block'; return; }
+            errBox.style.display = 'none';
+            btn.disabled = true; btn.textContent = 'Saving…';
+            try {
+                if (editingStoreId) {
+                    await adminUpdate('venues', editingStoreId, { name, address: address || null, demo_fee: fee, active });
+                    const idx = window.state.venues.findIndex(x => x.id === editingStoreId);
+                    if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], name, address, demo_fee: fee, active };
+                } else {
+                    const created = await adminInsert('venues', { name, address: address || null, demo_fee: fee, active, display_order: (window.state.venues || []).length });
+                    if (Array.isArray(created) && created[0]) window.state.venues.push(created[0]);
+                }
+                closeStoreModal();
+                renderStores();
+                populateAvailabilityVenueSelect();
+                renderAvailabilityEditor();
+            } catch (e) {
+                errBox.textContent = 'Error: ' + e.message;
+                errBox.style.display = 'block';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Save';
+            }
+        }
+
+        async function deleteStore() {
+            if (!editingStoreId) return;
+            const v = (window.state.venues || []).find(x => x.id === editingStoreId);
+            if (!v) return;
+            if (!confirm(`Delete "${v.name}"? Any demos already at this store will keep working, but new bookings at this venue will be disabled.`)) return;
+            const errBox = document.getElementById('storeModalError');
+            try {
+                await adminDelete('venues', editingStoreId);
+                window.state.venues = window.state.venues.filter(x => x.id !== editingStoreId);
+                closeStoreModal();
+                renderStores();
+                populateAvailabilityVenueSelect();
+                renderAvailabilityEditor();
+            } catch (e) {
+                errBox.textContent = 'Error: ' + e.message;
+                errBox.style.display = 'block';
+            }
         }
 
         // ===== Contacts (Brand + Internal) — Supabase-backed =====
