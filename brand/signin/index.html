@@ -38,6 +38,9 @@ h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2.6rem; font-weight
 .success p strong { color:var(--forest-900); }
 .pane { display:none; }
 .pane.active { display:block; }
+.chip { display:inline-block; padding:7px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.85rem; color:var(--ink-700); cursor:pointer; transition:all 0.15s; background:white; font-family:inherit; user-select:none; }
+.chip:hover { border-color:var(--forest-500); }
+.chip.selected { background:var(--forest-900); color:white; border-color:var(--forest-900); }
 </style>
 </head>
 <body>
@@ -82,6 +85,15 @@ h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2.6rem; font-weight
           <label class="label" for="signupEmail">Email</label>
           <input class="input" id="signupEmail" name="email" type="email" placeholder="you@yourbrand.com" required autocomplete="email">
           <div class="hint">We'll send a verification link to this address.</div>
+        </div>
+        <div class="form-row">
+          <label class="label" for="signupWebsite">Website <span style="color:var(--ink-500); font-weight:400;">(optional)</span></label>
+          <input class="input" id="signupWebsite" name="website" type="url" placeholder="https://yourbrand.com">
+        </div>
+        <div class="form-row">
+          <label class="label">What do you demo? <span style="color:var(--ink-500); font-weight:400;">(optional, pick any that fit)</span></label>
+          <div id="categoryChips" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;"></div>
+          <input type="hidden" id="signupCategories" name="default_categories" value="">
         </div>
         <button class="btn" type="submit" id="signupBtn">Create account</button>
       </form>
@@ -137,12 +149,34 @@ document.getElementById('signupForm').addEventListener('submit', (e) => {
     email: document.getElementById('signupEmail').value.trim(),
     company_name: document.getElementById('signupCompany').value.trim(),
     contact_name: document.getElementById('signupName').value.trim(),
+    website: document.getElementById('signupWebsite').value.trim(),
+    default_categories: document.getElementById('signupCategories').value.trim(),
   };
   submit('signup', data, btn, 'Create account');
 });
 
-// Default to signup tab when URL is /brand/signup
-if (window.location.pathname.includes('/signup')) setTab('signup');
+// Category chips
+const CATEGORY_OPTIONS = ['Beverages', 'Snacks', 'Wine', 'Beer', 'Coffee', 'Dairy', 'Frozen', 'Pantry', 'Personal care', 'Other'];
+const selectedCategories = new Set();
+const chipContainer = document.getElementById('categoryChips');
+if (chipContainer) {
+  CATEGORY_OPTIONS.forEach(cat => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'chip';
+    b.textContent = cat;
+    b.addEventListener('click', () => {
+      if (selectedCategories.has(cat)) { selectedCategories.delete(cat); b.classList.remove('selected'); }
+      else { selectedCategories.add(cat); b.classList.add('selected'); }
+      document.getElementById('signupCategories').value = Array.from(selectedCategories).join(', ');
+    });
+    chipContainer.appendChild(b);
+  });
+}
+
+// Default to signup tab when URL is /brand/signup OR ?tab=signup query param
+const _urlTab = new URLSearchParams(window.location.search).get('tab');
+if (_urlTab === 'signup' || window.location.pathname.includes('/signup')) setTab('signup');
 </script>
 </body>
 </html>
