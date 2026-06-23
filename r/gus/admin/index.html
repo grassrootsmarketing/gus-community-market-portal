@@ -424,14 +424,14 @@
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Internal Contacts</h3>
+                        <h3 class="table-title">Internal Team Contacts</h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
                                 <option value="venue">Sort by Venue</option>
                                 <option value="name">Sort by Name</option>
                                 <option value="company">Sort by Role</option>
                             </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Internal Contact</button>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('internal')">+ Add Team Contact</button>
                         </div>
                     </div>
                     <table>
@@ -1646,8 +1646,8 @@ END:VEVENT
                 stateKey: 'internalContacts',
                 tableBodyId: 'internalContactsTableBody',
                 sortSelectId: 'internalContactSort',
-                addLabel: 'Add Internal Contact',
-                editLabel: 'Edit Internal Contact',
+                addLabel: 'Add Team Contact',
+                editLabel: 'Edit Team Contact',
                 companyLabel: 'Role / Title',
                 companyField: 'role',
                 showAddress: false,
@@ -1735,7 +1735,7 @@ END:VEVENT
             if (list.length === 0) {
                 const msg = type === 'brand'
                     ? 'Brand contacts will appear here as brands book demos through your link. You can also add one manually with "+ Add Brand Contact" if you want to invite a specific brand.'
-                    : 'No team members added yet. Click "+ Add Internal Contact" to add managers, store leads, or anyone on your team who needs visibility.';
+                    : 'No team contacts added yet. Click "+ Add Team Contact" to add managers, store leads, or anyone on your team who needs visibility.';
                 tbody.innerHTML = '<tr class="empty-row"><td colspan="' + cfg.columns + '" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">' + msg + '</td></tr>';
                 return;
             }
