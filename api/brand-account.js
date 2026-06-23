@@ -22,6 +22,9 @@ function readBody(req) {
     req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch { resolve({}); } });
   });
 }
+function escapeText(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function randomToken(n = 32) {
   const buf = new Uint8Array(n);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(buf);
@@ -59,12 +62,22 @@ async function sendMagicLink(email, link, isNew) {
 }
 async function verifySession(sessionToken) {
   if (!sessionToken) return null;
-  const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,expires_at`);
+  const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,email,expires_at`);
   const rows = await r.json();
   const s = Array.isArray(rows) ? rows[0] : null;
   if (!s) return null;
   if (new Date(s.expires_at).getTime() < Date.now()) return null;
   return s.brand_id;
+}
+// Returns { brand_id, email } or null — for actions that need to know the acting member
+async function verifySessionFull(sessionToken) {
+  if (!sessionToken) return null;
+  const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,email,expires_at`);
+  const rows = await r.json();
+  const s = Array.isArray(rows) ? rows[0] : null;
+  if (!s) return null;
+  if (new Date(s.expires_at).getTime() < Date.now()) return null;
+  return { brand_id: s.brand_id, email: s.email };
 }
 
 export default async function handler(req, res) {
@@ -106,6 +119,13 @@ export default async function handler(req, res) {
         const created = await createR.json();
         if (!Array.isArray(created) || !created[0]) return jsonResp(res, 500, { error: 'Failed to create brand' });
         brandId = created[0].id;
+        // Also create an 'owner' member row so multi-user team management works from day 1
+        try {
+          await sb('brand_members', {
+            method: 'POST',
+            body: JSON.stringify({ brand_id: brandId, email, role: 'owner', name: contactName }),
+          });
+        } catch (e) { console.warn('brand_members owner row creation failed:', e); }
       }
 
       // create magic link token
@@ -120,23 +140,24 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- LOGIN: existing brand (anti-enum: same response if email unknown) --------
+    // -------- LOGIN: existing brand OR team member (anti-enum) --------
+    // Matches against brand_members.email — that table includes the brand's primary email (owner)
+    // plus any teammates the brand owner has invited.
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       if (!email) return jsonResp(res, 400, { error: 'Missing email' });
-      const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id`);
-      const existing = (await lookupR.json())[0];
-      if (existing) {
+      const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email`);
+      const member = (await lookupR.json())[0];
+      if (member) {
         const token = randomToken(24);
         const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
         await sb('brand_account_tokens', {
           method: 'POST',
-          body: JSON.stringify({ brand_id: existing.id, token, expires_at: expires }),
+          body: JSON.stringify({ brand_id: member.brand_id, email: member.email, token, expires_at: expires }),
         });
         const link = `https://demohubhq.com/brand/verify?t=${token}`;
-        await sendMagicLink(email, link, false);
+        await sendMagicLink(member.email, link, false);
       }
-      // Always return ok to avoid revealing whether email is registered
       return jsonResp(res, 200, { ok: true });
     }
 
@@ -153,12 +174,19 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ used_at: new Date().toISOString() }),
       });
+      // Look up brand's primary email as fallback (older tokens don't have email column populated)
+      let memberEmail = tok.email;
+      if (!memberEmail) {
+        const bR = await sb(`brands?id=eq.${tok.brand_id}&select=email`);
+        const b = (await bR.json())[0];
+        memberEmail = b?.email || null;
+      }
       // create session
       const sessionToken = randomToken(32);
-      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+      const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       await sb('brand_account_sessions', {
         method: 'POST',
-        body: JSON.stringify({ brand_id: tok.brand_id, session_token: sessionToken, expires_at: expires }),
+        body: JSON.stringify({ brand_id: tok.brand_id, email: memberEmail, session_token: sessionToken, expires_at: expires }),
       });
       // mark brand verified
       await sb(`brands?id=eq.${tok.brand_id}`, {
@@ -316,6 +344,109 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ logo_url: null, updated_at: new Date().toISOString() }),
       });
+      return jsonResp(res, 200, { ok: true });
+    }
+
+    // -------- TEAM-LIST: list all members of the current brand --------
+    if (action === 'team-list') {
+      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const members = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&select=*&order=created_at`)).json();
+      return jsonResp(res, 200, { ok: true, members, your_email: v.email });
+    }
+
+    // -------- TEAM-INVITE: add a teammate (owner/admin only) --------
+    if (action === 'team-invite') {
+      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const email = String(body.email || '').trim().toLowerCase();
+      const name = String(body.name || '').trim() || null;
+      const role = body.role === 'viewer' ? 'viewer' : 'admin';
+      if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
+
+      // Only owners/admins can invite (not viewers)
+      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role === 'viewer') return jsonResp(res, 403, { error: 'Viewers cannot invite team members' });
+
+      // Dup check
+      const existing = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(email)}&select=id`)).json();
+      if (Array.isArray(existing) && existing.length > 0) return jsonResp(res, 409, { error: 'That email is already on the team' });
+
+      const createR = await sb('brand_members', {
+        method: 'POST',
+        body: JSON.stringify({ brand_id: v.brand_id, email, name, role, invited_by_email: v.email }),
+      });
+      const created = await createR.json();
+
+      // Send invitation magic link
+      try {
+        const brand = (await (await sb(`brands?id=eq.${v.brand_id}&select=company_name`)).json())[0];
+        const token = randomToken(24);
+        const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        await sb('brand_account_tokens', {
+          method: 'POST',
+          body: JSON.stringify({ brand_id: v.brand_id, email, token, expires_at: expires }),
+        });
+        const link = `https://demohubhq.com/brand/verify?t=${token}`;
+        if (RESEND_API_KEY) {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: FROM_EMAIL,
+              to: email,
+              reply_to: REPLY_TO,
+              subject: `You've been invited to ${brand?.company_name || 'a brand'}'s Demohub account`,
+              html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
+                <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 12px;">You're invited.</h1>
+                <p style="font-size:15px;line-height:1.5;margin:0 0 22px;color:#3a3a36;">${escapeText(v.email)} added you to <strong>${escapeText(brand?.company_name || 'their brand account')}</strong> on Demohub. Click below to sign in and start managing demos together.</p>
+                <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Accept invite &rarr;</a>
+                <p style="font-size:13px;color:#6b6a64;margin-top:32px;">Link expires in 30 minutes. If you weren't expecting this, you can ignore the email.</p>
+              </div>`,
+            }),
+          });
+        }
+      } catch (e) { console.warn('Invitation email failed:', e); }
+
+      return jsonResp(res, 200, { ok: true, member: Array.isArray(created) ? created[0] : null });
+    }
+
+    // -------- TEAM-REMOVE: remove a teammate (owner only; can't remove owner) --------
+    if (action === 'team-remove') {
+      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can remove team members' });
+
+      const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
+      if (!target) return jsonResp(res, 404, { error: 'Member not found' });
+      if (target.brand_id !== v.brand_id) return jsonResp(res, 403, { error: 'Wrong brand' });
+      if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot remove the owner' });
+
+      await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'DELETE' });
+      // Revoke any active sessions for that member email
+      try { await sb(`brand_account_sessions?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(target.email)}`, { method: 'DELETE' }); } catch (_) {}
+      return jsonResp(res, 200, { ok: true });
+    }
+
+    // -------- TEAM-UPDATE-ROLE: change a member's role (owner only) --------
+    if (action === 'team-update-role') {
+      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      const role = body.role === 'viewer' ? 'viewer' : 'admin';
+      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can change roles' });
+
+      const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
+      if (!target || target.brand_id !== v.brand_id) return jsonResp(res, 404, { error: 'Member not found' });
+      if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot change owner role' });
+
+      await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
       return jsonResp(res, 200, { ok: true });
     }
 
