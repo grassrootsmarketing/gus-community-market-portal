@@ -68,31 +68,37 @@ export default async function handler(req, res) {
     const action = body?.action;
 
     // ---- LOGIN: request a magic link ----
+    // Multi-admin: matches against retailer_admins table (multiple users per retailer).
     if (action === 'login') {
       const { email, retailer_slug } = body || {};
       if (!email || !retailer_slug) return res.status(400).json({ error: 'email and retailer_slug required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
 
-      const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,billing_email`);
+      const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`);
       const retailer = Array.isArray(retailers) ? retailers[0] : null;
 
-      // Always respond 200 to prevent enumeration. Only actually send if email matches billing_email.
-      if (retailer && retailer.billing_email && retailer.billing_email.toLowerCase() === email.toLowerCase()) {
-        const tokens = await sb(`admin_tokens`, {
-          method: 'POST',
-          body: JSON.stringify({ email: retailer.billing_email, retailer_id: retailer.id }),
-        });
-        const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-        const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
-        const link = `${origin}/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`;
-        if (RESEND_API_KEY && token) {
-          try {
-            await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ from: FROM_ADDRESS, to: retailer.billing_email, reply_to: 'david@demohubhq.com', subject: `Sign in to ${retailer.name} admin`, html: magicLinkEmail({ retailerName: retailer.name, link }) }),
-            });
-          } catch (_) { /* swallow */ }
+      // Always respond 200 to prevent enumeration. Only actually send if email is in retailer_admins.
+      if (retailer) {
+        const normalizedEmail = email.toLowerCase().trim();
+        const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailer.id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=email,role`);
+        const adminRow = Array.isArray(admins) ? admins[0] : null;
+        if (adminRow) {
+          const tokens = await sb(`admin_tokens`, {
+            method: 'POST',
+            body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
+          });
+          const token = Array.isArray(tokens) ? tokens[0]?.token : null;
+          const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+          const link = `${origin}/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`;
+          if (RESEND_API_KEY && token) {
+            try {
+              await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Sign in to ${retailer.name} admin`, html: magicLinkEmail({ retailerName: retailer.name, link }) }),
+              });
+            } catch (_) { /* swallow */ }
+          }
         }
       }
       return res.status(200).json({ ok: true });
@@ -137,6 +143,103 @@ export default async function handler(req, res) {
       if (session_id) {
         try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}`, { method: 'DELETE' }); } catch(_) {}
       }
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
+    if (action === 'team-list') {
+      const { session_id } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=*&order=created_at`);
+      return res.status(200).json({ ok: true, admins, your_email: v.email });
+    }
+
+    // ---- TEAM-INVITE: add a new admin (owner/admin only) ----
+    if (action === 'team-invite') {
+      const { session_id, email, name, role } = body || {};
+      if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
+      if (!['admin', 'viewer'].includes(role || 'admin')) return res.status(400).json({ error: 'Role must be admin or viewer' });
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      // Only owners/admins can invite (not viewers)
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot invite team members' });
+
+      const normalizedEmail = email.toLowerCase().trim();
+      // Check dup
+      const existing = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=id`);
+      if (Array.isArray(existing) && existing.length > 0) return res.status(409).json({ error: 'That email is already on the team' });
+
+      const created = await sb(`retailer_admins`, {
+        method: 'POST',
+        body: JSON.stringify({ retailer_id: v.retailer_id, email: normalizedEmail, name: name || null, role: role || 'admin', invited_by_email: v.email }),
+      });
+      // Send invitation email with magic link
+      try {
+        const retailers = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=name,slug`);
+        const retailer = Array.isArray(retailers) ? retailers[0] : null;
+        if (retailer && RESEND_API_KEY) {
+          const tokens = await sb(`admin_tokens`, {
+            method: 'POST',
+            body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id }),
+          });
+          const token = Array.isArray(tokens) ? tokens[0]?.token : null;
+          const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+          const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: FROM_ADDRESS,
+              to: normalizedEmail,
+              reply_to: 'david@demohubhq.com',
+              subject: `You've been invited to ${retailer.name}'s Demohub admin`,
+              html: magicLinkEmail({ retailerName: retailer.name, link }),
+            }),
+          });
+        }
+      } catch (e) { console.warn('Invitation email failed:', e); }
+      return res.status(200).json({ ok: true, admin: Array.isArray(created) ? created[0] : null });
+    }
+
+    // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
+    if (action === 'team-remove') {
+      const { session_id, admin_id } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role !== 'owner') return res.status(403).json({ error: 'Only owners can remove team members' });
+
+      const target = await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}&select=*`);
+      const targetRow = Array.isArray(target) ? target[0] : null;
+      if (!targetRow) return res.status(404).json({ error: 'Member not found' });
+      if (targetRow.retailer_id !== v.retailer_id) return res.status(403).json({ error: 'Wrong retailer' });
+      if (targetRow.role === 'owner') return res.status(400).json({ error: 'Cannot remove the owner' });
+
+      await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}`, { method: 'DELETE' });
+      // Also revoke any active sessions for this email
+      try { await sb(`admin_sessions?email=eq.${encodeURIComponent(targetRow.email)}&retailer_id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'DELETE' }); } catch (_) {}
+      return res.status(200).json({ ok: true });
+    }
+
+    // ---- TEAM-UPDATE-ROLE: change a member's role (owner only) ----
+    if (action === 'team-update-role') {
+      const { session_id, admin_id, role } = body || {};
+      if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Role must be admin or viewer' });
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || myRow.role !== 'owner') return res.status(403).json({ error: 'Only owners can change roles' });
+
+      const target = await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}&select=*`);
+      const targetRow = Array.isArray(target) ? target[0] : null;
+      if (!targetRow || targetRow.retailer_id !== v.retailer_id) return res.status(404).json({ error: 'Member not found' });
+      if (targetRow.role === 'owner') return res.status(400).json({ error: 'Cannot change owner role' });
+      await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
       return res.status(200).json({ ok: true });
     }
 

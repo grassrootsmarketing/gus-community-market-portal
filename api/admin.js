@@ -20,6 +20,16 @@ const ALLOWED_TABLES = new Set([
   'settings',
   'venues',
   'bookings',
+  'retailers',  // PATCH only, id must equal session.retailer_id
+]);
+
+// Fields that can be patched on the retailers table via /api/admin
+const RETAILER_PATCH_WHITELIST = new Set([
+  'cancellation_policy',
+  'name',
+  'logo_url',
+  'website',
+  'description',
 ]);
 
 function send(res, status, body) {
@@ -69,7 +79,21 @@ export default async function handler(req, res) {
   // For POST: require retailer_id in body to match session.retailer_id.
   let scopedRetailerId = session.retailer_id;
 
-  if (req.method === 'PATCH' || req.method === 'DELETE') {
+  // Special handling for the retailers table: PATCH only, id must equal session.retailer_id,
+  // body fields restricted to RETAILER_PATCH_WHITELIST. No DELETE/POST.
+  if (table === 'retailers') {
+    if (req.method !== 'PATCH') return send(res, 405, { error: 'Only PATCH allowed on retailers' });
+    if (id !== session.retailer_id) return send(res, 403, { error: 'Can only update your own retailer' });
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      const safe = {};
+      for (const k of Object.keys(body)) {
+        if (RETAILER_PATCH_WHITELIST.has(k)) safe[k] = body[k];
+      }
+      if (Object.keys(safe).length === 0) return send(res, 400, { error: 'No allowed fields in body' });
+      req.body = JSON.stringify(safe);
+    } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+  } else if (req.method === 'PATCH' || req.method === 'DELETE') {
     if (!id) return send(res, 400, { error: 'id parameter required' });
     try {
       const rows = await sb(`${table}?id=eq.${encodeURIComponent(id)}&select=retailer_id`);

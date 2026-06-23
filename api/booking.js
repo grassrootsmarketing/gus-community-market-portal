@@ -7,7 +7,7 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName }) {
+function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName, cancellationPolicy }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
@@ -29,7 +29,8 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(demo_time)}</td></tr>
 </table>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 18px;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;margin-top:8px;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;font-weight:700;margin-bottom:6px;">Cancellation policy</div><div style="font-size:13px;line-height:1.55;color:#3a3a36;">${html(cancellationPolicy)}</div></div>` : ''}
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
 </table></body></html>`;
@@ -52,8 +53,8 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Look up retailer by slug, get id and name
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`, {
+    // Look up retailer by slug, get id, name, and cancellation policy
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const retailers = await retailerResp.json();
@@ -61,6 +62,7 @@ export default async function handler(req, res) {
     if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
     const RETAILER_ID = retailer.id;
     const RETAILER_NAME = retailer.name;
+    const CANCELLATION_POLICY = retailer.cancellation_policy || '';
 
     // Look up venue by retailer + name (for venue_id on the row)
     const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id`, {
@@ -132,7 +134,7 @@ export default async function handler(req, res) {
           to: contact_email,
           reply_to: 'david@demohubhq.com',
           subject: `Demo request received — ${RETAILER_NAME}`,
-          html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName: RETAILER_NAME }),
+          html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY }),
         }),
       });
       emailOk = emailResp.ok;
