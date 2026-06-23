@@ -3,33 +3,75 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Your brand profile — Demohub</title>
+<title>Your brand portal — Demohub</title>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
 :root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
-.nav { padding:18px 32px; display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.12); position:sticky; top:0; z-index:50; }
-.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
-.nav .brand-mark { width:30px; height:30px; }
-.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.15rem; letter-spacing:-0.04em; color:var(--forest-900); }
-.nav-right { display:flex; align-items:center; gap:18px; font-size:0.88rem; }
-.nav-right .who { color:var(--ink-700); }
-.nav-right a { color:var(--ink-500); text-decoration:none; }
-.nav-right a:hover { color:var(--forest-700); }
-.container { max-width:1100px; margin:36px auto 80px; padding:0 24px; }
+
+/* ===== Top Nav ===== */
+.nav { padding:16px 32px; display:flex; align-items:center; gap:24px; background:rgba(255,255,255,0.92); backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.1); position:sticky; top:0; z-index:50; }
+.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+.nav .brand-mark { width:28px; height:28px; }
+.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.1rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.nav-tabs { display:flex; gap:4px; flex:1; justify-content:center; }
+.nav-tab { padding:8px 16px; background:transparent; border:none; border-radius:99px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; text-decoration:none; display:inline-block; }
+.nav-tab:hover { background:var(--cream-100); color:var(--forest-900); }
+.nav-tab.active { background:var(--forest-900); color:white; }
+.nav-account { display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.nav-avatar { width:36px; height:36px; border-radius:50%; background:var(--cream-100); overflow:hidden; display:flex; align-items:center; justify-content:center; border:1.5px solid rgba(15,44,23,0.1); }
+.nav-avatar img { width:100%; height:100%; object-fit:cover; }
+.nav-avatar svg { width:36px; height:36px; display:block; }
+.nav-name { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media (max-width:760px) {
+  .nav { padding:14px 18px; flex-wrap:wrap; gap:14px; }
+  .nav-tabs { width:100%; order:3; justify-content:flex-start; overflow-x:auto; }
+  .nav-name { display:none; }
+}
+
+/* ===== Layout ===== */
+.container { max-width:1100px; margin:32px auto 80px; padding:0 24px; }
 .page-head { margin-bottom:28px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
 .page-head h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2.4rem; font-weight:400; line-height:1.1; color:var(--forest-900); margin-bottom:8px; }
 .page-head .sub { color:var(--ink-700); font-size:1rem; }
-.stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:28px; }
+
+/* ===== Stats ===== */
+.stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:24px; }
 .stat { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:18px 20px; }
 .stat-num { font-family:'Instrument Serif',Georgia,serif; font-size:2rem; color:var(--forest-900); font-weight:400; line-height:1; margin-bottom:6px; }
 .stat-lbl { font-size:0.82rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
-.layout { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; }
-@media (max-width:880px) { .layout { grid-template-columns:1fr; } }
-.card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 26px; }
+
+/* ===== Cards ===== */
+.card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 26px; margin-bottom:24px; }
 .card h2 { font-family:'Instrument Serif',Georgia,serif; font-size:1.45rem; font-weight:400; color:var(--forest-900); margin-bottom:6px; }
 .card .sub { font-size:0.88rem; color:var(--ink-500); margin-bottom:18px; }
+
+/* ===== Performance ===== */
+.perf-stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid rgba(15,44,23,0.06); }
+.perf-stat .val { font-family:'Instrument Serif',Georgia,serif; font-size:1.7rem; color:var(--forest-900); font-weight:400; line-height:1; margin-bottom:4px; }
+.perf-stat .lbl { font-size:0.75rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
+.perf-chart { display:flex; align-items:flex-end; gap:8px; height:140px; }
+.perf-chart .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; min-width:0; }
+.perf-chart .bar { width:100%; background:var(--forest-500); border-radius:6px 6px 0 0; transition:height 0.6s cubic-bezier(0.22,1,0.36,1); min-height:2px; position:relative; }
+.perf-chart .bar:hover { background:var(--forest-700); }
+.perf-chart .bar .bar-val { position:absolute; top:-22px; left:50%; transform:translateX(-50%); font-size:0.78rem; color:var(--forest-900); font-weight:600; }
+.perf-chart .bar-lbl { font-size:0.72rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.04em; font-weight:600; }
+
+/* ===== Your retailers ===== */
+.retailer-row { display:flex; align-items:center; gap:16px; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); flex-wrap:wrap; }
+.retailer-row:last-child { border-bottom:0; }
+.retailer-info { flex:1; min-width:0; }
+.retailer-name-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+.retailer-name { font-weight:600; font-size:0.98rem; color:var(--forest-900); }
+.retailer-meta { font-size:0.84rem; color:var(--ink-500); }
+.badge { display:inline-block; padding:3px 9px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+.badge.inactive { background:#e8e6e1; color:var(--ink-700); }
+.badge.empty { background:#fdebe5; color:var(--clay-700); }
+.retailer-row .btn-book { padding:8px 16px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.84rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; white-space:nowrap; }
+.retailer-row .btn-book:hover { background:var(--cream-100); border-color:var(--forest-500); }
+
+/* ===== Demos list ===== */
 .demos-row { display:flex; align-items:center; gap:14px; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); }
 .demos-row:last-child { border-bottom:0; }
 .demos-date { min-width:64px; text-align:center; padding:6px 0; background:var(--forest-50); border-radius:8px; }
@@ -45,6 +87,37 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .demos-status.completed { background:#e8e6e1; color:var(--ink-700); }
 .demos-status.cancelled { background:#fae5e0; color:var(--clay-700); }
 .empty { padding:28px 0; text-align:center; color:var(--ink-500); font-size:0.92rem; }
+
+/* ===== Calendar view ===== */
+.cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:14px; }
+.cal-head h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.6rem; font-weight:400; color:var(--forest-900); min-width:200px; }
+.cal-nav { display:flex; gap:6px; }
+.cal-nav button { width:36px; height:36px; border:1.5px solid rgba(15,44,23,0.12); background:white; border-radius:50%; cursor:pointer; font-size:1.1rem; color:var(--forest-900); display:flex; align-items:center; justify-content:center; transition:all 0.15s; }
+.cal-nav button:hover { background:var(--cream-100); border-color:var(--forest-500); }
+.cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; }
+.cal-dow { font-size:0.7rem; text-transform:uppercase; color:var(--ink-500); letter-spacing:0.08em; font-weight:700; text-align:center; padding:6px 0; }
+.cal-day { min-height:96px; background:#fbf9f3; border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:6px 8px; position:relative; }
+.cal-day.empty-day { background:transparent; border-color:transparent; }
+.cal-day.today { border-color:var(--forest-500); }
+.cal-day .day-num { font-size:0.8rem; font-weight:600; color:var(--ink-700); margin-bottom:4px; }
+.cal-day.today .day-num { color:var(--forest-700); }
+.cal-event { background:var(--forest-500); color:white; font-size:0.7rem; padding:3px 6px; border-radius:4px; margin-top:3px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; }
+.cal-event.pending { background:#a16928; }
+.cal-event.completed { background:#6b6a64; }
+.cal-event.cancelled, .cal-event.declined { background:var(--clay-700); }
+.cal-legend { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; font-size:0.82rem; color:var(--ink-500); }
+.cal-legend-item { display:flex; align-items:center; gap:6px; }
+.cal-legend-dot { width:10px; height:10px; border-radius:3px; background:var(--forest-500); }
+.cal-legend-dot.pending { background:#a16928; }
+.cal-legend-dot.completed { background:#6b6a64; }
+.cal-legend-dot.cancelled { background:var(--clay-700); }
+
+/* ===== Profile editor ===== */
+.tab-bar { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid rgba(15,44,23,0.08); }
+.tab-bar button { padding:10px 16px; background:transparent; border:none; border-bottom:2px solid transparent; font-family:inherit; font-size:0.9rem; font-weight:600; color:var(--ink-500); cursor:pointer; transition:all 0.15s; margin-bottom:-1px; }
+.tab-bar button.active { color:var(--forest-900); border-bottom-color:var(--forest-500); }
+.tab-pane { display:none; }
+.tab-pane.active { display:block; }
 .form-row { margin-bottom:14px; }
 .form-row.split { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .label { display:block; font-size:0.78rem; font-weight:600; color:var(--forest-900); margin-bottom:5px; }
@@ -53,19 +126,16 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .textarea { min-height:72px; resize:vertical; }
 .btn { padding:11px 22px; background:var(--forest-900); color:white; border:none; border-radius:8px; font-size:0.92rem; font-weight:600; cursor:pointer; font-family:inherit; }
 .btn:hover { background:var(--forest-700); }
+.btn:disabled { opacity:0.6; cursor:not-allowed; }
 .btn-ghost { background:transparent; color:var(--ink-700); border:1.5px solid rgba(15,44,23,0.12); }
 .btn-ghost:hover { background:var(--cream-100); color:var(--forest-900); }
+.btn-danger { background:transparent; color:var(--clay-700); border:1.5px solid var(--clay-700); }
+.btn-danger:hover { background:#fdebe5; }
 .saved { display:inline-block; margin-left:10px; color:var(--forest-500); font-size:0.85rem; font-weight:600; opacity:0; transition:opacity 0.3s; }
 .saved.show { opacity:1; }
-.loading { text-align:center; padding:60px 20px; color:var(--ink-500); }
-.spinner { display:inline-block; width:30px; height:30px; border:3px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:14px; }
-@keyframes spin { to { transform:rotate(360deg); } }
-.tab-bar { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid rgba(15,44,23,0.08); }
-.tab-bar button { padding:10px 16px; background:transparent; border:none; border-bottom:2px solid transparent; font-family:inherit; font-size:0.9rem; font-weight:600; color:var(--ink-500); cursor:pointer; transition:all 0.15s; margin-bottom:-1px; }
-.tab-bar button.active { color:var(--forest-900); border-bottom-color:var(--forest-500); }
-.tab-pane { display:none; }
-.tab-pane.active { display:block; }
-/* Category multi-select picker */
+.help { font-size:0.78rem; color:var(--ink-500); margin-top:4px; }
+
+/* ===== Category picker ===== */
 .catpicker { position:relative; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; background:white; padding:5px 7px; display:flex; flex-wrap:wrap; align-items:center; gap:5px; min-height:40px; cursor:text; transition:border-color 0.15s; }
 .catpicker:focus-within { border-color:var(--forest-500); }
 .catpicker .pill { display:inline-flex; align-items:center; gap:5px; padding:3px 9px 3px 11px; background:var(--forest-900); color:white; border-radius:99px; font-size:0.78rem; font-weight:500; }
@@ -77,81 +147,125 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .catpicker .dropdown .opt { padding:9px 13px; font-size:0.88rem; color:var(--ink-900); cursor:pointer; }
 .catpicker .dropdown .opt:hover, .catpicker .dropdown .opt.active { background:var(--cream-100); }
 .catpicker .dropdown .empty { padding:13px; color:var(--ink-500); font-size:0.85rem; text-align:center; }
-/* Your retailers list */
-.retailer-row { display:flex; align-items:center; gap:16px; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); flex-wrap:wrap; }
-.retailer-row:last-child { border-bottom:0; }
-.retailer-info { flex:1; min-width:0; }
-.retailer-name-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
-.retailer-name { font-weight:600; font-size:0.98rem; color:var(--forest-900); }
-.retailer-meta { font-size:0.84rem; color:var(--ink-500); }
-.badge { display:inline-block; padding:3px 9px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
-.badge.inactive { background:#e8e6e1; color:var(--ink-700); }
-.badge.empty { background:#fdebe5; color:var(--clay-700); }
-.retailer-row .btn-book { padding:8px 16px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.84rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; white-space:nowrap; }
-.retailer-row .btn-book:hover { background:var(--cream-100); border-color:var(--forest-500); }
-.perf-row { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; margin-bottom:28px; }
-@media (max-width:880px) { .perf-row { grid-template-columns:1fr; } }
-.perf-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:22px 24px; }
-.perf-card h2 { font-family:'Instrument Serif',Georgia,serif; font-size:1.35rem; font-weight:400; color:var(--forest-900); margin-bottom:4px; }
-.perf-card .sub { font-size:0.85rem; color:var(--ink-500); margin-bottom:16px; }
-.perf-stats { display:grid; grid-template-columns:repeat(3, 1fr); gap:18px; margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid rgba(15,44,23,0.06); }
-.perf-stat .val { font-family:'Instrument Serif',Georgia,serif; font-size:1.7rem; color:var(--forest-900); font-weight:400; line-height:1; margin-bottom:4px; }
-.perf-stat .lbl { font-size:0.75rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; }
-.perf-chart { display:flex; align-items:flex-end; gap:8px; height:140px; }
-.perf-chart .bar-col { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; min-width:0; }
-.perf-chart .bar { width:100%; background:var(--forest-500); border-radius:6px 6px 0 0; transition:height 0.6s cubic-bezier(0.22,1,0.36,1); min-height:2px; position:relative; }
-.perf-chart .bar:hover { background:var(--forest-700); }
-.perf-chart .bar .bar-val { position:absolute; top:-22px; left:50%; transform:translateX(-50%); font-size:0.78rem; color:var(--forest-900); font-weight:600; }
-.perf-chart .bar-lbl { font-size:0.72rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.04em; font-weight:600; }
-.top-retailer { display:flex; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.06); }
-.top-retailer:last-child { border-bottom:0; }
-.top-retailer-name { flex:1; font-weight:500; color:var(--forest-900); font-size:0.95rem; }
-.top-retailer-count { font-size:0.85rem; color:var(--ink-500); }
-.help { font-size:0.78rem; color:var(--ink-500); margin-top:4px; }
+
+/* ===== Avatar upload ===== */
+.avatar-block { display:flex; align-items:center; gap:18px; padding-bottom:22px; margin-bottom:22px; border-bottom:1px solid rgba(15,44,23,0.06); }
+.avatar-lg { width:80px; height:80px; border-radius:50%; background:var(--cream-100); overflow:hidden; display:flex; align-items:center; justify-content:center; border:2px solid rgba(15,44,23,0.08); flex-shrink:0; }
+.avatar-lg img { width:100%; height:100%; object-fit:cover; }
+.avatar-lg svg { width:80px; height:80px; display:block; }
+.avatar-actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.avatar-actions .btn { padding:8px 16px; font-size:0.85rem; }
+
+/* ===== Welcome banner ===== */
+.welcome { background:var(--forest-50); border:1px solid rgba(15,44,23,0.12); border-radius:14px; padding:24px 28px; margin-bottom:28px; position:relative; }
+.welcome .dismiss { position:absolute; top:14px; right:16px; background:none; border:none; font-size:1.4rem; color:var(--ink-500); cursor:pointer; line-height:1; }
+.welcome .eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:10px; }
+.welcome h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.5rem; font-weight:400; color:var(--forest-900); margin-bottom:12px; line-height:1.2; }
+.welcome ol { font-size:0.98rem; color:var(--ink-700); line-height:1.6; margin:0 0 14px 18px; padding:0; }
+.welcome ol li { margin-bottom:6px; }
+.welcome p { font-size:0.88rem; color:var(--ink-500); margin:0; }
+.welcome a { color:var(--forest-700); font-weight:600; }
+
+/* ===== Account section ===== */
+.acct-row { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); gap:18px; flex-wrap:wrap; }
+.acct-row:last-child { border-bottom:0; }
+.acct-row .lbl { font-weight:600; color:var(--forest-900); font-size:0.92rem; margin-bottom:2px; }
+.acct-row .val { color:var(--ink-700); font-size:0.88rem; }
+.acct-row .actions { display:flex; gap:8px; }
+.danger-zone { margin-top:24px; padding:20px 22px; background:#fff8f5; border:1px solid #f5c8b8; border-radius:12px; }
+.danger-zone h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.2rem; color:var(--clay-700); font-weight:400; margin-bottom:4px; }
+.danger-zone .sub { font-size:0.85rem; color:var(--ink-700); margin-bottom:14px; }
+
+/* ===== Loading ===== */
+.loading { text-align:center; padding:60px 20px; color:var(--ink-500); }
+.spinner { display:inline-block; width:30px; height:30px; border:3px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:14px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ===== Modal ===== */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(15,44,23,0.5); z-index:100; align-items:center; justify-content:center; padding:24px; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:white; border-radius:14px; padding:28px; max-width:440px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2); }
+.modal-box h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.4rem; font-weight:400; color:var(--forest-900); margin-bottom:8px; }
+.modal-box p { color:var(--ink-700); font-size:0.92rem; margin-bottom:18px; }
+.modal-box .actions { display:flex; gap:10px; justify-content:flex-end; }
 </style>
 </head>
 <body>
+
 <nav class="nav">
   <a href="/" class="brand">
     <svg class="brand-mark" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
     <span class="brand-text">demohub</span>
   </a>
-  <div class="nav-right">
-    <span class="who" id="whoami">—</span>
-    <a href="#" id="logoutLink">Sign out</a>
+  <div class="nav-tabs">
+    <a href="#overview" class="nav-tab" data-tab="overview">Overview</a>
+    <a href="#calendar" class="nav-tab" data-tab="calendar">Calendar</a>
+    <a href="#profile" class="nav-tab" data-tab="profile">Profile</a>
+    <a href="#account" class="nav-tab" data-tab="account">Account</a>
+  </div>
+  <div class="nav-account">
+    <div class="nav-avatar" id="navAvatar"></div>
+    <span class="nav-name" id="navName">—</span>
   </div>
 </nav>
 
 <main class="container" id="mainContent">
   <div class="loading">
     <div class="spinner"></div>
-    <div>Loading your brand profile…</div>
+    <div>Loading your brand portal…</div>
   </div>
 </main>
+
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal-box">
+    <h3 id="confirmTitle">Are you sure?</h3>
+    <p id="confirmBody">—</p>
+    <div class="actions">
+      <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
+      <button class="btn btn-danger" id="confirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const SESSION_KEY = 'demohub_brand_account_session';
 const sessionToken = localStorage.getItem(SESSION_KEY);
 const main = document.getElementById('mainContent');
-const whoami = document.getElementById('whoami');
+const navAvatar = document.getElementById('navAvatar');
+const navName = document.getElementById('navName');
 
-if (!sessionToken) { window.location.href = '/brand/signin'; }
+if (!sessionToken) window.location.href = '/brand/signin';
 
-document.getElementById('logoutLink').addEventListener('click', async (e) => {
-  e.preventDefault();
-  try { await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' }); } catch {}
-  localStorage.removeItem(SESSION_KEY);
-  window.location.href = '/';
-});
-
-function fmtDate(iso) {
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(iso, fmt) {
   if (!iso) return '';
   const d = new Date(iso + 'T00:00:00');
+  if (fmt === 'long') return d.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
   return { day: d.getDate(), mon: d.toLocaleDateString('en-US', { month: 'short' }) };
 }
-function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// Reusable category picker (searchable multi-select with pills)
+// Default avatar SVG
+const DEFAULT_AVATAR_SVG = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#d3cfc4"/><circle cx="32" cy="24" r="10" fill="#a8a298"/><path d="M14 56 C14 44, 24 38, 32 38 C40 38, 50 44, 50 56 Z" fill="#a8a298"/></svg>`;
+function renderAvatar(el, url, size) {
+  if (url) el.innerHTML = `<img src="${escapeHtml(url)}" alt="">`;
+  else el.innerHTML = DEFAULT_AVATAR_SVG;
+}
+
+// Confirm modal helper
+function confirmDialog(title, body, confirmLabel) {
+  return new Promise(resolve => {
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmBody').textContent = body;
+    document.getElementById('confirmOk').textContent = confirmLabel || 'Confirm';
+    const modal = document.getElementById('confirmModal');
+    modal.classList.add('open');
+    const cleanup = (v) => { modal.classList.remove('open'); resolve(v); };
+    document.getElementById('confirmCancel').onclick = () => cleanup(false);
+    document.getElementById('confirmOk').onclick = () => cleanup(true);
+  });
+}
+
+// Reusable category picker (searchable multi-select)
 function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, initial = [] }) {
   const selected = new Set(initial);
   let activeIdx = 0;
@@ -162,10 +276,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
       const pill = document.createElement('span');
       pill.className = 'pill';
       pill.innerHTML = `<span>${cat}</span><button type="button" aria-label="Remove">&times;</button>`;
-      pill.querySelector('button').addEventListener('click', (e) => {
-        e.stopPropagation(); selected.delete(cat);
-        renderPills(); renderDropdown(); syncHidden();
-      });
+      pill.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); selected.delete(cat); renderPills(); renderDropdown(); syncHidden(); });
       pickerEl.insertBefore(pill, searchEl);
     });
   }
@@ -173,10 +284,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     const q = searchEl.value.trim().toLowerCase();
     const available = options.filter(o => !selected.has(o));
     const matches = available.filter(o => !q || o.toLowerCase().includes(q));
-    if (matches.length === 0) {
-      dropdownEl.innerHTML = `<div class="empty">${available.length === 0 ? 'All categories picked.' : 'No matches.'}</div>`;
-      return;
-    }
+    if (matches.length === 0) { dropdownEl.innerHTML = `<div class="empty">${available.length === 0 ? 'All categories picked.' : 'No matches.'}</div>`; return; }
     activeIdx = Math.min(activeIdx, matches.length - 1);
     if (activeIdx < 0) activeIdx = 0;
     dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${m}">${m}</div>`).join('');
@@ -200,80 +308,92 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     else if (e.key === 'Enter') { e.preventDefault(); if (opts[activeIdx]) opts[activeIdx].click(); }
     else if (e.key === 'Escape') { close(); searchEl.blur(); }
     else if (e.key === 'Backspace' && !searchEl.value && selected.size > 0) {
-      const last = Array.from(selected).pop(); selected.delete(last);
-      renderPills(); renderDropdown(); syncHidden();
+      const last = Array.from(selected).pop(); selected.delete(last); renderPills(); renderDropdown(); syncHidden();
     }
   });
   document.addEventListener('click', (e) => { if (!pickerEl.contains(e.target)) close(); });
   renderPills(); syncHidden();
 }
 
-(async () => {
-  let data;
+const CATEGORY_OPTIONS = ['Beverages','Coffee & tea','Wine, beer & spirits','Snacks & chips','Chocolate & candy','Bakery & bread','Cereal & breakfast','Pantry & dry goods','Sauces, oils & condiments','Spices & seasonings','Dairy & cheese','Plant-based & vegan','Frozen','Produce','Meat & seafood','Prepared foods & deli','Health, supplements & wellness','Protein, bars & energy','Personal care & beauty','Pet supplies','Home & household','Baby & kids','CBD & hemp','Other'];
+
+// ===== State =====
+let _data = null; // { profile, demos, contacts }
+let _currentTab = 'overview';
+let _calMonth = new Date().getMonth();
+let _calYear = new Date().getFullYear();
+
+// ===== Load data =====
+async function loadData() {
   try {
     const r = await fetch('/api/brand-account?action=data&session_id=' + encodeURIComponent(sessionToken));
     if (r.status === 401) { localStorage.removeItem(SESSION_KEY); window.location.href = '/brand/signin'; return; }
-    data = await r.json();
+    _data = await r.json();
   } catch (e) {
-    main.innerHTML = `<div class="empty">Couldn't load your profile. <a href="/brand/signin">Sign in again</a>.</div>`;
-    return;
+    main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
+    throw e;
   }
-  const profile = data.profile || {};
-  const demos = (data.demos || []).slice().sort((a, b) => (b.demo_date || '').localeCompare(a.demo_date || ''));
-  whoami.textContent = profile.company_name || profile.email || '';
+  const profile = _data.profile || {};
+  navName.textContent = profile.company_name || profile.email || '';
+  renderAvatar(navAvatar, profile.logo_url);
+}
+
+// ===== Tab Router =====
+function switchTab(name) {
+  if (!['overview','calendar','profile','account'].includes(name)) name = 'overview';
+  _currentTab = name;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  render();
+  if (window.location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+}
+window.addEventListener('hashchange', () => switchTab(window.location.hash.replace(/^#/, '') || 'overview'));
+document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (e) => { e.preventDefault(); switchTab(t.dataset.tab); }));
+
+// ===== Render dispatch =====
+function render() {
+  if (_currentTab === 'overview') renderOverview();
+  else if (_currentTab === 'calendar') renderCalendar();
+  else if (_currentTab === 'profile') renderProfile();
+  else if (_currentTab === 'account') renderAccount();
+}
+
+// ===== Overview =====
+function renderOverview() {
+  const profile = _data.profile || {};
+  const demos = (_data.demos || []).slice().sort((a, b) => (b.demo_date || '').localeCompare(a.demo_date || ''));
+  const contacts = _data.contacts || [];
 
   const today = new Date().toISOString().slice(0,10);
   const upcoming = demos.filter(d => d.demo_date >= today && (d.status === 'confirmed' || d.status === 'pending')).length;
   const completed = demos.filter(d => d.status === 'completed').length;
   const retailerSet = new Set(demos.map(d => d.retailer_id).filter(Boolean));
+  contacts.forEach(c => c.retailer_id && retailerSet.add(c.retailer_id));
   const totalRetailers = retailerSet.size;
 
-  const stats = `
-    <div class="stat-row">
-      <div class="stat"><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
-      <div class="stat"><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
-      <div class="stat"><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
-      <div class="stat"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
-    </div>
-  `;
-
-  // ===== Performance computation =====
-  // Group demos by month over last 6 months
+  // Perf
   const monthBuckets = {};
-  const now = new Date();
-  const monthKeys = [];
+  const now = new Date(); const monthKeys = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
     monthBuckets[key] = { count: 0, label: d.toLocaleDateString('en-US', { month: 'short' }) };
     monthKeys.push(key);
   }
-  demos.forEach(d => {
-    if (!d.demo_date) return;
-    const k = d.demo_date.slice(0, 7);
-    if (monthBuckets[k]) monthBuckets[k].count++;
-  });
+  demos.forEach(d => { if (!d.demo_date) return; const k = d.demo_date.slice(0,7); if (monthBuckets[k]) monthBuckets[k].count++; });
   const maxMonthCount = Math.max(1, ...monthKeys.map(k => monthBuckets[k].count));
-  const totalInvested = demos.filter(d => d.status === 'completed' || d.status === 'confirmed').reduce((s, d) => s + (parseFloat(d.demo_fee) || 0), 0);
-  const finishedCount = demos.filter(d => ['completed', 'cancelled', 'declined'].includes(d.status)).length;
+  const totalInvested = demos.filter(d => d.status === 'completed' || d.status === 'confirmed').reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+  const finishedCount = demos.filter(d => ['completed','cancelled','declined'].includes(d.status)).length;
   const completionRate = finishedCount > 0 ? Math.round((completed / finishedCount) * 100) : null;
 
-  // Your retailers — union of demos.retailer_id and contacts.retailer_id, with relationship metadata
-  const contacts = data.contacts || [];
+  // Your retailers
   const retailerMap = {};
   demos.forEach(d => {
-    const rid = d.retailer_id;
-    if (!rid) return;
+    const rid = d.retailer_id; if (!rid) return;
     if (!retailerMap[rid]) retailerMap[rid] = { id: rid, name: d.retailers?.name || 'Unknown', slug: d.retailers?.slug || '', demoCount: 0, lastDemoDate: null };
     retailerMap[rid].demoCount++;
     if (!retailerMap[rid].lastDemoDate || d.demo_date > retailerMap[rid].lastDemoDate) retailerMap[rid].lastDemoDate = d.demo_date;
   });
-  contacts.forEach(c => {
-    const rid = c.retailer_id;
-    if (!rid || retailerMap[rid]) return;
-    retailerMap[rid] = { id: rid, name: c.retailers?.name || 'Unknown', slug: c.retailers?.slug || '', demoCount: 0, lastDemoDate: null };
-  });
-  // Sort: most recent activity first, then by demo count, then alphabetically
+  contacts.forEach(c => { const rid = c.retailer_id; if (!rid || retailerMap[rid]) return; retailerMap[rid] = { id: rid, name: c.retailers?.name || 'Unknown', slug: c.retailers?.slug || '', demoCount: 0, lastDemoDate: null }; });
   const yourRetailers = Object.values(retailerMap).sort((a, b) => {
     if (a.lastDemoDate && b.lastDemoDate) return b.lastDemoDate.localeCompare(a.lastDemoDate);
     if (a.lastDemoDate) return -1;
@@ -281,9 +401,25 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     return b.demoCount - a.demoCount || a.name.localeCompare(b.name);
   });
 
-  const hasAnyDemos = demos.length > 0;
-  const performance = hasAnyDemos ? `
-    <div class="perf-card" style="margin-bottom:24px;">
+  // Welcome banner
+  const welcomeDismissedKey = 'demohub_brand_welcome_dismissed_' + (profile.id || 'none');
+  const showWelcome = demos.length === 0 && !localStorage.getItem(welcomeDismissedKey);
+  const needsCoi = !profile.default_coi_url;
+  const welcomeHtml = showWelcome ? `
+    <div class="welcome" id="welcomeBanner">
+      <button class="dismiss" onclick="dismissWelcome('${welcomeDismissedKey}')">&times;</button>
+      <div class="eyebrow">Welcome to Demohub</div>
+      <h3>Two quick things to finish setting up.</h3>
+      <ol>
+        <li><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong> — ${needsCoi ? 'Add your certificate of insurance so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#profile">Edit your profile →</a></li>
+        <li><strong>Share your Demohub link</strong> with retailers you work with — they can book demos with you faster if they're on Demohub.</li>
+      </ol>
+      <p>Once you book your first demo at any Demohub retailer, it shows up here automatically.</p>
+    </div>` : '';
+
+  const hasDemos = demos.length > 0;
+  const perfHtml = hasDemos ? `
+    <div class="card">
       <h2>Performance</h2>
       <div class="sub">Your activity across every Demohub retailer.</div>
       <div class="perf-stats">
@@ -293,159 +429,205 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
       </div>
       <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month — last 6 months</div>
       <div class="perf-chart">
-        ${monthKeys.map(k => {
-          const b = monthBuckets[k];
-          const heightPct = (b.count / maxMonthCount) * 100;
-          return `<div class="bar-col">
-            <div class="bar" style="height:${heightPct}%;">${b.count > 0 ? `<div class="bar-val">${b.count}</div>` : ''}</div>
-            <div class="bar-lbl">${b.label}</div>
-          </div>`;
-        }).join('')}
+        ${monthKeys.map(k => { const b = monthBuckets[k]; const heightPct = (b.count / maxMonthCount) * 100; return `<div class="bar-col"><div class="bar" style="height:${heightPct}%;">${b.count > 0 ? `<div class="bar-val">${b.count}</div>` : ''}</div><div class="bar-lbl">${b.label}</div></div>`; }).join('')}
       </div>
-    </div>
-  ` : '';
+    </div>` : '';
 
-  // Your retailers card — list of all retailers brand has any relationship with
-  const yourRetailersHtml = yourRetailers.length === 0 ? '' : `
-    <div class="perf-card" style="margin-bottom:24px;">
+  const retailersHtml = yourRetailers.length === 0 ? '' : `
+    <div class="card">
       <h2>Your retailers</h2>
-      <div class="sub">Every Demohub retailer you have a relationship with. Click through to book another demo.</div>
+      <div class="sub">Every Demohub retailer you have a relationship with.</div>
       ${yourRetailers.map(r => {
-        const lastDate = r.lastDemoDate
-          ? new Date(r.lastDemoDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : null;
+        const lastDate = r.lastDemoDate ? new Date(r.lastDemoDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null;
         const isActive = r.lastDemoDate && (Date.now() - new Date(r.lastDemoDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180;
-        const badge = r.demoCount === 0
-          ? '<span class="badge empty">No demos yet</span>'
-          : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
+        const badge = r.demoCount === 0 ? '<span class="badge empty">No demos yet</span>' : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
         return `<div class="retailer-row">
           <div class="retailer-info">
-            <div class="retailer-name-row">
-              <span class="retailer-name">${escapeHtml(r.name)}</span>
-              ${badge}
-            </div>
+            <div class="retailer-name-row"><span class="retailer-name">${escapeHtml(r.name)}</span>${badge}</div>
             <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created — no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
           </div>
           ${r.slug ? `<a href="/r/${escapeHtml(r.slug)}" class="btn-book" target="_blank">Book a demo →</a>` : ''}
         </div>`;
       }).join('')}
-    </div>
-  `;
+    </div>`;
 
-  const demosHtml = demos.length === 0
-    ? `<div class="empty">No demos yet. When you book at a Demohub retailer, your demos show up here.</div>`
-    : demos.map(d => {
+  const demosListHtml = `
+    <div class="card">
+      <h2>Recent demos</h2>
+      <div class="sub">Confirmed and pending across all retailers you've booked with.</div>
+      ${demos.length === 0 ? `<div class="empty">No demos yet. When you book at a Demohub retailer, your demos show up here.</div>` : demos.slice(0, 10).map(d => {
         const f = fmtDate(d.demo_date) || {};
-        const retailerName = d.retailers?.name || 'Unknown retailer';
-        const venueName = d.venues?.name || '';
-        return `
-          <div class="demos-row">
-            <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
-            <div class="demos-info">
-              <div class="demos-retailer">${escapeHtml(retailerName)}</div>
-              <div class="demos-venue">${escapeHtml(venueName)} · ${escapeHtml(d.demo_time || '')}</div>
-              ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
-            </div>
-            <div class="demos-status ${d.status}">${d.status}</div>
+        return `<div class="demos-row">
+          <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
+          <div class="demos-info">
+            <div class="demos-retailer">${escapeHtml(d.retailers?.name || 'Unknown')}</div>
+            <div class="demos-venue">${escapeHtml(d.venues?.name || '')} · ${escapeHtml(d.demo_time || '')}</div>
+            ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
-        `;
-      }).join('');
-
-  const profileForm = `
-    <div class="tab-bar">
-      <button class="active" data-tab="contact">Contact</button>
-      <button data-tab="compliance">Compliance</button>
-      <button data-tab="product">Product</button>
-    </div>
-    <div class="tab-pane active" id="tabContact">
-      <div class="form-row"><label class="label">Brand / company name</label><input class="input" id="f_company_name" value="${escapeHtml(profile.company_name || '')}"></div>
-      <div class="form-row split">
-        <div><label class="label">Your name</label><input class="input" id="f_contact_name" value="${escapeHtml(profile.contact_name || '')}"></div>
-        <div><label class="label">Phone</label><input class="input" id="f_phone" value="${escapeHtml(profile.phone || '')}"></div>
-      </div>
-      <div class="form-row"><label class="label">Website</label><input class="input" id="f_website" type="url" placeholder="https://" value="${escapeHtml(profile.website || '')}"></div>
-    </div>
-    <div class="tab-pane" id="tabCompliance">
-      <div class="form-row">
-        <label class="label">Certificate of Insurance (URL)</label>
-        <input class="input" id="f_default_coi_url" type="url" placeholder="https://drive.google.com/..." value="${escapeHtml(profile.default_coi_url || '')}">
-        <div class="help">Paste a publicly-readable link (Google Drive, Dropbox, etc.). New bookings will auto-attach this.</div>
-      </div>
-      <div class="form-row">
-        <label class="label">COI expires</label>
-        <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}">
-      </div>
-    </div>
-    <div class="tab-pane" id="tabProduct">
-      <div class="form-row">
-        <label class="label">Categories</label>
-        <div class="catpicker" id="dashCatPicker">
-          <input type="text" class="search" id="dashCatSearch" placeholder="Search categories…" autocomplete="off">
-          <div class="dropdown" id="dashCatDropdown"></div>
-        </div>
-        <input type="hidden" id="f_default_categories" value="${escapeHtml(profile.default_categories || '')}">
-      </div>
-      <div class="form-row">
-        <label class="label">Default product info</label>
-        <textarea class="textarea" id="f_default_product_info" placeholder="What you typically demo">${escapeHtml(profile.default_product_info || '')}</textarea>
-        <div class="help">Auto-fills the "Product" field when you book at any Demohub retailer.</div>
-      </div>
-    </div>
-    <div style="margin-top:18px;display:flex;align-items:center;">
-      <button class="btn" id="saveProfile">Save changes</button>
-      <span class="saved" id="savedFlag">Saved ✓</span>
-    </div>
-  `;
-
-  // First-login welcome banner: only show if 0 demos AND not dismissed
-  const welcomeDismissedKey = 'demohub_brand_welcome_dismissed_' + (profile.id || 'none');
-  const showWelcome = demos.length === 0 && !localStorage.getItem(welcomeDismissedKey);
-  const needsCoi = !profile.default_coi_url;
-  const needsProfile = !profile.phone && !profile.website && !profile.default_categories;
-  const welcomeHtml = showWelcome ? `
-    <div id="brandWelcomeBanner" style="background:var(--forest-50); border:1px solid rgba(15,44,23,0.12); border-radius:14px; padding:24px 28px; margin-bottom:28px; position:relative;">
-      <button onclick="dismissBrandWelcome()" aria-label="Dismiss" style="position:absolute; top:14px; right:16px; background:none; border:none; font-size:1.4rem; color:var(--ink-500); cursor:pointer; line-height:1;">&times;</button>
-      <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:10px;">Welcome to Demohub</div>
-      <h3 style="font-family:'Instrument Serif',Georgia,serif; font-size:1.5rem; font-weight:400; color:var(--forest-900); margin-bottom:12px; line-height:1.2;">Two quick things to finish setting up.</h3>
-      <ol style="font-size:0.98rem; color:var(--ink-700); line-height:1.6; margin:0 0 14px 18px; padding:0;">
-        <li style="margin-bottom:6px;"><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong> — ${needsCoi ? 'Add your certificate of insurance to your profile so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#" onclick="document.querySelector('[data-tab=&quot;compliance&quot;]')?.click(); document.getElementById('f_default_coi_url')?.focus(); return false;" style="color:var(--forest-700); font-weight:600;">${needsCoi ? 'Add COI →' : 'Edit profile →'}</a></li>
-        <li><strong>Share your Demohub link with retailers you work with</strong> — let them know they can book demos with you faster if they're on Demohub.</li>
-      </ol>
-      <p style="font-size:0.88rem; color:var(--ink-500); margin:0;">Once you book your first demo at any Demohub retailer, it shows up here automatically.</p>
-    </div>
-  ` : '';
+          <div class="demos-status ${d.status}">${d.status}</div>
+        </div>`;
+      }).join('')}
+    </div>`;
 
   main.innerHTML = `
-    <div class="page-head">
-      <div>
-        <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
-        <div class="sub">One profile, every Demohub retailer.</div>
+    <div class="page-head"><div>
+      <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
+      <div class="sub">One profile, every Demohub retailer.</div>
+    </div></div>
+    ${welcomeHtml}
+    <div class="stat-row">
+      <div class="stat"><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
+      <div class="stat"><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
+      <div class="stat"><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
+      <div class="stat"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
+    </div>
+    ${perfHtml}
+    ${retailersHtml}
+    ${demosListHtml}
+  `;
+}
+
+window.dismissWelcome = function(key) {
+  localStorage.setItem(key, '1');
+  const banner = document.getElementById('welcomeBanner');
+  if (banner) banner.style.display = 'none';
+};
+
+// ===== Calendar =====
+function renderCalendar() {
+  const demos = _data.demos || [];
+  const monthName = new Date(_calYear, _calMonth, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' });
+  const firstDow = new Date(_calYear, _calMonth, 1).getDay();
+  const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0,10);
+
+  // Group demos by date
+  const byDate = {};
+  demos.forEach(d => {
+    if (!d.demo_date) return;
+    const [y, m] = d.demo_date.split('-').map(n => parseInt(n, 10));
+    if (y !== _calYear || m !== _calMonth + 1) return;
+    if (!byDate[d.demo_date]) byDate[d.demo_date] = [];
+    byDate[d.demo_date].push(d);
+  });
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push('<div class="cal-day empty-day"></div>');
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const todays = byDate[dateStr] || [];
+    const isToday = dateStr === todayStr;
+    const eventsHtml = todays.map(d => `<div class="cal-event ${d.status}" title="${escapeHtml((d.retailers?.name || '') + ' · ' + (d.demo_time || ''))}">${escapeHtml(d.retailers?.name || 'Demo')}</div>`).join('');
+    cells.push(`<div class="cal-day${isToday ? ' today' : ''}"><div class="day-num">${day}</div>${eventsHtml}</div>`);
+  }
+
+  main.innerHTML = `
+    <div class="page-head"><div>
+      <h1>Calendar</h1>
+      <div class="sub">Every demo on the calendar across every retailer.</div>
+    </div></div>
+    <div class="card">
+      <div class="cal-head">
+        <h3>${monthName}</h3>
+        <div class="cal-nav">
+          <button onclick="navMonth(-1)" aria-label="Previous month">‹</button>
+          <button onclick="navMonth(0)" aria-label="Today">·</button>
+          <button onclick="navMonth(1)" aria-label="Next month">›</button>
+        </div>
+      </div>
+      <div class="cal-grid">
+        ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => `<div class="cal-dow">${d}</div>`).join('')}
+        ${cells.join('')}
+      </div>
+      <div class="cal-legend">
+        <div class="cal-legend-item"><span class="cal-legend-dot"></span>Confirmed</div>
+        <div class="cal-legend-item"><span class="cal-legend-dot pending"></span>Pending</div>
+        <div class="cal-legend-item"><span class="cal-legend-dot completed"></span>Completed</div>
+        <div class="cal-legend-item"><span class="cal-legend-dot cancelled"></span>Cancelled / Declined</div>
       </div>
     </div>
-    ${welcomeHtml}
-    ${stats}
-    ${performance}
-    ${yourRetailersHtml}
-    <div class="layout">
-      <div class="card">
-        <h2>Your demos</h2>
-        <div class="sub">Confirmed and pending across all retailers you've booked with.</div>
-        ${demosHtml}
+  `;
+}
+
+window.navMonth = function(delta) {
+  if (delta === 0) { const n = new Date(); _calMonth = n.getMonth(); _calYear = n.getFullYear(); }
+  else {
+    _calMonth += delta;
+    if (_calMonth > 11) { _calMonth = 0; _calYear++; }
+    if (_calMonth < 0) { _calMonth = 11; _calYear--; }
+  }
+  renderCalendar();
+};
+
+// ===== Profile =====
+function renderProfile() {
+  const profile = _data.profile || {};
+  main.innerHTML = `
+    <div class="page-head"><div>
+      <h1>Profile</h1>
+      <div class="sub">Your brand defaults. Retailers see this when you book at their store.</div>
+    </div></div>
+    <div class="card">
+      <div class="avatar-block">
+        <div class="avatar-lg" id="profileAvatar"></div>
+        <div>
+          <div style="font-weight:600; color:var(--forest-900); margin-bottom:4px;">Brand logo</div>
+          <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown on your dashboard and to retailers. PNG, JPG, or WEBP up to 2MB.</div>
+          <div class="avatar-actions">
+            <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
+            <button class="btn" onclick="document.getElementById('avatarFile').click()">Upload</button>
+            ${profile.logo_url ? `<button class="btn btn-ghost" onclick="removeAvatar()">Remove</button>` : ''}
+            <span class="saved" id="avatarSaved">Saved ✓</span>
+          </div>
+        </div>
       </div>
-      <div class="card">
-        <h2>Brand profile</h2>
-        <div class="sub">Your defaults. Retailers can still edit their own copy of your info.</div>
-        ${profileForm}
+      <div class="tab-bar">
+        <button class="active" data-tab="contact">Contact</button>
+        <button data-tab="compliance">Compliance</button>
+        <button data-tab="product">Product</button>
+      </div>
+      <div class="tab-pane active" id="tabContact">
+        <div class="form-row"><label class="label">Brand / company name</label><input class="input" id="f_company_name" value="${escapeHtml(profile.company_name || '')}"></div>
+        <div class="form-row split">
+          <div><label class="label">Your name</label><input class="input" id="f_contact_name" value="${escapeHtml(profile.contact_name || '')}"></div>
+          <div><label class="label">Phone</label><input class="input" id="f_phone" value="${escapeHtml(profile.phone || '')}"></div>
+        </div>
+        <div class="form-row"><label class="label">Website</label><input class="input" id="f_website" type="text" placeholder="yourbrand.com" value="${escapeHtml(profile.website || '')}"></div>
+      </div>
+      <div class="tab-pane" id="tabCompliance">
+        <div class="form-row">
+          <label class="label">Certificate of Insurance (URL)</label>
+          <input class="input" id="f_default_coi_url" type="text" placeholder="https://drive.google.com/..." value="${escapeHtml(profile.default_coi_url || '')}">
+          <div class="help">Paste a publicly-readable link (Google Drive, Dropbox, etc.). New bookings will auto-attach this.</div>
+        </div>
+        <div class="form-row">
+          <label class="label">COI expires</label>
+          <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}">
+        </div>
+      </div>
+      <div class="tab-pane" id="tabProduct">
+        <div class="form-row">
+          <label class="label">Categories</label>
+          <div class="catpicker" id="dashCatPicker">
+            <input type="text" class="search" id="dashCatSearch" placeholder="Search categories…" autocomplete="off">
+            <div class="dropdown" id="dashCatDropdown"></div>
+          </div>
+          <input type="hidden" id="f_default_categories" value="${escapeHtml(profile.default_categories || '')}">
+        </div>
+        <div class="form-row">
+          <label class="label">Default product info</label>
+          <textarea class="textarea" id="f_default_product_info" placeholder="What you typically demo">${escapeHtml(profile.default_product_info || '')}</textarea>
+          <div class="help">Auto-fills the "Product" field when you book at any Demohub retailer.</div>
+        </div>
+      </div>
+      <div style="margin-top:18px;display:flex;align-items:center;">
+        <button class="btn" id="saveProfileBtn">Save changes</button>
+        <span class="saved" id="profileSaved">Saved ✓</span>
       </div>
     </div>
   `;
 
-  // Welcome banner dismiss (only available if welcome was rendered)
-  window.dismissBrandWelcome = function() {
-    localStorage.setItem(welcomeDismissedKey, '1');
-    const banner = document.getElementById('brandWelcomeBanner');
-    if (banner) banner.style.display = 'none';
-  };
+  renderAvatar(document.getElementById('profileAvatar'), profile.logo_url);
 
   // Tab switching
   document.querySelectorAll('.tab-bar button').forEach(b => {
@@ -457,33 +639,43 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     });
   });
 
-  // Category picker on profile editor (searchable multi-select)
-  const CATEGORY_OPTIONS = [
-    'Beverages', 'Coffee & tea', 'Wine, beer & spirits',
-    'Snacks & chips', 'Chocolate & candy', 'Bakery & bread',
-    'Cereal & breakfast', 'Pantry & dry goods', 'Sauces, oils & condiments',
-    'Spices & seasonings', 'Dairy & cheese', 'Plant-based & vegan',
-    'Frozen', 'Produce', 'Meat & seafood',
-    'Prepared foods & deli', 'Health, supplements & wellness', 'Protein, bars & energy',
-    'Personal care & beauty', 'Pet supplies', 'Home & household',
-    'Baby & kids', 'CBD & hemp', 'Other'
-  ];
-  const dashPickerEl = document.getElementById('dashCatPicker');
-  const dashHidden = document.getElementById('f_default_categories');
-  if (dashPickerEl && dashHidden) {
-    const initial = (dashHidden.value || '').split(',').map(s => s.trim()).filter(Boolean);
-    initCatPicker({
-      pickerEl: dashPickerEl,
-      searchEl: document.getElementById('dashCatSearch'),
-      dropdownEl: document.getElementById('dashCatDropdown'),
-      hiddenEl: dashHidden,
-      options: CATEGORY_OPTIONS,
-      initial,
-    });
-  }
+  // Category picker
+  const initial = (profile.default_categories || '').split(',').map(s => s.trim()).filter(Boolean);
+  initCatPicker({
+    pickerEl: document.getElementById('dashCatPicker'),
+    searchEl: document.getElementById('dashCatSearch'),
+    dropdownEl: document.getElementById('dashCatDropdown'),
+    hiddenEl: document.getElementById('f_default_categories'),
+    options: CATEGORY_OPTIONS,
+    initial,
+  });
+
+  // Avatar upload
+  document.getElementById('avatarFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert('Image too large — max 2MB'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await fetch('/api/brand-account?action=upload-avatar&session_id=' + encodeURIComponent(sessionToken), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ image: reader.result }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Upload failed');
+        _data.profile.logo_url = j.logo_url;
+        renderAvatar(navAvatar, j.logo_url);
+        renderAvatar(document.getElementById('profileAvatar'), j.logo_url);
+        const saved = document.getElementById('avatarSaved');
+        if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2200); }
+      } catch (err) { alert('Could not upload: ' + err.message); }
+    };
+    reader.readAsDataURL(file);
+  });
 
   // Save handler
-  document.getElementById('saveProfile').addEventListener('click', async (e) => {
+  document.getElementById('saveProfileBtn').addEventListener('click', async (e) => {
     const btn = e.target;
     btn.disabled = true; btn.textContent = 'Saving…';
     const patch = {
@@ -498,20 +690,104 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     };
     try {
       const r = await fetch('/api/brand-account?action=profile-update&session_id=' + encodeURIComponent(sessionToken), {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
+        method: 'POST', headers: {'Content-Type':'application/json'},
         body: JSON.stringify(patch),
       });
       if (!r.ok) throw new Error('Failed to save');
-      const flag = document.getElementById('savedFlag');
-      flag.classList.add('show');
-      setTimeout(() => flag.classList.remove('show'), 2200);
+      Object.assign(_data.profile, patch);
+      navName.textContent = _data.profile.company_name || _data.profile.email || '';
+      const flag = document.getElementById('profileSaved');
+      flag.classList.add('show'); setTimeout(() => flag.classList.remove('show'), 2200);
     } catch (err) {
       alert('Could not save: ' + err.message);
     } finally {
       btn.disabled = false; btn.textContent = 'Save changes';
     }
   });
+}
+
+window.removeAvatar = async function() {
+  const ok = await confirmDialog('Remove brand logo?', 'You can upload a new one anytime.', 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=remove-avatar&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    if (!r.ok) throw new Error('Failed');
+    _data.profile.logo_url = null;
+    renderAvatar(navAvatar, null);
+    renderProfile();
+  } catch (err) { alert('Could not remove: ' + err.message); }
+};
+
+// ===== Account =====
+function renderAccount() {
+  const profile = _data.profile || {};
+  const createdAt = profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '—';
+  main.innerHTML = `
+    <div class="page-head"><div>
+      <h1>Account</h1>
+      <div class="sub">Manage your Demohub brand account.</div>
+    </div></div>
+    <div class="card">
+      <h2>Account info</h2>
+      <div class="sub">These details are tied to your sign-in.</div>
+      <div class="acct-row">
+        <div><div class="lbl">Email</div><div class="val">${escapeHtml(profile.email || '—')}</div></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Company</div><div class="val">${escapeHtml(profile.company_name || '—')}</div></div>
+        <div class="actions"><a href="#profile" class="btn btn-ghost">Edit on profile →</a></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Account created</div><div class="val">${createdAt}</div></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Verified</div><div class="val">${profile.is_verified ? '✓ Verified via magic link' : 'Not verified yet'}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sessions</h2>
+      <div class="sub">Signed in on multiple devices? Sign out from all of them.</div>
+      <div class="acct-row">
+        <div><div class="lbl">This device</div><div class="val">You're signed in here.</div></div>
+        <div class="actions"><button class="btn btn-ghost" onclick="signOutHere()">Sign out</button></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">All sessions</div><div class="val">Sign out everywhere — useful if you used a shared computer.</div></div>
+        <div class="actions"><button class="btn btn-ghost" onclick="signOutEverywhere()">Sign out everywhere</button></div>
+      </div>
+    </div>
+
+    <div class="danger-zone">
+      <h3>Danger zone</h3>
+      <div class="sub">Permanent. Past demos at retailers will stay on their side, but your brand profile will be erased.</div>
+      <button class="btn btn-danger" onclick="deleteAccount()">Delete my brand account</button>
+    </div>
+  `;
+}
+
+window.signOutHere = async function() {
+  await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method:'POST' }).catch(() => {});
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/';
+};
+window.signOutEverywhere = async function() {
+  const ok = await confirmDialog('Sign out everywhere?', 'You’ll need to use a fresh magic link to sign back in on every device.', 'Sign out everywhere');
+  if (!ok) return;
+  await fetch('/api/brand-account?action=logout-everywhere&session_id=' + encodeURIComponent(sessionToken), { method:'POST' }).catch(() => {});
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/';
+};
+window.deleteAccount = async function() {
+  const ok = await confirmDialog('Delete your brand account?', 'This is permanent. Your profile and account-level demo links will be erased. Past demos at retailers stay on their side.', 'Delete forever');
+  if (!ok) return;
+  alert('Account deletion coming soon — for now, email david@demohubhq.com and we’ll handle it.');
+};
+
+// ===== Init =====
+(async () => {
+  await loadData();
+  switchTab(window.location.hash.replace(/^#/, '') || 'overview');
 })();
 </script>
 </body>
