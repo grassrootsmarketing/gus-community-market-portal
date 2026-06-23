@@ -86,7 +86,7 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .demos-status.pending { background:#fff3d6; color:#a16928; }
 .demos-status.completed { background:#e8e6e1; color:var(--ink-700); }
 .demos-status.cancelled { background:#fae5e0; color:var(--clay-700); }
-.empty { padding:28px 0; text-align:center; color:var(--ink-500); font-size:0.92rem; }
+.empty-state { padding:28px 0; text-align:center; color:var(--ink-500); font-size:0.92rem; }
 
 /* ===== Calendar view ===== */
 .cal-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; gap:14px; }
@@ -147,6 +147,29 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .catpicker .dropdown .opt { padding:9px 13px; font-size:0.88rem; color:var(--ink-900); cursor:pointer; }
 .catpicker .dropdown .opt:hover, .catpicker .dropdown .opt.active { background:var(--cream-100); }
 .catpicker .dropdown .empty { padding:13px; color:var(--ink-500); font-size:0.85rem; text-align:center; }
+
+/* ===== COI file upload ===== */
+.coi-block { padding:14px 16px; background:#f9f7f2; border:1px solid rgba(15,44,23,0.08); border-radius:10px; }
+.coi-empty { padding:22px; text-align:center; border:1.5px dashed rgba(15,44,23,0.18); border-radius:10px; background:white; transition:all 0.15s; cursor:pointer; }
+.coi-empty:hover { border-color:var(--forest-500); background:var(--forest-50); }
+.coi-empty .icon { width:36px; height:36px; margin:0 auto 10px; opacity:0.6; }
+.coi-empty .lbl { font-weight:600; font-size:0.95rem; color:var(--forest-900); margin-bottom:4px; }
+.coi-empty .sub { font-size:0.82rem; color:var(--ink-500); }
+.coi-filled { display:flex; align-items:center; gap:12px; }
+.coi-filled .icon { width:36px; height:44px; flex-shrink:0; background:white; border:1px solid rgba(15,44,23,0.1); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:0.7rem; font-weight:700; color:var(--clay-700); }
+.coi-filled .info { flex:1; min-width:0; }
+.coi-filled .name { font-weight:600; font-size:0.94rem; color:var(--forest-900); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.coi-filled .meta { font-size:0.82rem; color:var(--ink-500); margin-top:2px; }
+.coi-filled .actions { display:flex; gap:6px; flex-shrink:0; }
+.coi-filled .actions a, .coi-filled .actions button { padding:6px 12px; font-size:0.82rem; border-radius:99px; font-weight:600; text-decoration:none; cursor:pointer; font-family:inherit; }
+.coi-filled .actions .view { background:white; border:1.5px solid rgba(15,44,23,0.12); color:var(--forest-900); }
+.coi-filled .actions .view:hover { background:var(--cream-100); }
+.coi-filled .actions .replace { background:var(--forest-900); color:white; border:none; }
+.coi-filled .actions .replace:hover { background:var(--forest-700); }
+.coi-filled .actions .remove { background:transparent; border:1.5px solid rgba(15,44,23,0.12); color:var(--clay-700); }
+.coi-filled .actions .remove:hover { background:#fdebe5; }
+.coi-uploading { display:flex; align-items:center; gap:10px; padding:14px; }
+.coi-uploading .spinner-sm { width:18px; height:18px; border:2.5px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; }
 
 /* ===== Avatar upload ===== */
 .avatar-block { display:flex; align-items:center; gap:18px; padding-bottom:22px; margin-bottom:22px; border-bottom:1px solid rgba(15,44,23,0.06); }
@@ -596,9 +619,10 @@ function renderProfile() {
       </div>
       <div class="tab-pane" id="tabCompliance">
         <div class="form-row">
-          <label class="label">Certificate of Insurance (URL)</label>
-          <input class="input" id="f_default_coi_url" type="text" placeholder="https://drive.google.com/..." value="${escapeHtml(profile.default_coi_url || '')}">
-          <div class="help">Paste a publicly-readable link (Google Drive, Dropbox, etc.). New bookings will auto-attach this.</div>
+          <label class="label">Certificate of Insurance</label>
+          <div id="coiWidget"></div>
+          <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
+          <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Attaches automatically to every new demo booking.</div>
         </div>
         <div class="form-row">
           <label class="label">COI expires</label>
@@ -650,6 +674,70 @@ function renderProfile() {
     initial,
   });
 
+  // COI upload widget
+  function renderCoiWidget() {
+    const widget = document.getElementById('coiWidget');
+    if (!widget) return;
+    const p = _data.profile || {};
+    if (p.default_coi_url) {
+      const name = p.default_coi_filename || 'certificate-of-insurance';
+      const isPdf = (p.default_coi_mime || '').includes('pdf') || name.toLowerCase().endsWith('.pdf');
+      const icon = isPdf ? 'PDF' : 'IMG';
+      const expires = p.default_coi_expires ? `Expires ${new Date(p.default_coi_expires + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}` : 'No expiration date set';
+      widget.innerHTML = `<div class="coi-block">
+        <div class="coi-filled">
+          <div class="icon">${icon}</div>
+          <div class="info">
+            <div class="name">${escapeHtml(name)}</div>
+            <div class="meta">${escapeHtml(expires)}</div>
+          </div>
+          <div class="actions">
+            <a class="view" href="${escapeHtml(p.default_coi_url)}" target="_blank" rel="noopener">View</a>
+            <button class="replace" type="button" onclick="document.getElementById('coiFile').click()">Replace</button>
+            <button class="remove" type="button" onclick="removeCoi()">Remove</button>
+          </div>
+        </div>
+      </div>`;
+    } else {
+      widget.innerHTML = `<div class="coi-empty" onclick="document.getElementById('coiFile').click()">
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="lbl">Upload your Certificate of Insurance</div>
+        <div class="sub">Click to choose a PDF, JPG, or PNG · up to 10MB</div>
+      </div>`;
+    }
+  }
+  renderCoiWidget();
+
+  document.getElementById('coiFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10MB'); e.target.value = ''; return; }
+    // Show uploading state
+    const widget = document.getElementById('coiWidget');
+    widget.innerHTML = `<div class="coi-block"><div class="coi-uploading"><div class="spinner-sm"></div><div>Uploading <strong>${escapeHtml(file.name)}</strong>…</div></div></div>`;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await fetch('/api/brand-account?action=upload-coi&session_id=' + encodeURIComponent(sessionToken), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ file: reader.result, filename: file.name }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Upload failed');
+        _data.profile.default_coi_url = j.coi_url;
+        _data.profile.default_coi_filename = j.filename;
+        _data.profile.default_coi_mime = j.mime;
+        renderCoiWidget();
+      } catch (err) {
+        alert('Could not upload: ' + err.message);
+        renderCoiWidget();
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
   // Avatar upload
   document.getElementById('avatarFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
@@ -683,7 +771,6 @@ function renderProfile() {
       contact_name: document.getElementById('f_contact_name').value.trim(),
       phone: document.getElementById('f_phone').value.trim(),
       website: document.getElementById('f_website').value.trim(),
-      default_coi_url: document.getElementById('f_default_coi_url').value.trim(),
       default_coi_expires: document.getElementById('f_default_coi_expires').value || null,
       default_categories: document.getElementById('f_default_categories').value.trim(),
       default_product_info: document.getElementById('f_default_product_info').value.trim(),
@@ -705,6 +792,20 @@ function renderProfile() {
     }
   });
 }
+
+window.removeCoi = async function() {
+  const ok = await confirmDialog('Remove COI?', 'Future demo bookings will be missing your certificate of insurance until you upload a new one.', 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=remove-coi&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    if (!r.ok) throw new Error('Failed');
+    _data.profile.default_coi_url = null;
+    _data.profile.default_coi_filename = null;
+    _data.profile.default_coi_mime = null;
+    _data.profile.default_coi_expires = null;
+    renderProfile();
+  } catch (err) { alert('Could not remove: ' + err.message); }
+};
 
 window.removeAvatar = async function() {
   const ok = await confirmDialog('Remove brand logo?', 'You can upload a new one anytime.', 'Remove');
