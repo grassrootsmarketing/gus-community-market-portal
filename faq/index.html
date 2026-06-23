@@ -95,28 +95,28 @@ footer a { color: var(--forest-700); text-decoration: none; }
     </details>
 
     <details>
-      <summary>Can brands change or cancel their booking?</summary>
-      <p>Today: they email you and you handle it. Soon: a brand portal lets them see their bookings, request reschedules, and upload COI documents themselves. The brand portal is already live in beta at <code>demohubhq.com/b/{your-handle}</code> — they sign in with a magic link.</p>
+      <summary>What's the cancellation policy?</summary>
+      <p>Up to each retailer — every store sets their own policy. You'll see it on the booking page before you submit, and it's listed in your confirmation email. Most retailers offer some grace period; some are non-refundable. When in doubt, reach out to the store directly.</p>
     </details>
 
     <details>
       <summary>Does Demohub work with my Google Calendar / Apple Calendar / Outlook?</summary>
-      <p>Yes — every retailer gets a read-only iCal feed at <code>demohubhq.com/api/cal?slug={your-handle}</code>. Subscribe to it from any calendar app and confirmed demos show up automatically. Two-way sync (where changes in your calendar flow back to Demohub) is on the roadmap.</p>
+      <p>Yes — it works with all the major calendar apps. Subscribe once and confirmed demos show up automatically.</p>
     </details>
 
     <details>
-      <summary>What if my staff need access to the admin?</summary>
-      <p>Right now the admin is gated by the email you signed up with. Multi-user access is coming — each team member will get their own magic-link login tied to your store. Until then, you can add internal team members to your contacts list for reference, but only the owner email signs in.</p>
+      <summary>Can my whole team access the admin?</summary>
+      <p>Yes. You can invite team members to your store's admin from the Settings page — each one gets their own sign-in. You decide who can edit (admin) and who's view-only.</p>
     </details>
 
     <details>
       <summary>Where's my data stored? Is it private?</summary>
-      <p>All data lives in Supabase (Postgres) hosted in US-West. Each retailer's data is isolated by row-level security — brands at Acme Market can't see anything at Gus's, and vice versa. We never sell, share, or train on your data. Email <a href="mailto:david@demohubhq.com">david@demohubhq.com</a> with any privacy questions.</p>
+      <p>Your data is hosted on enterprise-grade infrastructure in US-West with strict access controls. Each retailer's data is fully isolated — other stores can never see your brands, bookings, or contacts. We never sell, share, or train on your data. Email <a href="mailto:david@demohubhq.com">david@demohubhq.com</a> with any privacy questions.</p>
     </details>
 
     <details>
       <summary>I'm a brand — how do I book a demo?</summary>
-      <p>You don't book through Demohub directly. You book through the retailer's public link, which they share with you (something like <code>demohubhq.com/r/{their-handle}</code>). Pick a store, pick a date, pick a slot, submit. The retailer confirms within a business day and you get a confirmation email with calendar details.</p>
+      <p>You don't book through Demohub directly. Your retailer will share a public booking link with you. Pick a store, pick a date, pick a slot, submit. The retailer confirms within a business day and you get a confirmation email with the calendar invite attached.</p>
     </details>
   </div>
 
