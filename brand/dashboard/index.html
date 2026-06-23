@@ -78,15 +78,17 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .catpicker .dropdown .opt:hover, .catpicker .dropdown .opt.active { background:var(--cream-100); }
 .catpicker .dropdown .empty { padding:13px; color:var(--ink-500); font-size:0.85rem; text-align:center; }
 /* Your retailers list */
-.retailer-row { display:flex; align-items:center; gap:14px; padding:13px 0; border-bottom:1px solid rgba(15,44,23,0.06); }
+.retailer-row { display:flex; align-items:center; gap:16px; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); flex-wrap:wrap; }
 .retailer-row:last-child { border-bottom:0; }
 .retailer-info { flex:1; min-width:0; }
-.retailer-name { font-weight:600; font-size:0.96rem; color:var(--forest-900); }
-.retailer-meta { font-size:0.82rem; color:var(--ink-500); margin-top:2px; }
-.retailer-meta .badge { display:inline-block; padding:2px 8px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; margin-left:6px; }
-.retailer-meta .badge.inactive { background:#e8e6e1; color:var(--ink-700); }
-.retailer-row .btn-book { padding:7px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; }
-.retailer-row .btn-book:hover { background:var(--cream-100); }
+.retailer-name-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+.retailer-name { font-weight:600; font-size:0.98rem; color:var(--forest-900); }
+.retailer-meta { font-size:0.84rem; color:var(--ink-500); }
+.badge { display:inline-block; padding:3px 9px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
+.badge.inactive { background:#e8e6e1; color:var(--ink-700); }
+.badge.empty { background:#fdebe5; color:var(--clay-700); }
+.retailer-row .btn-book { padding:8px 16px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.84rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; white-space:nowrap; }
+.retailer-row .btn-book:hover { background:var(--cream-100); border-color:var(--forest-500); }
 .perf-row { display:grid; grid-template-columns:1.4fr 1fr; gap:24px; margin-bottom:28px; }
 @media (max-width:880px) { .perf-row { grid-template-columns:1fr; } }
 .perf-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:22px 24px; }
@@ -314,11 +316,14 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
           : null;
         const isActive = r.lastDemoDate && (Date.now() - new Date(r.lastDemoDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180;
         const badge = r.demoCount === 0
-          ? '<span class="badge inactive">No demos yet</span>'
+          ? '<span class="badge empty">No demos yet</span>'
           : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
         return `<div class="retailer-row">
           <div class="retailer-info">
-            <div class="retailer-name">${escapeHtml(r.name)}${badge}</div>
+            <div class="retailer-name-row">
+              <span class="retailer-name">${escapeHtml(r.name)}</span>
+              ${badge}
+            </div>
             <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created — no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
           </div>
           ${r.slug ? `<a href="/r/${escapeHtml(r.slug)}" class="btn-book" target="_blank">Book a demo →</a>` : ''}
