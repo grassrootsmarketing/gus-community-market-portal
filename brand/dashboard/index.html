@@ -189,6 +189,17 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .welcome p { font-size:0.88rem; color:var(--ink-500); margin:0; }
 .welcome a { color:var(--forest-700); font-weight:600; }
 
+/* ===== Team list ===== */
+.team-row { display:flex; align-items:center; gap:12px; padding:12px 14px; background:#f9f7f2; border-radius:8px; margin-bottom:8px; }
+.team-row .info { flex:1; min-width:0; }
+.team-row .tm-name { font-weight:600; color:var(--forest-900); font-size:0.94rem; }
+.team-row .tm-name .you { color:var(--ink-500); font-weight:400; font-size:0.78rem; margin-left:4px; }
+.team-row .tm-email { color:var(--ink-500); font-size:0.82rem; margin-top:2px; }
+.team-row .tm-actions { display:flex; gap:6px; align-items:center; flex-shrink:0; }
+.team-row select { font-size:0.8rem; padding:4px 8px; border:1.5px solid rgba(15,44,23,0.12); border-radius:6px; background:white; font-family:inherit; }
+.team-row button.tm-remove { background:transparent; border:1.5px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer; font-family:inherit; }
+.team-row button.tm-remove:hover { background:#fdebe5; }
+
 /* ===== Account section ===== */
 .acct-row { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); gap:18px; flex-wrap:wrap; }
 .acct-row:last-child { border-bottom:0; }
@@ -238,6 +249,33 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
     <div>Loading your brand portal…</div>
   </div>
 </main>
+
+<div class="modal-overlay" id="teamInviteModal">
+  <div class="modal-box">
+    <h3>Invite a teammate</h3>
+    <p>They'll get an email with a sign-in link.</p>
+    <div class="form-row">
+      <label class="label">Email</label>
+      <input class="input" id="teamInviteEmail" type="email" placeholder="teammate@yourbrand.com">
+    </div>
+    <div class="form-row">
+      <label class="label">Name (optional)</label>
+      <input class="input" id="teamInviteName" type="text" placeholder="First and last">
+    </div>
+    <div class="form-row">
+      <label class="label">Role</label>
+      <select id="teamInviteRole" class="input">
+        <option value="admin">Admin — can do everything except remove teammates</option>
+        <option value="viewer">Viewer — view-only access</option>
+      </select>
+    </div>
+    <div id="teamInviteError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
+    <div class="actions">
+      <button class="btn btn-ghost" onclick="closeTeamInvite()">Cancel</button>
+      <button class="btn" id="teamInviteSend" onclick="sendTeamInvite()">Send invite</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="confirmModal">
   <div class="modal-box">
@@ -847,6 +885,15 @@ function renderAccount() {
     </div>
 
     <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; gap:12px;">
+        <h2 style="margin-bottom:0;">Team</h2>
+        <button class="btn" style="padding:8px 16px; font-size:0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button>
+      </div>
+      <div class="sub">People who can access this brand's portal. Owners can invite teammates and change roles.</div>
+      <div id="teamList"></div>
+    </div>
+
+    <div class="card">
       <h2>Sessions</h2>
       <div class="sub">Signed in on multiple devices? Sign out from all of them.</div>
       <div class="acct-row">
@@ -865,7 +912,115 @@ function renderAccount() {
       <button class="btn btn-danger" onclick="deleteAccount()">Delete my brand account</button>
     </div>
   `;
+  loadTeam();
 }
+
+// ===== Team management =====
+async function loadTeam() {
+  const list = document.getElementById('teamList');
+  if (!list) return;
+  try {
+    const r = await fetch('/api/brand-account?action=team-list&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    const members = j.members || [];
+    const yourEmail = (j.your_email || '').toLowerCase();
+    const myRow = members.find(m => (m.email || '').toLowerCase() === yourEmail);
+    const iAmOwner = myRow && myRow.role === 'owner';
+    const iAmViewer = myRow && myRow.role === 'viewer';
+    const inviteBtn = document.getElementById('teamInviteBtn');
+    if (inviteBtn) inviteBtn.style.display = iAmViewer ? 'none' : '';
+    if (members.length === 0) {
+      list.innerHTML = '<div class="empty-state">No teammates yet.</div>';
+      return;
+    }
+    list.innerHTML = members.map(m => {
+      const isOwner = m.role === 'owner';
+      const isMe = (m.email || '').toLowerCase() === yourEmail;
+      const rolePill = isOwner
+        ? '<span class="badge">Owner</span>'
+        : (m.role === 'viewer'
+            ? '<span class="badge inactive">Viewer</span>'
+            : '<span class="badge">Admin</span>');
+      const actions = iAmOwner && !isOwner ? `
+        <select onchange="updateTeamRole('${m.id}', this.value)">
+          <option value="admin"${m.role === 'admin' ? ' selected' : ''}>Admin</option>
+          <option value="viewer"${m.role === 'viewer' ? ' selected' : ''}>Viewer</option>
+        </select>
+        <button class="tm-remove" onclick="removeTeamMember('${m.id}', '${escapeHtml(m.email)}')">Remove</button>
+      ` : '';
+      return `<div class="team-row">
+        <div class="info">
+          <div class="tm-name">${escapeHtml(m.name || m.email)}${isMe ? '<span class="you">(you)</span>' : ''}</div>
+          ${m.name ? `<div class="tm-email">${escapeHtml(m.email)}</div>` : ''}
+        </div>
+        ${rolePill}
+        <div class="tm-actions">${actions}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+window.openTeamInvite = function() {
+  document.getElementById('teamInviteEmail').value = '';
+  document.getElementById('teamInviteName').value = '';
+  document.getElementById('teamInviteRole').value = 'admin';
+  document.getElementById('teamInviteError').style.display = 'none';
+  document.getElementById('teamInviteModal').classList.add('open');
+};
+window.closeTeamInvite = function() {
+  document.getElementById('teamInviteModal').classList.remove('open');
+};
+window.sendTeamInvite = async function() {
+  const email = document.getElementById('teamInviteEmail').value.trim();
+  const name = document.getElementById('teamInviteName').value.trim();
+  const role = document.getElementById('teamInviteRole').value;
+  const err = document.getElementById('teamInviteError');
+  const btn = document.getElementById('teamInviteSend');
+  err.style.display = 'none';
+  if (!email) { err.textContent = 'Email required'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/api/brand-account?action=team-invite&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email, name, role }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    closeTeamInvite();
+    loadTeam();
+  } catch (e) {
+    err.textContent = e.message; err.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send invite';
+  }
+};
+window.updateTeamRole = async function(id, role) {
+  try {
+    const r = await fetch('/api/brand-account?action=team-update-role&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ member_id: id, role }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    loadTeam();
+  } catch (e) { alert('Could not change role: ' + e.message); loadTeam(); }
+};
+window.removeTeamMember = async function(id, email) {
+  const ok = await confirmDialog('Remove teammate?', `${email} will lose access to this brand account immediately.`, 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=team-remove&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ member_id: id }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    loadTeam();
+  } catch (e) { alert('Could not remove: ' + e.message); }
+};
 
 window.signOutHere = async function() {
   await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method:'POST' }).catch(() => {});
