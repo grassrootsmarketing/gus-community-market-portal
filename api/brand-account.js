@@ -79,6 +79,8 @@ export default async function handler(req, res) {
       const companyName = String(body.company_name || '').trim();
       const contactName = String(body.contact_name || '').trim() || null;
       const phone = String(body.phone || '').trim() || null;
+      const website = String(body.website || '').trim() || null;
+      const defaultCategories = String(body.default_categories || '').trim() || null;
       if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company_name' });
 
       // upsert by email
@@ -87,10 +89,17 @@ export default async function handler(req, res) {
       let brandId;
       if (existing) {
         brandId = existing.id;
+        // Fill in any newly-provided fields that weren't set before
+        const patch = { updated_at: new Date().toISOString() };
+        if (contactName) patch.contact_name = contactName;
+        if (phone) patch.phone = phone;
+        if (website) patch.website = website;
+        if (defaultCategories) patch.default_categories = defaultCategories;
+        try { await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) }); } catch (_) {}
       } else {
         const createR = await sb('brands', {
           method: 'POST',
-          body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone }),
+          body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone, website, default_categories: defaultCategories }),
         });
         const created = await createR.json();
         if (!Array.isArray(created) || !created[0]) return jsonResp(res, 500, { error: 'Failed to create brand' });
