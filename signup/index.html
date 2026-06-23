@@ -81,21 +81,16 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
         <input class="input" id="billingEmail" name="billing_email" type="email" placeholder="you@yourbusiness.com" required autocomplete="email">
         <div class="hint">We'll send your admin URL here.</div>
       </div>
-      <div class="form-row split">
-        <div>
-          <label class="label" for="storeCount">How many stores?</label>
-          <select class="select" id="storeCount" name="store_count">
-            <option value="1">1 store</option>
-            <option value="2">2 stores</option>
-            <option value="3">3 stores</option>
-            <option value="5">5 stores</option>
-            <option value="10">10+ stores</option>
-          </select>
-        </div>
-        <div>
-          <label class="label" for="demoFee">Demo fee ($)</label>
-          <input class="input" id="demoFee" name="demo_fee" type="number" min="0" step="5" value="30">
-        </div>
+      <div class="form-row">
+        <label class="label" for="storeCount">How many stores?</label>
+        <select class="select" id="storeCount" name="store_count">
+          <option value="1">1 store</option>
+          <option value="2">2 stores</option>
+          <option value="3">3 stores</option>
+          <option value="5">5 stores</option>
+          <option value="10">10+ stores</option>
+        </select>
+        <div class="hint">You can set your demo fee + per-store details after sign-up.</div>
       </div>
       <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
     </form>
