@@ -520,15 +520,51 @@
                         <div class="settings-card-body" id="availabilityEditorBody"></div>
                     </div>
                     <div class="settings-card">
+                        <div class="settings-card-header"><h3>Cancellation policy</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="policyEditBtn" onclick="togglePolicyEdit()">Edit</button></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown to brands on the public booking page before they submit, and included in confirmation emails.</div>
+                            <textarea id="cancellationPolicy" rows="5" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.</textarea>
+                            <div id="policyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="settings-card-header"><h3>Team</h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">People with admin access to this store. Owners can invite others and change roles.</div>
+                            <div id="teamList" style="display:flex; flex-direction:column; gap:8px;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card">
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
                             <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" id="settingDemoDuration" value="3 hours" disabled></div>
                             <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" id="settingAdvanceBooking" value="14 days minimum" disabled></div>
-                            <div class="form-group"><label class="form-label">Calendar Sync</label><button class="btn btn-secondary" style="width: 100%; justify-content: center;"><svg viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Connect Outlook</button></div>
+                            <div class="form-group"><label class="form-label">Calendar feed</label><div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:6px;">Subscribe in Google, Apple, or Outlook calendar to see all confirmed demos.</div><button class="btn btn-secondary" style="width: 100%; justify-content: center;" id="copyIcalBtn" onclick="copyIcalUrl()">Copy calendar URL</button></div>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Team invite modal -->
+    <div class="modal-overlay" id="teamInviteModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
+        <div class="modal" style="max-width:480px; background:white; border-radius:16px; padding:30px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
+            <h3 style="font-size:1.4rem; color:var(--forest-800); margin-bottom:6px; font-family:'Fraunces', serif; font-weight:400;">Invite a team member</h3>
+            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:18px;">They'll get an email with a sign-in link.</div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Email</label><input type="email" class="form-input" id="teamInviteEmail" placeholder="teammate@yourstore.com" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Name (optional)</label><input type="text" class="form-input" id="teamInviteName" placeholder="First and last" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:18px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Role</label>
+                <select id="teamInviteRole" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background:white;">
+                    <option value="admin">Admin — can do everything except remove team members</option>
+                    <option value="viewer">Viewer — view-only access</option>
+                </select>
+            </div>
+            <div id="teamInviteError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button class="btn btn-secondary" style="padding:10px 18px;" onclick="closeTeamInvite()">Cancel</button>
+                <button class="btn btn-primary" style="padding:10px 18px;" onclick="sendTeamInvite()" id="teamInviteSendBtn">Send invite</button>
             </div>
         </div>
     </div>
@@ -1141,6 +1177,8 @@ END:VEVENT
             renderPendingBookings();
             renderStores();
             renderWelcomeBanner();
+            loadCancellationPolicy();
+            loadTeam();
         }
 
         // ===== First-login welcome banner =====
@@ -1832,6 +1870,180 @@ END:VEVENT
 
         // ===== Settings edit toggle =====
         function loadSettings() { applySettingsToInputs(); }
+
+        // ===== Cancellation policy =====
+        let policyEditing = false;
+        async function loadCancellationPolicy() {
+            try {
+                const res = await sb.from('retailers').select('cancellation_policy').eq('id', RETAILER_ID).maybeSingle();
+                const policy = (res.data && res.data.cancellation_policy) ||
+                  'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                const ta = document.getElementById('cancellationPolicy');
+                if (ta) ta.value = policy;
+            } catch (e) { console.warn('loadCancellationPolicy', e); }
+        }
+        function togglePolicyEdit() {
+            const ta = document.getElementById('cancellationPolicy');
+            const btn = document.getElementById('policyEditBtn');
+            const status = document.getElementById('policyStatus');
+            if (!ta || !btn) return;
+            policyEditing = !policyEditing;
+            if (policyEditing) {
+                ta.readOnly = false;
+                ta.style.background = 'white';
+                btn.textContent = 'Save';
+                ta.focus();
+                status.textContent = '';
+            } else {
+                btn.disabled = true; btn.textContent = 'Saving…';
+                const newVal = ta.value.trim() || 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ cancellation_policy: newVal }),
+                }).then(r => r.json()).then(j => {
+                    if (j.error) throw new Error(j.error);
+                    ta.readOnly = true;
+                    ta.style.background = '#f9f7f2';
+                    btn.disabled = false; btn.textContent = 'Edit';
+                    status.style.color = 'var(--forest-700)';
+                    status.textContent = 'Saved ✓';
+                    setTimeout(() => { status.textContent = ''; }, 2000);
+                }).catch(e => {
+                    btn.disabled = false; btn.textContent = 'Save';
+                    status.style.color = 'var(--clay-700)';
+                    status.textContent = 'Save failed: ' + e.message;
+                    policyEditing = true;
+                });
+            }
+        }
+
+        // ===== Team / multi-admin =====
+        async function loadTeam() {
+            const list = document.getElementById('teamList');
+            if (!list) return;
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'team-list', session_id: AdminAuth.getSession() }),
+                });
+                const j = await r.json();
+                if (j.error) throw new Error(j.error);
+                const admins = j.admins || [];
+                const yourEmail = (j.your_email || '').toLowerCase();
+                const myRow = admins.find(a => (a.email || '').toLowerCase() === yourEmail);
+                const iAmOwner = myRow && myRow.role === 'owner';
+                window._teamIsOwner = iAmOwner;
+                const inviteBtn = document.getElementById('teamInviteBtn');
+                if (inviteBtn) inviteBtn.style.display = (iAmOwner || (myRow && myRow.role === 'admin')) ? '' : 'none';
+                if (admins.length === 0) {
+                    list.innerHTML = '<div style="color:var(--ink-500); font-size:0.9rem; padding:12px 0;">No team members yet.</div>';
+                    return;
+                }
+                list.innerHTML = admins.map(a => {
+                    const isOwner = a.role === 'owner';
+                    const isMe = (a.email || '').toLowerCase() === yourEmail;
+                    const rolePill = isOwner
+                        ? '<span style="background:var(--forest-100); color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Owner</span>'
+                        : (a.role === 'viewer'
+                            ? '<span style="background:#e8e6e1; color:var(--ink-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Viewer</span>'
+                            : '<span style="background:#dceadf; color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Admin</span>');
+                    const actions = iAmOwner && !isOwner
+                        ? `<div style="display:flex; gap:6px;">
+                             <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.8rem; padding:4px 8px; border:1px solid rgba(15,44,23,0.12); border-radius:6px; background:white;">
+                               <option value="admin"${a.role === 'admin' ? ' selected' : ''}>Admin</option>
+                               <option value="viewer"${a.role === 'viewer' ? ' selected' : ''}>Viewer</option>
+                             </select>
+                             <button onclick="removeTeamMember('${a.id}', '${escapeHtml(a.email)}')" style="background:transparent; border:1px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer;">Remove</button>
+                           </div>`
+                        : '';
+                    return `<div style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:#f9f7f2; border-radius:8px;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:600; color:var(--forest-900); font-size:0.92rem;">${escapeHtml(a.name || a.email)} ${isMe ? '<span style="color:var(--ink-500); font-weight:400; font-size:0.78rem;">(you)</span>' : ''}</div>
+                            ${a.name ? `<div style="color:var(--ink-500); font-size:0.82rem;">${escapeHtml(a.email)}</div>` : ''}
+                        </div>
+                        ${rolePill}
+                        ${actions}
+                    </div>`;
+                }).join('');
+            } catch (e) {
+                list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${e.message}</div>`;
+            }
+        }
+        function openTeamInvite() {
+            const m = document.getElementById('teamInviteModal');
+            if (!m) return;
+            document.getElementById('teamInviteEmail').value = '';
+            document.getElementById('teamInviteName').value = '';
+            document.getElementById('teamInviteRole').value = 'admin';
+            document.getElementById('teamInviteError').style.display = 'none';
+            m.style.display = 'flex';
+        }
+        function closeTeamInvite() {
+            const m = document.getElementById('teamInviteModal');
+            if (m) m.style.display = 'none';
+        }
+        async function sendTeamInvite() {
+            const email = document.getElementById('teamInviteEmail').value.trim();
+            const name = document.getElementById('teamInviteName').value.trim();
+            const role = document.getElementById('teamInviteRole').value;
+            const err = document.getElementById('teamInviteError');
+            const btn = document.getElementById('teamInviteSendBtn');
+            err.style.display = 'none';
+            if (!email) { err.textContent = 'Email required'; err.style.display = 'block'; return; }
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'team-invite', session_id: AdminAuth.getSession(), email, name, role }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Failed');
+                closeTeamInvite();
+                loadTeam();
+            } catch (e) {
+                err.textContent = e.message; err.style.display = 'block';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Send invite';
+            }
+        }
+        async function updateTeamRole(id, role) {
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'team-update-role', session_id: AdminAuth.getSession(), admin_id: id, role }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Failed');
+                loadTeam();
+            } catch (e) { alert('Could not change role: ' + e.message); loadTeam(); }
+        }
+        async function removeTeamMember(id, email) {
+            if (!confirm(`Remove ${email} from the team? They will lose admin access immediately.`)) return;
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'team-remove', session_id: AdminAuth.getSession(), admin_id: id }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Failed');
+                loadTeam();
+            } catch (e) { alert('Could not remove: ' + e.message); }
+        }
+
+        // Calendar feed URL copy
+        function copyIcalUrl() {
+            const slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || 'gus';
+            const url = `${location.origin}/api/cal?slug=${slug}`;
+            navigator.clipboard.writeText(url).then(() => {
+                const btn = document.getElementById('copyIcalBtn');
+                if (!btn) return;
+                const orig = btn.textContent;
+                btn.textContent = 'Copied ✓';
+                setTimeout(() => { btn.textContent = orig; }, 1800);
+            }).catch(() => { prompt('Copy this URL:', url); });
+        }
         // ===== Stats =====
         function updateStats() {
             const now = new Date();
