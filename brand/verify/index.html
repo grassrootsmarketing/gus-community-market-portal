@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Signing you in… — Demohub</title>
+<style>
+body { font-family:-apple-system,sans-serif; background:#fbf7f0; color:#1c1c1a; display:flex; align-items:center; justify-content:center; min-height:100vh; margin:0; }
+.box { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:16px; padding:40px 48px; max-width:420px; text-align:center; }
+h1 { font-family:Georgia,serif; font-weight:400; font-size:1.6rem; color:#0f2c17; margin:0 0 12px; }
+p { color:#3a3a36; font-size:0.95rem; line-height:1.5; margin:0; }
+a { display:inline-block; margin-top:20px; padding:10px 22px; background:#0f2c17; color:white; border-radius:99px; text-decoration:none; font-weight:600; font-size:0.92rem; }
+.err { color:#a14e2a; }
+.spinner { display:inline-block; width:32px; height:32px; border:3px solid #e3edd6; border-top-color:#3a7142; border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:16px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="box" id="box">
+  <div class="spinner"></div>
+  <h1>Signing you in…</h1>
+  <p>Verifying your link.</p>
+</div>
+<script>
+(async () => {
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get('t');
+  const box = document.getElementById('box');
+  if (!token) {
+    box.innerHTML = '<h1>Bad link</h1><p>This link is missing its verification token.</p><a href="/brand/signin">Try again</a>';
+    return;
+  }
+  try {
+    const r = await fetch('/api/brand-account?action=verify', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ token }),
+    });
+    const json = await r.json();
+    if (!r.ok || !json.session_token) throw new Error(json.error || 'Verification failed');
+    localStorage.setItem('demohub_brand_account_session', json.session_token);
+    window.location.href = '/brand/dashboard';
+  } catch (err) {
+    box.innerHTML = `<h1 class="err">Link expired</h1><p>${err.message}</p><a href="/brand/signin">Request a new link</a>`;
+  }
+})();
+</script>
+</body>
+</html>
