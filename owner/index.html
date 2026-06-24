@@ -138,7 +138,7 @@ function renderGate(msg) {
     notice.className = 'notice'; notice.style.display = 'none';
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
-      const r = await fetch('/api/site-admin?action=login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+      const r = await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-login', email }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
       notice.className = 'notice success'; notice.style.display = 'block';
@@ -156,7 +156,7 @@ async function tryVerifyToken() {
   const token = u.searchParams.get('token');
   if (!token) return false;
   try {
-    const r = await fetch('/api/site-admin?action=verify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ token }) });
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-verify', token }) });
     const j = await r.json();
     if (!r.ok || !j.session_id) return false;
     localStorage.setItem(SESSION_KEY, j.session_id);
@@ -168,7 +168,7 @@ async function tryVerifyToken() {
 
 window.ownerSignOut = async function() {
   const t = localStorage.getItem(SESSION_KEY);
-  try { await fetch('/api/site-admin?action=logout&session_id=' + encodeURIComponent(t || ''), { method: 'POST' }); } catch (_) {}
+  try { await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-logout', session_id: t || '' }) }); } catch (_) {}
   localStorage.removeItem(SESSION_KEY);
   window.location.href = '/owner';
 };
@@ -179,7 +179,7 @@ async function loadData() {
   if (!t) { renderGate(); return; }
   let j;
   try {
-    const r = await fetch('/api/site-admin?action=data&session_id=' + encodeURIComponent(t));
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-data', session_id: t }) });
     if (r.status === 401) { localStorage.removeItem(SESSION_KEY); renderGate(); return; }
     j = await r.json();
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
