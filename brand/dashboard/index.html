@@ -200,6 +200,28 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .team-row button.tm-remove { background:transparent; border:1.5px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer; font-family:inherit; }
 .team-row button.tm-remove:hover { background:#fdebe5; }
 
+/* ===== Activity feed ===== */
+.activity-list { display:flex; flex-direction:column; gap:14px; }
+.activity-item { display:flex; gap:12px; align-items:flex-start; padding:8px 0; }
+.activity-item .activity-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; margin-top:7px; background:var(--forest-500); }
+.activity-content { flex:1; min-width:0; }
+.activity-text { color:var(--forest-900); font-size:0.94rem; font-weight:500; line-height:1.4; }
+.activity-when { color:var(--ink-500); font-size:0.8rem; margin-top:3px; }
+
+/* ===== iOS-style notification toggle ===== */
+.notif-row { display:flex; align-items:center; justify-content:space-between; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); gap:18px; }
+.notif-row:last-child { border-bottom:0; }
+.notif-info .label { font-weight:600; color:var(--forest-900); font-size:0.94rem; margin-bottom:3px; }
+.notif-info .help { font-size:0.82rem; color:var(--ink-500); margin:0; }
+.notif-switch { position:relative; width:46px; height:26px; flex-shrink:0; cursor:pointer; }
+.notif-switch input { opacity:0; width:0; height:0; }
+.notif-switch .slider { position:absolute; inset:0; background:#d3cfc4; border-radius:99px; transition:background 0.2s; }
+.notif-switch .slider::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; background:white; border-radius:50%; transition:transform 0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.2); }
+.notif-switch input:checked + .slider { background:var(--forest-600); }
+.notif-switch input:checked + .slider::after { transform:translateX(20px); }
+.notif-saved-msg { display:inline-block; color:var(--forest-500); font-size:0.82rem; font-weight:600; opacity:0; transition:opacity 0.3s; }
+.notif-saved-msg.show { opacity:1; }
+
 /* ===== Account section ===== */
 .acct-row { display:flex; justify-content:space-between; align-items:center; padding:14px 0; border-bottom:1px solid rgba(15,44,23,0.06); gap:18px; flex-wrap:wrap; }
 .acct-row:last-child { border-bottom:0; }
@@ -551,6 +573,53 @@ function renderOverview() {
       }).join('')}
     </div>`;
 
+  // ===== Activity feed: derived client-side from existing demos =====
+  // Last 30 days. Events: booked / confirmed / completed / declined. Max 8 items.
+  const activityHtml = (() => {
+    const thirtyAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const events = [];
+    demos.forEach(d => {
+      const retailerName = d.retailers?.name || 'a retailer';
+      const venueName = d.venues?.name || 'demo';
+      const createdAt = d.created_at ? new Date(d.created_at) : (d.demo_date ? new Date(d.demo_date + 'T00:00:00') : null);
+      if (createdAt && createdAt >= thirtyAgo) {
+        events.push({ at: createdAt, kind: 'booked', text: `Booked at ${retailerName}` });
+      }
+      if (d.status === 'confirmed' && d.demo_date) {
+        const at = new Date(d.demo_date + 'T00:00:00');
+        events.push({ at, kind: 'confirmed', text: `${retailerName} confirmed your ${venueName} demo` });
+      } else if (d.status === 'completed' && d.demo_date) {
+        const at = new Date(d.demo_date + 'T00:00:00');
+        events.push({ at, kind: 'completed', text: `Completed demo at ${retailerName}` });
+      } else if ((d.status === 'declined' || d.status === 'cancelled') && d.demo_date) {
+        const at = new Date(d.demo_date + 'T00:00:00');
+        events.push({ at, kind: 'declined', text: `${retailerName} declined your demo` });
+      }
+    });
+    const recent = events.filter(e => e.at && e.at >= thirtyAgo).sort((a, b) => b.at - a.at).slice(0, 8);
+    if (recent.length === 0) return '';
+    const dotColor = (k) => k === 'confirmed' ? '#3a7142' : k === 'completed' ? '#6b6a64' : k === 'declined' ? '#a14e2a' : '#ed682f';
+    return `
+      <div class="card">
+        <h2>Activity</h2>
+        <div class="sub">Recent events across every retailer — the last 30 days.</div>
+        <div class="activity-list">
+          ${recent.map(e => `
+            <div class="activity-item">
+              <span class="activity-dot" style="background:${dotColor(e.kind)};"></span>
+              <div class="activity-content">
+                <div class="activity-text">${escapeHtml(e.text)}</div>
+                <div class="activity-when">${e.at.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:14px; padding-top:14px; border-top:1px solid rgba(15,44,23,0.06);">
+          <a href="#calendar" style="font-size:0.86rem; color:var(--forest-700); font-weight:600; text-decoration:none;">View full timeline →</a>
+        </div>
+      </div>`;
+  })();
+
   const demosListHtml = `
     <div class="card">
       <h2>Recent demos</h2>
@@ -603,6 +672,7 @@ function renderOverview() {
     </div>
     ${perfHtml}
     ${retailersHtml}
+    ${activityHtml}
     ${demosListHtml}
   `;
 }
@@ -970,5 +1040,168 @@ window.removeAvatar = async function() {
 function renderAccount() {
   const profile = _data.profile || {};
   const createdAt = profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '—';
+  // Notification prefs are stored as JSONB on brands. Defaults: all on.
+  // NOTE — Scaffolding: prefs are stored but no notification engine is wired yet.
+  // Once an email notification engine ships, these prefs will gate which events trigger emails.
+  const np = profile.notification_prefs || {};
+  const prefConfirm = np.confirm !== false;
+  const prefDecline = np.decline !== false;
+  const prefCoi = np.coi_expiring !== false;
   main.innerHTML = `
-    <di
+    <div class="page-head"><div>
+      <h1>Account</h1>
+      <div class="sub">Your sign-in info, notifications, and active sessions.</div>
+    </div></div>
+
+    <div class="card">
+      <h2>Account info</h2>
+      <div class="sub">Your sign-in email and account creation date.</div>
+      <div class="acct-row">
+        <div>
+          <div class="lbl">Email</div>
+          <div class="val">${escapeHtml(profile.email || '—')}</div>
+        </div>
+        <div class="actions">
+          <a href="mailto:david@demohubhq.com?subject=Change%20email%20on%20Demohub" class="btn btn-ghost">Change</a>
+        </div>
+      </div>
+      <div class="acct-row">
+        <div>
+          <div class="lbl">Member since</div>
+          <div class="val">${escapeHtml(createdAt)}</div>
+        </div>
+      </div>
+      <div class="acct-row">
+        <div>
+          <div class="lbl">Brand</div>
+          <div class="val">${escapeHtml(profile.company_name || '—')}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Notifications</h2>
+      <div class="sub">Choose which emails you want from Demohub. <span style="color:var(--ink-500);">(Coming soon — prefs are saved now, engine ships next.)</span></div>
+      <div class="notif-row">
+        <div class="notif-info">
+          <div class="label">Demo confirmed</div>
+          <p class="help">Email me when a retailer confirms my demo.</p>
+        </div>
+        <label class="notif-switch">
+          <input type="checkbox" id="pref_confirm" ${prefConfirm ? 'checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-info">
+          <div class="label">Demo declined</div>
+          <p class="help">Email me when a retailer declines my demo.</p>
+        </div>
+        <label class="notif-switch">
+          <input type="checkbox" id="pref_decline" ${prefDecline ? 'checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div class="notif-row">
+        <div class="notif-info">
+          <div class="label">COI expiring</div>
+          <p class="help">Email me when my COI is about to expire.</p>
+        </div>
+        <label class="notif-switch">
+          <input type="checkbox" id="pref_coi" ${prefCoi ? 'checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </div>
+      <div style="margin-top:14px; display:flex; align-items:center; gap:12px;">
+        <button class="btn" id="saveNotifBtn" onclick="saveNotifPrefs()">Save preferences</button>
+        <span class="notif-saved-msg" id="notifSaved">Saved ✓</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sessions</h2>
+      <div class="sub">Sign out of this device or out of every device.</div>
+      <div class="acct-row">
+        <div>
+          <div class="lbl">This device</div>
+          <div class="val">Active — signed in</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-ghost" onclick="signOut()">Sign out</button>
+        </div>
+      </div>
+      <div class="acct-row">
+        <div>
+          <div class="lbl">All other devices</div>
+          <div class="val">Forces a fresh sign-in everywhere.</div>
+        </div>
+        <div class="actions">
+          <button class="btn btn-danger" onclick="signOutEverywhere()">Sign out everywhere</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="danger-zone">
+      <h3>Need to delete your account?</h3>
+      <div class="sub">We don't have one-click delete yet — email us and we'll handle it within 24 hours.</div>
+      <a href="mailto:david@demohubhq.com?subject=Delete%20my%20Demohub%20brand%20account" class="btn btn-danger">Email us to delete</a>
+    </div>
+  `;
+}
+
+// Save notification preferences. Scaffolding — engine not wired yet.
+window.saveNotifPrefs = async function() {
+  const btn = document.getElementById('saveNotifBtn');
+  const saved = document.getElementById('notifSaved');
+  if (btn) btn.disabled = true;
+  const prefs = {
+    confirm: !!document.getElementById('pref_confirm')?.checked,
+    decline: !!document.getElementById('pref_decline')?.checked,
+    coi_expiring: !!document.getElementById('pref_coi')?.checked,
+  };
+  try {
+    const r = await fetch('/api/brand-account?action=profile-update&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notification_prefs: prefs }),
+    });
+    if (!r.ok) throw new Error('Save failed');
+    if (_data && _data.profile) _data.profile.notification_prefs = prefs;
+    if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 1800); }
+  } catch (e) {
+    alert('Could not save: ' + (e?.message || e));
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
+window.signOut = async function() {
+  try {
+    await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+  } catch (_) {}
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/brand/signin';
+};
+
+window.signOutEverywhere = async function() {
+  const ok = await confirmDialog('Sign out everywhere?', 'You and any teammates with active sessions will need to sign in again.', 'Sign out');
+  if (!ok) return;
+  try {
+    await fetch('/api/brand-account?action=logout-everywhere&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+  } catch (_) {}
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/brand/signin';
+};
+
+// ===== Boot =====
+(async function boot() {
+  try {
+    await loadData();
+  } catch (_) { return; }
+  const initial = (window.location.hash || '#overview').replace(/^#/, '');
+  switchTab(initial || 'overview');
+})();
+
+</script>
+</body>
+</html>
