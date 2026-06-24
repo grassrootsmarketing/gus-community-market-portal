@@ -12,6 +12,11 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// UUID format guard — protects against Postgres "invalid input syntax for type uuid" errors
+// when callers pass garbage values like "fake" in session_id or other UUID params.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
+
 async function sb(path, opts = {}) {
   const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
@@ -25,7 +30,13 @@ async function sb(path, opts = {}) {
 // Exported so /api/admin and /api/booking-action can re-use it.
 export async function verifyAdminSession(session_id, expectedRetailerId) {
   if (!session_id) return { ok: false, error: 'No session' };
-  const sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
+  if (!isUuid(session_id)) return { ok: false, error: 'Invalid session' };
+  let sessions;
+  try {
+    sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
+  } catch (_) {
+    return { ok: false, error: 'Invalid session' };
+  }
   const session = Array.isArray(sessions) ? sessions[0] : null;
   if (!session) return { ok: false, error: 'Invalid session' };
   if (new Date(session.expires_at).getTime() < Date.now()) return { ok: false, error: 'Session expired' };
@@ -207,6 +218,7 @@ export default async function handler(req, res) {
     // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
     if (action === 'team-remove') {
       const { session_id, admin_id } = body || {};
+      if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
@@ -228,6 +240,7 @@ export default async function handler(req, res) {
     // ---- TEAM-UPDATE-ROLE: change a member's role (owner only) ----
     if (action === 'team-update-role') {
       const { session_id, admin_id, role } = body || {};
+      if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Role must be admin or viewer' });
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
@@ -319,8 +332,11 @@ function ownerMagicLinkEmail(link) {
 function monthKey(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); }
 
 async function verifyOwnerSession(sessionId) {
-  if (!sessionId) return null;
-  const sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=email,retailer_id,expires_at`);
+  if (!sessionId || !isUuid(sessionId)) return null;
+  let sessions;
+  try {
+    sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=email,retailer_id,expires_at`);
+  } catch (_) { return null; }
   const s = Array.isArray(sessions) ? sessions[0] : null;
   if (!s) return null;
   if (new Date(s.expires_at).getTime() < Date.now()) return null;

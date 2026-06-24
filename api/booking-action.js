@@ -10,6 +10,10 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
+// UUID format guard — prevents Postgres "invalid input syntax for type uuid" errors
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
+
 function brandHeader() {
   return `<table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
@@ -79,16 +83,24 @@ export default async function handler(req, res) {
     if (!booking_id || !['confirm', 'decline'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline required' });
     }
+    if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
 
     // === Session check ===
     if (!session_id) return res.status(401).json({ error: 'Invalid or missing admin session' });
-    const sessRows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
+    if (!isUuid(session_id)) return res.status(401).json({ error: 'Invalid admin session' });
+    let sessRows;
+    try {
+      sessRows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
+    } catch (_) { return res.status(401).json({ error: 'Invalid admin session' }); }
     const session = Array.isArray(sessRows) ? sessRows[0] : null;
     if (!session) return res.status(401).json({ error: 'Invalid admin session' });
     if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
 
     // Fetch booking + retailer + venue (for the email + the demo row)
-    const bookings = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=*`);
+    let bookings;
+    try {
+      bookings = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=*`);
+    } catch (_) { return res.status(404).json({ error: 'Booking not found' }); }
     const booking = Array.isArray(bookings) ? bookings[0] : null;
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.status !== 'pending') return res.status(409).json({ error: 'Booking already ' + booking.status });

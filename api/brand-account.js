@@ -219,10 +219,17 @@ export default async function handler(req, res) {
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
 
-      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website'];
+      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
-        if (body[k] !== undefined) patch[k] = body[k] === '' ? null : body[k];
+        if (body[k] !== undefined) {
+          // notification_prefs is JSONB — accept the object as-is. Other fields: empty string => null.
+          if (k === 'notification_prefs') {
+            patch[k] = body[k] && typeof body[k] === 'object' ? body[k] : null;
+          } else {
+            patch[k] = body[k] === '' ? null : body[k];
+          }
+        }
       }
       // Normalize website URL: prepend https:// if missing
       if (patch.website && typeof patch.website === 'string' && !/^https?:\/\//i.test(patch.website)) {

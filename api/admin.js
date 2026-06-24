@@ -45,9 +45,13 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// UUID format guard — prevents Postgres "invalid input syntax for type uuid" errors
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
+
 // Inline session verification (mirrors verifyAdminSession in admin-auth.js).
 async function verifySession(session_id) {
-  if (!session_id) return null;
+  if (!session_id || !isUuid(session_id)) return null;
   try {
     const arr = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
     const s = Array.isArray(arr) ? arr[0] : null;

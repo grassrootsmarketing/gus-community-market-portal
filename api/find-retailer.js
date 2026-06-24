@@ -8,12 +8,23 @@ const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     return res.status(204).end();
   }
-  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
+  // Accept both GET (?slug=...) and POST ({slug:...}) — keeps the API forgiving for
+  // various client styles. Anything else gets 405.
+  if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-  const slug = String(req.query?.slug || '').trim().toLowerCase();
+  let slug = '';
+  if (req.method === 'GET') {
+    slug = String(req.query?.slug || '').trim().toLowerCase();
+  } else {
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      slug = String(body.slug || req.query?.slug || '').trim().toLowerCase();
+    } catch (_) { slug = ''; }
+  }
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
 
   try {
