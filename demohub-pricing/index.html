@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pricing — Demohub</title>
+<meta name="description" content="Simple pricing. Pay only for what you book. Plans from $49/mo, 14-day free trial, $1 per $10 of demo fee — round down.">
+<meta property="og:title" content="Pricing — Demohub">
+<meta property="og:description" content="Simple pricing. Plans from $49/mo. Try any plan free for 14 days. $1 per $10 of demo fee — round down to nearest $10. Charge nothing, owe nothing.">
+<meta property="og:image" content="https://demohubhq.com/og-pricing.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://demohubhq.com/pricing">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://demohubhq.com/og-pricing.png">
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --forest-950:#0a1e10; --forest-900:#0f2c17; --forest-800:#1a3d22; --forest-700:#1f4a26;
+  --forest-600:#2a5b32; --forest-500:#3a7142; --forest-400:#5a8e62; --forest-300:#87b08e;
+  --forest-200:#c5d8c8; --forest-100:#e3edd6; --forest-50:#f4f7ef;
+  --cream-50:#fbf7f0; --cream-100:#f6f0e4; --cream-200:#ede3d0;
+  --clay-700:#a14e2a; --clay-600:#c46e3a; --clay-bright:#ed682f; --clay-100:#f7e4d4;
+  --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { scroll-behavior:smooth; }
+body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; -webkit-font-smoothing:antialiased; }
+h1,h2,h3,h4 { font-family:'Instrument Serif',Georgia,serif; font-weight:400; line-height:1.1; letter-spacing:-0.02em; color:var(--forest-900); }
+a { color:inherit; text-decoration:none; }
+.container { max-width:1240px; margin:0 auto; padding:0 32px; }
+
+/* Header */
+.site-header { position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.12); }
+.site-header .container { display:flex; align-items:center; justify-content:space-between; padding-top:20px; padding-bottom:20px; }
+.brand { display:flex; align-items:center; gap:12px; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.25rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.brand-mark { width:36px; height:36px; }
+.brand-mark svg { width:100%; height:100%; display:block; }
+.nav-links { display:flex; align-items:center; gap:28px; }
+.nav-links a { color:var(--ink-700); font-weight:500; font-size:0.95rem; transition:color 0.2s; }
+.nav-links a:hover { color:var(--forest-700); }
+.nav-cta { background:var(--forest-800); color:var(--cream-50) !important; padding:11px 22px; border-radius:99px; font-weight:600; font-size:0.95rem; }
+.nav-cta:hover { background:var(--forest-900); }
+
+/* Hero */
+.hero { padding:96px 0 64px; text-align:center; }
+.hero .eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:24px; }
+.hero h1 { font-size:clamp(2.8rem,5vw,4.4rem); margin-bottom:22px; max-width:880px; margin-left:auto; margin-right:auto; }
+.hero h1 .accent { color:var(--clay-bright); font-style:italic; }
+.hero .lede { font-size:1.18rem; color:var(--ink-700); max-width:660px; margin:0 auto; line-height:1.5; }
+.hero .tagline { display:inline-block; margin-top:28px; padding:12px 22px; background:var(--forest-50); border:1px solid var(--forest-100); border-radius:99px; font-size:0.94rem; color:var(--forest-900); font-weight:500; }
+
+/* Pricing grid */
+.pricing { padding:48px 0 80px; }
+.tier-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:20px; }
+.tier { background:white; border:1px solid rgba(15,44,23,0.1); border-radius:20px; padding:32px 28px 28px; display:flex; flex-direction:column; position:relative; }
+.tier.popular { border-color:var(--clay-bright); box-shadow:0 12px 40px rgba(237,104,47,0.12); }
+.tier .pop-pill { position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--clay-bright); color:white; font-size:0.7rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:5px 14px; border-radius:99px; white-space:nowrap; }
+.tier-name { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:14px; }
+.tier-price { font-family:'Instrument Serif',Georgia,serif; font-size:3rem; color:var(--forest-900); line-height:1; margin-bottom:4px; font-weight:400; }
+.tier-price .unit { font-family:'Inter',sans-serif; font-size:0.95rem; font-weight:500; color:var(--ink-500); margin-left:4px; }
+.tier-price.custom { font-size:2rem; }
+.tier-fee { font-size:0.84rem; color:var(--ink-700); margin-bottom:22px; line-height:1.45; min-height:38px; }
+.tier-fee strong { color:var(--forest-900); }
+.tier ul { list-style:none; padding:0; margin:0 0 24px; flex:1; }
+.tier ul li { display:flex; gap:10px; padding:8px 0; font-size:0.9rem; color:var(--ink-700); align-items:flex-start; }
+.tier ul li::before { content:''; width:18px; height:18px; background:var(--forest-600); flex-shrink:0; margin-top:3px; mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat; -webkit-mask:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat; }
+.tier ul li strong { color:var(--forest-900); font-weight:600; }
+.tier .btn { display:block; padding:13px 20px; border-radius:99px; font-size:0.95rem; font-weight:600; text-align:center; transition:all 0.15s; }
+.tier .btn-primary { background:var(--forest-900); color:white; }
+.tier .btn-primary:hover { background:var(--forest-700); }
+.tier .btn-secondary { background:transparent; color:var(--forest-900); border:1.5px solid rgba(15,44,23,0.18); }
+.tier .btn-secondary:hover { background:var(--cream-100); border-color:var(--forest-500); }
+.tier.popular .btn-primary { background:var(--clay-bright); }
+.tier.popular .btn-primary:hover { background:var(--clay-700); }
+
+/* Trial callout above grid */
+.trial-callout { text-align:center; margin-bottom:24px; }
+.trial-callout .pill { display:inline-block; padding:12px 22px; background:var(--forest-50); border:1px solid var(--forest-100); border-radius:99px; font-size:0.94rem; color:var(--forest-900); font-weight:500; }
+.trial-callout .pill strong { color:var(--forest-900); font-weight:700; }
+
+/* Annual toggle */
+.bill-toggle { display:flex; align-items:center; justify-content:center; gap:14px; margin-bottom:40px; }
+.bill-toggle .opt { font-size:0.9rem; color:var(--ink-500); font-weight:600; }
+.bill-toggle .opt.active { color:var(--forest-900); }
+.bill-toggle .switch { width:48px; height:26px; background:var(--forest-900); border-radius:99px; position:relative; cursor:pointer; transition:background 0.2s; }
+.bill-toggle .switch::after { content:''; position:absolute; top:3px; left:3px; width:20px; height:20px; background:white; border-radius:50%; transition:transform 0.2s; }
+.bill-toggle .switch.annual::after { transform:translateX(22px); }
+.bill-toggle .save { font-size:0.78rem; color:var(--clay-bright); font-weight:700; padding:3px 9px; background:var(--clay-100); border-radius:99px; }
+
+/* Math example */
+.math { background:var(--forest-50); padding:80px 0; }
+.math h2 { font-size:clamp(2rem,3.5vw,2.6rem); text-align:center; margin-bottom:14px; }
+.math .sub { text-align:center; color:var(--ink-700); font-size:1.05rem; max-width:580px; margin:0 auto 48px; }
+.math-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; max-width:920px; margin:0 auto; }
+.math-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 20px; text-align:center; }
+.math-card .demo { font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.1em; font-weight:700; margin-bottom:8px; }
+.math-card .demo-val { font-family:'Instrument Serif',Georgia,serif; font-size:2rem; color:var(--forest-900); margin-bottom:10px; }
+.math-card .arrow { font-size:1.4rem; color:var(--clay-600); margin-bottom:6px; }
+.math-card .you-pay { font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.1em; font-weight:700; margin-bottom:6px; }
+.math-card .you-pay-val { font-family:'Instrument Serif',Georgia,serif; font-size:1.6rem; color:var(--clay-bright); }
+.math-card.free .you-pay-val { color:var(--forest-500); }
+.math-note { text-align:center; margin-top:28px; font-size:0.95rem; color:var(--ink-700); }
+.math-note strong { color:var(--forest-900); }
+
+/* Comparison table */
+.compare { padding:80px 0; }
+.compare h2 { font-size:clamp(2rem,3.5vw,2.6rem); text-align:center; margin-bottom:14px; }
+.compare .sub { text-align:center; color:var(--ink-700); font-size:1.05rem; margin-bottom:40px; }
+.compare-wrap { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; overflow:hidden; overflow-x:auto; }
+.compare table { width:100%; border-collapse:collapse; min-width:680px; }
+.compare th, .compare td { padding:14px 18px; text-align:center; font-size:0.92rem; border-bottom:1px solid rgba(15,44,23,0.06); }
+.compare th { background:var(--forest-50); font-weight:600; color:var(--forest-900); font-size:0.88rem; text-transform:uppercase; letter-spacing:0.05em; }
+.compare th:first-child, .compare td:first-child { text-align:left; font-weight:500; color:var(--ink-700); }
+.compare td.yes { color:var(--forest-600); font-weight:600; font-size:1.1rem; }
+.compare td.no { color:var(--ink-300); font-size:1.1rem; }
+.compare td.val { color:var(--forest-900); font-weight:500; }
+.compare td.soon { color:var(--clay-bright); font-weight:600; }
+.compare tr:last-child td { border-bottom:none; }
+.compare th.popular-col { background:var(--clay-100); color:var(--clay-700); }
+
+/* Founders deal */
+.founders { padding:0 0 80px; }
+.founders-card { background:var(--forest-900); color:white; padding:48px 56px; border-radius:24px; display:grid; grid-template-columns:2fr 1fr; gap:32px; align-items:center; position:relative; overflow:hidden; }
+.founders-card::before { content:''; position:absolute; top:-50%; right:-10%; width:60%; height:200%; background:radial-gradient(circle, rgba(237,104,47,0.18) 0%, transparent 60%); pointer-events:none; }
+.founders-card .inner { position:relative; }
+.founders-eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-bright); margin-bottom:14px; }
+.founders-card h2 { font-size:clamp(1.8rem,3vw,2.4rem); color:var(--cream-50); margin-bottom:10px; }
+.founders-card p { color:var(--forest-200); font-size:1.05rem; max-width:520px; line-height:1.5; }
+.founders-cta { position:relative; text-align:right; }
+.founders-cta .btn { background:var(--clay-bright); color:white; padding:14px 26px; border-radius:99px; font-weight:600; font-size:1rem; display:inline-block; }
+.founders-cta .btn:hover { background:var(--clay-700); }
+
+/* FAQ */
+.faq { padding:0 0 80px; }
+.faq-inner { max-width:780px; margin:0 auto; padding:0 32px; }
+.faq h2 { font-size:clamp(2rem,3.5vw,2.6rem); text-align:center; margin-bottom:40px; }
+.faq details { padding:22px 0; border-bottom:1px solid rgba(15,44,23,0.08); }
+.faq details:last-of-type { border-bottom:0; }
+.faq summary { font-family:'Instrument Serif',Georgia,serif; font-size:1.35rem; font-weight:400; color:var(--forest-900); cursor:pointer; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:16px; line-height:1.3; }
+.faq summary::-webkit-details-marker { display:none; }
+.faq summary::after { content:'+'; font-size:1.6rem; color:var(--clay-700); font-weight:300; transition:transform 0.2s; }
+.faq details[open] summary::after { transform:rotate(45deg); }
+.faq details > p { font-size:1rem; color:var(--ink-700); line-height:1.6; margin-top:12px; }
+
+/* Bottom CTA */
+.cta-band { background:var(--forest-900); color:white; padding:96px 32px; text-align:center; }
+.cta-band h2 { color:var(--cream-50); font-size:clamp(2rem,4vw,3rem); margin-bottom:14px; }
+.cta-band p { color:var(--forest-200); font-size:1.1rem; margin-bottom:32px; max-width:520px; margin-left:auto; margin-right:auto; }
+.cta-band .btn { background:var(--clay-bright); color:white; padding:16px 32px; border-radius:99px; font-weight:600; font-size:1.05rem; display:inline-block; }
+.cta-band .btn:hover { background:var(--clay-700); }
+.cta-band .meta { margin-top:14px; font-size:0.88rem; color:var(--forest-300); }
+
+/* Footer */
+footer { background:var(--forest-950); color:var(--forest-200); padding:64px 0 36px; }
+.footer-top { display:grid; grid-template-columns:1.5fr 1fr 1fr 1fr; gap:48px; margin-bottom:48px; }
+.footer-brand .brand { color:white; margin-bottom:14px; }
+.footer-brand p { color:var(--forest-300); font-size:0.95rem; max-width:280px; line-height:1.5; }
+.footer-col h5 { font-family:'Inter',sans-serif; font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--cream-100); margin-bottom:18px; }
+.footer-col ul { list-style:none; display:flex; flex-direction:column; gap:10px; }
+.footer-col a { color:var(--forest-300); font-size:0.95rem; }
+.footer-col a:hover { color:white; }
+.footer-bottom { border-top:1px solid rgba(255,255,255,0.06); padding-top:24px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; color:var(--forest-300); font-size:0.9rem; }
+
+/* Responsive */
+@media (max-width:1040px) {
+  .tier-grid { grid-template-columns:repeat(2, 1fr); }
+  .math-grid { grid-template-columns:repeat(2, 1fr); }
+  .founders-card { grid-template-columns:1fr; gap:24px; }
+  .founders-cta { text-align:left; }
+}
+@media (max-width:640px) {
+  .container { padding:0 22px; }
+  .nav-links { gap:14px; }
+  .nav-links a:not(.nav-cta) { display:none; }
+  .tier-grid { grid-template-columns:1fr; gap:24px; }
+  .math-grid { grid-template-columns:1fr; }
+  .footer-top { grid-template-columns:1fr 1fr; gap:32px; }
+  .footer-brand { grid-column:1 / -1; }
+  .founders-card { padding:32px 28px; }
+  .hero { padding:64px 0 32px; }
+}
+</style>
+<!-- PostHog -->
+<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', { api_host: 'https://us.i.posthog.com', person_profiles: 'identified_only' });
+</script>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="container">
+    <a href="/" class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+      </div>
+      Demohub
+    </a>
+    <nav class="nav-links">
+      <a href="/#platform">Platform</a>
+      <a href="/#how-it-works">How it works</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/brand/signin">For brands</a>
+      <a href="/signin" class="nav-cta">Sign in</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <div class="eyebrow">Pricing</div>
+    <h1>Simple pricing. <span class="accent">Pay only for what you book.</span></h1>
+    <p class="lede">A flat monthly subscription, plus a small fee per confirmed demo. No long-term contracts, no per-seat charges, no usage caps that surprise you on Friday afternoon.</p>
+    <div class="tagline">$1 per $10 of demo fee — round down to the nearest $10. Charge nothing, owe nothing.</div>
+  </div>
+</section>
+
+<section class="pricing">
+  <div class="container">
+    <div class="trial-callout">
+      <div class="pill"><strong>Try any plan free for 14 days.</strong> No credit card required.</div>
+    </div>
+
+    <div class="bill-toggle" id="billToggle">
+      <span class="opt active" data-billing="monthly">Monthly</span>
+      <div class="switch" id="billSwitch" role="button" aria-label="Toggle billing cadence" tabindex="0"></div>
+      <span class="opt" data-billing="annual">Annual <span class="save">save 17%</span></span>
+    </div>
+
+    <div class="tier-grid">
+      <!-- Solo -->
+      <div class="tier">
+        <div class="tier-name">Solo · 1 store</div>
+        <div class="tier-price"><span data-monthly="$49" data-annual="$40">$49</span><span class="unit">/mo</span></div>
+        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
+        <ul>
+          <li><strong>Unlimited</strong> demos per month</li>
+          <li><strong>2</strong> admin users</li>
+          <li>Public booking page</li>
+          <li>Compliance dashboard</li>
+          <li>Brand contact CRM</li>
+          <li>COI tracking &amp; expiration alerts</li>
+        </ul>
+        <a href="/signup?tier=solo" class="btn btn-secondary">Start free trial</a>
+      </div>
+
+      <!-- Starter -->
+      <div class="tier">
+        <div class="tier-name">Starter · up to 3 stores</div>
+        <div class="tier-price"><span data-monthly="$99" data-annual="$82">$99</span><span class="unit">/mo</span></div>
+        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
+        <ul>
+          <li>Everything in Solo</li>
+          <li><strong>5</strong> admin users</li>
+          <li>Multi-venue calendar</li>
+          <li>Per-store hours + policies</li>
+          <li>Monthly statements</li>
+        </ul>
+        <a href="/signup?tier=starter" class="btn btn-secondary">Start free trial</a>
+      </div>
+
+      <!-- Growth (popular) -->
+      <div class="tier popular">
+        <div class="pop-pill">Most popular</div>
+        <div class="tier-name">Growth · up to 10 stores</div>
+        <div class="tier-price"><span data-monthly="$199" data-annual="$166">$199</span><span class="unit">/mo</span></div>
+        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
+        <ul>
+          <li>Everything in Starter</li>
+          <li><strong>Unlimited</strong> admin users</li>
+          <li>Custom branding on booking pages</li>
+          <li>Stripe Connect — brands pay you direct <strong>(coming soon)</strong></li>
+          <li>Advanced analytics + exports</li>
+          <li>Priority email support</li>
+        </ul>
+        <a href="/signup?tier=growth" class="btn btn-primary">Start free trial</a>
+      </div>
+
+      <!-- Enterprise -->
+      <div class="tier">
+        <div class="tier-name">Enterprise · 11+ stores</div>
+        <div class="tier-price custom">Custom</div>
+        <div class="tier-fee"><strong>+ negotiated rate</strong></div>
+        <ul>
+          <li>Everything in Growth</li>
+          <li>Dedicated customer success</li>
+          <li>API access + integrations</li>
+          <li>SLA + uptime guarantee</li>
+          <li>SSO, security review, MSA</li>
+          <li>White-label branding</li>
+        </ul>
+        <a href="mailto:david@demohubhq.com?subject=Demohub%20Enterprise%20inquiry" class="btn btn-secondary">Talk to us</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="math">
+  <div class="container">
+    <h2>How the per-demo fee works.</h2>
+    <p class="sub">Take the demo fee you charge the brand. Round down to the nearest $10. That's how many dollars you owe Demohub. Simple.</p>
+    <div class="math-grid">
+      <div class="math-card">
+        <div class="demo">Demo fee</div>
+        <div class="demo-val">$30</div>
+        <div class="arrow">↓</div>
+        <div class="you-pay">You owe</div>
+        <div class="you-pay-val">$3</div>
+      </div>
+      <div class="math-card">
+        <div class="demo">Demo fee</div>
+        <div class="demo-val">$25</div>
+        <div class="arrow">↓</div>
+        <div class="you-pay">You owe</div>
+        <div class="you-pay-val">$2</div>
+      </div>
+      <div class="math-card">
+        <div class="demo">Demo fee</div>
+        <div class="demo-val">$50</div>
+        <div class="arrow">↓</div>
+        <div class="you-pay">You owe</div>
+        <div class="you-pay-val">$5</div>
+      </div>
+      <div class="math-card free">
+        <div class="demo">Free demo</div>
+        <div class="demo-val">$0</div>
+        <div class="arrow">↓</div>
+        <div class="you-pay">You owe</div>
+        <div class="you-pay-val">$0</div>
+      </div>
+    </div>
+    <p class="math-note"><strong>Charge nothing, owe nothing.</strong> Demos under $10 are free for us to host. Only billed on confirmed demos.</p>
+  </div>
+</section>
+
+<section class="compare">
+  <div class="container">
+    <h2>Compare every plan.</h2>
+    <p class="sub">All the details, side by side.</p>
+    <div class="compare-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Feature</th>
+            <th>Solo</th>
+            <th>Starter</th>
+            <th class="popular-col">Growth</th>
+            <th>Enterprise</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Stores</td><td class="val">1</td><td class="val">3</td><td class="val">10</td><td class="val">11+</td></tr>
+          <tr><td>Demos per month</td><td class="val">Unlimited</td><td class="val">Unlimited</td><td class="val">Unlimited</td><td class="val">Unlimited</td></tr>
+          <tr><td>Admin users</td><td class="val">2</td><td class="val">5</td><td class="val">Unlimited</td><td class="val">Unlimited</td></tr>
+          <tr><td>Public booking page</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Compliance dashboard</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Brand CRM</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Multi-venue calendar</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Monthly statements</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Custom branding</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Stripe Connect</td><td class="no">·</td><td class="no">·</td><td class="soon">Soon</td><td class="yes">✓</td></tr>
+          <tr><td>Advanced analytics</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>API access</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Dedicated CSM</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>SLA + uptime</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Per-demo fee</td><td class="val">$1 / $10</td><td class="val">$1 / $10</td><td class="val">$1 / $10</td><td class="val">Negotiated</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="founders">
+  <div class="container">
+    <div class="founders-card">
+      <div class="inner">
+        <div class="founders-eyebrow">Founders' deal · limited</div>
+        <h2>First 50 retailers get 50% off the first year.</h2>
+        <p>We're building Demohub with the first 50 retailers — your feedback shapes the roadmap. Lock in half off Starter or Growth for 12 months. Talk to us before the slots fill.</p>
+      </div>
+      <div class="founders-cta">
+        <a href="https://calendly.com/demohubhq/walkthrough" target="_blank" rel="noopener" class="btn">Claim your spot →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="faq">
+  <div class="faq-inner">
+    <h2>Pricing questions.</h2>
+    <details>
+      <summary>What counts as a "demo"?</summary>
+      <p>A confirmed booking in your Demohub admin. Pending bookings, declined bookings, and cancelled bookings don't count. You're only billed once you click Confirm.</p>
+    </details>
+    <details>
+      <summary>What if I don't charge brands a demo fee?</summary>
+      <p>You owe Demohub nothing. The per-demo fee is calculated from what you charge the brand — if the demo fee is under $10, it rounds down to $0. Charge nothing, owe nothing.</p>
+    </details>
+    <details>
+      <summary>Do brands pay anything?</summary>
+      <p>No. Demohub is free forever for brands. They get a profile, a dashboard, and one-click booking at every Demohub retailer at no cost. Retailers pay for the platform.</p>
+    </details>
+    <details>
+      <summary>Is there a free trial?</summary>
+      <p>Yes — every paid plan starts with a 14-day free trial. No credit card required to start. You'll get a reminder before the trial ends, and you can switch plans, downgrade, or cancel any time.</p>
+    </details>
+    <details>
+      <summary>Can I switch plans?</summary>
+      <p>Anytime. Upgrades take effect immediately and we pro-rate the difference. Downgrades take effect at your next billing date so you keep the features you paid for. Cancel any time with one click.</p>
+    </details>
+    <details>
+      <summary>Annual vs. monthly — what's the difference?</summary>
+      <p>Annual saves you 17% — that's about two months free. Solo is $480/yr (vs. $588 monthly), Starter is $984/yr (vs. $1,188 monthly), Growth is $1,992/yr (vs. $2,388 monthly). Per-demo fees are billed monthly either way.</p>
+    </details>
+  </div>
+</section>
+
+<section class="cta-band">
+  <h2>Try Demohub free for 14 days.</h2>
+  <p>Any plan, full features, no credit card. Cancel anytime.</p>
+  <a href="/signup" class="btn">Start free trial →</a>
+  <div class="meta">Or <a href="https://calendly.com/demohubhq/walkthrough" target="_blank" rel="noopener" style="color:var(--forest-200); text-decoration:underline;">book a 20-minute walkthrough</a></div>
+</section>
+
+<footer>
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <div class="brand">
+          <div class="brand-mark">
+            <svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+          </div>
+          Demohub
+        </div>
+        <p>The demo operations platform built for independent retailers.</p>
+      </div>
+      <div class="footer-col">
+        <h5>Product</h5>
+        <ul>
+          <li><a href="/#platform">Platform</a></li>
+          <li><a href="/#how-it-works">How it works</a></li>
+          <li><a href="/pricing">Pricing</a></li>
+          <li><a href="/brand/signin">For brands</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Get started</h5>
+        <ul>
+          <li><a href="https://calendly.com/demohubhq/walkthrough" target="_blank" rel="noopener">Walkthrough</a></li>
+          <li><a href="/signin">Sign in</a></li>
+          <li><a href="/faq">FAQ</a></li>
+          <li><a href="mailto:david@demohubhq.com">Contact</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h5>Company</h5>
+        <ul>
+          <li><a href="mailto:hello@demohubhq.com">Email us</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <div>© 2026 Demohub. All rights reserved.</div>
+      <div>Made for independent retailers.</div>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Billing toggle — swap monthly/annual price display
+(function() {
+  const sw = document.getElementById('billSwitch');
+  const opts = document.querySelectorAll('#billToggle .opt');
+  const prices = document.querySelectorAll('.tier-price [data-monthly]');
+  function setMode(annual) {
+    if (annual) {
+      sw.classList.add('annual');
+      opts[0].classList.remove('active'); opts[1].classList.add('active');
+      prices.forEach(p => p.textContent = p.dataset.annual);
+    } else {
+      sw.classList.remove('annual');
+      opts[1].classList.remove('active'); opts[0].classList.add('active');
+      prices.forEach(p => p.textContent = p.dataset.monthly);
+    }
+  }
+  sw.addEventListener('click', () => setMode(!sw.classList.contains('annual')));
+  sw.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMode(!sw.classList.contains('annual')); } });
+  opts.forEach(o => o.addEventListener('click', () => setMode(o.dataset.billing === 'annual')));
+})();
+</script>
+
+</body>
+</html>
