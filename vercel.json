@@ -9,5 +9,8 @@
     { "source": "/r/:slug/admin", "destination": "/r/gus/admin" },
     { "source": "/r/:slug", "destination": "/r/gus" },
     { "source": "/brand/signup", "destination": "/brand/signin" }
+  ],
+  "crons": [
+    { "path": "/api/brand-account?action=cron", "schedule": "0 14 * * *" }
   ]
 }
