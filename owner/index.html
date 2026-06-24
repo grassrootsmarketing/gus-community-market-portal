@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Owner panel — Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<!-- PostHog -->
+<script>
+!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+posthog.init('phc_DEMOHUB_PLACEHOLDER_KEY', { api_host: 'https://us.i.posthog.com', person_profiles: 'identified_only' });
+</script>
+<style>
+:root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
+.nav { padding:16px 32px; display:flex; align-items:center; gap:24px; background:rgba(255,255,255,0.92); backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.1); position:sticky; top:0; z-index:50; }
+.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; }
+.nav .brand-mark { width:28px; height:28px; }
+.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.1rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.nav .crumb { font-family:'Instrument Serif',Georgia,serif; font-size:1.05rem; color:var(--ink-500); }
+.nav .right { margin-left:auto; display:flex; gap:14px; align-items:center; font-size:0.85rem; color:var(--ink-500); }
+.nav .right a { color:var(--clay-700); cursor:pointer; text-decoration:underline; }
+
+.container { max-width:1200px; margin:32px auto 80px; padding:0 24px; }
+
+/* Auth gate */
+.gate { max-width:440px; margin:60px auto; background:white; border:1px solid rgba(15,44,23,0.08); border-radius:16px; padding:36px; }
+.gate .eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:14px; }
+.gate h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2rem; font-weight:400; color:var(--forest-900); margin-bottom:12px; line-height:1.1; }
+.gate p { color:var(--ink-700); font-size:0.95rem; margin-bottom:22px; }
+.gate label { display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px; }
+.gate input { width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.95rem; font-family:inherit; }
+.gate input:focus { outline:none; border-color:var(--forest-500); }
+.gate button { width:100%; margin-top:14px; padding:14px 22px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-size:1rem; font-weight:600; cursor:pointer; font-family:inherit; }
+.gate button:hover { background:var(--forest-700); }
+.gate button:disabled { opacity:0.5; cursor:not-allowed; }
+.gate .notice { padding:12px 14px; border-radius:8px; font-size:0.88rem; margin-top:14px; display:none; }
+.gate .notice.success { background:var(--forest-50); color:var(--forest-700); }
+.gate .notice.error { background:#fdebe5; color:var(--clay-700); }
+
+/* Stats / cards */
+.page-head { margin-bottom:24px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
+.page-head h1 { font-family:'Instrument Serif',Georgia,serif; font-size:2.4rem; font-weight:400; line-height:1.1; color:var(--forest-900); }
+.page-head .sub { color:var(--ink-700); font-size:0.95rem; margin-top:4px; }
+.page-head .ts { color:var(--ink-500); font-size:0.82rem; }
+
+.stat-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin-bottom:24px; }
+.stat { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:18px 20px; }
+.stat .stat-lbl { font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; font-weight:600; margin-bottom:6px; }
+.stat .stat-num { font-family:'Instrument Serif',Georgia,serif; font-size:2.1rem; color:var(--forest-900); font-weight:400; line-height:1; }
+.stat .stat-sub { font-size:0.82rem; color:var(--ink-500); margin-top:6px; }
+.stat .stat-sub.up { color:var(--forest-700); font-weight:600; }
+.stat .stat-sub.down { color:var(--clay-700); font-weight:600; }
+
+.card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 26px; margin-bottom:24px; }
+.card h2 { font-family:'Instrument Serif',Georgia,serif; font-size:1.4rem; font-weight:400; color:var(--forest-900); margin-bottom:4px; }
+.card .sub { font-size:0.85rem; color:var(--ink-500); margin-bottom:16px; }
+
+/* Trend row */
+.trends-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin-bottom:24px; }
+.chart { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:20px 22px; }
+.chart h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.15rem; color:var(--forest-900); font-weight:400; margin-bottom:4px; }
+.chart .csub { font-size:0.82rem; color:var(--ink-500); margin-bottom:14px; }
+.chart-svg { width:100%; height:180px; }
+
+/* Tables */
+.tablewrap { overflow:auto; }
+table.simple { width:100%; border-collapse:collapse; font-size:0.9rem; }
+table.simple th { text-align:left; padding:9px 10px; font-size:0.74rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); font-weight:700; border-bottom:1px solid rgba(15,44,23,0.08); }
+table.simple td { padding:11px 10px; border-bottom:1px solid rgba(15,44,23,0.06); color:var(--ink-900); }
+table.simple td.num { text-align:right; font-variant-numeric:tabular-nums; }
+table.simple tr:last-child td { border-bottom:0; }
+
+.empty { padding:24px 0; text-align:center; color:var(--ink-500); font-size:0.9rem; }
+
+.watch-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+.watch-card { background:#fbf9f3; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:18px 20px; }
+.watch-card h3 { font-family:'Instrument Serif',Georgia,serif; font-size:1.05rem; color:var(--forest-900); font-weight:400; margin-bottom:8px; }
+.watch-card .count { font-family:'Instrument Serif',Georgia,serif; font-size:1.6rem; color:var(--clay-700); font-weight:400; margin-bottom:8px; }
+.watch-card ul { list-style:none; padding:0; margin:0; max-height:200px; overflow:auto; }
+.watch-card li { padding:7px 0; font-size:0.86rem; color:var(--ink-700); border-bottom:1px solid rgba(15,44,23,0.05); }
+.watch-card li:last-child { border-bottom:0; }
+
+.loading { text-align:center; padding:60px 20px; color:var(--ink-500); }
+.spinner { display:inline-block; width:30px; height:30px; border:3px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:14px; }
+@keyframes spin { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="topnav" style="display:none;">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <span class="crumb">/ owner panel</span>
+  <div class="right">
+    <span id="ownerEmail"></span>
+    <a onclick="ownerSignOut()">Sign out</a>
+  </div>
+</nav>
+
+<main class="container" id="mainContent">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div>Loading…</div>
+  </div>
+</main>
+
+<script>
+const SESSION_KEY = 'demohub_owner_session';
+const main = document.getElementById('mainContent');
+const topnav = document.getElementById('topnav');
+
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ----- Magic-link gate -----
+function renderGate(msg) {
+  topnav.style.display = 'none';
+  main.innerHTML = `
+    <div class="gate">
+      <div class="eyebrow">Owner sign in</div>
+      <h1>Open the owner panel</h1>
+      <p>This panel is restricted to the Demohub owner email. Sign in with your magic link.</p>
+      <form id="ownerLoginForm">
+        <label for="ownerEmailInput">Email address</label>
+        <input id="ownerEmailInput" type="email" required placeholder="you@demohubhq.com" autocomplete="email">
+        <button type="submit" id="ownerLoginBtn">Send sign-in link</button>
+        <div class="notice" id="ownerNotice"></div>
+      </form>
+    </div>`;
+  document.getElementById('ownerLoginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('ownerEmailInput').value.trim();
+    const btn = document.getElementById('ownerLoginBtn');
+    const notice = document.getElementById('ownerNotice');
+    notice.className = 'notice'; notice.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const r = await fetch('/api/site-admin?action=login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ email }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      notice.className = 'notice success'; notice.style.display = 'block';
+      notice.textContent = 'If that address is on the owner allowlist, a sign-in link is on its way.';
+    } catch (err) {
+      notice.className = 'notice error'; notice.style.display = 'block';
+      notice.textContent = err.message;
+    } finally { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
+  });
+}
+
+// ----- Token verify -----
+async function tryVerifyToken() {
+  const u = new URL(window.location.href);
+  const token = u.searchParams.get('token');
+  if (!token) return false;
+  try {
+    const r = await fetch('/api/site-admin?action=verify', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ token }) });
+    const j = await r.json();
+    if (!r.ok || !j.session_id) return false;
+    localStorage.setItem(SESSION_KEY, j.session_id);
+    // Clean the URL
+    history.replaceState(null, '', '/owner');
+    return true;
+  } catch (_) { return false; }
+}
+
+window.ownerSignOut = async function() {
+  const t = localStorage.getItem(SESSION_KEY);
+  try { await fetch('/api/site-admin?action=logout&session_id=' + encodeURIComponent(t || ''), { method: 'POST' }); } catch (_) {}
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/owner';
+};
+
+// ----- Data fetch + render -----
+async function loadData() {
+  const t = localStorage.getItem(SESSION_KEY);
+  if (!t) { renderGate(); return; }
+  let j;
+  try {
+    const r = await fetch('/api/site-admin?action=data&session_id=' + encodeURIComponent(t));
+    if (r.status === 401) { localStorage.removeItem(SESSION_KEY); renderGate(); return; }
+    j = await r.json();
+    if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  } catch (err) {
+    main.innerHTML = `<div class="card"><h2>Couldn't load metrics</h2><div class="sub">${escapeHtml(err.message)}</div></div>`;
+    return;
+  }
+  renderDashboard(j);
+}
+
+// ----- Tiny SVG bar chart helper -----
+function renderBars(svg, series) {
+  const w = 700, h = 180;
+  const padL = 28, padR = 12, padT = 16, padB = 24;
+  const innerW = w - padL - padR, innerH = h - padT - padB;
+  const max = Math.max(1, ...series.map(s => s.count));
+  const barGap = 4;
+  const barW = (innerW / series.length) - barGap;
+  const parts = [];
+  // y axis line
+  parts.push(`<line x1="${padL}" y1="${padT}" x2="${padL}" y2="${h - padB}" stroke="rgba(15,44,23,0.18)" stroke-width="1"/>`);
+  parts.push(`<line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="rgba(15,44,23,0.18)" stroke-width="1"/>`);
+  // bars
+  series.forEach((s, i) => {
+    const bh = (s.count / max) * innerH;
+    const x = padL + i * (barW + barGap) + barGap / 2;
+    const y = h - padB - bh;
+    parts.push(`<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#3a7142"/>`);
+    if (s.count > 0) parts.push(`<text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#0f2c17" font-family="Inter,sans-serif" font-weight="600">${s.count}</text>`);
+    parts.push(`<text x="${x + barW/2}" y="${h - padB + 14}" text-anchor="middle" font-size="10" fill="#6b6a64" font-family="Inter,sans-serif">${s.label || ''}</text>`);
+  });
+  return `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
+}
+
+function deltaPill(pct) {
+  if (pct == null) return '<span class="stat-sub">no change</span>';
+  if (pct >= 0) return `<span class="stat-sub up">▲ ${pct}% vs last month</span>`;
+  return `<span class="stat-sub down">▼ ${Math.abs(pct)}% vs last month</span>`;
+}
+
+function renderDashboard(d) {
+  topnav.style.display = 'flex';
+  document.getElementById('ownerEmail').textContent = d.email || '';
+  const h = d.headline || {};
+  const t = d.trends || {};
+  const tb = d.tables || {};
+  const w = d.watchlist || {};
+
+  // Stat row
+  const stats = `
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-lbl">Total retailers</div>
+        <div class="stat-num">${h.total_retailers || 0}</div>
+        <div class="stat-sub">${h.active_retailers_30d || 0} active in last 30d</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Total brands</div>
+        <div class="stat-num">${h.total_brands || 0}</div>
+        <div class="stat-sub">across every Demohub retailer</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Demos this month</div>
+        <div class="stat-num">${h.demos_this_month || 0}</div>
+        ${deltaPill(h.demos_delta_pct)}
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Est. MRR</div>
+        <div class="stat-num">$${(h.mrr_projection || 0).toLocaleString()}</div>
+        <div class="stat-sub">subs $${(h.mrr_subs || 0).toLocaleString()} · per-demo $${(h.mrr_per_demo || 0).toLocaleString()}</div>
+      </div>
+    </div>`;
+
+  // Trends row
+  const retailerSeries = t.retailer_signups || [];
+  const brandSeries = t.brand_signups || [];
+  const demosSeries = t.demos_per_month || [];
+  // Merge signup series (stack would be nicer but keep simple — show retailers only, with brands separately)
+  const trends = `
+    <div class="trends-row">
+      <div class="chart">
+        <h3>Retailer signups</h3>
+        <div class="csub">Last 12 months</div>
+        ${renderBars(null, retailerSeries)}
+      </div>
+      <div class="chart">
+        <h3>Brand signups</h3>
+        <div class="csub">Last 12 months</div>
+        ${renderBars(null, brandSeries)}
+      </div>
+      <div class="chart">
+        <h3>Demos per month</h3>
+        <div class="csub">Last 12 months (by demo date)</div>
+        ${renderBars(null, demosSeries)}
+      </div>
+    </div>`;
+
+  // Tables
+  const topRetailerRows = (tb.top_retailers || []).map(r => `<tr><td>${escapeHtml(r.name)}</td><td class="num">${r.demos_this_month}</td></tr>`).join('');
+  const topBrandRows = (tb.top_brands || []).map(b => `<tr><td>${escapeHtml(b.name)}</td><td class="num">${b.activity_30d}</td></tr>`).join('');
+  const pendingRows = (tb.pending_stuck || []).map(p => `<tr><td>${escapeHtml(p.brand_name)}</td><td>${escapeHtml(p.retailer_name)}</td><td class="num">${p.hours_pending}h</td></tr>`).join('');
+
+  const tablesHtml = `
+    <div class="card">
+      <h2>Top retailers · this month</h2>
+      <div class="sub">By demo volume this calendar month.</div>
+      <div class="tablewrap">
+        <table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th></tr></thead><tbody>${topRetailerRows || '<tr><td colspan="2" class="empty">No demos this month yet.</td></tr>'}</tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Top brands · last 30 days</h2>
+      <div class="sub">By demos booked in the last 30 days.</div>
+      <div class="tablewrap">
+        <table class="simple"><thead><tr><th>Brand</th><th class="num">Activity</th></tr></thead><tbody>${topBrandRows || '<tr><td colspan="2" class="empty">Nothing in the last 30 days.</td></tr>'}</tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Pending bookings stuck &gt; 72h</h2>
+      <div class="sub">Inbound bookings retailers haven't confirmed or declined.</div>
+      <div class="tablewrap">
+        <table class="simple"><thead><tr><th>Brand</th><th>Retailer</th><th class="num">Pending</th></tr></thead><tbody>${pendingRows || '<tr><td colspan="3" class="empty">Nothing stuck. Nice.</td></tr>'}</tbody></table>
+      </div>
+    </div>`;
+
+  // Watchlist
+  const noCoi = (w.brands_without_coi || []).slice(0, 12);
+  const dormant = (w.dormant_retailers || []).slice(0, 12);
+  const inactiveBrands = (w.inactive_brands_60d || []).slice(0, 12);
+  const watchlistHtml = `
+    <div class="card">
+      <h2>Watchlist</h2>
+      <div class="sub">Things to nudge.</div>
+      <div class="watch-grid">
+        <div class="watch-card">
+          <h3>Brands without COI</h3>
+          <div class="count">${(w.brands_without_coi || []).length}</div>
+          <ul>${noCoi.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>All brands have COI on file.</li>'}</ul>
+        </div>
+        <div class="watch-card">
+          <h3>Dormant retailers</h3>
+          <div class="count">${(w.dormant_retailers || []).length}</div>
+          <ul>${dormant.map(r => `<li>${escapeHtml(r.name)}</li>`).join('') || '<li>Every retailer is active.</li>'}</ul>
+        </div>
+        <div class="watch-card">
+          <h3>Brands inactive &gt; 60d</h3>
+          <div class="count">${(w.inactive_brands_60d || []).length}</div>
+          <ul>${inactiveBrands.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>Every brand has recent activity.</li>'}</ul>
+        </div>
+      </div>
+    </div>`;
+
+  const ts = d.generated_at ? new Date(d.generated_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) : '';
+
+  main.innerHTML = `
+    <div class="page-head">
+      <div>
+        <h1>Owner panel</h1>
+        <div class="sub">Every Demohub retailer and brand, rolled up.</div>
+      </div>
+      <div class="ts">Data as of ${escapeHtml(ts)}</div>
+    </div>
+    ${stats}
+    ${trends}
+    ${tablesHtml}
+    ${watchlistHtml}
+  `;
+}
+
+// ----- Init -----
+(async () => {
+  // If ?token=, exchange it for a session first
+  const u = new URL(window.location.href);
+  if (u.searchParams.get('token')) {
+    const ok = await tryVerifyToken();
+    if (!ok) { renderGate(); return; }
+  }
+  await loadData();
+})();
+</script>
+</body>
+</html>
