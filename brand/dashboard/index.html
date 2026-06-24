@@ -234,16 +234,12 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 .demo-detail-rows .row:last-child { border-bottom:0; }
 .demo-detail-rows .row .k { color:var(--ink-500); font-weight:600; }
 .demo-detail-rows .row .v { color:var(--forest-900); text-align:right; }
-
-/* COI expiry warning banner */
 .coi-warn { background:#fff3ed; border:1px solid var(--clay-bright); border-left:4px solid var(--clay-700); border-radius:12px; padding:16px 22px; margin-bottom:18px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
 .coi-warn .icon { width:36px; height:36px; flex-shrink:0; background:var(--clay-bright); border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; font-weight:700; font-size:1.1rem; }
 .coi-warn .msg { flex:1; min-width:200px; color:var(--ink-900); font-size:0.95rem; font-weight:500; }
 .coi-warn .msg strong { color:var(--clay-700); }
 .coi-warn a { color:var(--clay-700); font-weight:700; text-decoration:none; white-space:nowrap; }
 .coi-warn a:hover { text-decoration:underline; }
-
-/* Calendar sync card */
 .calsync-url { display:flex; gap:8px; align-items:stretch; margin:12px 0 8px; }
 .calsync-url input { flex:1; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.82rem; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; background:#fbf9f3; color:var(--ink-900); }
 .calsync-url button { padding:10px 18px; border-radius:8px; background:var(--forest-900); color:white; border:none; font-weight:600; font-size:0.9rem; cursor:pointer; font-family:inherit; white-space:nowrap; }
@@ -255,7 +251,6 @@ body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50);
 !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
 posthog.init('phc_DEMOHUB_PLACEHOLDER_KEY', { api_host: 'https://us.i.posthog.com', person_profiles: 'identified_only' });
 </script>
-
 </head>
 <body>
 
@@ -641,7 +636,7 @@ function renderCalendar() {
     const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const todays = byDate[dateStr] || [];
     const isToday = dateStr === todayStr;
-    const eventsHtml = todays.map(d => `<div class="cal-event ${d.status}" data-demo-id="${escapeHtml(d.id)}" title="${escapeHtml((d.retailers?.name || '') + ' · ' + (d.demo_time || ''))}" onclick="openDemoDetail('${escapeHtml(d.id)}')">${escapeHtml(d.retailers?.name || 'Demo')}</div>`).join('');
+    const eventsHtml = todays.map(d => `<div class="cal-event ${d.status}" title="${escapeHtml((d.retailers?.name || '') + ' · ' + (d.demo_time || ''))}" onclick="openDemoDetail('${escapeHtml(d.id)}')">${escapeHtml(d.retailers?.name || 'Demo')}</div>`).join('');
     cells.push(`<div class="cal-day${isToday ? ' today' : ''}"><div class="day-num">${day}</div>${eventsHtml}</div>`);
   }
 
@@ -719,6 +714,19 @@ window.closeDemoDetail = function() {
 document.getElementById('demoDetailModal').addEventListener('click', (e) => {
   if (e.target.id === 'demoDetailModal') closeDemoDetail();
 });
+
+window.copyCalsyncUrl = function(btn) {
+  const input = document.getElementById('calsyncUrl');
+  if (!input) return;
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => { btn.textContent = orig; }, 1800);
+  }).catch(() => {
+    try { document.execCommand('copy'); btn.textContent = 'Copied ✓'; setTimeout(() => { btn.textContent = 'Copy calendar URL'; }, 1800); } catch (_) {}
+  });
+};
 
 // ===== Profile =====
 function renderProfile() {
@@ -840,4 +848,323 @@ function renderProfile() {
       widget.innerHTML = `<div class="coi-empty" onclick="document.getElementById('coiFile').click()">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <div class="lbl">Upload your Certificate of Insurance</div>
-        <div class="sub">Click to choose
+        <div class="sub">Click to choose a PDF, JPG, or PNG · up to 10MB</div>
+      </div>`;
+    }
+  }
+  renderCoiWidget();
+
+  document.getElementById('coiFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10MB'); e.target.value = ''; return; }
+    // Show uploading state
+    const widget = document.getElementById('coiWidget');
+    widget.innerHTML = `<div class="coi-block"><div class="coi-uploading"><div class="spinner-sm"></div><div>Uploading <strong>${escapeHtml(file.name)}</strong>…</div></div></div>`;
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await fetch('/api/brand-account?action=upload-coi&session_id=' + encodeURIComponent(sessionToken), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ file: reader.result, filename: file.name }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Upload failed');
+        _data.profile.default_coi_url = j.coi_url;
+        _data.profile.default_coi_filename = j.filename;
+        _data.profile.default_coi_mime = j.mime;
+        renderCoiWidget();
+      } catch (err) {
+        alert('Could not upload: ' + err.message);
+        renderCoiWidget();
+      } finally {
+        e.target.value = '';
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Avatar upload
+  document.getElementById('avatarFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert('Image too large — max 2MB'); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const r = await fetch('/api/brand-account?action=upload-avatar&session_id=' + encodeURIComponent(sessionToken), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ image: reader.result }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Upload failed');
+        _data.profile.logo_url = j.logo_url;
+        renderAvatar(navAvatar, j.logo_url);
+        renderAvatar(document.getElementById('profileAvatar'), j.logo_url);
+        const saved = document.getElementById('avatarSaved');
+        if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2200); }
+      } catch (err) { alert('Could not upload: ' + err.message); }
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // Save handler
+  document.getElementById('saveProfileBtn').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const patch = {
+      company_name: document.getElementById('f_company_name').value.trim(),
+      contact_name: document.getElementById('f_contact_name').value.trim(),
+      phone: document.getElementById('f_phone').value.trim(),
+      website: document.getElementById('f_website').value.trim(),
+      default_coi_expires: document.getElementById('f_default_coi_expires').value || null,
+      default_categories: document.getElementById('f_default_categories').value.trim(),
+      default_product_info: document.getElementById('f_default_product_info').value.trim(),
+    };
+    try {
+      const r = await fetch('/api/brand-account?action=profile-update&session_id=' + encodeURIComponent(sessionToken), {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify(patch),
+      });
+      if (!r.ok) throw new Error('Failed to save');
+      Object.assign(_data.profile, patch);
+      navName.textContent = _data.profile.company_name || _data.profile.email || '';
+      const flag = document.getElementById('profileSaved');
+      flag.classList.add('show'); setTimeout(() => flag.classList.remove('show'), 2200);
+    } catch (err) {
+      alert('Could not save: ' + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = 'Save changes';
+    }
+  });
+}
+
+window.removeCoi = async function() {
+  const ok = await confirmDialog('Remove COI?', 'Future demo bookings will be missing your certificate of insurance until you upload a new one.', 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=remove-coi&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    if (!r.ok) throw new Error('Failed');
+    _data.profile.default_coi_url = null;
+    _data.profile.default_coi_filename = null;
+    _data.profile.default_coi_mime = null;
+    _data.profile.default_coi_expires = null;
+    renderProfile();
+  } catch (err) { alert('Could not remove: ' + err.message); }
+};
+
+window.removeAvatar = async function() {
+  const ok = await confirmDialog('Remove brand logo?', 'You can upload a new one anytime.', 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=remove-avatar&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    if (!r.ok) throw new Error('Failed');
+    _data.profile.logo_url = null;
+    renderAvatar(navAvatar, null);
+    renderProfile();
+  } catch (err) { alert('Could not remove: ' + err.message); }
+};
+
+// ===== Account =====
+function renderAccount() {
+  const profile = _data.profile || {};
+  const createdAt = profile.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '—';
+  main.innerHTML = `
+    <div class="page-head"><div>
+      <h1>Account</h1>
+      <div class="sub">Manage your Demohub brand account.</div>
+    </div></div>
+    <div class="card">
+      <h2>Account info</h2>
+      <div class="sub">These details are tied to your sign-in.</div>
+      <div class="acct-row">
+        <div><div class="lbl">Email</div><div class="val">${escapeHtml(profile.email || '—')}</div></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Company</div><div class="val">${escapeHtml(profile.company_name || '—')}</div></div>
+        <div class="actions"><a href="#profile" class="btn btn-ghost">Edit on profile →</a></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Account created</div><div class="val">${createdAt}</div></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">Verified</div><div class="val">${profile.is_verified ? '✓ Verified via magic link' : 'Not verified yet'}</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px; gap:12px;">
+        <h2 style="margin-bottom:0;">Team</h2>
+        <button class="btn" style="padding:8px 16px; font-size:0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button>
+      </div>
+      <div class="sub">People who can access this brand's portal. Owners can invite teammates and change roles.</div>
+      <div id="teamList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Calendar sync</h2>
+      <div class="sub">Subscribe in Google, Apple, or Outlook calendar to see every demo across every retailer.</div>
+      <div class="calsync-url">
+        <input type="text" id="calsyncUrl" readonly value="https://demohubhq.com/api/brand-account?action=cal&token=${escapeHtml(sessionToken)}" onclick="this.select()">
+        <button type="button" onclick="copyCalsyncUrl(this)">Copy calendar URL</button>
+      </div>
+      <div class="calsync-help">
+        <strong>Google Calendar:</strong> Other calendars &rarr; From URL &nbsp;·&nbsp; <strong>Apple Calendar:</strong> File &rarr; New Calendar Subscription &nbsp;·&nbsp; <strong>Outlook:</strong> Add Calendar &rarr; From Internet. The URL updates automatically when new demos are booked.
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Sessions</h2>
+      <div class="sub">Signed in on multiple devices? Sign out from all of them.</div>
+      <div class="acct-row">
+        <div><div class="lbl">This device</div><div class="val">You're signed in here.</div></div>
+        <div class="actions"><button class="btn btn-ghost" onclick="signOutHere()">Sign out</button></div>
+      </div>
+      <div class="acct-row">
+        <div><div class="lbl">All sessions</div><div class="val">Sign out everywhere — useful if you used a shared computer.</div></div>
+        <div class="actions"><button class="btn btn-ghost" onclick="signOutEverywhere()">Sign out everywhere</button></div>
+      </div>
+    </div>
+
+    <div class="danger-zone">
+      <h3>Danger zone</h3>
+      <div class="sub">Permanent. Past demos at retailers will stay on their side, but your brand profile will be erased.</div>
+      <button class="btn btn-danger" onclick="deleteAccount()">Delete my brand account</button>
+    </div>
+  `;
+  loadTeam();
+}
+
+// ===== Team management =====
+async function loadTeam() {
+  const list = document.getElementById('teamList');
+  if (!list) return;
+  try {
+    const r = await fetch('/api/brand-account?action=team-list&session_id=' + encodeURIComponent(sessionToken), { method: 'POST' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    const members = j.members || [];
+    const yourEmail = (j.your_email || '').toLowerCase();
+    const myRow = members.find(m => (m.email || '').toLowerCase() === yourEmail);
+    const iAmOwner = myRow && myRow.role === 'owner';
+    const iAmViewer = myRow && myRow.role === 'viewer';
+    const inviteBtn = document.getElementById('teamInviteBtn');
+    if (inviteBtn) inviteBtn.style.display = iAmViewer ? 'none' : '';
+    if (members.length === 0) {
+      list.innerHTML = '<div class="empty-state">No teammates yet.</div>';
+      return;
+    }
+    list.innerHTML = members.map(m => {
+      const isOwner = m.role === 'owner';
+      const isMe = (m.email || '').toLowerCase() === yourEmail;
+      const rolePill = isOwner
+        ? '<span class="badge">Owner</span>'
+        : (m.role === 'viewer'
+            ? '<span class="badge inactive">Viewer</span>'
+            : '<span class="badge">Admin</span>');
+      const actions = iAmOwner && !isOwner ? `
+        <select onchange="updateTeamRole('${m.id}', this.value)">
+          <option value="admin"${m.role === 'admin' ? ' selected' : ''}>Admin</option>
+          <option value="viewer"${m.role === 'viewer' ? ' selected' : ''}>Viewer</option>
+        </select>
+        <button class="tm-remove" onclick="removeTeamMember('${m.id}', '${escapeHtml(m.email)}')">Remove</button>
+      ` : '';
+      return `<div class="team-row">
+        <div class="info">
+          <div class="tm-name">${escapeHtml(m.name || m.email)}${isMe ? '<span class="you">(you)</span>' : ''}</div>
+          ${m.name ? `<div class="tm-email">${escapeHtml(m.email)}</div>` : ''}
+        </div>
+        ${rolePill}
+        <div class="tm-actions">${actions}</div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+window.openTeamInvite = function() {
+  document.getElementById('teamInviteEmail').value = '';
+  document.getElementById('teamInviteName').value = '';
+  document.getElementById('teamInviteRole').value = 'admin';
+  document.getElementById('teamInviteError').style.display = 'none';
+  document.getElementById('teamInviteModal').classList.add('open');
+};
+window.closeTeamInvite = function() {
+  document.getElementById('teamInviteModal').classList.remove('open');
+};
+window.sendTeamInvite = async function() {
+  const email = document.getElementById('teamInviteEmail').value.trim();
+  const name = document.getElementById('teamInviteName').value.trim();
+  const role = document.getElementById('teamInviteRole').value;
+  const err = document.getElementById('teamInviteError');
+  const btn = document.getElementById('teamInviteSend');
+  err.style.display = 'none';
+  if (!email) { err.textContent = 'Email required'; err.style.display = 'block'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/api/brand-account?action=team-invite&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email, name, role }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    closeTeamInvite();
+    loadTeam();
+  } catch (e) {
+    err.textContent = e.message; err.style.display = 'block';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send invite';
+  }
+};
+window.updateTeamRole = async function(id, role) {
+  try {
+    const r = await fetch('/api/brand-account?action=team-update-role&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ member_id: id, role }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    loadTeam();
+  } catch (e) { alert('Could not change role: ' + e.message); loadTeam(); }
+};
+window.removeTeamMember = async function(id, email) {
+  const ok = await confirmDialog('Remove teammate?', `${email} will lose access to this brand account immediately.`, 'Remove');
+  if (!ok) return;
+  try {
+    const r = await fetch('/api/brand-account?action=team-remove&session_id=' + encodeURIComponent(sessionToken), {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ member_id: id }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed');
+    loadTeam();
+  } catch (e) { alert('Could not remove: ' + e.message); }
+};
+
+window.signOutHere = async function() {
+  await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(sessionToken), { method:'POST' }).catch(() => {});
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/';
+};
+window.signOutEverywhere = async function() {
+  const ok = await confirmDialog('Sign out everywhere?', 'You’ll need to use a fresh magic link to sign back in on every device.', 'Sign out everywhere');
+  if (!ok) return;
+  await fetch('/api/brand-account?action=logout-everywhere&session_id=' + encodeURIComponent(sessionToken), { method:'POST' }).catch(() => {});
+  localStorage.removeItem(SESSION_KEY);
+  window.location.href = '/';
+};
+window.deleteAccount = async function() {
+  const ok = await confirmDialog('Delete your brand account?', 'This is permanent. Your profile and account-level demo links will be erased. Past demos at retailers stay on their side.', 'Delete forever');
+  if (!ok) return;
+  alert('Account deletion coming soon — for now, email david@demohubhq.com and we’ll handle it.');
+};
+
+// ===== Init =====
+(async () => {
+  await loadData();
+  switchTab(window.location.hash.replace(/^#/, '') || 'overview');
+})();
+</script>
+</body>
+</html>
