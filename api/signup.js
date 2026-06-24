@@ -6,7 +6,8 @@
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const FROM_ADDRESS = 'Demohub <hello@demohubhq.com>';
+const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
+const REPLY_TO = 'david@demohubhq.com';
 
 function slugify(s) {
   return String(s || '')
@@ -40,17 +41,21 @@ async function uniqueSlug(base) {
 function defaultAvailability() {
   return {
     schedule: {
-      "0": { open: "10:00", close: "18:00" }, // Sun
+      "0": { open: "10:00", close: "18:00" },
       "1": null, "2": null, "3": null, "4": null,
-      "5": { open: "10:00", close: "18:00" }, // Fri
-      "6": { open: "10:00", close: "18:00" }, // Sat
+      "5": { open: "10:00", close: "18:00" },
+      "6": { open: "10:00", close: "18:00" },
     },
     blackouts: [],
   };
 }
 
-function welcomeEmail({ retailerName, slug, adminUrl, publicUrl }) {
-  return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+// Day-0 welcome (markdown source: outputs/email-templates/retailer-welcome-day-0.md)
+function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
+  const fn = html(first_name || 'there');
+  const au = html(admin_url);
+  const pu = html(public_booking_url);
+  const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
@@ -59,24 +64,25 @@ function welcomeEmail({ retailerName, slug, adminUrl, publicUrl }) {
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
-<tr><td style="padding:36px 36px 28px;">
-<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#2a5b32;margin-bottom:14px;">Welcome to Demohub</div>
-<h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">${html(retailerName)} is live</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 24px;">Your booking portal and admin hub are ready. Bookmark these:</p>
-<table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:24px;">
-<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Public booking</td><td style="padding:14px 18px;text-align:right;font-size:14px;color:#0f2c17;"><a href="${html(publicUrl)}" style="color:#2a5b32;">${html(publicUrl)}</a></td></tr>
-<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Admin hub</td><td style="padding:14px 18px;text-align:right;font-size:14px;color:#0f2c17;border-top:1px solid #ede3d0;"><a href="${html(adminUrl)}" style="color:#2a5b32;">${html(adminUrl)}</a></td></tr>
-</table>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 6px;">Next steps:</p>
-<ul style="font-size:14px;line-height:1.5;color:#3a3a36;margin:0 0 16px;padding-left:20px;">
-<li>Add your stores in the admin → Store Availability card</li>
-<li>Set your demo fee in Settings</li>
-<li>Share your public booking link with brands</li>
-</ul>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Reply to this email if you need a hand getting set up.</p>
+<tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
+<p style="margin:0 0 14px;">Hi ${fn},</p>
+<p style="margin:0 0 14px;">Welcome to Demohub. Your admin is live and waiting for you here: <strong><a href="${au}" style="color:#2a5b32;">${au}</a></strong></p>
+<p style="margin:0 0 14px;">I built this for retailers like you &mdash; independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every store you operate.</p>
+<p style="margin:0 0 8px;">Four quick things will get you to a calm Monday:</p>
+<ol style="margin:0 0 18px;padding-left:22px;">
+<li style="margin-bottom:6px;"><strong>Set your hours and demo windows</strong> for each store, so brands can only book inside slots you actually staff. (Settings &rarr; Stores.)</li>
+<li style="margin-bottom:6px;"><strong>Add your team contacts</strong> &mdash; the manager, the floor lead, anyone who needs the demo schedule. (Settings &rarr; Team.)</li>
+<li style="margin-bottom:6px;"><strong>Sync your calendar</strong> so confirmed demos show up next to everything else on your week. (Settings &rarr; Calendar feed.)</li>
+<li style="margin-bottom:6px;"><strong>Share your booking link</strong> with the brands you already work with: <a href="${pu}" style="color:#2a5b32;">${pu}</a></li>
+</ol>
+<p style="margin:0 0 14px;">If you get stuck or want a walkthrough, just hit reply &mdash; I read every email myself. We'll be in touch in a few days to check in.</p>
+<p style="margin:0 0 4px;">Welcome aboard,<br>David<br>Demohub</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
+  const text = `Hi ${first_name || 'there'},\n\nWelcome to Demohub. Your admin is live and waiting for you here: ${admin_url}\n\nI built this for retailers like you — independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every store you operate.\n\nFour quick things will get you to a calm Monday:\n\n1. Set your hours and demo windows for each store, so brands can only book inside slots you actually staff. (Settings → Stores.)\n2. Add your team contacts — the manager, the floor lead, anyone who needs the demo schedule. (Settings → Team.)\n3. Sync your calendar so confirmed demos show up next to everything else on your week. (Settings → Calendar feed.)\n4. Share your booking link with the brands you already work with: ${public_booking_url}\n\nIf you get stuck or want a walkthrough, just hit reply — I read every email myself. We'll be in touch in a few days to check in.\n\nWelcome aboard,\nDavid\nDemohub`;
+  const subject = `Welcome to Demohub, ${first_name || 'there'} — let's get your store set up`;
+  return { subject, html: htmlBody, text };
 }
 
 export default async function handler(req, res) {
@@ -149,16 +155,28 @@ export default async function handler(req, res) {
     const adminUrl = `${base}/r/${slug}/admin`;
     const publicUrl = `${base}/r/${slug}`;
 
-    // 4) Send welcome email (best-effort)
+    // 4) Send Day-0 welcome email (best-effort) + stamp welcome_day0_sent_at
     let emailOk = false;
     if (RESEND_API_KEY) {
       try {
+        const firstName = (contact_name || '').trim().split(/\s+/)[0] || retailer_name;
+        const built = retailerDay0Email({ first_name: firstName, admin_url: adminUrl, public_booking_url: publicUrl });
         const r = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: FROM_ADDRESS, to: billing_email, reply_to: 'david@demohubhq.com', subject: `${retailer_name} is live on Demohub`, html: welcomeEmail({ retailerName: retailer_name, slug, adminUrl, publicUrl }) }),
+          body: JSON.stringify({ from: FROM_ADDRESS, to: billing_email, reply_to: REPLY_TO, subject: built.subject, html: built.html, text: built.text }),
         });
         emailOk = r.ok;
+        if (emailOk) {
+          // Stamp welcome_day0_sent_at. Wrap in try/catch — if the migration hasn't run yet,
+          // don't blow up signup. PostgREST will return 400 on unknown column; swallow it.
+          try {
+            await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ welcome_day0_sent_at: new Date().toISOString() }),
+            });
+          } catch (e) { console.warn('welcome_day0_sent_at stamp skipped:', e?.message || e); }
+        }
       } catch (_) { emailOk = false; }
     }
 

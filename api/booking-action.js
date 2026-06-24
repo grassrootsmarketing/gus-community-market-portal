@@ -28,7 +28,7 @@ function confirmedEmail({ contact_name, brand_name, retailerName, venueName, dat
 <tr><td style="padding:28px 32px;background:#0f2c17;">${brandHeader()}</td></tr>
 <tr><td style="padding:36px 36px 28px;">
 <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#2a5b32;margin-bottom:14px;">Demo confirmed</div>
-<h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">You're on${contact_name ? ', ' + html(contact_name) : ''} ✓</h1>
+<h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">You're on${contact_name ? ', ' + html(contact_name) : ''} &#10003;</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 24px;">${html(retailerName)} has confirmed your demo. Here are the details:</p>
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:24px;">
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:14px 18px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name)}</td></tr>
@@ -39,7 +39,7 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 </table>
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Reply to this email if anything changes.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
@@ -52,9 +52,9 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date — just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
@@ -96,7 +96,7 @@ export default async function handler(req, res) {
     if (!session) return res.status(401).json({ error: 'Invalid admin session' });
     if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
 
-    // Fetch booking + retailer + venue (for the email + the demo row)
+    // Fetch booking + retailer + venue
     let bookings;
     try {
       bookings = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=*`);
@@ -106,8 +106,7 @@ export default async function handler(req, res) {
     if (booking.status !== 'pending') return res.status(409).json({ error: 'Booking already ' + booking.status });
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
 
-    // === P1: Race check at confirmation ===
-    // Before creating a demo row, re-verify that this venue/date/time slot still has capacity.
+    // Race check at confirmation
     if (action === 'confirm') {
       const cap = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=max_demos_per_slot`);
       const venueCap = (Array.isArray(cap) && cap[0]) ? Math.max(1, parseInt(cap[0].max_demos_per_slot, 10) || 1) : 1;
@@ -132,41 +131,47 @@ export default async function handler(req, res) {
     });
 
     let demoId = null;
-    // 2) If confirmed, create the demo row + ensure brand_contact exists for this retailer
     if (action === 'confirm') {
       const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : 30);
-
-      // Brand profile cross-retailer linkage: carry brand_id from booking → demo
       const brandId = booking.brand_id || null;
 
-      const created = await sb(`demos`, {
-        method: 'POST',
-        body: JSON.stringify({
-          retailer_id: booking.retailer_id,
-          venue_id: booking.venue_id,
-          company_name: booking.brand_name || 'Unknown',
-          contact_name: booking.contact_name || null,
-          product: booking.product || null,
-          demo_date: booking.demo_date,
-          demo_time: booking.demo_time,
-          duration_hours: 3,
-          status: 'confirmed',
-          demo_fee: fee,
-          notes: booking.notes || null,
-          brand_id: brandId,
-        }),
-      });
+      // Build demo payload — include confirmed_at so the welcome-series cron can find
+      // brands 24h after their first confirmed demo. If the column doesn't exist yet
+      // (migration not run), retry without it.
+      const demoPayload = {
+        retailer_id: booking.retailer_id,
+        venue_id: booking.venue_id,
+        company_name: booking.brand_name || 'Unknown',
+        contact_name: booking.contact_name || null,
+        product: booking.product || null,
+        demo_date: booking.demo_date,
+        demo_time: booking.demo_time,
+        duration_hours: 3,
+        status: 'confirmed',
+        confirmed_at: new Date().toISOString(),
+        demo_fee: fee,
+        notes: booking.notes || null,
+        brand_id: brandId,
+      };
+      let created;
+      try {
+        created = await sb(`demos`, { method: 'POST', body: JSON.stringify(demoPayload) });
+      } catch (e) {
+        if (String(e?.message || e).match(/confirmed_at/i)) {
+          const { confirmed_at, ...rest } = demoPayload;
+          created = await sb(`demos`, { method: 'POST', body: JSON.stringify(rest) });
+        } else {
+          throw e;
+        }
+      }
       demoId = Array.isArray(created) ? created[0]?.id : null;
 
       // Ensure a brand_contacts row exists for this (retailer, email).
-      // Privacy: scoped to retailer_id — never exposes cross-retailer data.
-      // Retailer-wins: if a row already exists, we don't overwrite it.
       if (booking.contact_email) {
         try {
           const existing = await sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&email=eq.${encodeURIComponent(booking.contact_email)}&select=id,brand_id`);
           const row = Array.isArray(existing) ? existing[0] : null;
           if (!row) {
-            // Create a new retailer-scoped contact row
             await sb(`brand_contacts`, {
               method: 'POST',
               body: JSON.stringify({
@@ -179,7 +184,6 @@ export default async function handler(req, res) {
               }),
             });
           } else if (!row.brand_id && brandId) {
-            // Link existing contact to brand if not already linked (retailer-edited values stay)
             await sb(`brand_contacts?id=eq.${encodeURIComponent(row.id)}`, {
               method: 'PATCH',
               body: JSON.stringify({ brand_id: brandId }),

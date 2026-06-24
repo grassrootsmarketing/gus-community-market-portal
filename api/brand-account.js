@@ -1,13 +1,15 @@
 // /api/brand-account
 // Magic-link auth + profile CRUD for cross-retailer brand accounts.
-// Actions: signup, login, verify, data, profile-update, demos, logout
+// Actions: signup, login, verify, data, profile-update, demos, logout, cron
 // Privacy: NEVER expose brand_id to retailer-side endpoints. All retailer
 // admin queries continue to filter by retailer_id only.
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
+const FROM_BOOKINGS = 'Demohub <bookings@demohubhq.com>';
 const REPLY_TO = 'david@demohubhq.com';
 
 function jsonResp(res, status, body) {
@@ -69,7 +71,6 @@ async function verifySession(sessionToken) {
   if (new Date(s.expires_at).getTime() < Date.now()) return null;
   return s.brand_id;
 }
-// Returns { brand_id, email } or null — for actions that need to know the acting member
 async function verifySessionFull(sessionToken) {
   if (!sessionToken) return null;
   const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,email,expires_at`);
@@ -80,13 +81,127 @@ async function verifySessionFull(sessionToken) {
   return { brand_id: s.brand_id, email: s.email };
 }
 
+// ===== Welcome series email templates =====
+
+function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
+  const fn = escapeText(first_name || 'there');
+  const bn = escapeText(brand_name || 'your brand');
+  const ex = escapeText(example_retailer_url || 'https://demohubhq.com/r/gus');
+  const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;">
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+</td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
+<p style="margin:0 0 14px;">Hi ${fn},</p>
+<p style="margin:0 0 14px;">You're in. Your ${bn} brand profile is live: <strong><a href="https://demohubhq.com/brand/dashboard" style="color:#2a5b32;">https://demohubhq.com/brand/dashboard</a></strong></p>
+<p style="margin:0 0 14px;">Here's the idea: you fill out your info once, and that profile follows you to every Demohub retailer. No more re-typing your COI details into the third clipboard at the third store this month.</p>
+<p style="margin:0 0 8px;">Two things to do now so your next booking pre-fills cleanly:</p>
+<ol style="margin:0 0 18px;padding-left:22px;">
+<li style="margin-bottom:6px;"><strong>Upload your Certificate of Insurance.</strong> It attaches automatically to every demo you book at every Demohub retailer. (Profile &rarr; Compliance &rarr; upload.)</li>
+<li style="margin-bottom:6px;"><strong>Fill in the rest of your profile</strong> &mdash; phone, website, product categories, and what you typically demo. (Profile &rarr; Contact + Product.)</li>
+</ol>
+<p style="margin:0 0 14px;">Once that's done, when you visit a Demohub retailer's booking page &mdash; like <a href="${ex}" style="color:#2a5b32;">${ex}</a> &mdash; your info pre-fills. Hit submit and you're done.</p>
+<p style="margin:0 0 14px;">If you have a Demohub retailer you already work with, send them your way and they can confirm your next demo in two clicks.</p>
+<p style="margin:0 0 14px;">Free forever for brands. Always.</p>
+<p style="margin:0 0 4px;">Welcome,<br>David<br>Demohub</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+  const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: https://demohubhq.com/brand/dashboard\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
+  const subject = `Welcome to Demohub, ${first_name || 'there'} — one profile for every retailer`;
+  return { subject, html: htmlBody, text };
+}
+
+function retailerDay3Email({ first_name }) {
+  const fn = escapeText(first_name || 'there');
+  const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;">
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+</td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
+<p style="margin:0 0 14px;">Hi ${fn},</p>
+<p style="margin:0 0 14px;">It's been a few days since you joined Demohub. Wanted to check in.</p>
+<p style="margin:0 0 8px;">A couple of things I see most retailers ask in the first week:</p>
+<ul style="margin:0 0 18px;padding-left:22px;">
+<li style="margin-bottom:8px;"><strong>"How do I price demos?"</strong> Most start at $30 per slot. You'll see it round to $3 per demo on your Demohub bill &mdash; and you can change it any time, per store.</li>
+<li style="margin-bottom:8px;"><strong>"Can I share my booking link on Instagram?"</strong> Yep. Drop the link in your bio or a story &mdash; brands can submit a request without ever calling you.</li>
+<li style="margin-bottom:8px;"><strong>"How does the calendar sync work?"</strong> Copy the iCal URL from Settings &rarr; Calendar feed and paste it into Google Calendar, Apple Calendar, or Outlook.</li>
+</ul>
+<p style="margin:0 0 14px;">If you want a 20-minute walkthrough where I show you how to set up venues, manage team access, and review your first booking, grab a slot here: <a href="https://calendly.com/demohubhq/walkthrough" style="color:#2a5b32;">calendly.com/demohubhq/walkthrough</a></p>
+<p style="margin:0 0 14px;">Or just hit reply &mdash; happy to help by email too.</p>
+<p style="margin:0 0 4px;">Talk soon,<br>David<br>Demohub</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+  const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- How to price demos: Most start at $30 per slot.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\n20-min walkthrough: https://calendly.com/demohubhq/walkthrough\n\nTalk soon,\nDavid\nDemohub`;
+  const subject = `${first_name || 'there'} — how's your Demohub setup going?`;
+  return { subject, html: htmlBody, text };
+}
+
+function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
+  const fn = escapeText(first_name || 'there');
+  const rn = escapeText(retailer_name || 'your retailer');
+  const dd = escapeText(demo_date || '');
+  const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;">
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+</td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
+<p style="margin:0 0 14px;">Hi ${fn},</p>
+<p style="margin:0 0 14px;">Your first Demohub demo is confirmed &mdash; <strong>${rn}</strong> on <strong>${dd}</strong>. Congrats. That's one slot you didn't have to chase down by email.</p>
+<p style="margin:0 0 8px;">A few quick wins now that you're live:</p>
+<ul style="margin:0 0 18px;padding-left:22px;">
+<li style="margin-bottom:8px;"><strong>Round out your product categories</strong> so retailers searching for what you make can find you.</li>
+<li style="margin-bottom:8px;"><strong>Check your COI expiration date</strong> is current &mdash; if it's within 90 days, retailers will flag the booking.</li>
+<li style="margin-bottom:8px;"><strong>Sync your demos to your own calendar.</strong> Profile &rarr; Account &rarr; calendar URL.</li>
+</ul>
+<p style="margin:0 0 14px;">Want to see every Demohub retailer in one place? It's right at the top of your dashboard. Book a second demo while you're there.</p>
+<p style="margin:0 0 14px;">Reply to this email with how the demo went &mdash; we love hearing how things land at the floor.</p>
+<p style="margin:0 0 4px;">Cheers,<br>David<br>Demohub</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+  const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed — ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
+  const subject = `Nice — your first demo at ${retailer_name || 'your retailer'} is locked in`;
+  return { subject, html: htmlBody, text };
+}
+
+async function sendWelcome({ to, subject, html, text }) {
+  if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — skipping welcome to', to); return false; }
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: FROM_BOOKINGS, to, reply_to: REPLY_TO, subject, html, text }),
+    });
+    return r.ok;
+  } catch (e) {
+    console.warn('Welcome send failed:', e?.message || e);
+    return false;
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   const body = await readBody(req);
   const action = (req.query?.action || body.action || '').toString();
 
   try {
-    // -------- SIGNUP: create brand + send magic link (anti-enum: same response either way) --------
     if (action === 'signup') {
       const email = String(body.email || '').trim().toLowerCase();
       const companyName = String(body.company_name || '').trim();
@@ -98,13 +213,11 @@ export default async function handler(req, res) {
       if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company name' });
       if (!website) return jsonResp(res, 400, { error: 'Website is required so retailers can verify your brand' });
 
-      // upsert by email
       const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id`);
       const existing = (await lookupR.json())[0];
       let brandId;
       if (existing) {
         brandId = existing.id;
-        // Fill in any newly-provided fields that weren't set before
         const patch = { updated_at: new Date().toISOString() };
         if (contactName) patch.contact_name = contactName;
         if (phone) patch.phone = phone;
@@ -119,7 +232,6 @@ export default async function handler(req, res) {
         const created = await createR.json();
         if (!Array.isArray(created) || !created[0]) return jsonResp(res, 500, { error: 'Failed to create brand' });
         brandId = created[0].id;
-        // Also create an 'owner' member row so multi-user team management works from day 1
         try {
           await sb('brand_members', {
             method: 'POST',
@@ -128,7 +240,6 @@ export default async function handler(req, res) {
         } catch (e) { console.warn('brand_members owner row creation failed:', e); }
       }
 
-      // create magic link token
       const token = randomToken(24);
       const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
       await sb('brand_account_tokens', {
@@ -137,12 +248,30 @@ export default async function handler(req, res) {
       });
       const link = `https://demohubhq.com/brand/verify?t=${token}`;
       await sendMagicLink(email, link, !existing);
+
+      // Day-0 welcome — only on a brand-new signup. Best-effort, never blocks signup.
+      if (!existing) {
+        try {
+          const firstName = (contactName || '').trim().split(/\s+/)[0] || companyName || 'there';
+          const built = brandDay0Email({
+            first_name: firstName,
+            brand_name: companyName,
+            example_retailer_url: 'https://demohubhq.com/r/gus',
+          });
+          const ok = await sendWelcome({ to: email, subject: built.subject, html: built.html, text: built.text });
+          if (ok) {
+            try {
+              await sb(`brands?id=eq.${encodeURIComponent(brandId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ welcome_day0_sent_at: new Date().toISOString() }),
+              });
+            } catch (e) { console.warn('brand welcome_day0_sent_at stamp skipped:', e?.message || e); }
+          }
+        } catch (e) { console.warn('Brand day-0 welcome failed:', e?.message || e); }
+      }
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- LOGIN: existing brand OR team member (anti-enum) --------
-    // Matches against brand_members.email — that table includes the brand's primary email (owner)
-    // plus any teammates the brand owner has invited.
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       if (!email) return jsonResp(res, 400, { error: 'Missing email' });
@@ -161,7 +290,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- VERIFY: exchange magic-link token for session --------
     if (action === 'verify') {
       const token = String(body.token || req.query?.t || '').trim();
       if (!token) return jsonResp(res, 400, { error: 'Missing token' });
@@ -169,26 +297,22 @@ export default async function handler(req, res) {
       const tok = (await tR.json())[0];
       if (!tok || tok.used_at) return jsonResp(res, 401, { error: 'Invalid or used token' });
       if (new Date(tok.expires_at).getTime() < Date.now()) return jsonResp(res, 401, { error: 'Token expired' });
-      // mark used
       await sb(`brand_account_tokens?id=eq.${tok.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ used_at: new Date().toISOString() }),
       });
-      // Look up brand's primary email as fallback (older tokens don't have email column populated)
       let memberEmail = tok.email;
       if (!memberEmail) {
         const bR = await sb(`brands?id=eq.${tok.brand_id}&select=email`);
         const b = (await bR.json())[0];
         memberEmail = b?.email || null;
       }
-      // create session
       const sessionToken = randomToken(32);
       const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
       await sb('brand_account_sessions', {
         method: 'POST',
         body: JSON.stringify({ brand_id: tok.brand_id, email: memberEmail, session_token: sessionToken, expires_at: expires }),
       });
-      // mark brand verified
       await sb(`brands?id=eq.${tok.brand_id}`, {
         method: 'PATCH',
         body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
@@ -196,12 +320,10 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, session_token: sessionToken });
     }
 
-    // -------- DATA: fetch brand profile + all demos + retailer relationships --------
     if (action === 'data') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-
       const [profileR, demosR, contactsR] = await Promise.all([
         sb(`brands?id=eq.${brandId}&select=*`),
         sb(`demos?brand_id=eq.${brandId}&select=*,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
@@ -213,17 +335,14 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { profile, demos, contacts });
     }
 
-    // -------- PROFILE-UPDATE: brand edits their own profile --------
     if (action === 'profile-update') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-
       const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) {
-          // notification_prefs is JSONB — accept the object as-is. Other fields: empty string => null.
           if (k === 'notification_prefs') {
             patch[k] = body[k] && typeof body[k] === 'object' ? body[k] : null;
           } else {
@@ -231,7 +350,6 @@ export default async function handler(req, res) {
           }
         }
       }
-      // Normalize website URL: prepend https:// if missing
       if (patch.website && typeof patch.website === 'string' && !/^https?:\/\//i.test(patch.website)) {
         patch.website = 'https://' + patch.website.trim();
       }
@@ -240,12 +358,10 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- UPLOAD-AVATAR: brand uploads/replaces their logo --------
     if (action === 'upload-avatar') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-
       const dataUrl = String(body.image || '');
       const m = dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
       if (!m) return jsonResp(res, 400, { error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
@@ -253,24 +369,16 @@ export default async function handler(req, res) {
       const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
       if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large — max 2MB' });
-
-      // Upload to Supabase Storage. Path: brands/{brand_id}.{ext} — use upsert so re-upload overwrites.
       const path = `brands/${brandId}.${ext}`;
       const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
-          apikey: SUPABASE_SERVICE_KEY,
-          'Content-Type': mime,
-          'x-upsert': 'true',
-        },
+        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, apikey: SUPABASE_SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
         const errText = await uploadResp.text();
         return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
       }
-      // Public URL + cache-busting query so the browser picks up the new image immediately
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
       await sb(`brands?id=eq.${brandId}`, {
         method: 'PATCH',
@@ -279,12 +387,10 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, logo_url: publicUrl });
     }
 
-    // -------- UPLOAD-COI: upload certificate of insurance (PDF or image) --------
     if (action === 'upload-coi') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-
       const dataUrl = String(body.file || '');
       const m = dataUrl.match(/^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,(.+)$/);
       if (!m) return jsonResp(res, 400, { error: 'Invalid file — must be PDF, JPG, PNG, or WEBP' });
@@ -292,17 +398,10 @@ export default async function handler(req, res) {
       const ext = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
       if (bytes.length > 10 * 1024 * 1024) return jsonResp(res, 400, { error: 'File too large — max 10MB' });
-
-      // Path: brands/{brand_id}.{ext} — upsert overwrites prior COI
       const path = `brands/${brandId}.${ext}`;
       const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/coi-docs/${path}?upsert=true`, {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
-          apikey: SUPABASE_SERVICE_KEY,
-          'Content-Type': mime,
-          'x-upsert': 'true',
-        },
+        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, apikey: SUPABASE_SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
@@ -310,7 +409,6 @@ export default async function handler(req, res) {
         return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
       }
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/coi-docs/${path}?v=${Date.now()}`;
-      // Store the URL + filename + mime so we can render a clean filename later
       const originalName = String(body.filename || `certificate-of-insurance.${ext}`).slice(0, 120);
       await sb(`brands?id=eq.${brandId}`, {
         method: 'PATCH',
@@ -324,7 +422,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, coi_url: publicUrl, filename: originalName, mime });
     }
 
-    // -------- REMOVE-COI: clear the brand's COI --------
     if (action === 'remove-coi') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
@@ -342,7 +439,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- REMOVE-AVATAR: clear the brand's logo --------
     if (action === 'remove-avatar') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
@@ -354,7 +450,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- TEAM-LIST: list all members of the current brand --------
     if (action === 'team-list') {
       const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
@@ -362,7 +457,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, members, your_email: v.email });
     }
 
-    // -------- TEAM-INVITE: add a teammate (owner/admin only) --------
     if (action === 'team-invite') {
       const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
@@ -370,23 +464,16 @@ export default async function handler(req, res) {
       const name = String(body.name || '').trim() || null;
       const role = body.role === 'viewer' ? 'viewer' : 'admin';
       if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
-
-      // Only owners/admins can invite (not viewers)
       const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role === 'viewer') return jsonResp(res, 403, { error: 'Viewers cannot invite team members' });
-
-      // Dup check
       const existing = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(email)}&select=id`)).json();
       if (Array.isArray(existing) && existing.length > 0) return jsonResp(res, 409, { error: 'That email is already on the team' });
-
       const createR = await sb('brand_members', {
         method: 'POST',
         body: JSON.stringify({ brand_id: v.brand_id, email, name, role, invited_by_email: v.email }),
       });
       const created = await createR.json();
-
-      // Send invitation magic link
       try {
         const brand = (await (await sb(`brands?id=eq.${v.brand_id}&select=company_name`)).json())[0];
         const token = randomToken(24);
@@ -415,11 +502,9 @@ export default async function handler(req, res) {
           });
         }
       } catch (e) { console.warn('Invitation email failed:', e); }
-
       return jsonResp(res, 200, { ok: true, member: Array.isArray(created) ? created[0] : null });
     }
 
-    // -------- TEAM-REMOVE: remove a teammate (owner only; can't remove owner) --------
     if (action === 'team-remove') {
       const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
@@ -427,19 +512,15 @@ export default async function handler(req, res) {
       const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can remove team members' });
-
       const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
       if (!target) return jsonResp(res, 404, { error: 'Member not found' });
       if (target.brand_id !== v.brand_id) return jsonResp(res, 403, { error: 'Wrong brand' });
       if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot remove the owner' });
-
       await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'DELETE' });
-      // Revoke any active sessions for that member email
       try { await sb(`brand_account_sessions?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(target.email)}`, { method: 'DELETE' }); } catch (_) {}
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- TEAM-UPDATE-ROLE: change a member's role (owner only) --------
     if (action === 'team-update-role') {
       const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
@@ -448,16 +529,13 @@ export default async function handler(req, res) {
       const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can change roles' });
-
       const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
       if (!target || target.brand_id !== v.brand_id) return jsonResp(res, 404, { error: 'Member not found' });
       if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot change owner role' });
-
       await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- LOGOUT --------
     if (action === 'logout') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       if (sessionToken) {
@@ -466,7 +544,6 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- LOGOUT-EVERYWHERE: kill ALL sessions for this brand --------
     if (action === 'logout-everywhere') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
@@ -475,12 +552,9 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    // -------- CAL: iCal feed of all this brand's demos across every retailer --------
-    // Token-based (calendar apps can't send headers). URL: /api/brand-account?action=cal&token=...
     if (action === 'cal') {
       const token = String((req.query?.token) || body.token || '').trim();
       if (!token) { res.status(400).send('Missing ?token= parameter. Get your calendar URL from your brand dashboard.'); return; }
-
       const pad = (n) => String(n).padStart(2, '0');
       const toICSDate = (d) => d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + 'T' + pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds()) + 'Z';
       const escapeICS = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
@@ -499,9 +573,8 @@ export default async function handler(req, res) {
             H = h; MIN = parseInt(m[2], 10);
           }
         }
-        return new Date(Date.UTC(Y, M - 1, D, H + 8, MIN, 0)); // assume PST
+        return new Date(Date.UTC(Y, M - 1, D, H + 8, MIN, 0));
       };
-
       const sR = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(token)}&select=brand_id,expires_at`);
       const sess = (await sR.json())[0];
       if (!sess || new Date(sess.expires_at).getTime() < Date.now()) {
@@ -555,6 +628,96 @@ export default async function handler(req, res) {
       res.setHeader('Cache-Control', 'public, max-age=900');
       res.status(200).send(out);
       return;
+    }
+
+    // -------- CRON: daily welcome-series job. Protected by CRON_SECRET. --------
+    // Vercel cron invocations send: Authorization: Bearer <CRON_SECRET>
+    if (action === 'cron') {
+      const auth = String(req.headers?.authorization || req.headers?.Authorization || '');
+      const provided = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      if (!CRON_SECRET || provided !== CRON_SECRET) {
+        return jsonResp(res, 401, { error: 'Unauthorized' });
+      }
+
+      const errors = [];
+      let retailerDay3Sent = 0;
+      let brandFirstDemoSent = 0;
+      const nowIso = new Date().toISOString();
+
+      // Retailer day-3 check-in
+      try {
+        const upperBound = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+        const lowerBound = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+        const path = `retailers?select=id,name,billing_email,branding,slug,welcome_day0_sent_at,welcome_day3_sent_at,created_at` +
+          `&created_at=lte.${encodeURIComponent(upperBound)}` +
+          `&created_at=gte.${encodeURIComponent(lowerBound)}` +
+          `&welcome_day0_sent_at=not.is.null` +
+          `&welcome_day3_sent_at=is.null`;
+        const rRes = await sb(path);
+        const retailers = await rRes.json();
+        for (const r of (Array.isArray(retailers) ? retailers : [])) {
+          try {
+            const contactName = (r.branding && (r.branding.contact_name || r.branding.contactName)) || '';
+            const firstName = String(contactName).trim().split(/\s+/)[0] || r.name || 'there';
+            const built = retailerDay3Email({ first_name: firstName });
+            const ok = await sendWelcome({ to: r.billing_email, subject: built.subject, html: built.html, text: built.text });
+            if (ok) {
+              await sb(`retailers?id=eq.${encodeURIComponent(r.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ welcome_day3_sent_at: nowIso }),
+              });
+              retailerDay3Sent++;
+            } else {
+              errors.push({ kind: 'retailer_day3', id: r.id, error: 'send failed' });
+            }
+          } catch (e) {
+            errors.push({ kind: 'retailer_day3', id: r.id, error: String(e?.message || e) });
+          }
+        }
+      } catch (e) {
+        errors.push({ kind: 'retailer_day3_query', error: String(e?.message || e) });
+      }
+
+      // Brand: 24h after first confirmed demo
+      try {
+        const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const bRes = await sb(`brands?select=id,email,company_name,contact_name,welcome_firstdemo_sent_at&welcome_firstdemo_sent_at=is.null`);
+        const brands = await bRes.json();
+        for (const b of (Array.isArray(brands) ? brands : [])) {
+          try {
+            const dPath = `demos?brand_id=eq.${encodeURIComponent(b.id)}&status=eq.confirmed&confirmed_at=lte.${encodeURIComponent(cutoff)}&select=id,demo_date,confirmed_at,retailers(name)&order=confirmed_at.asc&limit=1`;
+            const dRes = await sb(dPath);
+            const demos = await dRes.json();
+            const demo = Array.isArray(demos) ? demos[0] : null;
+            if (!demo) continue;
+            const retailerName = demo.retailers?.name || 'your retailer';
+            let demoDateLabel = demo.demo_date || '';
+            try {
+              if (demo.demo_date) {
+                demoDateLabel = new Date(demo.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+              }
+            } catch (_) {}
+            const firstName = String(b.contact_name || '').trim().split(/\s+/)[0] || b.company_name || 'there';
+            const built = brandFirstDemoEmail({ first_name: firstName, retailer_name: retailerName, demo_date: demoDateLabel });
+            const ok = await sendWelcome({ to: b.email, subject: built.subject, html: built.html, text: built.text });
+            if (ok) {
+              await sb(`brands?id=eq.${encodeURIComponent(b.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ welcome_firstdemo_sent_at: nowIso }),
+              });
+              brandFirstDemoSent++;
+            } else {
+              errors.push({ kind: 'brand_firstdemo', id: b.id, error: 'send failed' });
+            }
+          } catch (e) {
+            errors.push({ kind: 'brand_firstdemo', id: b.id, error: String(e?.message || e) });
+          }
+        }
+      } catch (e) {
+        errors.push({ kind: 'brand_firstdemo_query', error: String(e?.message || e) });
+      }
+
+      return jsonResp(res, 200, { ok: true, retailerDay3Sent, brandFirstDemoSent, errors, ran_at: nowIso });
     }
 
     return jsonResp(res, 400, { error: 'Unknown action' });
