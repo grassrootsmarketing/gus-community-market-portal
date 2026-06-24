@@ -299,6 +299,69 @@
             .landing { padding: 24px; }
             .landing h1 { font-size: 1.75rem; }
         }
+
+        /* ===== Mobile responsive — patches for <768px ===== */
+        @media (max-width: 768px) {
+            /* Horizontally scroll tables that would otherwise overflow */
+            .table-card table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+            .table-card table thead, .table-card table tbody, .table-card table tr { display: table; width: 100%; table-layout: auto; }
+            .table-card { overflow: hidden; }
+            /* Stack toolbar controls so search + select + button don't crowd */
+            .table-toolbar { flex-wrap: wrap; gap: 10px; }
+            .table-toolbar .toolbar-controls { flex-wrap: wrap; gap: 8px; width: 100%; }
+            .table-toolbar .toolbar-controls .search-input,
+            .table-toolbar .toolbar-controls .sort-select { flex: 1 1 140px; min-width: 0; }
+            .table-toolbar h3.table-title { font-size: 1rem; }
+            /* Demos filter row stacks 2-col */
+            .demo-filters { grid-template-columns: 1fr 1fr !important; }
+            /* Modal padding + width */
+            .modal-overlay .modal { max-width: calc(100vw - 24px); padding: 20px 18px; max-height: calc(100vh - 32px); overflow-y: auto; }
+            /* Big calendar gets smaller cells */
+            .big-cal-grid .cal-day { min-height: 56px; padding: 4px; font-size: 0.75rem; }
+            .big-cal-grid .cal-demo { font-size: 0.65rem; padding: 2px 4px; }
+            /* Demo calendar */
+            .demo-cal-grid .cal-day { min-height: 64px; font-size: 0.72rem; }
+            /* Header items stack */
+            .header { flex-wrap: wrap; gap: 10px; }
+            .header > * { min-width: 0; }
+        }
+        @media (max-width: 480px) {
+            .table-toolbar h3.table-title { font-size: 0.95rem; }
+            .table-card { padding: 14px 12px; }
+            .modal-overlay .modal { padding: 16px 14px; }
+            .stat-card { padding: 14px 16px; }
+            .stat-num { font-size: 1.6rem; }
+            .billing-summary { grid-template-columns: 1fr !important; }
+            /* Buttons & inputs slightly smaller */
+            .btn { padding: 8px 14px; font-size: 0.85rem; }
+        }
+
+        /* ===== Demos table filters ===== */
+        .demo-filters {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--cream-50, #fbf7f0);
+            border-bottom: 1px solid rgba(15, 44, 23, 0.08);
+        }
+        .demo-filters select,
+        .demo-filters input {
+            padding: 8px 12px;
+            border: 1px solid rgba(15, 44, 23, 0.16);
+            border-radius: 8px;
+            font-family: inherit;
+            font-size: 0.85rem;
+            background: white;
+            color: var(--ink-900, #1c1c1a);
+            min-width: 0;
+        }
+        .demo-filters select:focus, .demo-filters input:focus { outline: none; border-color: var(--forest-500, #3a7142); }
+        .demo-filters .reset-link { display:inline-flex; align-items:center; justify-content:center; padding: 0 4px; color: var(--clay-700, #a14e2a); font-size: 0.8rem; font-weight:600; cursor: pointer; background: none; border: none; }
+        .demo-filters .reset-link:hover { text-decoration: underline; }
+        @media (max-width: 600px) {
+            .demo-filters { grid-template-columns: 1fr 1fr; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -413,6 +476,26 @@
                                 <button data-view="calendar" onclick="setDemoView('calendar')">Calendar</button>
                             </div>
                         </div>
+                    </div>
+                    <!-- Client-side filter controls. Filters persist to sessionStorage. -->
+                    <div class="demo-filters" id="demoFilterControls" role="group" aria-label="Filter demos">
+                        <select id="statusFilter" onchange="onDemoFilterChange()" aria-label="Filter by status">
+                            <option value="">All statuses</option>
+                            <option value="confirmed">Confirmed</option>
+                            <option value="pending">Pending</option>
+                            <option value="completed">Completed</option>
+                            <option value="cancelled">Cancelled</option>
+                        </select>
+                        <select id="dateRangeFilter" onchange="onDemoFilterChange()" aria-label="Filter by date range">
+                            <option value="">All time</option>
+                            <option value="this-month">This month</option>
+                            <option value="last-month">Last month</option>
+                            <option value="next-30">Next 30 days</option>
+                        </select>
+                        <input type="text" id="brandFilter" placeholder="Filter by brand…" oninput="onDemoFilterChange()" aria-label="Filter by brand">
+                        <select id="venueFilter" onchange="onDemoFilterChange()" aria-label="Filter by venue">
+                            <option value="">All venues</option>
+                        </select>
                     </div>
                     <div id="demosTableView">
                         <table>
@@ -1250,11 +1333,19 @@ END:VEVENT
                 contact: d.contact_name,
                 product: d.product,
                 status: (d.status || 'confirmed').replace(/^./, ch => ch.toUpperCase()),
+                // lowercase status retained for filtering; status field above stays title-case for badge display
+                status_raw: (d.status || 'confirmed').toLowerCase(),
                 demo_fee: d.demo_fee,
+                venue_id: d.venue_id || null,
             }));
             UPCOMING_DEMOS = window.state.demos;
             window.state.settings = settingsResp.data || null;
             window.state.compliance = complianceResp.data || [];
+            // Demos table filters: populate venue dropdown + restore prior session selections
+            if (document.getElementById('demoFilterControls')) {
+                populateVenueFilter();
+                restoreDemoFilters();
+            }
             if (document.getElementById('demosTableBody')) renderDemos();
             if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
@@ -1879,19 +1970,80 @@ END:VEVENT
             const d = new Date(iso + 'T00:00:00');
             return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         }
+        // ----- Demo filter state (persisted to sessionStorage) -----
+        const DEMO_FILTERS_KEY = 'demohub_admin_demo_filters_v1';
+        function loadDemoFilters() {
+            try { return JSON.parse(sessionStorage.getItem(DEMO_FILTERS_KEY) || '{}'); } catch (_) { return {}; }
+        }
+        function saveDemoFilters(f) {
+            try { sessionStorage.setItem(DEMO_FILTERS_KEY, JSON.stringify(f)); } catch (_) {}
+        }
+        function getDemoFilters() {
+            const status = (document.getElementById('statusFilter') || {}).value || '';
+            const dateRange = (document.getElementById('dateRangeFilter') || {}).value || '';
+            const brand = ((document.getElementById('brandFilter') || {}).value || '').trim().toLowerCase();
+            const venue = (document.getElementById('venueFilter') || {}).value || '';
+            return { status, dateRange, brand, venue };
+        }
+        function applyDateRange(d, range) {
+            if (!range || !d.date) return true;
+            const now = new Date();
+            const y = now.getFullYear();
+            const m = now.getMonth();
+            const dt = new Date(d.date + 'T00:00:00');
+            if (range === 'this-month') return dt.getMonth() === m && dt.getFullYear() === y;
+            if (range === 'last-month') {
+                const lm = m === 0 ? 11 : m - 1;
+                const ly = m === 0 ? y - 1 : y;
+                return dt.getMonth() === lm && dt.getFullYear() === ly;
+            }
+            if (range === 'next-30') {
+                const end = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+                return dt >= new Date(y, m, now.getDate()) && dt <= end;
+            }
+            return true;
+        }
         function getFilteredDemos() {
             const inp = document.getElementById('demoSearch');
             const q = (inp && inp.value ? inp.value : '').trim().toLowerCase();
-            if (!q) return UPCOMING_DEMOS.slice();
-            return UPCOMING_DEMOS.filter(d =>
-                d.company.toLowerCase().includes(q) ||
-                d.contact.toLowerCase().includes(q) ||
-                d.product.toLowerCase().includes(q) ||
-                d.status.toLowerCase().includes(q) ||
-                d.time.toLowerCase().includes(q) ||
-                d.date.includes(q) ||
-                formatDemoDate(d.date).toLowerCase().includes(q)
-            );
+            const { status, dateRange, brand, venue } = getDemoFilters();
+            return UPCOMING_DEMOS.filter(d => {
+                if (status && (d.status_raw || (d.status || '').toLowerCase()) !== status) return false;
+                if (!applyDateRange(d, dateRange)) return false;
+                if (brand && !(d.company || '').toLowerCase().includes(brand)) return false;
+                if (venue && (d.venue_id || d.venue || '') !== venue) return false;
+                if (q) {
+                    const hay = [d.company, d.contact, d.product, d.status, d.time, d.date, formatDemoDate(d.date)]
+                        .map(x => (x || '').toString().toLowerCase()).join(' ');
+                    if (!hay.includes(q)) return false;
+                }
+                return true;
+            });
+        }
+        function onDemoFilterChange() {
+            saveDemoFilters(getDemoFilters());
+            renderDemos();
+        }
+        function populateVenueFilter() {
+            const sel = document.getElementById('venueFilter');
+            if (!sel) return;
+            const venues = (window.state && window.state.venues) || [];
+            const current = sel.value;
+            sel.innerHTML = '<option value="">All venues</option>' + venues.map(v =>
+                '<option value="' + escapeHtml(v.id) + '">' + escapeHtml(v.name || 'Unnamed') + '</option>'
+            ).join('');
+            if (current) sel.value = current;
+        }
+        function restoreDemoFilters() {
+            const saved = loadDemoFilters();
+            const ids = ['statusFilter','dateRangeFilter','brandFilter','venueFilter'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const k = id.replace('Filter','').replace('dateRange','dateRange');
+                const key = id === 'dateRangeFilter' ? 'dateRange' : (id === 'statusFilter' ? 'status' : id === 'brandFilter' ? 'brand' : 'venue');
+                if (saved[key] != null) el.value = saved[key];
+            });
         }
         function renderDemos() {
             renderDemosTable();
