@@ -243,8 +243,238 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // ---- UPLOAD-RETAILER-AVATAR: retailer admin uploads/replaces their store logo ----
+    if (action === 'upload-retailer-avatar') {
+      const { session_id, image } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const m = String(image || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
+      if (!m) return res.status(400).json({ error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      const mime = m[1];
+      const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
+      const bytes = Buffer.from(m[2], 'base64');
+      if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large — max 2MB' });
+      const path = `retailers/${v.retailer_id}.${ext}`;
+      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}?upsert=true`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        body: bytes,
+      });
+      if (!uploadResp.ok) {
+        const t = await uploadResp.text();
+        return res.status(500).json({ error: 'Upload failed: ' + t });
+      }
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
+      await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: publicUrl }) });
+      return res.status(200).json({ ok: true, logo_url: publicUrl });
+    }
+
+    // ---- REMOVE-RETAILER-AVATAR ----
+    if (action === 'remove-retailer-avatar') {
+      const { session_id } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: null }) });
+      return res.status(200).json({ ok: true });
+    }
+
+    // ============================================================
+    // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
+    // ============================================================
+    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
+      return await handleOwnerAction(action, req, res, body);
+    }
+
     return res.status(400).json({ error: 'Unknown action' });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });
   }
+}
+
+// ============================================================
+// OWNER PANEL helpers (gated to OWNER_EMAILS allowlist)
+// Reuses admin_sessions + admin_tokens tables. Owner sessions have retailer_id = NULL.
+// ============================================================
+const OWNER_EMAILS = ['david@demohubhq.com'];
+const TIER_PRICES = { free: 0, starter: 79, growth: 199, enterprise: 499 };
+
+function randomToken(n = 32) {
+  const buf = new Uint8Array(n);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(buf);
+  else for (let i = 0; i < n; i++) buf[i] = Math.floor(Math.random() * 256);
+  return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function ownerMagicLinkEmail(link) {
+  return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,sans-serif;color:#1c1c1a;">
+    <div style="max-width:480px;margin:0 auto;background:white;border-radius:14px;padding:32px;border:1px solid rgba(15,44,23,0.08);">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:12px;">Owner sign in</div>
+      <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:400;color:#0f2c17;margin:0 0 12px;">Open the owner panel</h1>
+      <p style="font-size:15px;line-height:1.5;color:#3a3a36;margin:0 0 22px;">Click below to sign in to the Demohub owner panel. Link expires in 30 minutes.</p>
+      <a href="${html(link)}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Sign in &rarr;</a>
+    </div>
+  </body></html>`;
+}
+
+function monthKey(d) { return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0'); }
+
+async function verifyOwnerSession(sessionId) {
+  if (!sessionId) return null;
+  const sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=email,retailer_id,expires_at`);
+  const s = Array.isArray(sessions) ? sessions[0] : null;
+  if (!s) return null;
+  if (new Date(s.expires_at).getTime() < Date.now()) return null;
+  if (!OWNER_EMAILS.includes((s.email || '').toLowerCase())) return null;
+  return { email: s.email };
+}
+
+async function computeOwnerMetrics() {
+  const [retailers, brands, demos, bookings, settings] = await Promise.all([
+    sb(`retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier`),
+    sb(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
+    sb(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
+    sb(`bookings?select=id,retailer_id,brand_id,status,created_at`),
+    sb(`settings?select=retailer_id,billing_tier,price_per_demo`),
+  ]);
+  const now = new Date();
+  const thisMonth = monthKey(now);
+  const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const lastMonth = monthKey(lastMonthDate);
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+  const seventyTwoHoursAgo = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+
+  const totalRetailers = retailers.length;
+  const totalBrands = brands.length;
+  const activeRetailerIds = new Set();
+  demos.forEach(d => { if (d.created_at && new Date(d.created_at) >= thirtyDaysAgo) activeRetailerIds.add(d.retailer_id); });
+  bookings.forEach(b => { if (b.created_at && new Date(b.created_at) >= thirtyDaysAgo) activeRetailerIds.add(b.retailer_id); });
+  const activeRetailers30d = activeRetailerIds.size;
+
+  const demosThisMonth = demos.filter(d => (d.demo_date || '').slice(0, 7) === thisMonth).length;
+  const demosLastMonth = demos.filter(d => (d.demo_date || '').slice(0, 7) === lastMonth).length;
+  const demosDeltaPct = demosLastMonth === 0 ? (demosThisMonth > 0 ? 100 : 0) : Math.round(((demosThisMonth - demosLastMonth) / demosLastMonth) * 100);
+
+  const settingsByRetailer = {}; settings.forEach(s => { settingsByRetailer[s.retailer_id] = s; });
+  const tierCounts = { free: 0, starter: 0, growth: 0, enterprise: 0 };
+  let mrrSubs = 0;
+  retailers.forEach(r => {
+    const tier = ((settingsByRetailer[r.id]?.billing_tier) || r.billing_tier || 'free').toLowerCase();
+    if (tier in tierCounts) tierCounts[tier]++;
+    mrrSubs += TIER_PRICES[tier] || 0;
+  });
+  const perDemoRev = demos
+    .filter(d => (d.demo_date || '').slice(0, 7) === thisMonth && (d.status === 'confirmed' || d.status === 'completed'))
+    .reduce((s, d) => s + ((parseFloat(d.demo_fee) || 0) / 10), 0);
+  const mrrProjection = Math.round(mrrSubs + perDemoRev);
+
+  const months = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    months.push({ key: monthKey(d), label: d.toLocaleString('en-US', { month: 'short' }) });
+  }
+  const retailerSignups = months.map(m => ({ month: m.key, label: m.label, count: retailers.filter(r => (r.created_at || '').slice(0, 7) === m.key).length }));
+  const brandSignups = months.map(m => ({ month: m.key, label: m.label, count: brands.filter(b => (b.created_at || '').slice(0, 7) === m.key).length }));
+  const demosPerMonth = months.map(m => ({ month: m.key, label: m.label, count: demos.filter(d => (d.demo_date || '').slice(0, 7) === m.key).length }));
+
+  const retailerDemoCount = {};
+  demos.forEach(d => { if ((d.demo_date || '').slice(0, 7) === thisMonth) retailerDemoCount[d.retailer_id] = (retailerDemoCount[d.retailer_id] || 0) + 1; });
+  const retailerMap = Object.fromEntries(retailers.map(r => [r.id, r]));
+  const topRetailers = Object.entries(retailerDemoCount).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([rid, count]) => ({ id: rid, name: retailerMap[rid]?.name || 'Unknown', slug: retailerMap[rid]?.slug || '', demos_this_month: count }));
+
+  const brandActivity = {};
+  demos.forEach(d => { if (d.brand_id && d.created_at && new Date(d.created_at) >= thirtyDaysAgo) brandActivity[d.brand_id] = (brandActivity[d.brand_id] || 0) + 1; });
+  const brandMap = Object.fromEntries(brands.map(b => [b.id, b]));
+  const topBrands = Object.entries(brandActivity).sort((a, b) => b[1] - a[1]).slice(0, 10)
+    .map(([bid, count]) => ({ id: bid, name: brandMap[bid]?.company_name || 'Unknown', activity_30d: count }));
+
+  const pendingStuck = bookings
+    .filter(b => b.status === 'pending' && b.created_at && new Date(b.created_at) < seventyTwoHoursAgo)
+    .map(b => ({
+      id: b.id,
+      retailer_name: retailerMap[b.retailer_id]?.name || 'Unknown',
+      retailer_slug: retailerMap[b.retailer_id]?.slug || '',
+      brand_name: brandMap[b.brand_id]?.company_name || 'Unknown',
+      created_at: b.created_at,
+      hours_pending: Math.round((now - new Date(b.created_at)) / (60 * 60 * 1000)),
+    }))
+    .sort((a, b) => b.hours_pending - a.hours_pending)
+    .slice(0, 20);
+
+  const brandsWithoutCoi = brands.filter(b => !b.default_coi_url).slice(0, 25).map(b => ({ id: b.id, name: b.company_name, created_at: b.created_at }));
+  const dormantRetailers = retailers.filter(r => !activeRetailerIds.has(r.id)).slice(0, 25).map(r => ({ id: r.id, name: r.name, slug: r.slug, last_active: null }));
+  const brandLastDemo = {};
+  demos.forEach(d => { if (d.brand_id) { const c = d.created_at; if (!brandLastDemo[d.brand_id] || c > brandLastDemo[d.brand_id]) brandLastDemo[d.brand_id] = c; } });
+  const inactiveBrands = brands.filter(b => !brandLastDemo[b.id] || new Date(brandLastDemo[b.id]) < sixtyDaysAgo).slice(0, 25)
+    .map(b => ({ id: b.id, name: b.company_name, last_active: brandLastDemo[b.id] || null }));
+
+  return {
+    generated_at: new Date().toISOString(),
+    headline: { total_retailers: totalRetailers, active_retailers_30d: activeRetailers30d, total_brands: totalBrands, demos_this_month: demosThisMonth, demos_last_month: demosLastMonth, demos_delta_pct: demosDeltaPct, mrr_projection: mrrProjection, mrr_subs: Math.round(mrrSubs), mrr_per_demo: Math.round(perDemoRev), tier_counts: tierCounts },
+    trends: { retailer_signups: retailerSignups, brand_signups: brandSignups, demos_per_month: demosPerMonth },
+    tables: { top_retailers: topRetailers, top_brands: topBrands, pending_stuck: pendingStuck },
+    watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands },
+  };
+}
+
+async function handleOwnerAction(action, req, res, body) {
+  if (action === 'owner-login') {
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
+    if (OWNER_EMAILS.includes(email)) {
+      const token = randomToken(24);
+      const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      try {
+        await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: null, token, expires_at: expires }) });
+      } catch (_) {}
+      const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+      const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
+      if (RESEND_API_KEY) {
+        try {
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }),
+          });
+        } catch (_) {}
+      } else {
+        console.log('OWNER MAGIC LINK:', link);
+      }
+    }
+    return res.status(200).json({ ok: true });
+  }
+
+  if (action === 'owner-verify') {
+    const token = String(body.token || '').trim();
+    if (!token) return res.status(400).json({ error: 'Missing token' });
+    const tokens = await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}&select=*`);
+    const tok = Array.isArray(tokens) ? tokens[0] : null;
+    if (!tok) return res.status(404).json({ error: 'Token not found' });
+    if (tok.used_at) return res.status(409).json({ error: 'Token already used' });
+    if (new Date(tok.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Token expired' });
+    if (!OWNER_EMAILS.includes((tok.email || '').toLowerCase())) return res.status(403).json({ error: 'Not authorised' });
+    await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: null }) });
+    const session = Array.isArray(sessions) ? sessions[0] : null;
+    return res.status(200).json({ ok: true, session_id: session?.session_id, email: tok.email });
+  }
+
+  if (action === 'owner-data') {
+    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const v = await verifyOwnerSession(sessionId);
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const metrics = await computeOwnerMetrics();
+    return res.status(200).json({ ok: true, ...metrics });
+  }
+
+  if (action === 'owner-logout') {
+    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    if (sessionId) {
+      try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}`, { method: 'DELETE' }); } catch (_) {}
+    }
+    return res.status(200).json({ ok: true });
+  }
+
+  return res.status(400).json({ error: 'Unknown owner action' });
 }
