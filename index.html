@@ -954,4 +954,60 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (h) {
                 // Skip transition so it doesn't visibly animate from 0 to target
                 const origTransition = bar.style.transition;
-     
+                bar.style.transition = 'none';
+                bar.style.height = h + '%';
+                // Force a reflow then restore transition
+                void bar.offsetHeight;
+                bar.style.transition = origTransition;
+            }
+        });
+    }
+
+    function animateChart(chart) {
+        chart.querySelectorAll('.vis-bar').forEach(bar => {
+            const h = bar.getAttribute('data-target-height');
+            if (h) bar.style.height = h + '%';
+        });
+    }
+
+    // Stats — count up when entering view
+    const statObs = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+            if (!e.isIntersecting) return;
+            const el = e.target;
+            const target = parseInt(el.getAttribute('data-count'), 10) || 0;
+            animateNumber(el, target, 1200);
+            statObs.unobserve(el);
+        });
+    }, { threshold: 0.3 });
+
+    document.querySelectorAll('.stat-bar-num').forEach(el => {
+        if (isAboveViewport(el)) {
+            const target = parseInt(el.getAttribute('data-count'), 10) || 0;
+            const suffix = el.getAttribute('data-suffix') || '';
+            el.innerHTML = target + suffix;
+        } else {
+            statObs.observe(el);
+        }
+    });
+
+    // Charts — grow bars when entering view
+    const chartObs = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+            if (!e.isIntersecting) return;
+            animateChart(e.target);
+            chartObs.unobserve(e.target);
+        });
+    }, { threshold: 0.3 });
+
+    document.querySelectorAll('.vis-chart').forEach(chart => {
+        if (isAboveViewport(chart)) {
+            applyChartFinal(chart);
+        } else {
+            chartObs.observe(chart);
+        }
+    });
+})();
+</script>
+</body>
+</html>
