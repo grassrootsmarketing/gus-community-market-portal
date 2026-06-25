@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Owner panel — Demohub</title>
+<title>Owner panel, Demohub</title>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
 <!-- PostHog -->
 <script>
@@ -265,7 +265,7 @@ function renderDashboard(d) {
   const retailerSeries = t.retailer_signups || [];
   const brandSeries = t.brand_signups || [];
   const demosSeries = t.demos_per_month || [];
-  // Merge signup series (stack would be nicer but keep simple — show retailers only, with brands separately)
+  // Merge signup series (stack would be nicer but keep simple, show retailers only, with brands separately)
   const trends = `
     <div class="trends-row">
       <div class="chart">
