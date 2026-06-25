@@ -949,4 +949,30 @@ function renderProfile() {
         const j = await r.json();
         if (!r.ok) throw new Error(j.error || 'Upload failed');
         _data.profile.default_coi_url = j.coi_url;
-        _data.profile.default_coi_f
+        _data.profile.default_coi_filename = j.filename || file.name;
+        _data.profile.default_coi_mime = j.mime || file.type;
+        renderCoiWidget();
+      } catch (err) {
+        alert('Upload failed: ' + (err.message || 'unknown error'));
+        renderCoiWidget();
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Minimal renderAccount stub so Account tab doesn't error
+function renderAccount() {
+  main.innerHTML = '<div class="card"><h2>Account</h2><div class="sub">Account settings coming soon. For now, contact <a href="mailto:david@demohubhq.com">david@demohubhq.com</a> for any account changes.</div></div>';
+}
+
+// ===== Bootstrap =====
+loadData()
+  .then(() => switchTab(window.location.hash.replace(/^#/, '') || 'overview'))
+  .catch(err => {
+    console.error('Brand portal load failed:', err);
+    main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
+  });
+</script>
+</body>
+</html>
