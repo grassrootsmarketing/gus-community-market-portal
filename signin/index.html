@@ -42,6 +42,9 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.4rem; font-weight: 40
 .alt-link:hover { background: var(--forest-100); }
 .alt-link strong { display: block; font-weight: 600; margin-bottom: 2px; }
 .alt-link small { color: var(--ink-500); font-size: 0.78rem; }
+.alt-signin { text-align: center; margin-top: 14px; font-size: 0.85rem; }
+.alt-signin a { color: var(--forest-700); text-decoration: none; font-weight: 500; }
+.alt-signin a:hover { color: var(--forest-900); text-decoration: underline; }
 </style>
 <!-- PostHog -->
 <script>
@@ -94,13 +97,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
     <div class="alt-links">
       <a href="/signup" class="alt-link">
-        <strong>Sign up</strong>
-        <small>Create a new store</small>
+        <strong>Sign up as a retailer</strong>
+        <small>List your store on Demohub</small>
       </a>
-      <a href="/brand/signin" class="alt-link">
-        <strong>I'm a brand</strong>
-        <small>Brand portal sign in</small>
+      <a href="/brand/signin#signup" class="alt-link">
+        <strong>Sign up as a brand</strong>
+        <small>Create a brand profile</small>
       </a>
+    </div>
+    <div class="alt-signin">
+      <a href="/brand/signin">Already have a brand profile? Sign in →</a>
     </div>
   </div>
 </main>
@@ -132,20 +138,3 @@ form.addEventListener('submit', async (e) => {
       btn.disabled = false; btn.textContent = 'Continue →';
     } else {
       // Fallback: try to navigate anyway
-      window.location.href = '/r/' + slug + '/admin';
-    }
-  } catch (e) {
-    // Network error — best-effort redirect
-    window.location.href = '/r/' + slug + '/admin';
-  }
-});
-
-// Pre-fill if URL has ?slug=
-const params = new URLSearchParams(location.search);
-const preset = params.get('slug');
-if (preset) slugInput.value = normalize(preset);
-</script>
-
-</body>
-</html>
-              
