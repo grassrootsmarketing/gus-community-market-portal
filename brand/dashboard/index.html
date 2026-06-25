@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Your brand portal — Demohub</title>
+<title>Your brand portal, Demohub</title>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
 <style>
 :root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
@@ -297,7 +297,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   </div>
   <div class="nav-account">
     <div class="nav-avatar" id="navAvatar"></div>
-    <span class="nav-name" id="navName">—</span>
+    <span class="nav-name" id="navName">, </span>
   </div>
 </nav>
 
@@ -323,8 +323,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="form-row">
       <label class="label">Role</label>
       <select id="teamInviteRole" class="input">
-        <option value="admin">Admin — can do everything except remove teammates</option>
-        <option value="viewer">Viewer — view-only access</option>
+        <option value="admin">Admin, can do everything except remove teammates</option>
+        <option value="viewer">Viewer, view-only access</option>
       </select>
     </div>
     <div id="teamInviteError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
@@ -338,7 +338,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 <div class="modal-overlay" id="confirmModal">
   <div class="modal-box">
     <h3 id="confirmTitle">Are you sure?</h3>
-    <p id="confirmBody">—</p>
+    <p id="confirmBody">, </p>
     <div class="actions">
       <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
       <button class="btn btn-danger" id="confirmOk">Confirm</button>
@@ -540,8 +540,8 @@ function renderOverview() {
       <div class="eyebrow">Welcome to Demohub</div>
       <h3>Two quick things to finish setting up.</h3>
       <ol>
-        <li><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong> — ${needsCoi ? 'Add your certificate of insurance so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#profile">Edit your profile →</a></li>
-        <li><strong>Share your Demohub link</strong> with retailers you work with — they can book demos with you faster if they're on Demohub.</li>
+        <li><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong>, ${needsCoi ? 'Add your certificate of insurance so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#profile">Edit your profile →</a></li>
+        <li><strong>Share your Demohub link</strong> with retailers you work with, they can book demos with you faster if they're on Demohub.</li>
       </ol>
       <p>Once you book your first demo at any Demohub retailer, it shows up here automatically.</p>
     </div>` : '';
@@ -553,10 +553,10 @@ function renderOverview() {
       <div class="sub">Your activity across every Demohub retailer.</div>
       <div class="perf-stats">
         <div class="perf-stat"><div class="val">$${Math.round(totalInvested).toLocaleString()}</div><div class="lbl">Demo fees paid</div></div>
-        <div class="perf-stat"><div class="val">${completionRate == null ? '—' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
+        <div class="perf-stat"><div class="val">${completionRate == null ? ', ' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
         <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
       </div>
-      <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month — last 6 months</div>
+      <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month, last 6 months</div>
       <div class="perf-chart">
         ${monthKeys.map(k => { const b = monthBuckets[k]; const heightPct = (b.count / maxMonthCount) * 100; return `<div class="bar-col"><div class="bar" style="height:${heightPct}%;">${b.count > 0 ? `<div class="bar-val">${b.count}</div>` : ''}</div><div class="bar-lbl">${b.label}</div></div>`; }).join('')}
       </div>
@@ -573,7 +573,7 @@ function renderOverview() {
         return `<div class="retailer-row">
           <div class="retailer-info">
             <div class="retailer-name-row"><span class="retailer-name">${escapeHtml(r.name)}</span>${badge}</div>
-            <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created — no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
+            <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created, no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
           </div>
           ${r.slug ? `<a href="/r/${escapeHtml(r.slug)}" class="btn-book" target="_blank">Book a demo →</a>` : ''}
         </div>`;
@@ -609,7 +609,7 @@ function renderOverview() {
     return `
       <div class="card">
         <h2>Activity</h2>
-        <div class="sub">Recent events across every retailer — the last 30 days.</div>
+        <div class="sub">Recent events across every retailer, the last 30 days.</div>
         <div class="activity-list">
           ${recent.map(e => `
             <div class="activity-item">
@@ -645,17 +645,17 @@ function renderOverview() {
       }).join('')}
     </div>`;
 
-  // COI expiry warning — within 30 days of expiry, or already expired
+  // COI expiry warning, within 30 days of expiry, or already expired
   let coiWarnHtml = '';
   if (profile.default_coi_url && profile.default_coi_expires) {
     const expiresDate = new Date(profile.default_coi_expires + 'T00:00:00');
     const daysLeft = Math.ceil((expiresDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
     if (daysLeft <= 30) {
       const msg = daysLeft < 0
-        ? `Your COI has <strong>expired</strong> — upload a new one so retailer bookings aren't held up.`
+        ? `Your COI has <strong>expired</strong>, upload a new one so retailer bookings aren't held up.`
         : daysLeft === 0
-          ? `Your COI <strong>expires today</strong> — upload a new one before retailers reject demos.`
-          : `Your COI expires in <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong> — replace it before then so retailer bookings aren't held up.`;
+          ? `Your COI <strong>expires today</strong>, upload a new one before retailers reject demos.`
+          : `Your COI expires in <strong>${daysLeft} day${daysLeft === 1 ? '' : 's'}</strong>, replace it before then so retailer bookings aren't held up.`;
       coiWarnHtml = `<div class="coi-warn">
         <div class="icon">!</div>
         <div class="msg">${msg}</div>
@@ -756,14 +756,14 @@ window.navMonth = function(delta) {
   renderCalendar();
 };
 
-// Demo detail modal — opened from a calendar cell click
+// Demo detail modal, opened from a calendar cell click
 window.openDemoDetail = function(demoId) {
   const demo = (_data.demos || []).find(d => String(d.id) === String(demoId));
   if (!demo) return;
   const ret = demo.retailers || {};
   const venue = demo.venues || {};
-  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : '—';
-  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : '—';
+  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : ', ';
+  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : ', ';
   const logoSrc = ret.logo_url ? `<img src="${escapeHtml(ret.logo_url)}" alt="">` : DEFAULT_AVATAR_SVG;
   const content = `
     <div class="demo-detail-head">
@@ -775,11 +775,11 @@ window.openDemoDetail = function(demoId) {
     </div>
     <div class="demo-detail-rows">
       <div class="row"><span class="k">Date</span><span class="v">${escapeHtml(niceDate)}</span></div>
-      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || '—')}</span></div>
-      <div class="row"><span class="k">Venue</span><span class="v">${escapeHtml(venue.name || '—')}</span></div>
+      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || ', ')}</span></div>
+      <div class="row"><span class="k">Venue</span><span class="v">${escapeHtml(venue.name || ', ')}</span></div>
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
-      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || '—')}</span></div>
-      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || '—')}</span></span></div>
+      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || ', ')}</span></div>
+      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || ', ')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
   `;
@@ -935,7 +935,7 @@ function renderProfile() {
   document.getElementById('coiFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert('File too large — max 10MB'); e.target.value = ''; return; }
+    if (file.size > 10 * 1024 * 1024) { alert('File too large, max 10MB'); e.target.value = ''; return; }
     // Show uploading state
     const widget = document.getElementById('coiWidget');
     widget.innerHTML = `<div class="coi-block"><div class="coi-uploading"><div class="spinner-sm"></div><div>Uploading <strong>${escapeHtml(file.name)}</strong>…</div></div></div>`;
