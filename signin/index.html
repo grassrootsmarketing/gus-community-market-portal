@@ -20,31 +20,34 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: var(--cream-
 .nav .brand-mark { width: 32px; height: 32px; }
 .nav .brand-text { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.25rem; letter-spacing: -0.04em; color: var(--forest-900); }
 .nav .signup-link { font-size: 0.9rem; color: var(--ink-500); text-decoration: none; }
-.container { max-width: 480px; margin: 80px auto 80px; padding: 0 24px; }
-.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 18px; }
-h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.4rem; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); margin-bottom: 14px; }
-.lede { font-size: 1.05rem; color: var(--ink-700); margin-bottom: 32px; }
-.card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 32px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); }
+.container { max-width: 920px; margin: 60px auto 80px; padding: 0 24px; }
+.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 14px; text-align: center; }
+h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); text-align: center; margin-bottom: 12px; }
+.lede { font-size: 1.05rem; color: var(--ink-700); text-align: center; max-width: 520px; margin: 0 auto 40px; }
+
+.signin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 760px) { .signin-grid { grid-template-columns: 1fr; gap: 20px; } }
+
+.signin-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 36px 32px 28px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); display: flex; flex-direction: column; }
+.signin-card-eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.14em; color: var(--clay-700); margin-bottom: 14px; }
+.signin-card h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.7rem; font-weight: 400; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
+.signin-card .desc { font-size: 0.94rem; color: var(--ink-700); margin-bottom: 24px; line-height: 1.5; }
+.signin-card .form-body { flex: 1; display: flex; flex-direction: column; }
+
 .label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
 .url-prefix { display: flex; align-items: center; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; overflow: hidden; transition: border-color 0.15s; background: white; }
 .url-prefix:focus-within { border-color: var(--forest-500); }
 .url-prefix .prefix { padding: 12px 4px 12px 14px; color: var(--ink-500); font-size: 0.95rem; font-family: 'Plus Jakarta Sans', monospace; white-space: nowrap; user-select: none; }
 .url-prefix input { flex: 1; border: none; outline: none; padding: 12px 14px 12px 4px; font-size: 0.95rem; font-family: 'Plus Jakarta Sans', monospace; background: transparent; color: var(--ink-900); }
-.hint { font-size: 0.82rem; color: var(--ink-500); margin-top: 8px; }
-.btn { width: 100%; padding: 14px 20px; background: var(--forest-900); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: inherit; margin-top: 18px; }
+.hint { font-size: 0.8rem; color: var(--ink-500); margin-top: 8px; }
+.btn { width: 100%; padding: 14px 20px; background: var(--forest-900); color: white; border: none; border-radius: 10px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background 0.15s; font-family: inherit; margin-top: 18px; text-align: center; text-decoration: none; display: block; }
 .btn:hover { background: var(--forest-700); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { background: #fdebe5; color: var(--clay-700); padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin-top: 14px; display: none; }
-.divider { display: flex; align-items: center; gap: 12px; margin: 28px 0 20px; color: var(--ink-500); font-size: 0.82rem; }
-.divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: rgba(15,44,23,0.08); }
-.alt-links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.alt-link { padding: 14px 16px; background: var(--forest-50); border-radius: 10px; text-decoration: none; color: var(--forest-900); font-size: 0.9rem; text-align: center; transition: background 0.15s; }
-.alt-link:hover { background: var(--forest-100); }
-.alt-link strong { display: block; font-weight: 600; margin-bottom: 2px; }
-.alt-link small { color: var(--ink-500); font-size: 0.78rem; }
-.alt-signin { text-align: center; margin-top: 14px; font-size: 0.85rem; }
-.alt-signin a { color: var(--forest-700); text-decoration: none; font-weight: 500; }
-.alt-signin a:hover { color: var(--forest-900); text-decoration: underline; }
+
+.signup-footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(15,44,23,0.08); text-align: center; font-size: 0.88rem; color: var(--ink-500); }
+.signup-footer a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
+.signup-footer a:hover { color: var(--forest-900); text-decoration: underline; }
 </style>
 <!-- PostHog -->
 <script>
@@ -78,36 +81,46 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
 <main class="container">
   <div class="eyebrow">Sign in</div>
-  <h1>Open your admin</h1>
-  <p class="lede">Type your business handle to go to your admin hub.</p>
+  <h1>Welcome back to Demohub</h1>
+  <p class="lede">Pick the account you're signing in to. Each has its own dashboard.</p>
 
-  <div class="card">
-    <form id="signinForm">
-      <label class="label" for="slug">Your handle</label>
-      <div class="url-prefix">
-        <span class="prefix">demohubhq.com/r/</span>
-        <input id="slug" type="text" placeholder="your-business" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+  <div class="signin-grid">
+
+    <!-- Retailer card -->
+    <div class="signin-card">
+      <div class="signin-card-eyebrow">Retailer</div>
+      <h2>Sign in to your admin</h2>
+      <p class="desc">Open the admin hub for your store. Manage demos, brands, and compliance.</p>
+      <div class="form-body">
+        <form id="signinForm">
+          <label class="label" for="slug">Your handle</label>
+          <div class="url-prefix">
+            <span class="prefix">demohubhq.com/r/</span>
+            <input id="slug" type="text" placeholder="your-business" required autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+          </div>
+          <div class="hint">The part after <code>/r/</code> in your admin URL.</div>
+          <button class="btn" type="submit" id="goBtn">Continue &rarr;</button>
+          <div class="error" id="errBox"></div>
+        </form>
       </div>
-      <div class="hint">This is the part after <code>/r/</code> in your admin URL — it was sent to you in your welcome email.</div>
-      <button class="btn" type="submit" id="goBtn">Continue &rarr;</button>
-      <div class="error" id="errBox"></div>
-    </form>
-
-    <div class="divider">or</div>
-
-    <div class="alt-links">
-      <a href="/signup" class="alt-link">
-        <strong>Sign up as a retailer</strong>
-        <small>List your store on Demohub</small>
-      </a>
-      <a href="/brand/signin#signup" class="alt-link">
-        <strong>Sign up as a brand</strong>
-        <small>Create a brand profile</small>
-      </a>
+      <div class="signup-footer">
+        New store? <a href="/signup">Sign up as a retailer →</a>
+      </div>
     </div>
-    <div class="alt-signin">
-      <a href="/brand/signin">Already have a brand profile? Sign in →</a>
+
+    <!-- Brand card -->
+    <div class="signin-card">
+      <div class="signin-card-eyebrow">Brand</div>
+      <h2>Sign in to your brand portal</h2>
+      <p class="desc">Manage your profile, COI, and demos at every Demohub retailer — one place.</p>
+      <div class="form-body">
+        <a href="/brand/signin" class="btn">Open brand portal &rarr;</a>
+      </div>
+      <div class="signup-footer">
+        New brand? <a href="/brand/signin#signup">Sign up as a brand →</a>
+      </div>
     </div>
+
   </div>
 </main>
 
@@ -124,17 +137,4 @@ function normalize(s) {
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   errBox.style.display = 'none';
-  const slug = normalize(slugInput.value);
-  if (!slug) { errBox.textContent = 'Enter your handle to continue.'; errBox.style.display = 'block'; return; }
-  btn.disabled = true; btn.textContent = 'Checking…';
-  try {
-    // Verify the retailer exists before redirecting (better UX than 404)
-    const r = await fetch('/api/find-retailer?slug=' + encodeURIComponent(slug));
-    if (r.ok) {
-      window.location.href = '/r/' + slug + '/admin';
-    } else if (r.status === 404) {
-      errBox.textContent = "We couldn't find a business with that handle. Check the spelling, or sign up to create one.";
-      errBox.style.display = 'block';
-      btn.disabled = false; btn.textContent = 'Continue →';
-    } else {
-      // Fallback: try to navigate anyway
+  const slug = normalize(slugInp
