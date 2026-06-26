@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Security · Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.6; }
+.nav { padding:24px 32px; display:flex; align-items:center; justify-content:space-between; max-width:1200px; margin:0 auto; }
+.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
+.nav .brand-mark { width:32px; height:32px; }
+.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.25rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.container { max-width:840px; margin:32px auto 80px; padding:0 24px; }
+.eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:14px; }
+h1 { font-family:'Fraunces',Georgia,serif; font-size:2.8rem; font-weight:400; line-height:1.1; color:var(--forest-900); margin-bottom:14px; }
+.lede { font-size:1.15rem; color:var(--ink-700); margin-bottom:48px; max-width:620px; }
+h2 { font-family:'Fraunces',Georgia,serif; font-size:1.7rem; font-weight:400; color:var(--forest-900); margin-top:48px; margin-bottom:16px; }
+p { color:var(--ink-700); margin-bottom:14px; }
+.grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:18px; margin-bottom:24px; }
+@media (max-width:680px) { .grid { grid-template-columns:1fr; } }
+.card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:24px 26px; }
+.card h3 { font-family:'Fraunces',Georgia,serif; font-size:1.25rem; font-weight:400; color:var(--forest-900); margin-bottom:10px; }
+.card p { font-size:0.94rem; color:var(--ink-700); margin-bottom:0; }
+.check { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; background:var(--forest-100); color:var(--forest-700); border-radius:50%; font-size:0.85rem; font-weight:700; margin-right:10px; vertical-align:middle; }
+ul.checks { list-style:none; padding:0; margin-bottom:18px; }
+ul.checks li { padding:8px 0; color:var(--ink-700); }
+.contact { background:var(--forest-900); color:white; border-radius:16px; padding:32px; margin-top:48px; }
+.contact h3 { font-family:'Fraunces',Georgia,serif; font-size:1.5rem; color:white; font-weight:400; margin-bottom:10px; }
+.contact p { color:rgba(255,255,255,0.85); margin-bottom:16px; }
+.contact a { color:var(--clay-bright); font-weight:600; text-decoration:none; }
+.contact a:hover { text-decoration:underline; }
+footer { border-top:1px solid rgba(15,44,23,0.08); padding:32px 24px; text-align:center; font-size:0.88rem; color:var(--ink-500); margin-top:60px; }
+footer a { color:var(--forest-700); }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <a href="/signin" style="color:var(--ink-500); text-decoration:none; font-size:0.9rem;">Sign in</a>
+</nav>
+<main class="container">
+  <div class="eyebrow">Security &amp; privacy</div>
+  <h1>Your data, isolated.</h1>
+  <p class="lede">Demohub handles sensitive business information: brand contacts, certificates of insurance, demo schedules, financial records. Here's how we protect it.</p>
+
+  <h2>Foundations</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>End-to-end encryption</h3>
+      <p>All data encrypted in transit (TLS 1.3) and at rest (AES-256). Every page is HTTPS via Cloudflare with HSTS preloading.</p>
+    </div>
+    <div class="card">
+      <h3>Strict tenant isolation</h3>
+      <p>Multi-tenant database with retailer-scoped access controls. Retailer A cannot read retailer B's data, even via API leaks.</p>
+    </div>
+    <div class="card">
+      <h3>No passwords</h3>
+      <p>Magic-link authentication only. No passwords to leak, phish, or reuse from other breached sites.</p>
+    </div>
+    <div class="card">
+      <h3>Privacy-respecting analytics</h3>
+      <p>Session replay enabled with PII masking. Email addresses, file uploads, and document URLs never leave your browser unmasked.</p>
+    </div>
+  </div>
+
+  <h2>Privacy commitments</h2>
+  <ul class="checks">
+    <li><span class="check">&check;</span>We never sell your data.</li>
+    <li><span class="check">&check;</span>We never share your data with other retailers without your booking action.</li>
+    <li><span class="check">&check;</span>We don't train AI models on your data.</li>
+    <li><span class="check">&check;</span>You can export everything as JSON anytime.</li>
+    <li><span class="check">&check;</span>You can delete your account anytime; data purged within 30 days.</li>
+    <li><span class="check">&check;</span>GDPR (EU/UK) and CCPA (California) rights guaranteed.</li>
+  </ul>
+
+  <h2>Infrastructure</h2>
+  <p>We use industry-standard infrastructure to host your data and run the service:</p>
+  <ul class="checks">
+    <li><span class="check">&check;</span><strong>Vercel</strong> &mdash; application hosting (SOC 2 Type 2, ISO 27001)</li>
+    <li><span class="check">&check;</span><strong>Supabase</strong> &mdash; database + file storage (SOC 2 Type 2, US-West region)</li>
+    <li><span class="check">&check;</span><strong>Cloudflare</strong> &mdash; CDN, DDoS protection, TLS (SOC 2 Type 2, ISO 27001)</li>
+    <li><span class="check">&check;</span><strong>Stripe</strong> &mdash; payments (PCI DSS Level 1)</li>
+    <li><span class="check">&check;</span><strong>Resend</strong> &mdash; transactional email (SOC 2 Type 2)</li>
+    <li><span class="check">&check;</span><strong>PostHog</strong> &mdash; product analytics with masking (SOC 2 Type 2, GDPR)</li>
+  </ul>
+  <p>See our full <a href="/security/subprocessors">subprocessor list</a> for details.</p>
+
+  <h2>Compliance roadmap</h2>
+  <p>We're a young company building toward enterprise-grade security:</p>
+  <ul class="checks">
+    <li><span class="check">&check;</span><strong>Today:</strong> Foundational hygiene complete (encryption, isolation, magic-link auth, privacy policy, terms of service)</li>
+    <li><span class="check">&check;</span><strong>Q3 2026:</strong> Independent code review + audit log infrastructure</li>
+    <li><span class="check">&check;</span><strong>Q4 2026:</strong> Penetration test by an outside firm</li>
+    <li><span class="check">&check;</span><strong>Q1 2027:</strong> SOC 2 Type 1 audit</li>
+    <li><span class="check">&check;</span><strong>Q3 2027:</strong> SOC 2 Type 2 audit</li>
+  </ul>
+  <p>If your organization requires specific compliance documents (DPA, security questionnaire, SCCs), contact <a href="mailto:security@demohubhq.com">security@demohubhq.com</a>.</p>
+
+  <h2>Responsible disclosure</h2>
+  <p>Found a security issue? We'd like to hear from you. Email <a href="mailto:security@demohubhq.com">security@demohubhq.com</a> with details. We respond within 24 hours, will not pursue legal action against good-faith researchers, and will credit reporters who request it.</p>
+
+  <div class="contact">
+    <h3>Questions?</h3>
+    <p>Privacy: <a href="mailto:privacy@demohubhq.com">privacy@demohubhq.com</a><br>
+    Security: <a href="mailto:security@demohubhq.com">security@demohubhq.com</a><br>
+    Compliance docs (DPA, SCCs): <a href="mailto:legal@demohubhq.com">legal@demohubhq.com</a></p>
+  </div>
+</main>
+<footer>
+  <a href="/">Home</a> &middot; <a href="/privacy">Privacy Policy</a> &middot; <a href="/terms">Terms of Service</a> &middot; <a href="/security/subprocessors">Subprocessors</a>
+</footer>
+</body>
+</html>
