@@ -361,4 +361,49 @@ function renderDashboard(d) {
 (async () => {
   // If ?token=, exchange it for a session first
   const u = new URL(window.location.href);
-  if (u.s
+  if (u.searchParams.has('token')) {
+    await tryVerifyToken();
+  }
+  // Try to load (calls renderGate if no session or 401, else renderDashboard)
+  await loadData();
+})();
+
+// Delegate submit on the login form (form is rendered by renderGate dynamically)
+document.addEventListener('submit', async (e) => {
+  if (e.target.id !== 'ownerLoginForm') return;
+  e.preventDefault();
+  const emailEl = document.getElementById('ownerEmailInput');
+  const btn = document.getElementById('ownerLoginBtn');
+  const notice = document.getElementById('ownerNotice');
+  const email = (emailEl?.value || '').trim().toLowerCase();
+  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+    if (notice) { notice.textContent = 'Enter a valid email.'; notice.style.display = 'block'; }
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'owner-login', email })
+    });
+    if (r.ok) {
+      if (emailEl) emailEl.style.display = 'none';
+      if (btn) btn.style.display = 'none';
+      if (notice) {
+        notice.textContent = 'Check your inbox. The sign-in link expires in 24 hours.';
+        notice.style.color = 'var(--forest-700)';
+        notice.style.display = 'block';
+      }
+    } else {
+      if (btn) { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
+      if (notice) { notice.textContent = 'Could not send link. Try again.'; notice.style.display = 'block'; }
+    }
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
+    if (notice) { notice.textContent = 'Network error. Try again.'; notice.style.display = 'block'; }
+  }
+});
+</script>
+</body>
+</html>
