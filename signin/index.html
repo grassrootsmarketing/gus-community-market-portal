@@ -121,10 +121,10 @@ form.addEventListener('submit', async (e) => {
   btn.disabled = true;
   btn.textContent = 'Sending…';
   try {
-    const r = await fetch('/api/admin-auth?action=email-login', {
+    const r = await fetch('/api/admin-auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ action: 'email-login', email })
     });
     if (r.ok) {
       sentTo.textContent = email;
