@@ -24,16 +24,13 @@ body { font-family: 'Inter', -apple-system, sans-serif; background: var(--cream-
 .eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 14px; text-align: center; }
 h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 400; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); text-align: center; margin-bottom: 12px; }
 .lede { font-size: 1.05rem; color: var(--ink-700); text-align: center; max-width: 520px; margin: 0 auto 40px; }
-
 .signin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 @media (max-width: 760px) { .signin-grid { grid-template-columns: 1fr; gap: 20px; } }
-
 .signin-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 36px 32px 28px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); display: flex; flex-direction: column; }
 .signin-card-eyebrow { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: var(--clay-700); margin-bottom: 18px; }
 .signin-card h2 { font-family: 'Fraunces', Georgia, serif; font-size: 1.7rem; font-weight: 400; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
 .signin-card .desc { font-size: 0.94rem; color: var(--ink-700); margin-bottom: 24px; line-height: 1.5; }
 .signin-card .form-body { flex: 1; display: flex; flex-direction: column; }
-
 .label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
 .email-input { width: 100%; padding: 12px 14px; border: 1.5px solid rgba(15,44,23,0.12); border-radius: 10px; font-size: 0.95rem; font-family: inherit; background: white; color: var(--ink-900); transition: border-color 0.15s; }
 .email-input:focus { outline: none; border-color: var(--forest-500); }
@@ -47,49 +44,24 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 40
 .check-inbox .check-icon { width: 28px; height: 28px; border-radius: 50%; background: var(--forest-600); color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; font-size: 0.9rem; }
 .check-inbox .check-msg strong { color: var(--forest-900); font-size: 0.95rem; display: block; margin-bottom: 4px; }
 .check-inbox .check-msg p { font-size: 0.85rem; color: var(--ink-700); line-height: 1.45; }
-
 .signup-footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(15,44,23,0.08); text-align: center; font-size: 0.88rem; color: var(--ink-500); }
 .signup-footer a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
 .signup-footer a:hover { color: var(--forest-900); text-decoration: underline; }
 </style>
-<!-- PostHog -->
-<script>
-!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
-  api_host: 'https://us.i.posthog.com',
-  person_profiles: 'identified_only',
-  session_recording: {
-    maskAllInputs: true,
-    maskTextSelector: '.brand-email, .token-display, .coi-link, [data-coi-url], .ph-no-capture',
-    blockSelector: 'input[type="file"], .ph-block'
-  }
-});
-</script>
-
 </head>
 <body>
-
 <nav class="nav">
   <a href="/" class="brand">
-    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="36" cy="36" r="36" fill="#0f2c17"/>
-      <circle cx="36" cy="40" r="18" fill="#ed682f"/>
-      <rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/>
-      <path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/>
-    </svg>
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
     <span class="brand-text">demohub</span>
   </a>
   <a href="/signup" class="signup-link">New here? Sign up &rarr;</a>
 </nav>
-
 <main class="container">
   <div class="eyebrow">Sign in</div>
   <h1>Welcome back to Demohub</h1>
   <p class="lede">Pick the account you're signing in to. Each has its own dashboard.</p>
-
   <div class="signin-grid">
-
-    <!-- Retailer card -->
     <div class="signin-card">
       <div class="signin-card-eyebrow">Retailer</div>
       <h2>Sign in to your admin</h2>
@@ -114,8 +86,6 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         New store? <a href="/signup">Sign up as a retailer &rarr;</a>
       </div>
     </div>
-
-    <!-- Brand card -->
     <div class="signin-card">
       <div class="signin-card-eyebrow">Brand</div>
       <h2>Sign in to your brand portal</h2>
@@ -123,4 +93,63 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       <div class="form-body">
         <a href="/brand/signin" class="btn">Open brand portal &rarr;</a>
       </div>
-      <div class="sign
+      <div class="signup-footer">
+        New brand? <a href="/brand/signin#signup">Sign up as a brand &rarr;</a>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const form = document.getElementById('signinForm');
+const emailInput = document.getElementById('emailInput');
+const emailHint = document.getElementById('emailHint');
+const errBox = document.getElementById('errBox');
+const btn = document.getElementById('goBtn');
+const checkInbox = document.getElementById('checkInbox');
+const sentTo = document.getElementById('sentTo');
+const label = form.querySelector('label.label');
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errBox.style.display = 'none';
+  const email = emailInput.value.trim().toLowerCase();
+  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+    errBox.textContent = 'Enter a valid email address.';
+    errBox.style.display = 'block';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/api/admin-auth?action=email-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    if (r.ok) {
+      sentTo.textContent = email;
+      checkInbox.classList.add('show');
+      emailInput.style.display = 'none';
+      btn.style.display = 'none';
+      if (label) label.style.display = 'none';
+      if (emailHint) emailHint.style.display = 'none';
+    } else {
+      errBox.textContent = 'Something went wrong. Please try again or contact support.';
+      errBox.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Send sign-in link →';
+    }
+  } catch (err) {
+    errBox.textContent = 'Network error. Please try again.';
+    errBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Send sign-in link →';
+  }
+});
+
+const params = new URLSearchParams(location.search);
+const preset = params.get('email');
+if (preset) emailInput.value = preset;
+</script>
+</body>
+</html>
