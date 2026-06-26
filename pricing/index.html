@@ -480,4 +480,23 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 // Billing toggle, swap monthly/annual price display
 (function() {
   const sw = document.getElementById('billSwitch');
-  const
+  constconst opts = document.querySelectorAll('#billToggle .opt');
+  const prices = document.querySelectorAll('.tier-price [data-monthly]');
+  function setMode(annual) {
+    if (annual) {
+      sw.classList.add('annual');
+      opts[0].classList.remove('active'); opts[1].classList.add('active');
+      prices.forEach(p => p.textContent = p.dataset.annual);
+    } else {
+      sw.classList.remove('annual');
+      opts[1].classList.remove('active'); opts[0].classList.add('active');
+      prices.forEach(p => p.textContent = p.dataset.monthly);
+    }
+  }
+  sw.addEventListener('click', () => setMode(!sw.classList.contains('annual')));
+  sw.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setMode(!sw.classList.contains('annual')); } });
+  opts.forEach(o => o.addEventListener('click', () => setMode(o.dataset.billing === 'annual')));
+})();
+</script>
+</body>
+</html>
