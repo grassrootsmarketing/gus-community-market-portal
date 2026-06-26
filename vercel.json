@@ -2,15 +2,69 @@
   "cleanUrls": true,
   "trailingSlash": false,
   "redirects": [
-    { "source": "/b/:slug*", "destination": "/brand/dashboard", "permanent": true }
+    {
+      "source": "/b/:slug*",
+      "destination": "/brand/dashboard",
+      "permanent": true
+    }
   ],
   "rewrites": [
-    { "source": "/r/:slug/admin/:rest*", "destination": "/r/gus/admin/:rest*" },
-    { "source": "/r/:slug/admin", "destination": "/r/gus/admin" },
-    { "source": "/r/:slug", "destination": "/r/gus" },
-    { "source": "/brand/signup", "destination": "/brand/signin" }
+    {
+      "source": "/r/:slug/admin/:rest*",
+      "destination": "/r/gus/admin/:rest*"
+    },
+    {
+      "source": "/r/:slug/admin",
+      "destination": "/r/gus/admin"
+    },
+    {
+      "source": "/r/:slug",
+      "destination": "/r/gus"
+    },
+    {
+      "source": "/brand/signup",
+      "destination": "/brand/signin"
+    }
   ],
   "crons": [
-    { "path": "/api/brand-account?action=cron", "schedule": "0 14 * * *" }
+    {
+      "path": "/api/brand-account?action=cron",
+      "schedule": "0 14 * * *"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), microphone=(), camera=(), payment=*"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com https://us-assets.i.posthog.com https://us.i.posthog.com https://js.stripe.com https://fonts.googleapis.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://*.supabase.co https://*.posthog.com https://us.i.posthog.com https://us-assets.i.posthog.com https://api.stripe.com https://api.resend.com; frame-src https://js.stripe.com https://hooks.stripe.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';"
+        }
+      ]
+    }
   ]
 }
