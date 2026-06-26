@@ -477,27 +477,50 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-login') {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
+    const debug = body.debug === true && OWNER_EMAILS.includes(email);
+    const diag = { allowlisted: false, insert_ok: false, insert_error: null, insert_response: null, token_found: false, resend_ok: false, resend_error: null, resend_response: null };
     if (OWNER_EMAILS.includes(email)) {
-      // Let DB generate token (UUID) + expires_at (default). Same pattern as retailer 'login'.
+      diag.allowlisted = true;
+      // Try multiple INSERT shapes so we can find which one works against current schema
       let token = null;
-      try {
-        const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: null }) });
-        token = Array.isArray(tokens) ? tokens[0]?.token : null;
-      } catch (e) { console.error('owner-login admin_tokens insert failed:', e?.message || e); }
+      const tries = [
+        { email, retailer_id: null },
+        { email },
+        { email, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() },
+      ];
+      for (const body0 of tries) {
+        try {
+          const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify(body0) });
+          diag.insert_ok = true;
+          diag.insert_response = Array.isArray(tokens) ? tokens[0] : tokens;
+          token = Array.isArray(tokens) ? tokens[0]?.token : null;
+          if (token) break;
+        } catch (e) {
+          diag.insert_error = (diag.insert_error || '') + '; ' + (e?.message || String(e));
+        }
+      }
+      diag.token_found = !!token;
       if (token) {
         const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
         const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
         if (RESEND_API_KEY) {
           try {
-            await fetch('https://api.resend.com/emails', {
+            const r = await fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }),
             });
-          } catch (_) {}
+            const j = await r.json().catch(() => null);
+            diag.resend_ok = r.ok;
+            diag.resend_response = j;
+            if (!r.ok) diag.resend_error = `HTTP ${r.status}: ${JSON.stringify(j)}`;
+          } catch (e) { diag.resend_error = e?.message || String(e); }
         } else {
-          console.log('OWNER MAGIC LINK:', link);
+          diag.resend_error = 'RESEND_API_KEY not set';
         }
+        if (debug) return res.status(200).json({ ok: true, link, diag });
+      } else if (debug) {
+        return res.status(200).json({ ok: true, diag });
       }
     }
     return res.status(200).json({ ok: true });
