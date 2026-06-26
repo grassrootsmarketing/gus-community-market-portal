@@ -350,6 +350,23 @@ export default async function handler(req, res) {
 const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
 const TIER_PRICES = { free: 0, starter: 79, growth: 199, enterprise: 499 };
 
+// Ensures a sentinel "system" retailer exists for owner tokens/sessions
+// (works around admin_tokens.retailer_id and admin_sessions.retailer_id being NOT NULL)
+async function ensureOwnerRetailerId() {
+  try {
+    const existing = await sb('retailers?slug=eq.__owner__&select=id&limit=1');
+    if (Array.isArray(existing) && existing[0]) return existing[0].id;
+  } catch (_) {}
+  try {
+    const created = await sb('retailers', {
+      method: 'POST',
+      body: JSON.stringify({ slug: '__owner__', name: 'Demohub Owner (system)', billing_email: 'david@demohubhq.com', branding: {} })
+    });
+    if (Array.isArray(created) && created[0]) return created[0].id;
+  } catch (_) {}
+  return null;
+}
+
 function randomToken(n = 32) {
   const buf = new Uint8Array(n);
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(buf);
@@ -478,26 +495,23 @@ async function handleOwnerAction(action, req, res, body) {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
     const debug = body.debug === true && OWNER_EMAILS.includes(email);
-    const diag = { allowlisted: false, insert_ok: false, insert_error: null, insert_response: null, token_found: false, resend_ok: false, resend_error: null, resend_response: null };
+    const diag = { allowlisted: false, system_retailer_id: null, insert_ok: false, insert_error: null, insert_response: null, token_found: false, resend_ok: false, resend_error: null, resend_response: null };
     if (OWNER_EMAILS.includes(email)) {
       diag.allowlisted = true;
-      // Try multiple INSERT shapes so we can find which one works against current schema
+      const ownerRetailerId = await ensureOwnerRetailerId();
+      diag.system_retailer_id = ownerRetailerId;
       let token = null;
-      const tries = [
-        { email, retailer_id: null },
-        { email },
-        { email, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() },
-      ];
-      for (const body0 of tries) {
+      if (ownerRetailerId) {
         try {
-          const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify(body0) });
+          const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: ownerRetailerId }) });
           diag.insert_ok = true;
           diag.insert_response = Array.isArray(tokens) ? tokens[0] : tokens;
           token = Array.isArray(tokens) ? tokens[0]?.token : null;
-          if (token) break;
         } catch (e) {
-          diag.insert_error = (diag.insert_error || '') + '; ' + (e?.message || String(e));
+          diag.insert_error = e?.message || String(e);
         }
+      } else {
+        diag.insert_error = 'Could not ensure system retailer';
       }
       diag.token_found = !!token;
       if (token) {
@@ -536,7 +550,8 @@ async function handleOwnerAction(action, req, res, body) {
     if (new Date(tok.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Token expired' });
     if (!OWNER_EMAILS.includes((tok.email || '').toLowerCase())) return res.status(403).json({ error: 'Not authorised' });
     await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
-    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: null }) });
+    const ownerRetailerId = (await ensureOwnerRetailerId()) || tok.retailer_id;
+    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId }) });
     const session = Array.isArray(sessions) ? sessions[0] : null;
     return res.status(200).json({ ok: true, session_id: session?.session_id, email: tok.email });
   }
