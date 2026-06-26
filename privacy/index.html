@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy · Demohub</title>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500&family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142;
+  --forest-100:#e3edd6; --forest-50:#f4f7ef;
+  --cream-50:#fbf7f0; --cream-100:#f6f0e4;
+  --clay-700:#a14e2a; --clay-bright:#ed682f;
+  --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Inter',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.6; }
+.nav { padding:24px 32px; display:flex; align-items:center; justify-content:space-between; max-width:1200px; margin:0 auto; }
+.nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
+.nav .brand-mark { width:32px; height:32px; }
+.nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.25rem; letter-spacing:-0.04em; color:var(--forest-900); }
+.container { max-width:740px; margin:32px auto 80px; padding:0 24px; }
+.eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:14px; }
+h1 { font-family:'Fraunces',Georgia,serif; font-size:2.6rem; font-weight:400; line-height:1.1; color:var(--forest-900); margin-bottom:14px; }
+.updated { color:var(--ink-500); font-size:0.92rem; margin-bottom:40px; }
+h2 { font-family:'Fraunces',Georgia,serif; font-size:1.55rem; font-weight:400; color:var(--forest-900); margin-top:36px; margin-bottom:14px; }
+h3 { font-size:1.05rem; font-weight:600; color:var(--forest-900); margin-top:22px; margin-bottom:10px; }
+p { color:var(--ink-700); margin-bottom:14px; }
+ul { padding-left:24px; margin-bottom:18px; color:var(--ink-700); }
+ul li { margin-bottom:6px; }
+a { color:var(--forest-700); font-weight:500; }
+code { background:var(--forest-50); padding:2px 6px; border-radius:4px; font-size:0.9em; }
+footer { border-top:1px solid rgba(15,44,23,0.08); padding:32px 24px; text-align:center; font-size:0.88rem; color:var(--ink-500); margin-top:60px; }
+footer a { color:var(--forest-700); }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <a href="/signin" style="color:var(--ink-500); text-decoration:none; font-size:0.9rem;">Sign in</a>
+</nav>
+<main class="container">
+  <div class="eyebrow">Legal</div>
+  <h1>Privacy Policy</h1>
+  <p class="updated">Last updated: June 25, 2026</p>
+
+  <p>This Privacy Policy explains how Demohub ("we", "us", "our") collects, uses, and shares information when you use our service at demohubhq.com. We're a business-to-business SaaS platform, and we take privacy seriously.</p>
+
+  <h2>1. Information we collect</h2>
+
+  <h3>From retailers</h3>
+  <ul>
+    <li>Business contact info: business name, owner name, email, phone</li>
+    <li>Store details: addresses, hours, demo policies, fee structures</li>
+    <li>Team admin info: invited admin emails and roles</li>
+    <li>Billing information (when subscribed): processed by Stripe; we never store payment card numbers</li>
+    <li>Usage data: pages viewed, features used (via PostHog with masking enabled)</li>
+  </ul>
+
+  <h3>From brands</h3>
+  <ul>
+    <li>Business contact info: company name, contact name, email, phone, website</li>
+    <li>Certificates of Insurance (COI) documents you upload</li>
+    <li>Product categories and descriptions</li>
+    <li>Demo booking history at retailers using Demohub</li>
+  </ul>
+
+  <h3>From visitors</h3>
+  <ul>
+    <li>Standard request logs: IP address, browser, referrer, timestamp (not stored beyond 30 days)</li>
+    <li>Analytics data with PII masking enabled (PostHog)</li>
+  </ul>
+
+  <h2>2. How we use information</h2>
+  <ul>
+    <li>Provide and operate the platform (booking flow, calendar sync, statements)</li>
+    <li>Authenticate you (magic-link emails)</li>
+    <li>Send transactional emails (booking confirmations, COI expiration alerts, welcome emails)</li>
+    <li>Process payments through Stripe</li>
+    <li>Improve the product (aggregate analytics, never individual targeting)</li>
+    <li>Comply with legal obligations</li>
+  </ul>
+
+  <h2>3. How we share information</h2>
+  <p>We never sell your data. We share information only in these cases:</p>
+  <ul>
+    <li><strong>Between retailers and brands:</strong> When a brand books a demo at a retailer, the retailer sees the brand's contact info and COI. Brands never see other brands' information. Retailers never see brands' interactions with other retailers.</li>
+    <li><strong>Service providers (subprocessors):</strong> See our <a href="/security/subprocessors">subprocessor list</a> for all third parties we use.</li>
+    <li><strong>Legal requirements:</strong> If required by law, subpoena, or court order, with notice to you when legally permitted.</li>
+    <li><strong>Business transfers:</strong> If we're acquired, your data transfers under the same protections.</li>
+  </ul>
+
+  <h2>4. Data security</h2>
+  <ul>
+    <li>All data encrypted at rest (AES-256) and in transit (TLS 1.3)</li>
+    <li>Strict tenant isolation: retailer A cannot access retailer B's data</li>
+    <li>Magic-link authentication: no passwords to leak</li>
+    <li>Hosted on enterprise-grade infrastructure (Vercel, Supabase, Cloudflare)</li>
+    <li>Regular dependency updates and security monitoring</li>
+  </ul>
+
+  <h2>5. Your rights</h2>
+  <p>You can:</p>
+  <ul>
+    <li><strong>Access:</strong> Download all your data via your admin panel or by emailing <a href="mailto:privacy@demohubhq.com">privacy@demohubhq.com</a>.</li>
+    <li><strong>Correct:</strong> Update your information directly in the admin panel.</li>
+    <li><strong>Delete:</strong> Request full account deletion. We complete deletions within 30 days, except where retention is legally required (e.g., tax records).</li>
+    <li><strong>Object to processing:</strong> For analytics and marketing emails (transactional emails for active accounts are required).</li>
+    <li><strong>Export:</strong> Receive your data in JSON format.</li>
+  </ul>
+  <p>For GDPR (EU/UK users) and CCPA (California users), these rights are guaranteed. We respond within 30 days.</p>
+
+  <h2>6. Data retention</h2>
+  <ul>
+    <li>Active accounts: data retained for the life of the account</li>
+    <li>Cancelled accounts: deleted within 30 days, except billing records (7 years per US tax law)</li>
+    <li>Request logs: 30 days</li>
+    <li>Audit logs: 1 year</li>
+  </ul>
+
+  <h2>7. International transfers</h2>
+  <p>We're a US-based company. Data is stored on US-West infrastructure. For EU/UK users, we rely on Standard Contractual Clauses (SCCs) for transfers.</p>
+
+  <h2>8. Children's privacy</h2>
+  <p>Demohub is a business-to-business service. We don't knowingly collect information from anyone under 18.</p>
+
+  <h2>9. Changes to this policy</h2>
+  <p>We'll notify you of material changes via email and update the date at the top of this page.</p>
+
+  <h2>10. Contact us</h2>
+  <p>Privacy questions: <a href="mailto:privacy@demohubhq.com">privacy@demohubhq.com</a><br>
+  Security disclosures: <a href="mailto:security@demohubhq.com">security@demohubhq.com</a><br>
+  General: <a href="mailto:david@demohubhq.com">david@demohubhq.com</a></p>
+
+  <p style="margin-top:32px;"><strong>Subprocessors:</strong> See our complete list at <a href="/security/subprocessors">demohubhq.com/security/subprocessors</a>.</p>
+</main>
+<footer>
+  <a href="/">Home</a> &middot; <a href="/terms">Terms of Service</a> &middot; <a href="/security">Security</a> &middot; <a href="/security/subprocessors">Subprocessors</a>
+</footer>
+</body>
+</html>
