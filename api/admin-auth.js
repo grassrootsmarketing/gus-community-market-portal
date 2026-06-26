@@ -478,23 +478,26 @@ async function handleOwnerAction(action, req, res, body) {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
     if (OWNER_EMAILS.includes(email)) {
-      const token = randomToken(24);
-      const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+      // Let DB generate token (UUID) + expires_at (default). Same pattern as retailer 'login'.
+      let token = null;
       try {
-        await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: null, token, expires_at: expires }) });
-      } catch (_) {}
-      const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
-      const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
-      if (RESEND_API_KEY) {
-        try {
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }),
-          });
-        } catch (_) {}
-      } else {
-        console.log('OWNER MAGIC LINK:', link);
+        const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: null }) });
+        token = Array.isArray(tokens) ? tokens[0]?.token : null;
+      } catch (e) { console.error('owner-login admin_tokens insert failed:', e?.message || e); }
+      if (token) {
+        const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+        const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
+        if (RESEND_API_KEY) {
+          try {
+            await fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }),
+            });
+          } catch (_) {}
+        } else {
+          console.log('OWNER MAGIC LINK:', link);
+        }
       }
     }
     return res.status(200).json({ ok: true });
