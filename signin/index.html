@@ -67,17 +67,17 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 40
       <h2>Sign in to your admin</h2>
       <p class="desc">Open the admin hub for your store. Manage demos, brands, and compliance.</p>
       <div class="form-body">
-        <form id="signinForm">
-          <label class="label" for="emailInput">Email address</label>
-          <input id="emailInput" class="email-input" type="email" placeholder="you@yourbusiness.com" required autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
-          <div class="hint" id="emailHint">We'll send you a sign-in link to your store's admin.</div>
-          <button class="btn" type="submit" id="goBtn">Send sign-in link &rarr;</button>
-          <div class="error" id="errBox"></div>
-          <div class="check-inbox" id="checkInbox">
+        <form id="retailerForm">
+          <label class="label" for="retailerEmail">Email address</label>
+          <input id="retailerEmail" class="email-input" type="email" placeholder="you@yourbusiness.com" required autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <div class="hint" id="retailerHint">We'll send you a sign-in link to your store's admin.</div>
+          <button class="btn" type="submit" id="retailerBtn">Send sign-in link &rarr;</button>
+          <div class="error" id="retailerErr"></div>
+          <div class="check-inbox" id="retailerCheck">
             <div class="check-icon">&check;</div>
             <div class="check-msg">
               <strong>Check your inbox.</strong>
-              <p>We sent a sign-in link to <span id="sentTo"></span>. The link expires in 24 hours.</p>
+              <p>We sent a sign-in link to <span id="retailerSentTo"></span>. The link expires in 24 hours.</p>
             </div>
           </div>
         </form>
@@ -91,7 +91,20 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 40
       <h2>Sign in to your brand portal</h2>
       <p class="desc">Manage your profile, COI, and demos at every Demohub retailer, one place.</p>
       <div class="form-body">
-        <a href="/brand/signin" class="btn">Open brand portal &rarr;</a>
+        <form id="brandForm">
+          <label class="label" for="brandEmail">Email address</label>
+          <input id="brandEmail" class="email-input" type="email" placeholder="you@yourbrand.com" required autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
+          <div class="hint" id="brandHint">We'll send you a sign-in link to your brand portal.</div>
+          <button class="btn" type="submit" id="brandBtn">Send sign-in link &rarr;</button>
+          <div class="error" id="brandErr"></div>
+          <div class="check-inbox" id="brandCheck">
+            <div class="check-icon">&check;</div>
+            <div class="check-msg">
+              <strong>Check your inbox.</strong>
+              <p>We sent a sign-in link to <span id="brandSentTo"></span>. The link expires in 24 hours.</p>
+            </div>
+          </div>
+        </form>
       </div>
       <div class="signup-footer">
         New brand? <a href="/brand/signin#signup">Sign up as a brand &rarr;</a>
@@ -100,56 +113,71 @@ h1 { font-family: 'Fraunces', Georgia, serif; font-size: 2.6rem; font-weight: 40
   </div>
 </main>
 <script>
-const form = document.getElementById('signinForm');
-const emailInput = document.getElementById('emailInput');
-const emailHint = document.getElementById('emailHint');
-const errBox = document.getElementById('errBox');
-const btn = document.getElementById('goBtn');
-const checkInbox = document.getElementById('checkInbox');
-const sentTo = document.getElementById('sentTo');
-const label = form.querySelector('label.label');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  errBox.style.display = 'none';
-  const email = emailInput.value.trim().toLowerCase();
-  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
-    errBox.textContent = 'Enter a valid email address.';
-    errBox.style.display = 'block';
-    return;
-  }
-  btn.disabled = true;
-  btn.textContent = 'Sending…';
-  try {
-    const r = await fetch('/api/admin-auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'email-login', email })
-    });
-    if (r.ok) {
-      sentTo.textContent = email;
-      checkInbox.classList.add('show');
-      emailInput.style.display = 'none';
-      btn.style.display = 'none';
-      if (label) label.style.display = 'none';
-      if (emailHint) emailHint.style.display = 'none';
-    } else {
-      errBox.textContent = 'Something went wrong. Please try again or contact support.';
-      errBox.style.display = 'block';
+function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, endpoint, action }) {
+  const form = document.getElementById(formId);
+  const email = document.getElementById(emailId);
+  const hint = document.getElementById(hintId);
+  const btn = document.getElementById(btnId);
+  const err = document.getElementById(errId);
+  const check = document.getElementById(checkId);
+  const sentTo = document.getElementById(sentToId);
+  const label = form.querySelector('label.label');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.style.display = 'none';
+    const value = email.value.trim().toLowerCase();
+    if (!value || !/^[^@]+@[^@]+\.[^@]+$/.test(value)) {
+      err.textContent = 'Enter a valid email address.';
+      err.style.display = 'block';
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, email: value })
+      });
+      if (r.ok) {
+        sentTo.textContent = value;
+        check.classList.add('show');
+        email.style.display = 'none';
+        btn.style.display = 'none';
+        if (label) label.style.display = 'none';
+        if (hint) hint.style.display = 'none';
+      } else {
+        err.textContent = 'Something went wrong. Please try again.';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Send sign-in link →';
+      }
+    } catch (e2) {
+      err.textContent = 'Network error. Please try again.';
+      err.style.display = 'block';
       btn.disabled = false;
       btn.textContent = 'Send sign-in link →';
     }
-  } catch (err) {
-    errBox.textContent = 'Network error. Please try again.';
-    errBox.style.display = 'block';
-    btn.disabled = false;
-    btn.textContent = 'Send sign-in link →';
-  }
+  });
+}
+
+wireForm({
+  formId: 'retailerForm', emailId: 'retailerEmail', hintId: 'retailerHint',
+  btnId: 'retailerBtn', errId: 'retailerErr', checkId: 'retailerCheck',
+  sentToId: 'retailerSentTo', endpoint: '/api/admin-auth', action: 'email-login'
+});
+wireForm({
+  formId: 'brandForm', emailId: 'brandEmail', hintId: 'brandHint',
+  btnId: 'brandBtn', errId: 'brandErr', checkId: 'brandCheck',
+  sentToId: 'brandSentTo', endpoint: '/api/brand-account', action: 'login'
 });
 
 const params = new URLSearchParams(location.search);
 const preset = params.get('email');
-if (preset) emailInput.value = preset;
+if (preset) {
+  document.getElementById('retailerEmail').value = preset;
+  document.getElementById('brandEmail').value = preset;
+}
 </script>
 </body>
 </html>
