@@ -93,6 +93,36 @@ table.simple tr:last-child td { border-bottom:0; }
 .loading { text-align:center; padding:60px 20px; color:var(--ink-500); }
 .spinner { display:inline-block; width:30px; height:30px; border:3px solid var(--forest-100); border-top-color:var(--forest-500); border-radius:50%; animation:spin 0.7s linear infinite; margin-bottom:14px; }
 @keyframes spin { to { transform:rotate(360deg); } }
+
+/* Tabs */
+.owner-tabs { display:flex; gap:4px; background:var(--cream-100); border-radius:10px; padding:4px; margin-bottom:24px; max-width:fit-content; }
+.owner-tab { padding:10px 18px; background:transparent; border:1px solid transparent; border-radius:7px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; }
+.owner-tab.active { background:white; color:var(--forest-900); font-weight:700; border-color:rgba(15,44,23,0.18); box-shadow:0 2px 6px rgba(15,44,23,0.08); }
+.tab-pane { display:none; }
+.tab-pane.active { display:block; }
+/* Range bar */
+.range-bar { display:flex; align-items:center; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
+.range-label { font-size:0.85rem; color:var(--ink-500); margin-right:6px; font-weight:600; }
+.range-btn { padding:8px 14px; background:white; border:1px solid rgba(15,44,23,0.12); border-radius:8px; font-family:inherit; font-size:0.85rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; }
+.range-btn:hover { border-color:var(--forest-500); color:var(--forest-900); }
+.range-btn.active { background:var(--forest-900); color:white; border-color:var(--forest-900); }
+/* Analytics grid */
+.analytics-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; margin-bottom:24px; }
+@media (max-width:1000px) { .analytics-grid { grid-template-columns:repeat(2, 1fr); } }
+.kpi-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:20px 22px; }
+.kpi-label { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px; }
+.kpi-value { font-family:'Fraunces', Georgia, serif; font-size:2rem; color:var(--forest-900); line-height:1; margin-bottom:10px; }
+.kpi-delta { font-size:0.82rem; font-weight:600; }
+.kpi-delta.up { color:var(--forest-600); }
+.kpi-delta.down { color:var(--clay-700); }
+.chart-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:900px) { .chart-grid { grid-template-columns:1fr; } }
+.chart-card { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:22px; }
+.chart-card h3 { font-family:'Fraunces', Georgia, serif; font-size:1.1rem; color:var(--forest-900); margin-bottom:4px; font-weight:500; }
+.chart-card .chart-sub { font-size:0.82rem; color:var(--ink-500); margin-bottom:18px; }
+.chart-card .chart-svg { width:100%; height:160px; }
+.chart-card .chart-svg rect { transition:opacity 0.2s; }
+.chart-card .chart-svg rect:hover { opacity:0.7; }
 </style>
 </head>
 <body>
@@ -350,10 +380,157 @@ function renderDashboard(d) {
       </div>
       <div class="ts">Data as of ${escapeHtml(ts)}</div>
     </div>
-    ${stats}
-    ${trends}
-    ${tablesHtml}
-    ${watchlistHtml}
+    <div class="owner-tabs">
+      <button class="owner-tab active" data-tab="overview">Overview</button>
+      <button class="owner-tab" data-tab="analytics">Analytics</button>
+      <button class="owner-tab" data-tab="billing">Billing</button>
+    </div>
+    <div class="tab-pane active" data-pane="overview">
+      ${stats}
+      ${trends}
+      ${tablesHtml}
+      ${watchlistHtml}
+    </div>
+    <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
+    <div class="tab-pane" data-pane="billing" id="billingPane"></div>
+  `;
+  wireTabs();
+}
+
+// Tab switching + lazy-render analytics/billing
+function wireTabs() {
+  document.querySelectorAll('.owner-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.owner-tab').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+      if (tab === 'analytics') renderAnalytics('30d');
+      if (tab === 'billing') renderBilling();
+    });
+  });
+}
+
+// Generate plausible sample analytics data for a time range
+function generateAnalyticsSample(rangeKey) {
+  const ranges = { '7d': 7, '30d': 30, '90d': 90, 'ytd': Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime())/86400000), 'all': 365 };
+  const days = ranges[rangeKey] || 30;
+  const series = [];
+  let seed = 0; for (let i = 0; i < rangeKey.length; i++) seed += rangeKey.charCodeAt(i);
+  const rng = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  let totalDemos = 0, totalRevenue = 0, newBrands = 0, newRetailers = 0;
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const baseDemos = Math.max(0, Math.round(2 + rng() * 8 + (i < days/2 ? 1.5 : 0)));
+    const demoFees = baseDemos * (25 + Math.round(rng() * 15));
+    const platformRev = Math.floor(demoFees / 10);
+    totalDemos += baseDemos;
+    totalRevenue += platformRev;
+    if (rng() > 0.85) newBrands++;
+    if (rng() > 0.96) newRetailers++;
+    series.push({ date: d.toISOString().slice(0,10), demos: baseDemos, revenue: platformRev });
+  }
+  const subRev = 8 * 99 + 4 * 199 + 12 * 49; // Sample MRR mix
+  totalRevenue += Math.round(subRev * (days / 30));
+  const priorTotalDemos = Math.round(totalDemos * (0.7 + rng() * 0.5));
+  const demoDelta = priorTotalDemos === 0 ? 100 : Math.round(((totalDemos - priorTotalDemos) / priorTotalDemos) * 100);
+  return { series, totalDemos, totalRevenue, newBrands, newRetailers, demoDelta };
+}
+
+function renderAnalytics(rangeKey) {
+  const pane = document.getElementById('analyticsPane');
+  if (!pane) return;
+  const data = generateAnalyticsSample(rangeKey);
+  const maxDemos = Math.max(...data.series.map(s => s.demos), 1);
+  const maxRev = Math.max(...data.series.map(s => s.revenue), 1);
+  const barW = data.series.length > 60 ? 4 : (data.series.length > 30 ? 8 : 14);
+  const gap = data.series.length > 60 ? 1 : 3;
+  const svgW = data.series.length * (barW + gap);
+  const demoBars = data.series.map((s, i) => `<rect x="${i*(barW+gap)}" y="${160 - (s.demos/maxDemos*140)}" width="${barW}" height="${s.demos/maxDemos*140}" rx="2" fill="#1f4a26"/>`).join('');
+  const revBars = data.series.map((s, i) => `<rect x="${i*(barW+gap)}" y="${160 - (s.revenue/maxRev*140)}" width="${barW}" height="${s.revenue/maxRev*140}" rx="2" fill="#ed682f"/>`).join('');
+  pane.innerHTML = `
+    <div class="range-bar">
+      <span class="range-label">Time range</span>
+      ${['7d','30d','90d','ytd','all'].map(r => `<button class="range-btn${r===rangeKey?' active':''}" data-range="${r}">${r==='ytd'?'YTD':r==='all'?'All time':r}</button>`).join('')}
+    </div>
+    <div class="analytics-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Total demos</div>
+        <div class="kpi-value">${data.totalDemos.toLocaleString()}</div>
+        <div class="kpi-delta ${data.demoDelta >= 0 ? 'up' : 'down'}">${data.demoDelta >= 0 ? '▲' : '▼'} ${Math.abs(data.demoDelta)}% vs prior period</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Platform revenue</div>
+        <div class="kpi-value">$${data.totalRevenue.toLocaleString()}</div>
+        <div class="kpi-delta up">▲ 23% vs prior period</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">New brands</div>
+        <div class="kpi-value">${data.newBrands}</div>
+        <div class="kpi-delta up">▲ 12% vs prior period</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">New retailers</div>
+        <div class="kpi-value">${data.newRetailers}</div>
+        <div class="kpi-delta up">▲ 8% vs prior period</div>
+      </div>
+    </div>
+    <div class="chart-grid">
+      <div class="chart-card">
+        <h3>Demos by day</h3>
+        <div class="chart-sub">Daily confirmed demos across all retailers.</div>
+        <svg class="chart-svg" viewBox="0 0 ${svgW} 160" preserveAspectRatio="none">${demoBars}</svg>
+      </div>
+      <div class="chart-card">
+        <h3>Platform revenue by day</h3>
+        <div class="chart-sub">Per-demo fee + prorated subscription share.</div>
+        <svg class="chart-svg" viewBox="0 0 ${svgW} 160" preserveAspectRatio="none">${revBars}</svg>
+      </div>
+    </div>
+    <p style="font-size:0.8rem;color:var(--ink-500);margin-top:16px;font-style:italic;">Sample data shown for demo purposes. Live data wiring after Stripe integration.</p>
+  `;
+  pane.querySelectorAll('.range-btn').forEach(btn => {
+    btn.addEventListener('click', () => renderAnalytics(btn.dataset.range));
+  });
+}
+
+function renderBilling() {
+  const pane = document.getElementById('billingPane');
+  if (!pane) return;
+  pane.innerHTML = `
+    <div class="analytics-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">MRR</div>
+        <div class="kpi-value">$2,184</div>
+        <div class="kpi-delta up">▲ from new signups</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Subscriptions active</div>
+        <div class="kpi-value">24</div>
+        <div class="kpi-delta up">12 Solo · 8 Starter · 4 Growth</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Pending payouts</div>
+        <div class="kpi-value">$3,420</div>
+        <div class="kpi-delta">To 18 retailer accounts</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Platform fees (30d)</div>
+        <div class="kpi-value">$842</div>
+        <div class="kpi-delta up">$1/$10 per-demo cut</div>
+      </div>
+    </div>
+    <div class="chart-card" style="margin-top:16px;">
+      <h3>Stripe Connect status</h3>
+      <div class="chart-sub">Wire Stripe to enable: subscription billing, brand payments, retailer payouts.</div>
+      <p style="margin-top:14px;font-size:0.92rem;color:var(--ink-700);line-height:1.5;">
+        Three flows pending: <strong>(1)</strong> Subscription billing for retailer tiers (Solo/Starter/Growth).
+        <strong>(2)</strong> Brand checkout for per-demo payment.
+        <strong>(3)</strong> Stripe Connect Express for retailer payouts.
+        Add <code>STRIPE_SECRET_KEY</code> + <code>STRIPE_WEBHOOK_SECRET</code> in Vercel, then we wire all three. See <code>STRIPE-NEXT-STEPS.md</code>.
+      </p>
+    </div>
+    <p style="font-size:0.8rem;color:var(--ink-500);margin-top:16px;font-style:italic;">Sample data shown. Live numbers populate once Stripe is wired.</p>
   `;
 }
 
