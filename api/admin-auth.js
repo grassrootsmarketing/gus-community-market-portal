@@ -115,6 +115,45 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
+    // ---- EMAIL-LOGIN: send magic link(s) by email only — auto-routes to right retailer(s) ----
+    if (action === 'email-login') {
+      const { email } = body || {};
+      if (!email) return res.status(400).json({ error: 'email required' });
+      if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
+
+      const normalizedEmail = email.toLowerCase().trim();
+
+      // Always respond 200 to prevent enumeration. Send 1 link per retailer this email admins.
+      try {
+        const admins = await sb(`retailer_admins?email=ilike.${encodeURIComponent(normalizedEmail)}&select=retailer_id,role,retailers(id,name,slug)`);
+        if (Array.isArray(admins) && admins.length > 0) {
+          for (const adminRow of admins) {
+            const retailer = adminRow.retailers;
+            if (!retailer) continue;
+            const tokens = await sb(`admin_tokens`, {
+              method: 'POST',
+              body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id }),
+            });
+            const token = Array.isArray(tokens) ? tokens[0]?.token : null;
+            if (!token) continue;
+            const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+            const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
+            if (RESEND_API_KEY) {
+              try {
+                await fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ from: FROM_ADDRESS, to: normalizedEmail, reply_to: 'david@demohubhq.com', subject: `Sign in to ${retailer.name} admin`, html: magicLinkEmail({ retailerName: retailer.name, link }) }),
+                });
+              } catch (_) { /* swallow */ }
+            }
+          }
+        }
+      } catch (_) { /* swallow to prevent enumeration */ }
+
+      return res.status(200).json({ ok: true });
+    }
+
     // ---- VERIFY: exchange token for session ----
     if (action === 'verify') {
       const { token } = body || {};
