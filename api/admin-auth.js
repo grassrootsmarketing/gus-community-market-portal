@@ -347,7 +347,7 @@ export default async function handler(req, res) {
 // OWNER PANEL helpers (gated to OWNER_EMAILS allowlist)
 // Reuses admin_sessions + admin_tokens tables. Owner sessions have retailer_id = NULL.
 // ============================================================
-const OWNER_EMAILS = ['david@demohubhq.com'];
+const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
 const TIER_PRICES = { free: 0, starter: 79, growth: 199, enterprise: 499 };
 
 function randomToken(n = 32) {
