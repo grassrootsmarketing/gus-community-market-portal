@@ -401,12 +401,14 @@ async function verifyOwnerSession(sessionId) {
 }
 
 async function computeOwnerMetrics() {
+  // Each query wrapped: if table/column missing, default to [] instead of failing the whole metrics
+  const safeQuery = async (q) => { try { return await sb(q); } catch (e) { console.error('owner metrics query failed:', q, e?.message); return []; } };
   const [retailers, brands, demos, bookings, settings] = await Promise.all([
-    sb(`retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier`),
-    sb(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
-    sb(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
-    sb(`bookings?select=id,retailer_id,brand_id,status,created_at`),
-    sb(`settings?select=retailer_id,billing_tier,price_per_demo`),
+    safeQuery(`retailers?select=id,name,slug,created_at,logo_url,billing_email`),
+    safeQuery(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
+    safeQuery(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
+    safeQuery(`bookings?select=id,retailer_id,brand_id,status,created_at`),
+    safeQuery(`settings?select=retailer_id,billing_tier,price_per_demo`),
   ]);
   const now = new Date();
   const thisMonth = monthKey(now);
