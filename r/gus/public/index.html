@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Demo Scheduling Portal</title>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Source+Sans+3:wght@400;500;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --forest-900: #0d1f12; --forest-800: #1a3a21; --forest-700: #234d2c;
@@ -18,8 +18,8 @@
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
-        body { font-family: 'Source Sans 3', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.6; }
-        h1, h2, h3, h4 { font-family: 'Fraunces', Georgia, serif; font-weight: 500; line-height: 1.2; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.6; }
+        h1, h2, h3, h4 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; line-height: 1.2; }
         
         .view { display: none; height: 100vh; overflow: hidden; }
         .view.active { display: flex; flex-direction: column; }
@@ -40,8 +40,8 @@
         .location-card-location { display: flex; align-items: center; gap: 6px; color: var(--bark-500); font-size: 0.9rem; margin-bottom: 16px; font-weight: 600; }
         .location-card-location svg { width: 16px; height: 16px; stroke: currentColor; fill: none; }
         .location-card-footer { display: flex; justify-content: space-between; align-items: center; padding-top: 16px; border-top: 1px solid var(--sand-200); }
-        .location-card-price { font-family: 'Fraunces', serif; font-size: 1.5rem; color: var(--forest-700); }
-        .location-card-price span { font-family: 'Source Sans 3', sans-serif; font-size: 0.85rem; color: var(--bark-500); }
+        .location-card-price { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.5rem; color: var(--forest-700); }
+        .location-card-price span { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 0.85rem; color: var(--bark-500); }
         
         .admin-link { color: var(--forest-600); text-decoration: none; font-weight: 500; display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s; }
         .admin-link:hover { color: var(--forest-800); }
@@ -88,7 +88,7 @@
         .booking-card-body { padding: 24px; }
         
         .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .calendar-title { font-family: 'Fraunces', serif; font-size: 1rem; color: var(--forest-800); }
+        .calendar-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1rem; color: var(--forest-800); }
         .calendar-nav { display: flex; gap: 4px; }
         .calendar-nav button { width: 32px; height: 32px; border-radius: var(--radius-sm); border: 1px solid var(--sand-300); background: white; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
         .calendar-nav button:hover { background: var(--forest-50); border-color: var(--forest-300); }
@@ -155,12 +155,12 @@
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 32px; }
         .stat-card { background: white; border-radius: var(--radius-md); padding: 24px; box-shadow: var(--shadow-sm); border: 1px solid var(--sand-200); }
         .stat-label { font-size: 0.85rem; color: var(--bark-500); margin-bottom: 8px; }
-        .stat-value { font-family: 'Fraunces', serif; font-size: 2rem; font-weight: 600; color: var(--forest-800); }
+        .stat-value { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2rem; font-weight: 600; color: var(--forest-800); }
         .stat-change { font-size: 0.85rem; margin-top: 8px; color: var(--forest-600); }
         
         .table-card { background: white; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); border: 1px solid var(--sand-200); overflow: hidden; }
         .table-header { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--sand-200); }
-        .table-title { font-family: 'Fraunces', serif; font-size: 1.1rem; color: var(--forest-800); }
+        .table-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.1rem; color: var(--forest-800); }
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 14px 24px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--bark-500); background: var(--sand-100); font-weight: 600; }
         td { padding: 16px 24px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
@@ -200,7 +200,7 @@
 
         .table-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-bottom: 1px solid var(--sand-200); gap: 12px; flex-wrap: wrap; }
         .table-toolbar .toolbar-controls { display: flex; gap: 12px; align-items: center; }
-        .table-toolbar .table-title { font-size: 1.1rem; font-family: 'Fraunces', Georgia, serif; color: var(--forest-800); font-weight: 500; }
+        .table-toolbar .table-title { font-size: 1.1rem; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--forest-800); font-weight: 500; }
         .sort-select { padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--sand-300); font-family: inherit; font-size: 0.9rem; background: white; color: var(--forest-800); cursor: pointer; }
         .row-actions { display: flex; gap: 8px; justify-content: flex-end; }
         .btn-icon { padding: 6px 12px; font-size: 0.85rem; background: transparent; border: 1px solid var(--sand-300); color: var(--forest-700); border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; transition: all 0.2s; }
@@ -213,7 +213,7 @@
         .password-error { color: #b91c1c; font-size: 0.85rem; margin-top: 8px; }
         .empty-row td { text-align: center; color: var(--bark-500); padding: 32px; font-style: italic; }
         .chart-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 24px; margin-bottom: 32px; }
-        .chart-card h3 { font-size: 1.15rem; font-family: 'Fraunces', Georgia, serif; color: var(--forest-800); font-weight: 500; margin-bottom: 16px; }
+        .chart-card h3 { font-size: 1.15rem; font-family: 'Plus Jakarta Sans', sans-serif; color: var(--forest-800); font-weight: 500; margin-bottom: 16px; }
         .chart-wrap { position: relative; height: 240px; }
         .comp-badge { font-size: 0.72rem; font-weight: 600; padding: 4px 10px; border-radius: 99px; display: inline-flex; align-items: center; gap: 5px; }
         .comp-badge.ok { background: #d4edda; color: #1f4a26; }
@@ -224,9 +224,9 @@
         .comp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
         .big-cal-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
         .big-cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-        .big-cal-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
+        .big-cal-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
         .big-cal-nav { display: flex; align-items: center; gap: 10px; }
-        .big-cal-nav .month-label { font-family: 'Fraunces', Georgia, serif; color: var(--forest-800); font-size: 1.05rem; font-weight: 500; min-width: 150px; text-align: center; }
+        .big-cal-nav .month-label { font-family: 'Plus Jakarta Sans', sans-serif; color: var(--forest-800); font-size: 1.05rem; font-weight: 500; min-width: 150px; text-align: center; }
         .big-cal-nav button { background: white; border: 1px solid var(--sand-300); width: 32px; height: 32px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 1.1rem; color: var(--forest-700); display: grid; place-items: center; transition: all 0.15s; }
         .big-cal-nav button:hover { background: var(--sand-100); border-color: var(--forest-400); }
         .big-cal-nav .today-btn { width: auto; padding: 0 14px; font-size: 0.85rem; font-weight: 600; }
@@ -239,7 +239,7 @@
         .big-cal-cell.empty { background: transparent; }
         .big-cal-cell.today { border: 2px solid var(--forest-500); background: var(--forest-50); }
         .big-cal-cell.weekend { background: var(--cream-50); }
-        .big-cal-day-num { font-family: 'Fraunces', serif; font-weight: 500; color: var(--forest-800); font-size: 0.9rem; margin-bottom: 4px; line-height: 1; }
+        .big-cal-day-num { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; color: var(--forest-800); font-size: 0.9rem; margin-bottom: 4px; line-height: 1; }
         .big-cal-cell.today .big-cal-day-num { color: var(--forest-700); font-weight: 600; }
         .big-cal-event { background: white; border-left: 3px solid var(--forest-500); padding: 3px 6px 3px 6px; border-radius: 3px; font-size: 0.7rem; line-height: 1.3; margin-bottom: 3px; cursor: pointer; transition: transform 0.1s; }
         .big-cal-event:hover { transform: translateX(2px); box-shadow: var(--shadow-sm); }
@@ -257,11 +257,11 @@
         .big-cal-legend-dot.venue-4 { background: #b8860b; }
         .billing-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
         .billing-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
-        .billing-title { font-family: 'Fraunces', Georgia, serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
+        .billing-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
         .billing-controls { display: flex; gap: 10px; align-items: center; }
         .billing-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
         .billing-stat { padding: 18px; background: var(--forest-50); border-radius: var(--radius-sm); border: 1px solid rgba(15,44,23,0.05); }
-        .billing-stat-num { font-family: 'Fraunces', serif; font-size: 1.8rem; color: var(--forest-800); line-height: 1; font-weight: 500; }
+        .billing-stat-num { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.8rem; color: var(--forest-800); line-height: 1; font-weight: 500; }
         .billing-stat-lbl { font-size: 0.72rem; color: var(--bark-500); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; font-weight: 600; }
         .billing-stat-sub { font-size: 0.78rem; color: var(--bark-500); margin-top: 4px; }
         .billing-empty { text-align: center; padding: 40px; color: var(--bark-500); font-style: italic; }
@@ -276,7 +276,7 @@
         .view-toggle button.active { background: white; color: var(--forest-700); box-shadow: var(--shadow-sm); }
         .demo-cal-wrap { padding: 24px; }
         .demo-cal-nav { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .demo-cal-nav h4 { font-family: 'Fraunces', Georgia, serif; font-weight: 500; color: var(--forest-800); font-size: 1.15rem; }
+        .demo-cal-nav h4 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; color: var(--forest-800); font-size: 1.15rem; }
         .demo-cal-nav button { background: white; border: 1px solid var(--sand-300); padding: 6px 14px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 1rem; color: var(--forest-700); }
         .demo-cal-nav button:hover { background: var(--sand-100); }
         .demo-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -1720,17 +1720,17 @@ END:VEVENT
             }).join('');
 
             const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ' + monthLabel(ym) + ' — Gus\'s Community Market</title>'
-                + '<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">'
+                + '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
                 + '<style>'
-                + 'body { font-family: \'Inter\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
-                + 'h1, h2, h3 { font-family: \'Fraunces\', Georgia, serif; font-weight: 500; color: #0f2c17; }'
+                + 'body { font-family: \'Plus Jakarta Sans\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
+                + 'h1, h2, h3 { font-family: \'Plus Jakarta Sans\', sans-serif; font-weight: 500; color: #0f2c17; }'
                 + 'h1 { font-size: 2.4rem; margin: 0 0 6px; letter-spacing: -0.02em; }'
                 + '.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }'
                 + '.brand-mark { width: 44px; height: 44px; }'
-                + '.brand-name { font-family: \'Inter\', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.04em; color: #0f2c17; }'
+                + '.brand-name { font-family: \'Plus Jakarta Sans\', sans-serif; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.04em; color: #0f2c17; }'
                 + '.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.16em; color: #a14e2a; margin-bottom: 14px; }'
                 + '.parties { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin: 32px 0 40px; }'
-                + '.party h3 { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #6b6a64; margin-bottom: 8px; font-family: \'Inter\', sans-serif; }'
+                + '.party h3 { font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #6b6a64; margin-bottom: 8px; font-family: \'Plus Jakarta Sans\', sans-serif; }'
                 + '.party-body { color: #1c1c1a; line-height: 1.5; }'
                 + '.party-body strong { font-weight: 600; color: #0f2c17; }'
                 + 'table { width: 100%; border-collapse: collapse; margin: 24px 0; font-size: 0.95rem; }'
