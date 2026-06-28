@@ -368,6 +368,26 @@
         .subnav-link { padding: 8px 14px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink-700); text-decoration: none; white-space: nowrap; transition: all 0.15s; }
         .subnav-link:hover { background: var(--forest-50); color: var(--forest-700); }
         .subnav-link.active { background: var(--forest-900); color: white; }
+
+        /* ===== Onboarding tour ===== */
+        .tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+        .tour-backdrop.active { opacity: 1; pointer-events: auto; }
+        .tour-spotlight { position: absolute; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none; z-index: 9999; }
+        .tour-tooltip { position: absolute; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.3s; }
+        .tour-tooltip.active { opacity: 1; transform: translateY(0); }
+        .tour-tooltip .tour-step { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #ed682f; margin-bottom: 8px; }
+        .tour-tooltip h3 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem; font-weight: 800; color: #0f2c17; margin: 0 0 8px; letter-spacing: -0.02em; }
+        .tour-tooltip p { font-size: 0.94rem; color: #3a3a36; line-height: 1.55; margin: 0 0 18px; }
+        .tour-tooltip .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .tour-tooltip .tour-progress { font-size: 0.78rem; color: #6b6a64; font-weight: 600; }
+        .tour-tooltip .tour-buttons { display: flex; gap: 8px; }
+        .tour-tooltip button { padding: 9px 18px; border-radius: 8px; font-family: inherit; font-weight: 700; font-size: 0.86rem; cursor: pointer; border: none; transition: all 0.15s; }
+        .tour-tooltip button.tour-skip { background: transparent; color: #6b6a64; padding: 9px 14px; }
+        .tour-tooltip button.tour-skip:hover { color: #3a3a36; }
+        .tour-tooltip button.tour-next { background: #0f2c17; color: white; }
+        .tour-tooltip button.tour-next:hover { background: #1f4a26; }
+        .tour-tooltip button.tour-back { background: #f1efe8; color: #3a3a36; }
+        .tour-tooltip button.tour-back:hover { background: #e6e3d8; }
 </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -1459,6 +1479,7 @@ END:VEVENT
             renderWelcomeBanner();
             loadCancellationPolicy();
             loadTeam();
+            setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
         }
 
         // ===== First-login welcome banner =====
@@ -3303,6 +3324,120 @@ END:VEVENT
             }, 500);
         });
 
+        // ===== Onboarding tour (mandatory on first run, replayable via FAB) =====
+        const TOUR_STEPS = [
+          { selector: '#welcomeBanner', title: "Welcome to your admin.", body: "This is mission control. Brands book demos through your link and everything flows from here automatically.", placement: 'bottom', skipIfHidden: true },
+          { selector: '.stats-grid', title: "Your numbers, at a glance.", body: "Demos this month, revenue, active brands, and compliance rate. These update as bookings come in.", placement: 'bottom' },
+          { selector: '.big-cal-card', title: "Your demo calendar.", body: "Every confirmed demo shows here. We've put an example on today so you can see what it'll look like once brands start booking.", placement: 'top' },
+          { selector: '.chart-card', title: "Trend chart.", body: "See your demo volume over the last 6 months. Fills in as you get bookings.", placement: 'top' },
+          { selector: '.header-nav', title: "Preview the public side.", body: "Click 'Preview booking page' anytime to see what brands see. Share that URL with your brand partners to start filling your calendar.", placement: 'bottom' },
+        ];
+        let _tourIndex = 0;
+        function startTour(force) {
+          if (!force && localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) === '1') return;
+          _tourIndex = 0;
+          showTourStep();
+        }
+        function showTourStep() {
+          const step = TOUR_STEPS[_tourIndex];
+          if (!step) { closeTour(); return; }
+          const isFirstRun = localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) !== '1';
+          // On first run: hide Skip button — tour is mandatory
+          document.querySelectorAll('.tour-skip').forEach(b => b.style.display = isFirstRun ? 'none' : '');
+          const el = document.querySelector(step.selector);
+          if (!el || (step.skipIfHidden && el.offsetParent === null)) {
+            _tourIndex++;
+            return showTourStep();
+          }
+          const rect = el.getBoundingClientRect();
+          const scrollY = window.scrollY;
+          const spotPad = 12;
+          const spotlight = document.getElementById('tourSpotlight');
+          if (!spotlight) return;
+          spotlight.style.display = 'block';
+          spotlight.style.top = (rect.top + scrollY - spotPad) + 'px';
+          spotlight.style.left = (rect.left - spotPad) + 'px';
+          spotlight.style.width = (rect.width + spotPad*2) + 'px';
+          spotlight.style.height = (rect.height + spotPad*2) + 'px';
+
+          const backdrop = document.getElementById('tourBackdrop');
+          if (backdrop) backdrop.classList.add('active');
+
+          const tooltip = document.getElementById('tourTooltip');
+          if (!tooltip) return;
+          tooltip.style.display = 'block';
+          document.getElementById('tourTitle').textContent = step.title;
+          document.getElementById('tourBody').textContent = step.body;
+          document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${TOUR_STEPS.length}`;
+          document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${TOUR_STEPS.length}`;
+          document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
+          document.getElementById('tourNextBtn').textContent = _tourIndex === TOUR_STEPS.length - 1 ? 'Got it' : 'Next →';
+
+          requestAnimationFrame(() => {
+            const tipRect = tooltip.getBoundingClientRect();
+            const padding = 20;
+            let top, left;
+            if (step.placement === 'bottom') {
+              top = rect.bottom + scrollY + padding;
+              left = rect.left + (rect.width/2) - (tipRect.width/2);
+            } else if (step.placement === 'top') {
+              top = rect.top + scrollY - tipRect.height - padding;
+              left = rect.left + (rect.width/2) - (tipRect.width/2);
+            } else {
+              top = rect.bottom + scrollY + padding;
+              left = rect.left;
+            }
+            left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
+            top = Math.max(scrollY + 20, top);
+            tooltip.style.top = top + 'px';
+            tooltip.style.left = left + 'px';
+            setTimeout(() => tooltip.classList.add('active'), 10);
+          });
+
+          const desiredY = rect.top + scrollY - 100;
+          window.scrollTo({ top: desiredY, behavior: 'smooth' });
+        }
+        function tourNext() {
+          document.getElementById('tourTooltip').classList.remove('active');
+          _tourIndex++;
+          if (_tourIndex >= TOUR_STEPS.length) { closeTour(); return; }
+          setTimeout(showTourStep, 200);
+        }
+        function tourBack() {
+          document.getElementById('tourTooltip').classList.remove('active');
+          _tourIndex = Math.max(0, _tourIndex - 1);
+          setTimeout(showTourStep, 200);
+        }
+        function closeTour(skipped) {
+          // First run is mandatory — block skip until completed once
+          const firstRun = localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) !== '1';
+          if (skipped && firstRun) {
+            const next = document.getElementById('tourNextBtn');
+            if (next && next.animate) {
+              next.animate([
+                { transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' },
+                { transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'translateX(0)' },
+              ], { duration: 380 });
+            }
+            return;
+          }
+          document.getElementById('tourBackdrop')?.classList.remove('active');
+          const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+          const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+          localStorage.setItem('demohub_tour_complete_' + RETAILER_SLUG, '1');
+        }
+        window.maybeStartTour = function() {
+          if (document.getElementById('adminView')?.style.display !== 'none') {
+            setTimeout(() => startTour(false), 800);
+          }
+        };
+        window.replayTour = function() {
+          localStorage.removeItem('demohub_tour_complete_' + RETAILER_SLUG);
+          startTour(true);
+        };
+        window.startTour = startTour;
+        window.closeTour = closeTour;
+
         // Hide the FAB while the tour is running
         (function(){
           const fab = () => document.getElementById('tourFab');
@@ -3370,5 +3505,22 @@ END:VEVENT
             <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
     </button>
+
+    <!-- Onboarding tour overlay -->
+    <div id="tourBackdrop" class="tour-backdrop"></div>
+    <div id="tourSpotlight" class="tour-spotlight" style="display:none;"></div>
+    <div id="tourTooltip" class="tour-tooltip" style="display:none;">
+      <div class="tour-step" id="tourStepLabel">Step 1</div>
+      <h3 id="tourTitle">Welcome.</h3>
+      <p id="tourBody">Let me show you around.</p>
+      <div class="tour-actions">
+        <span class="tour-progress" id="tourProgress">1 / 5</span>
+        <div class="tour-buttons">
+          <button class="tour-skip" onclick="closeTour(true)">Skip</button>
+          <button class="tour-back" id="tourBackBtn" onclick="tourBack()" style="display:none;">Back</button>
+          <button class="tour-next" id="tourNextBtn" onclick="tourNext()">Next →</button>
+        </div>
+      </div>
+    </div>
 </body>
 </html>
