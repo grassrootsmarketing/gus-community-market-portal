@@ -49,7 +49,7 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { background: #fdebe5; color: var(--clay-700); padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px; display: none; }
 .success { display: none; text-align: center; padding: 8px 0 4px; }
-.success .check { width: 64px; height: 64px; border-radius: 50%; background: var(--forest-100); color: var(--forest-700); display: flex; align-items: center; justify-content: center; margin: 0 auto 22px; font-size: 32px; font-weight: 700; box-shadow: 0 0 0 6px var(--forest-50); }
+.success .check { width: 56px; height: 56px; border-radius: 50%; background: var(--forest-100); color: var(--forest-700); display: flex; align-items: center; justify-content: center; margin: 0 auto 18px; font-size: 28px; font-weight: 700; }
 .success h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.8rem; font-weight: 700; color: var(--forest-900); margin-bottom: 10px; }
 .success p { color: var(--ink-700); margin-bottom: 24px; }
 .url-card { background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; text-align: left; }
@@ -59,15 +59,18 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .terms { font-size: 0.78rem; color: var(--ink-500); text-align: center; margin-top: 16px; }
 .terms a { color: var(--ink-500); }
 
-.success h2 { font-size: 2rem; margin-bottom: 8px; letter-spacing: -0.025em; }
-.success > p { color: var(--ink-700); font-size: 1rem; line-height: 1.55; max-width: 380px; margin: 0 auto 28px; }
-.success .url-card { transition: background 0.15s; }
+/* Success card — clean tight layout */
+.card.success { padding: 36px 32px 32px; max-width: 460px; margin: 0 auto; }
+.success h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.7rem; font-weight: 800; color: var(--forest-900); letter-spacing: -0.025em; margin-bottom: 8px; }
+.success > p { color: var(--ink-700); font-size: 0.95rem; line-height: 1.5; max-width: 340px; margin: 0 auto 22px; }
+.success .url-card { background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; text-align: left; transition: background 0.15s; }
+.success .url-card:last-of-type { margin-bottom: 0; }
 .success .url-card:hover { background: #ebf3df; }
-.success .url-value a { color: var(--forest-900); text-decoration: none; font-weight: 600; }
+.success .url-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-500); font-weight: 700; margin-bottom: 4px; }
+.success .url-value { font-size: 0.88rem; line-height: 1.35; }
+.success .url-value a { color: var(--forest-900); text-decoration: none; font-weight: 600; word-break: break-all; }
 .success .url-value a:hover { text-decoration: underline; }
-.url-card { padding: 16px 20px; margin-bottom: 14px; }
-.url-label { margin-bottom: 6px; }
-.success #openAdminBtn { margin-top: 32px !important; padding: 14px 24px; font-size: 1rem; }
+.success #openAdminBtn { width: auto; padding: 12px 28px; font-size: 0.95rem; margin: 22px auto 0; display: inline-block; }
 </style>
 <!-- PostHog -->
 <script>
