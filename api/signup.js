@@ -138,6 +138,18 @@ export default async function handler(req, res) {
     }
     await sb(`venues`, { method: 'POST', body: JSON.stringify(venuesPayload) });
 
+    // 2.5) Register the signup email as an owner-level admin so they can sign in
+    try {
+      await sb(`retailer_admins`, {
+        method: 'POST',
+        body: JSON.stringify({
+          retailer_id: retailer.id,
+          email: billing_email.toLowerCase().trim(),
+          role: 'owner',
+        }),
+      });
+    } catch (e) { console.warn('retailer_admins insert failed:', e); }
+
     // 3) Seed settings row
     try {
       await sb(`settings`, {
