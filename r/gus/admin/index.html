@@ -2832,7 +2832,7 @@ END:VEVENT
         }
 
         // ===== Big Calendar =====
-        let bigCalDate = new Date(2026, 1, 1);
+        let bigCalDate = new Date();
         const VENUE_COLOR_ORDER = ['Mission Bay','Mission','Haight St.','Noriega','Canyon'];
         function venueIndex(name) {
             const idx = VENUE_COLOR_ORDER.indexOf(name);
@@ -2999,7 +2999,14 @@ END:VEVENT
         function renderBigCalendar() {
             const grid = document.getElementById('bigCalGrid');
             const label = document.getElementById('bigCalMonthLabel');
-            if (!grid || !label) return;
+            if (!grid || !label) { console.warn('Calendar grid or label not found'); return; }
+            try { _renderBigCalendarInner(grid, label); }
+            catch (e) {
+                console.error('renderBigCalendar threw:', e);
+                grid.innerHTML = '<div style="padding:24px; color:var(--ink-500); text-align:center; grid-column: 1 / -1; font-style:italic;">Calendar failed to render: ' + (e.message || e) + '</div>';
+            }
+        }
+        function _renderBigCalendarInner(grid, label) {
             renderBigLegend();
             const y = bigCalDate.getFullYear(), m = bigCalDate.getMonth();
             const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -3261,6 +3268,13 @@ END:VEVENT
             });
           });
         })();
+
+        // Render calendar grid on page parse so it's visible even before data loads
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                try { if (typeof renderBigCalendar === 'function') renderBigCalendar(); } catch(_){}
+            }, 500);
+        });
 </script>
 
     <!-- Upgrade plan modal -->
