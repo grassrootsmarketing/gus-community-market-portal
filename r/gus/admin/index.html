@@ -832,7 +832,7 @@
         
         // ===== AdminAuth — per-retailer magic-link gate =====
         const AdminAuth = (() => {
-            const RETAILER_SLUG_LOCAL = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || 'gus';
+            const RETAILER_SLUG_LOCAL = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
             const KEY = 'demohub_admin_session_' + RETAILER_SLUG_LOCAL;
             return {
                 getSession() { return localStorage.getItem(KEY); },
@@ -879,11 +879,22 @@
                     const sid = this.getSession();
                     if (sid) {
                         try {
+                            if (!RETAILER_SLUG_LOCAL) {
+                                console.error('No slug in URL — cannot validate session');
+                                this.clearSession();
+                                window.location.href = '/signin';
+                                return false;
+                            }
                             const j = await this.api({ action: 'data', session_id: sid, retailer_slug: RETAILER_SLUG_LOCAL });
                             if (j.ok) {
-                                // Authed — stamp retailer name in header, hide gate, show admin
+                                // The server already validated session.retailer_id matches the URL slug's retailer_id.
+                                // If the server returns 'Wrong retailer' we hit the catch block below and clear the session.
                                 const h = document.getElementById('adminHeaderRetailerName');
-                                if (h && j.retailer_name) h.textContent = j.retailer_name;
+                                if (h && j.retailer_name) {
+                                    const editBtn = h.querySelector('.logo-edit-btn');
+                                    h.textContent = j.retailer_name;
+                                    if (editBtn) h.appendChild(editBtn);
+                                }
                                 gate.style.display = 'none';
                                 const av = document.getElementById('adminView'); if (av) av.style.display = '';
                                 return true;
@@ -1179,7 +1190,7 @@
         function generateICSContent() {
             let ics = `BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//Gus's Community Market//Demo Scheduling//EN
+PRODID:-//${getRetailerName()}//Demo Scheduling//EN
 CALSCALE:GREGORIAN
 METHOD:PUBLISH
 `;
@@ -1191,9 +1202,9 @@ METHOD:PUBLISH
                 ics += `BEGIN:VEVENT
 DTSTART:${times.start}
 DTEND:${times.end}
-SUMMARY:Product Demo at Gus's Community Market - ${item.location}
-LOCATION:Gus's Community Market, ${item.location}, San Francisco, CA
-DESCRIPTION:3-hour product demonstration slot at Gus's Community Market ${item.location}.
+SUMMARY:Product Demo at ${getRetailerName()} - ${item.location}
+LOCATION:${getRetailerName()}, ${item.location}
+DESCRIPTION:3-hour product demonstration slot at ${getRetailerName()} ${item.location}.
 UID:${uid}
 STATUS:CONFIRMED
 END:VEVENT
@@ -1222,9 +1233,9 @@ END:VEVENT
             const item = cart[0];
             const times = formatDateForICS(item.date, item.time);
             
-            const title = encodeURIComponent(`Product Demo at Gus's Community Market - ${item.location}`);
-            const location = encodeURIComponent(`Gus's Community Market, ${item.location}, San Francisco, CA`);
-            const details = encodeURIComponent(`3-hour product demonstration slot at Gus's Community Market ${item.location}.`);
+            const title = encodeURIComponent(`Product Demo at ${getRetailerName()} - ${item.location}`);
+            const location = encodeURIComponent(`${getRetailerName()}, ${item.location}`);
+            const details = encodeURIComponent(`3-hour product demonstration slot at ${getRetailerName()} ${item.location}.`);
             const dates = `${times.start}/${times.end}`;
             
             const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dates}&location=${location}&details=${details}`;
@@ -1251,9 +1262,9 @@ END:VEVENT
             const startTime = String(hours).padStart(2, '0') + ':00:00';
             const endTime = String(hours + 3).padStart(2, '0') + ':00:00';
             
-            const title = encodeURIComponent(`Product Demo at Gus's Community Market - ${item.location}`);
-            const location = encodeURIComponent(`Gus's Community Market, ${item.location}, San Francisco, CA`);
-            const details = encodeURIComponent(`3-hour product demonstration slot at Gus's Community Market ${item.location}.`);
+            const title = encodeURIComponent(`Product Demo at ${getRetailerName()} - ${item.location}`);
+            const location = encodeURIComponent(`${getRetailerName()}, ${item.location}`);
+            const details = encodeURIComponent(`3-hour product demonstration slot at ${getRetailerName()} ${item.location}.`);
             
             const outlookUrl = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${startDate}T${startTime}&enddt=${startDate}T${endTime}&location=${location}&body=${details}`;
             
@@ -1290,17 +1301,35 @@ END:VEVENT
         // ===== Supabase client + cached state =====
         const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
         const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-        const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || 'gus';
+        const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
         let sb = null;
         let RETAILER_ID = null;
         window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [], bookings: [] };
 
+        function getRetailerName() {
+            return (window.state && window.state.settings && window.state.settings.retailer_name)
+                || (typeof RETAILER_DISPLAY_NAME !== 'undefined' && RETAILER_DISPLAY_NAME)
+                || document.getElementById('adminHeaderRetailerName')?.firstChild?.textContent?.trim()
+                || 'this retailer';
+        }
+        let RETAILER_DISPLAY_NAME = '';
+
         async function initSupabase() {
             try {
                 sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                const { data: retailer } = await sb.from('retailers').select('id,logo_url').eq('slug', RETAILER_SLUG).single();
-                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); return; }
+                if (!RETAILER_SLUG) { console.error('No retailer slug in URL — aborting'); window.location.href = '/signin'; return; }
+                const { data: retailer } = await sb.from('retailers').select('id,name,logo_url').eq('slug', RETAILER_SLUG).single();
+                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); document.body.innerHTML = '<div style=\"padding:60px;text-align:center;font-family:sans-serif;\"><h1>Retailer not found</h1><p>This admin URL does not match any retailer in our system.</p><a href=\"/signin\" style=\"color:#0f2c17;\">Sign in</a></div>'; return; }
                 RETAILER_ID = retailer.id;
+                RETAILER_DISPLAY_NAME = retailer.name || '';
+                // Update header with the real retailer name (not the static 'Loading...' or hardcoded gus)
+                const headerEl = document.getElementById('adminHeaderRetailerName');
+                if (headerEl && retailer.name) {
+                    // Preserve the edit button child if any
+                    const editBtn = headerEl.querySelector('.logo-edit-btn');
+                    headerEl.textContent = retailer.name;
+                    if (editBtn) headerEl.appendChild(editBtn);
+                }
                 renderRetailerLogo(retailer.logo_url);
                 await refreshAll();
             } catch (e) { console.error('Supabase init failed:', e); }
@@ -2541,7 +2570,7 @@ END:VEVENT
 
         // Calendar feed URL copy
         function copyIcalUrl() {
-            const slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || 'gus';
+            const slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
             const url = `${location.origin}/api/cal?slug=${slug}`;
             navigator.clipboard.writeText(url).then(() => {
                 const btn = document.getElementById('copyIcalBtn');
@@ -2550,29 +2579,6 @@ END:VEVENT
                 btn.textContent = 'Copied ✓';
                 setTimeout(() => { btn.textContent = orig; }, 1800);
             }).catch(() => { prompt('Copy this URL:', url); });
-        }
-        // ===== Sample demo (illustrative when zero real demos) =====
-        function getSampleDemoForCalendar() {
-            // Generate one example demo on today's date so the calendar feels alive
-            const today = new Date();
-            const day = today.getDate();
-            const dateStr = today.toISOString().slice(0,10);
-            const venue = (window.state.venues || [])[0];
-            const venueName = venue ? venue.name : 'Main Store';
-            return {
-                id: '__sample__',
-                date: dateStr,
-                time: '11:00 AM',
-                company: 'Example Brand',
-                product: 'Olive oil tasting',
-                demo_fee: 30,
-                venue: venueName,
-                isSample: true,
-            };
-        }
-        function maybeWithSample(realDemos) {
-            if (realDemos && realDemos.length > 0) return realDemos;
-            return [getSampleDemoForCalendar()];
         }
         // ===== Stats =====
         function updateStats() {
@@ -2610,40 +2616,13 @@ END:VEVENT
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('en-US',{month:'short'}) });
             }
-            let counts = months.map(M => (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === M.m && dt.getFullYear() === M.y; }).length);
-            const allZero = counts.every(c => c === 0);
-            if (allZero) {
-              // Show one example demo in current month so chart isn't blank
-              counts = counts.map((c, i) => i === months.length - 1 ? 1 : 0);
-            }
+            const counts = months.map(M => (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === M.m && dt.getFullYear() === M.y; }).length);
             if (demosChart) demosChart.destroy();
-            const barColors = allZero ? months.map((_, i) => i === months.length - 1 ? 'rgba(237,104,47,0.55)' : 'rgba(58,113,66,0.15)') : '#3a7142';
             demosChart = new Chart(canvas, {
                 type: 'bar',
-                data: { labels: months.map(M => M.label), datasets: [{ label: 'Demos', data: counts, backgroundColor: barColors, borderRadius: 6 }] },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { callbacks: { label: (ctx) => allZero && ctx.dataIndex === months.length - 1 ? 'Example · 1 demo' : ctx.parsed.y + ' demos' } }
-                    },
-                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
-                }
+                data: { labels: months.map(M => M.label), datasets: [{ label: 'Demos', data: counts, backgroundColor: '#3a7142', borderRadius: 6 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
             });
-            // If we're showing sample data, add a small label
-            const chartCard = canvas.closest('.chart-card');
-            if (chartCard) {
-                let note = chartCard.querySelector('.chart-sample-note');
-                if (allZero && !note) {
-                    note = document.createElement('div');
-                    note.className = 'chart-sample-note';
-                    note.style.cssText = 'font-size:0.78rem; color:var(--ink-500); margin-top:8px; font-style:italic;';
-                    note.textContent = 'Example data — your real demos will populate this chart as bookings come in.';
-                    chartCard.appendChild(note);
-                } else if (!allZero && note) {
-                    note.remove();
-                }
-            }
         }
 
         // ===== Compliance CRUD =====
@@ -2927,9 +2906,7 @@ END:VEVENT
             const todayStr = today.toISOString().slice(0,10);
             // Index demos by date
             const demosByDay = {};
-            const showSample = !window.state.demos || window.state.demos.length === 0;
-            const demosForCal = showSample ? [getSampleDemoForCalendar()] : window.state.demos;
-            demosForCal.forEach(d => {
+            (window.state.demos || []).forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
                     const day = dt.getDate();
@@ -2951,9 +2928,7 @@ END:VEVENT
                 const events = list.map(d => {
                     const venue = getDemoVenue(d);
                     const vi = venueIndex(venue);
-                    const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
-                    const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
-                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
+                    return '<div class="big-cal-event venue-' + vi + '" title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
