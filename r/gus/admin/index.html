@@ -3333,19 +3333,31 @@ END:VEVENT
           { selector: '.header-nav', title: "Preview the public side.", body: "Click 'Preview booking page' anytime to see what brands see. Share that URL with your brand partners to start filling your calendar.", placement: 'bottom' },
         ];
         let _tourIndex = 0;
+        let _activeTourSteps = [];
         function startTour(force) {
           if (!force && localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) === '1') return;
+          // Build the active step list NOW based on what's actually visible.
+          // Welcome banner is always step 1 — if it's hidden (was dismissed), force-show it for the tour.
+          const welcome = document.getElementById('welcomeBanner');
+          if (welcome && welcome.style.display === 'none') {
+            welcome.style.display = 'block';
+            welcome.dataset.forcedForTour = '1';
+          }
+          _activeTourSteps = TOUR_STEPS.filter(s => {
+            const el = document.querySelector(s.selector);
+            return el && el.offsetParent !== null;
+          });
+          if (_activeTourSteps.length === 0) return; // nothing to show
           _tourIndex = 0;
           showTourStep();
         }
         function showTourStep() {
-          const step = TOUR_STEPS[_tourIndex];
+          const step = _activeTourSteps[_tourIndex];
           if (!step) { closeTour(); return; }
           const isFirstRun = localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) !== '1';
-          // On first run: hide Skip button — tour is mandatory
           document.querySelectorAll('.tour-skip').forEach(b => b.style.display = isFirstRun ? 'none' : '');
           const el = document.querySelector(step.selector);
-          if (!el || (step.skipIfHidden && el.offsetParent === null)) {
+          if (!el) {
             _tourIndex++;
             return showTourStep();
           }
@@ -3368,10 +3380,10 @@ END:VEVENT
           tooltip.style.display = 'block';
           document.getElementById('tourTitle').textContent = step.title;
           document.getElementById('tourBody').textContent = step.body;
-          document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${TOUR_STEPS.length}`;
-          document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${TOUR_STEPS.length}`;
+          document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${_activeTourSteps.length}`;
+          document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${_activeTourSteps.length}`;
           document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
-          document.getElementById('tourNextBtn').textContent = _tourIndex === TOUR_STEPS.length - 1 ? 'Got it' : 'Next →';
+          document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
 
           requestAnimationFrame(() => {
             const tipRect = tooltip.getBoundingClientRect();
@@ -3400,7 +3412,7 @@ END:VEVENT
         function tourNext() {
           document.getElementById('tourTooltip').classList.remove('active');
           _tourIndex++;
-          if (_tourIndex >= TOUR_STEPS.length) { closeTour(); return; }
+          if (_tourIndex >= _activeTourSteps.length) { closeTour(); return; }
           setTimeout(showTourStep, 200);
         }
         function tourBack() {
@@ -3411,6 +3423,12 @@ END:VEVENT
         function closeTour(skipped) {
           // First run is mandatory — block skip until completed once
           const firstRun = localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) !== '1';
+          // Restore the welcome banner state if we force-shewed it for the tour
+          const welcome = document.getElementById('welcomeBanner');
+          if (welcome && welcome.dataset.forcedForTour === '1' && !firstRun) {
+            welcome.style.display = 'none';
+            delete welcome.dataset.forcedForTour;
+          }
           if (skipped && firstRun) {
             const next = document.getElementById('tourNextBtn');
             if (next && next.animate) {
