@@ -2551,6 +2551,29 @@ END:VEVENT
                 setTimeout(() => { btn.textContent = orig; }, 1800);
             }).catch(() => { prompt('Copy this URL:', url); });
         }
+        // ===== Sample demo (illustrative when zero real demos) =====
+        function getSampleDemoForCalendar() {
+            // Generate one example demo on today's date so the calendar feels alive
+            const today = new Date();
+            const day = today.getDate();
+            const dateStr = today.toISOString().slice(0,10);
+            const venue = (window.state.venues || [])[0];
+            const venueName = venue ? venue.name : 'Main Store';
+            return {
+                id: '__sample__',
+                date: dateStr,
+                time: '11:00 AM',
+                company: 'Example Brand',
+                product: 'Olive oil tasting',
+                demo_fee: 30,
+                venue: venueName,
+                isSample: true,
+            };
+        }
+        function maybeWithSample(realDemos) {
+            if (realDemos && realDemos.length > 0) return realDemos;
+            return [getSampleDemoForCalendar()];
+        }
         // ===== Stats =====
         function updateStats() {
             const now = new Date();
@@ -2587,13 +2610,40 @@ END:VEVENT
                 const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
                 months.push({ y: d.getFullYear(), m: d.getMonth(), label: d.toLocaleDateString('en-US',{month:'short'}) });
             }
-            const counts = months.map(M => (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === M.m && dt.getFullYear() === M.y; }).length);
+            let counts = months.map(M => (window.state.demos || []).filter(d => { const dt = new Date(d.date + 'T00:00:00'); return dt.getMonth() === M.m && dt.getFullYear() === M.y; }).length);
+            const allZero = counts.every(c => c === 0);
+            if (allZero) {
+              // Show one example demo in current month so chart isn't blank
+              counts = counts.map((c, i) => i === months.length - 1 ? 1 : 0);
+            }
             if (demosChart) demosChart.destroy();
+            const barColors = allZero ? months.map((_, i) => i === months.length - 1 ? 'rgba(237,104,47,0.55)' : 'rgba(58,113,66,0.15)') : '#3a7142';
             demosChart = new Chart(canvas, {
                 type: 'bar',
-                data: { labels: months.map(M => M.label), datasets: [{ label: 'Demos', data: counts, backgroundColor: '#3a7142', borderRadius: 6 }] },
-                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+                data: { labels: months.map(M => M.label), datasets: [{ label: 'Demos', data: counts, backgroundColor: barColors, borderRadius: 6 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (ctx) => allZero && ctx.dataIndex === months.length - 1 ? 'Example · 1 demo' : ctx.parsed.y + ' demos' } }
+                    },
+                    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+                }
             });
+            // If we're showing sample data, add a small label
+            const chartCard = canvas.closest('.chart-card');
+            if (chartCard) {
+                let note = chartCard.querySelector('.chart-sample-note');
+                if (allZero && !note) {
+                    note = document.createElement('div');
+                    note.className = 'chart-sample-note';
+                    note.style.cssText = 'font-size:0.78rem; color:var(--ink-500); margin-top:8px; font-style:italic;';
+                    note.textContent = 'Example data — your real demos will populate this chart as bookings come in.';
+                    chartCard.appendChild(note);
+                } else if (!allZero && note) {
+                    note.remove();
+                }
+            }
         }
 
         // ===== Compliance CRUD =====
@@ -2877,7 +2927,9 @@ END:VEVENT
             const todayStr = today.toISOString().slice(0,10);
             // Index demos by date
             const demosByDay = {};
-            (window.state.demos || []).forEach(d => {
+            const showSample = !window.state.demos || window.state.demos.length === 0;
+            const demosForCal = showSample ? [getSampleDemoForCalendar()] : window.state.demos;
+            demosForCal.forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
                     const day = dt.getDate();
@@ -2899,7 +2951,9 @@ END:VEVENT
                 const events = list.map(d => {
                     const venue = getDemoVenue(d);
                     const vi = venueIndex(venue);
-                    return '<div class="big-cal-event venue-' + vi + '" title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + '</span></div>';
+                    const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
+                    const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
+                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
