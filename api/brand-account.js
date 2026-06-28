@@ -181,6 +181,16 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
   return { subject, html: htmlBody, text };
 }
 
+// Process an array in concurrent batches. Each batch runs in parallel,
+// batches run sequentially. Keeps us under Resend's 2/sec rate limit while
+// fitting inside Vercel Hobby's 10s function timeout.
+async function processBatched(items, batchSize, processOne) {
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    await Promise.all(batch.map(processOne));
+  }
+}
+
 function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_left }) {
   const subjectMap = {
     30: `Your COI expires in 30 days — let's get ahead of it`,
@@ -736,7 +746,7 @@ export default async function handler(req, res) {
           `&welcome_day3_sent_at=is.null`;
         const rRes = await sb(path);
         const retailers = await rRes.json();
-        for (const r of (Array.isArray(retailers) ? retailers : [])) {
+        await processBatched(Array.isArray(retailers) ? retailers : [], 5, async (r) => {
           try {
             const contactName = (r.branding && (r.branding.contact_name || r.branding.contactName)) || '';
             const firstName = String(contactName).trim().split(/\s+/)[0] || r.name || 'there';
@@ -754,7 +764,7 @@ export default async function handler(req, res) {
           } catch (e) {
             errors.push({ kind: 'retailer_day3', id: r.id, error: String(e?.message || e) });
           }
-        }
+        });
       } catch (e) {
         errors.push({ kind: 'retailer_day3_query', error: String(e?.message || e) });
       }
@@ -764,7 +774,7 @@ export default async function handler(req, res) {
         const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const bRes = await sb(`brands?select=id,email,company_name,contact_name,welcome_firstdemo_sent_at&welcome_firstdemo_sent_at=is.null`);
         const brands = await bRes.json();
-        for (const b of (Array.isArray(brands) ? brands : [])) {
+        await processBatched(Array.isArray(brands) ? brands : [], 5, async (b) => {
           try {
             const dPath = `demos?brand_id=eq.${encodeURIComponent(b.id)}&status=eq.confirmed&confirmed_at=lte.${encodeURIComponent(cutoff)}&select=id,demo_date,confirmed_at,retailers(name)&order=confirmed_at.asc&limit=1`;
             const dRes = await sb(dPath);
@@ -793,7 +803,7 @@ export default async function handler(req, res) {
           } catch (e) {
             errors.push({ kind: 'brand_firstdemo', id: b.id, error: String(e?.message || e) });
           }
-        }
+        });
       } catch (e) {
         errors.push({ kind: 'brand_firstdemo_query', error: String(e?.message || e) });
       }
@@ -819,7 +829,7 @@ export default async function handler(req, res) {
             `&${tier.col}=is.null`;
           const r = await sb(path);
           const list = await r.json();
-          for (const b of (Array.isArray(list) ? list : [])) {
+          await processBatched(Array.isArray(list) ? list : [], 5, async (b) => {
             try {
               const ex = new Date(b.default_coi_expires + 'T00:00:00');
               const daysLeft = Math.max(0, Math.ceil((ex.getTime() - Date.now()) / 86400000));
@@ -837,7 +847,7 @@ export default async function handler(req, res) {
             } catch (e) {
               errors.push({ kind: 'coi_warn_' + tier.days, id: b.id, error: String(e?.message || e) });
             }
-          }
+          });
         } catch (e) {
           errors.push({ kind: 'coi_warn_' + tier.days + '_query', error: String(e?.message || e) });
         }
@@ -858,7 +868,7 @@ export default async function handler(req, res) {
             `&${tier.col}=is.null`;
           const r = await sb(path);
           const list = await r.json();
-          for (const rec of (Array.isArray(list) ? list : [])) {
+          await processBatched(Array.isArray(list) ? list : [], 5, async (rec) => {
             try {
               // Look up retailer + brand contact
               const [rRes, bcRes] = await Promise.all([
@@ -913,7 +923,7 @@ export default async function handler(req, res) {
             } catch (e) {
               errors.push({ kind: 'retailer_coi_warn_' + tier.days, id: rec.id, error: String(e?.message || e) });
             }
-          }
+          });
         } catch (e) {
           errors.push({ kind: 'retailer_coi_warn_' + tier.days + '_query', error: String(e?.message || e) });
         }
