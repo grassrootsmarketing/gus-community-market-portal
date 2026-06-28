@@ -479,7 +479,7 @@
                             </li>
                             <li style="padding: 14px 0; display: flex; align-items: center; gap: 16px; counter-increment: step;">
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">4</div>
-                                <div style="flex: 1;"><strong style="color: white;">Share your booking link</strong><span style="color: rgba(255,255,255,0.7);"> — your brand partners book through this URL. That\'s how demos start.</span></div>
+                                <div style="flex: 1;"><strong style="color: white;">Share your booking link</strong><span style="color: rgba(255,255,255,0.7);"> — your brand partners book through this URL. That's how demos start.</span></div>
                             </li>
                         </ol>
 
@@ -3385,29 +3385,47 @@ END:VEVENT
           document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
           document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
 
-          requestAnimationFrame(() => {
+          // Scroll first so the target is centered in viewport, THEN position tooltip
+          const targetCenterY = rect.top + scrollY + (rect.height / 2);
+          const desiredScrollY = Math.max(0, targetCenterY - (window.innerHeight / 2));
+          window.scrollTo({ top: desiredScrollY, behavior: 'smooth' });
+
+          // Wait for scroll to settle, then position the tooltip relative to the new viewport
+          setTimeout(() => {
+            const r = el.getBoundingClientRect();
             const tipRect = tooltip.getBoundingClientRect();
             const padding = 20;
+            const vh = window.innerHeight;
+            // Decide actual placement based on available space
+            const spaceBelow = vh - r.bottom;
+            const spaceAbove = r.top;
+            let placement = step.placement || 'bottom';
+            if (placement === 'bottom' && spaceBelow < tipRect.height + padding && spaceAbove > tipRect.height + padding) {
+              placement = 'top';
+            } else if (placement === 'top' && spaceAbove < tipRect.height + padding && spaceBelow > tipRect.height + padding) {
+              placement = 'bottom';
+            }
+            const newScrollY = window.scrollY;
             let top, left;
-            if (step.placement === 'bottom') {
-              top = rect.bottom + scrollY + padding;
-              left = rect.left + (rect.width/2) - (tipRect.width/2);
-            } else if (step.placement === 'top') {
-              top = rect.top + scrollY - tipRect.height - padding;
-              left = rect.left + (rect.width/2) - (tipRect.width/2);
+            if (placement === 'bottom') {
+              top = r.bottom + newScrollY + padding;
+              left = r.left + (r.width/2) - (tipRect.width/2);
+            } else if (placement === 'top') {
+              top = r.top + newScrollY - tipRect.height - padding;
+              left = r.left + (r.width/2) - (tipRect.width/2);
             } else {
-              top = rect.bottom + scrollY + padding;
-              left = rect.left;
+              top = r.bottom + newScrollY + padding;
+              left = r.left;
             }
             left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
-            top = Math.max(scrollY + 20, top);
+            // Clamp so tooltip always stays inside viewport
+            const minTop = newScrollY + 20;
+            const maxTop = newScrollY + vh - tipRect.height - 20;
+            top = Math.max(minTop, Math.min(maxTop, top));
             tooltip.style.top = top + 'px';
             tooltip.style.left = left + 'px';
-            setTimeout(() => tooltip.classList.add('active'), 10);
-          });
-
-          const desiredY = rect.top + scrollY - 100;
-          window.scrollTo({ top: desiredY, behavior: 'smooth' });
+            tooltip.classList.add('active');
+          }, 400);
         }
         function tourNext() {
           document.getElementById('tourTooltip').classList.remove('active');
