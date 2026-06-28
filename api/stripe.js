@@ -203,7 +203,82 @@ export default async function handler(req, res) {
       });
     }
 
-    return jsonResp(res, 400, { error: 'Unknown action. Use subscribe, portal, cancel, or status.' });
+    // ---- connect-onboard: create Stripe Connect Express account + onboarding link ----
+    if (action === 'connect-onboard') {
+      // Create the account if we don't already have one for this retailer
+      let acctId = retailer.stripe_account_id;
+      if (!acctId) {
+        const acct = await stripe('POST', '/v1/accounts', {
+          type: 'express',
+          country: 'US',
+          email: retailer.billing_email,
+          business_type: 'company',
+          capabilities: {
+            card_payments: { requested: true },
+            transfers: { requested: true },
+          },
+          business_profile: {
+            name: retailer.name,
+            mcc: '5499', // Grocery / specialty foods
+            url: 'https://demohubhq.com/r/' + (retailer.slug || ''),
+            product_description: 'In-store brand demo coordination',
+          },
+          metadata: { retailer_id: retailer.id, retailer_slug: retailer.slug || '' },
+        });
+        acctId = acct.id;
+        await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ stripe_account_id: acctId, stripe_account_status: 'pending' }),
+        });
+      }
+      const baseUrl = `${SITE_ORIGIN}/r/${retailer.slug || 'gus'}/admin`;
+      const link = await stripe('POST', '/v1/account_links', {
+        account: acctId,
+        refresh_url: baseUrl + '?connect=refresh',
+        return_url: baseUrl + '?connect=return',
+        type: 'account_onboarding',
+      });
+      return jsonResp(res, 200, { url: link.url, account_id: acctId });
+    }
+
+    // ---- connect-dashboard: get Express dashboard login link for an onboarded retailer ----
+    if (action === 'connect-dashboard') {
+      if (!retailer.stripe_account_id) return jsonResp(res, 400, { error: 'Not connected to Stripe yet.' });
+      const link = await stripe('POST', `/v1/accounts/${encodeURIComponent(retailer.stripe_account_id)}/login_links`, {});
+      return jsonResp(res, 200, { url: link.url });
+    }
+
+    // ---- connect-status: re-fetch latest account state from Stripe + sync to DB ----
+    if (action === 'connect-status') {
+      if (!retailer.stripe_account_id) {
+        return jsonResp(res, 200, {
+          connected: false,
+          charges_enabled: false,
+          payouts_enabled: false,
+        });
+      }
+      const acct = await stripe('GET', `/v1/accounts/${encodeURIComponent(retailer.stripe_account_id)}`);
+      const charges = !!acct.charges_enabled;
+      const payouts = !!acct.payouts_enabled;
+      const status = charges && payouts ? 'active' : (acct.requirements?.disabled_reason ? 'restricted' : 'pending');
+      await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          stripe_charges_enabled: charges,
+          stripe_payouts_enabled: payouts,
+          stripe_account_status: status,
+        }),
+      });
+      return jsonResp(res, 200, {
+        connected: true,
+        charges_enabled: charges,
+        payouts_enabled: payouts,
+        status,
+        requirements: acct.requirements?.currently_due || [],
+      });
+    }
+
+    return jsonResp(res, 400, { error: 'Unknown action. Use subscribe, portal, cancel, status, connect-onboard, connect-dashboard, or connect-status.' });
   } catch (e) {
     console.error('stripe.js error:', e);
     return jsonResp(res, 500, { error: String(e?.message || e) });

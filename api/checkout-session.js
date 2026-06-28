@@ -65,12 +65,16 @@ export default async function handler(req, res) {
 
     const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
     const venue = Array.isArray(venues) ? venues[0] : null;
-    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug`);
+    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,stripe_account_id,stripe_charges_enabled`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
 
     const amountUsd = Number(venue?.demo_fee || 30);
     const amountCents = Math.round(amountUsd * 100);
     const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+
+    // Platform fee: percentage of the booking that Demohub keeps. Default 10%.
+    const platformFeePct = Number(process.env.STRIPE_APPLICATION_FEE_PCT || '10');
+    const platformFeeCents = Math.round(amountCents * (platformFeePct / 100));
 
     const params = {
       mode: 'payment',
@@ -87,6 +91,15 @@ export default async function handler(req, res) {
       success_url: `${origin}/r/${retailer?.slug || ''}/?paid=1&booking=${booking_id}`,
       cancel_url: `${origin}/r/${retailer?.slug || ''}/?cancelled=1&booking=${booking_id}`,
     };
+
+    // Stripe Connect: if the retailer has an onboarded account, route money to them
+    // with a platform fee. Otherwise (no Connect), money lands in the Demohub platform balance.
+    if (retailer?.stripe_account_id && retailer?.stripe_charges_enabled) {
+      params['payment_intent_data[application_fee_amount]'] = platformFeeCents;
+      params['payment_intent_data[transfer_data][destination]'] = retailer.stripe_account_id;
+      params['payment_intent_data[metadata][booking_id]'] = booking_id;
+      params['payment_intent_data[metadata][retailer_id]'] = booking.retailer_id;
+    }
 
     // Stripe wants form-encoded
     const bodyStr = Object.entries(params)

@@ -184,6 +184,25 @@ export default async function handler(req, res) {
       }
     }
 
+    // Connect account updated — sync charges_enabled / payouts_enabled
+    if (event.type === 'account.updated') {
+      const acct = event.data.object;
+      const retailerId = acct.metadata?.retailer_id;
+      if (retailerId) {
+        const charges = !!acct.charges_enabled;
+        const payouts = !!acct.payouts_enabled;
+        const status = charges && payouts ? 'active' : (acct.requirements?.disabled_reason ? 'restricted' : 'pending');
+        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            stripe_charges_enabled: charges,
+            stripe_payouts_enabled: payouts,
+            stripe_account_status: status,
+          }),
+        });
+      }
+    }
+
     // Invoice paid — clear past_due if it was set
     if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
       const inv = event.data.object;
