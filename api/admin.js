@@ -116,7 +116,27 @@ export default async function handler(req, res) {
     }
     // Force the retailer_id to the session's, so callers can't omit/swap it
     body.retailer_id = session.retailer_id;
+    // For new compliance_records rows, reset COI warn timestamps so the cron will pick them up cleanly
+    if (table === 'compliance_records') {
+      body.coi_warn_30_sent_at = null;
+      body.coi_warn_14_sent_at = null;
+      body.coi_warn_3_sent_at = null;
+    }
     req.body = JSON.stringify(body);
+  }
+
+  // When PATCHing a compliance_records row's expires_at, reset the warn-sent timestamps
+  // so the new expiry triggers a fresh warning cycle.
+  if (req.method === 'PATCH' && table === 'compliance_records') {
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      if (Object.prototype.hasOwnProperty.call(body, 'expires_at')) {
+        body.coi_warn_30_sent_at = null;
+        body.coi_warn_14_sent_at = null;
+        body.coi_warn_3_sent_at = null;
+        req.body = JSON.stringify(body);
+      }
+    } catch (_) { /* fall through */ }
   }
 
   const baseUrl = `${SUPABASE_URL}/rest/v1/${table}`;
