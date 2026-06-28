@@ -3352,80 +3352,132 @@ END:VEVENT
           showTourStep();
         }
         function showTourStep() {
-          const step = _activeTourSteps[_tourIndex];
-          if (!step) { closeTour(); return; }
           const isFirstRun = localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) !== '1';
           document.querySelectorAll('.tour-skip').forEach(b => b.style.display = isFirstRun ? 'none' : '');
+
+          const step = _activeTourSteps[_tourIndex];
+          if (!step) { closeTour(); return; }
           const el = document.querySelector(step.selector);
-          if (!el) {
-            _tourIndex++;
-            return showTourStep();
-          }
-          const rect = el.getBoundingClientRect();
-          const scrollY = window.scrollY;
-          const spotPad = 12;
+          if (!el) { _tourIndex++; return showTourStep(); }
+
           const spotlight = document.getElementById('tourSpotlight');
-          if (!spotlight) return;
-          spotlight.style.display = 'block';
-          spotlight.style.top = (rect.top + scrollY - spotPad) + 'px';
-          spotlight.style.left = (rect.left - spotPad) + 'px';
-          spotlight.style.width = (rect.width + spotPad*2) + 'px';
-          spotlight.style.height = (rect.height + spotPad*2) + 'px';
-
-          const backdrop = document.getElementById('tourBackdrop');
-          if (backdrop) backdrop.classList.add('active');
-
           const tooltip = document.getElementById('tourTooltip');
-          if (!tooltip) return;
-          tooltip.style.display = 'block';
-          document.getElementById('tourTitle').textContent = step.title;
-          document.getElementById('tourBody').textContent = step.body;
-          document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${_activeTourSteps.length}`;
-          document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${_activeTourSteps.length}`;
-          document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
-          document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
+          const backdrop = document.getElementById('tourBackdrop');
+          if (!spotlight || !tooltip || !backdrop) return;
+          backdrop.classList.add('active');
 
-          // Scroll first so the target is centered in viewport, THEN position tooltip
-          const targetCenterY = rect.top + scrollY + (rect.height / 2);
-          const desiredScrollY = Math.max(0, targetCenterY - (window.innerHeight / 2));
-          window.scrollTo({ top: desiredScrollY, behavior: 'smooth' });
+          // Detect a sticky element above the viewport top (e.g., subnav) so we can offset
+          function stickyOffset() {
+            const subnav = document.querySelector('.section-subnav');
+            if (subnav) {
+              const cs = window.getComputedStyle(subnav);
+              if (cs.position === 'sticky' || cs.position === 'fixed') {
+                return subnav.getBoundingClientRect().height || 0;
+              }
+            }
+            return 0;
+          }
 
-          // Wait for scroll to settle, then position the tooltip relative to the new viewport
-          setTimeout(() => {
-            const r = el.getBoundingClientRect();
-            const tipRect = tooltip.getBoundingClientRect();
-            const padding = 20;
+          // Is the element pinned (sticky/fixed)?
+          function isSticky(node) {
+            while (node && node !== document.body) {
+              const p = window.getComputedStyle(node).position;
+              if (p === 'sticky' || p === 'fixed') return true;
+              node = node.parentElement;
+            }
+            return false;
+          }
+
+          // Scroll the target into useful view. For tall targets, anchor at top. For sticky, no scroll.
+          function scrollIntoUsefulView(cb) {
+            const sticky = isSticky(el);
+            if (sticky) { cb(); return; }
+            const rect = el.getBoundingClientRect();
             const vh = window.innerHeight;
-            // Decide actual placement based on available space
-            const spaceBelow = vh - r.bottom;
-            const spaceAbove = r.top;
-            let placement = step.placement || 'bottom';
-            if (placement === 'bottom' && spaceBelow < tipRect.height + padding && spaceAbove > tipRect.height + padding) {
-              placement = 'top';
-            } else if (placement === 'top' && spaceAbove < tipRect.height + padding && spaceBelow > tipRect.height + padding) {
-              placement = 'bottom';
-            }
-            const newScrollY = window.scrollY;
-            let top, left;
-            if (placement === 'bottom') {
-              top = r.bottom + newScrollY + padding;
-              left = r.left + (r.width/2) - (tipRect.width/2);
-            } else if (placement === 'top') {
-              top = r.top + newScrollY - tipRect.height - padding;
-              left = r.left + (r.width/2) - (tipRect.width/2);
+            const offset = stickyOffset() + 16;
+            const tallTarget = rect.height > vh * 0.6;
+            let desiredScrollY;
+            if (tallTarget) {
+              // Scroll so the top of the target sits just below sticky nav
+              desiredScrollY = (rect.top + window.scrollY) - offset;
             } else {
-              top = r.bottom + newScrollY + padding;
-              left = r.left;
+              // Center the target in the visible area below sticky nav
+              const usableCenter = offset + (vh - offset) / 2;
+              desiredScrollY = (rect.top + window.scrollY + rect.height/2) - usableCenter;
             }
-            left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
-            // Clamp so tooltip always stays inside viewport
-            const minTop = newScrollY + 20;
-            const maxTop = newScrollY + vh - tipRect.height - 20;
-            top = Math.max(minTop, Math.min(maxTop, top));
-            tooltip.style.top = top + 'px';
-            tooltip.style.left = left + 'px';
+            desiredScrollY = Math.max(0, desiredScrollY);
+            // Use auto so we can measure immediately
+            window.scrollTo({ top: desiredScrollY, behavior: 'auto' });
+            // One frame later, positions are settled
+            requestAnimationFrame(() => requestAnimationFrame(cb));
+          }
+
+          function positionEverything() {
+            const r = el.getBoundingClientRect();
+            const sy = window.scrollY;
+            const sxOffset = 0;
+            const spotPad = 10;
+
+            spotlight.style.display = 'block';
+            spotlight.style.top  = (r.top + sy - spotPad) + 'px';
+            spotlight.style.left = (r.left + sxOffset - spotPad) + 'px';
+            spotlight.style.width  = (r.width + spotPad*2) + 'px';
+            spotlight.style.height = (r.height + spotPad*2) + 'px';
+
+            tooltip.style.display = 'block';
+            document.getElementById('tourTitle').textContent = step.title;
+            document.getElementById('tourBody').textContent = step.body;
+            document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${_activeTourSteps.length}`;
+            document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${_activeTourSteps.length}`;
+            document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
+            document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
+
+            // Measure tooltip
+            tooltip.style.left = '-9999px';
+            tooltip.style.top  = '-9999px';
             tooltip.classList.add('active');
-          }, 400);
+            const tipRect = tooltip.getBoundingClientRect();
+
+            const vh = window.innerHeight;
+            const vw = window.innerWidth;
+            const gap = 14;
+            const navH = stickyOffset();
+            const margin = 20;
+
+            // Decide placement based on real available space
+            const spotTop    = r.top - spotPad;
+            const spotBottom = r.bottom + spotPad;
+            const spaceBelow = vh - spotBottom;
+            const spaceAbove = spotTop - navH;
+
+            let placement = step.placement || 'bottom';
+            const needs = tipRect.height + gap;
+            if (placement === 'bottom' && spaceBelow < needs && spaceAbove >= needs) placement = 'top';
+            else if (placement === 'top' && spaceAbove < needs && spaceBelow >= needs) placement = 'bottom';
+            // If neither side fits, prefer the larger
+            if ((placement === 'bottom' && spaceBelow < needs) || (placement === 'top' && spaceAbove < needs)) {
+              placement = spaceBelow >= spaceAbove ? 'bottom' : 'top';
+            }
+
+            let top, left;
+            if (placement === 'top') {
+              top = r.top + sy - tipRect.height - gap;
+            } else {
+              top = r.bottom + sy + gap;
+            }
+            left = r.left + (r.width/2) - (tipRect.width/2);
+            left = Math.max(margin, Math.min(left, vw - tipRect.width - margin));
+
+            // Final clamp inside viewport
+            const minTop = sy + navH + margin;
+            const maxTop = sy + vh - tipRect.height - margin;
+            top = Math.max(minTop, Math.min(maxTop, top));
+
+            tooltip.style.top  = top + 'px';
+            tooltip.style.left = left + 'px';
+          }
+
+          scrollIntoUsefulView(positionEverything);
         }
         function tourNext() {
           document.getElementById('tourTooltip').classList.remove('active');
