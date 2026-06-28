@@ -280,6 +280,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 
 .coi-filled .meta { display:flex; align-items:center; gap:6px; }
 .coi-warn-icon { flex-shrink:0; vertical-align:-2px; }
+
+.saved { opacity: 0; transition: opacity 0.25s; margin-left: 10px; color: var(--forest-700); font-weight: 700; font-size: 0.9rem; }
+.saved.show { opacity: 1; }
 </style>
 <!-- PostHog -->
 <script>
@@ -1022,9 +1025,132 @@ function renderProfile() {
   });
 }
 
-// Minimal renderAccount stub so Account tab doesn't error
+// ===== Brand portal write actions (save profile, remove COI/avatar, sign out, team) =====
+async function _brandApi(action, payload, method) {
+  const m = (method || 'POST').toUpperCase();
+  const url = '/api/brand-account?action=' + encodeURIComponent(action) + '&session_id=' + encodeURIComponent(sessionToken);
+  const opts = { method: m, headers: {'Content-Type':'application/json'} };
+  if (payload !== undefined && m !== 'GET') opts.body = JSON.stringify(payload || {});
+  const r = await fetch(url, opts);
+  let j = null; try { j = await r.json(); } catch(_) {}
+  if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  return j || {};
+}
+
+// Save profile (wired to saveProfileBtn click)
+async function saveProfile() {
+  const btn = document.getElementById('saveProfileBtn');
+  const saved = document.getElementById('profileSaved');
+  if (!btn) return;
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const payload = {
+      company_name: document.getElementById('f_company_name')?.value.trim() || '',
+      contact_name: document.getElementById('f_contact_name')?.value.trim() || '',
+      phone: document.getElementById('f_phone')?.value.trim() || '',
+      website: document.getElementById('f_website')?.value.trim() || '',
+      default_coi_expires: document.getElementById('f_default_coi_expires')?.value || null,
+      default_product_info: document.getElementById('f_default_product_info')?.value.trim() || '',
+      default_categories: document.getElementById('f_default_categories')?.value || '',
+    };
+    await _brandApi('profile-update', payload);
+    Object.assign(_data.profile, payload);
+    if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
+    renderCoiWidget && renderCoiWidget();
+  } catch (err) {
+    alert('Save failed: ' + (err.message || 'unknown'));
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save changes';
+  }
+}
+
+// Remove COI (called from inline onclick)
+window.removeCoi = async function() {
+  if (!confirm('Remove your Certificate of Insurance? You can upload a new one anytime.')) return;
+  try {
+    await _brandApi('remove-coi', {});
+    _data.profile.default_coi_url = null;
+    _data.profile.default_coi_filename = null;
+    _data.profile.default_coi_mime = null;
+    _data.profile.default_coi_expires = null;
+    renderCoiWidget();
+  } catch (err) {
+    alert('Could not remove COI: ' + (err.message || 'unknown'));
+  }
+};
+
+// Remove avatar
+window.removeAvatar = async function() {
+  if (!confirm('Remove your logo?')) return;
+  try {
+    await _brandApi('remove-avatar', {});
+    _data.profile.logo_url = null;
+    renderAvatar(document.getElementById('profileAvatar'), null);
+    renderAvatar(document.getElementById('navAvatar'), null);
+    render();
+  } catch (err) {
+    alert('Could not remove avatar: ' + (err.message || 'unknown'));
+  }
+};
+
+// Sign out
+window.brandSignOut = async function() {
+  try { await _brandApi('logout', {}); } catch(_) {}
+  try { localStorage.removeItem('demohub_brand_account_session'); } catch(_) {}
+  window.location.href = '/brand/signin';
+};
+
+// Team invite modal handlers (no-op if modal not present)
+window.closeTeamInvite = function() {
+  const m = document.getElementById('teamInviteModal');
+  if (m) m.style.display = 'none';
+};
+window.sendTeamInvite = async function() {
+  const email = document.getElementById('teamInviteEmail')?.value.trim();
+  if (!email) { alert('Enter an email'); return; }
+  try {
+    await _brandApi('team-invite', { email });
+    alert('Invite sent.');
+    window.closeTeamInvite();
+  } catch (err) {
+    alert('Could not send invite: ' + (err.message || 'unknown'));
+  }
+};
+
+// Wire up the saveProfileBtn anytime it's rendered (event delegation on body)
+document.body.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'saveProfileBtn') {
+    e.preventDefault();
+    saveProfile();
+  }
+});
+
+// Account tab — real settings + sign out
 function renderAccount() {
-  main.innerHTML = '<div class="card"><h2>Account</h2><div class="sub">Account settings coming soon. For now, contact <a href="mailto:david@demohubhq.com">david@demohubhq.com</a> for any account changes.</div></div>';
+  const p = _data.profile || {};
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Account</h1><div class="sub">Your sign-in and notification settings.</div></div></div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Signed in as</h2>
+      <div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(p.company_name || 'your brand')}</div>
+      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(p.email || '')}</div>
+      <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
+        <a class="btn btn-ghost" href="mailto:david@demohubhq.com?subject=Demohub%20account%20question">Email support</a>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 14px;">Notifications</h2>
+      <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.5;">
+        We send you a sign-in link, a welcome email, and COI expiry reminders (30 / 14 / 3 days before expiry).
+        Transactional emails always go through.
+      </div>
+    </div>
+    <div class="card">
+      <h2 style="margin:0 0 6px;">Danger zone</h2>
+      <div class="sub" style="margin-bottom:14px;">Need to permanently delete your brand account? Email david@demohubhq.com and we'll erase your data within 30 days (GDPR-compliant).</div>
+    </div>
+  `;
 }
 
 // ===== Bootstrap =====

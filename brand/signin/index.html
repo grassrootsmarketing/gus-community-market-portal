@@ -297,4 +297,9 @@ if (catPickerEl) {
 
 // Default to signup tab when URL is /brand/signup OR ?tab=signup query param
 const _urlTab = new URLSearchParams(window.location.search).get('tab');
-if (_urlTab === 'signup' || window.location.pathna
+if (_urlTab === 'signup' || window.location.pathname === '/brand/signup') {
+  setTab('signup');
+}
+</script>
+</body>
+</html>
