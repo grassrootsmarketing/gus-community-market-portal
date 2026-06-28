@@ -181,6 +181,42 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
   return { subject, html: htmlBody, text };
 }
 
+function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_left }) {
+  const subjectMap = {
+    30: `Your COI expires in 30 days — let's get ahead of it`,
+    14: `Reminder: your Demohub COI expires in 2 weeks`,
+    3:  `Last call: your COI expires in ${days_left} day${days_left === 1 ? '' : 's'}`,
+  };
+  const headlineMap = {
+    30: `Your COI expires in 30 days`,
+    14: `2 weeks until your COI expires`,
+    3:  `${days_left} day${days_left === 1 ? '' : 's'} until your COI expires`,
+  };
+  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: https://demohubhq.com/brand/dashboard#profile\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
+    <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
+        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+        <div style="font-weight:800;font-size:18px;letter-spacing:-0.04em;color:#0f2c17;">demohub</div>
+      </div>
+      <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.025em;color:#0f2c17;margin:0 0 14px;line-height:1.2;">${headlineMap[tier]}</h1>
+      <p style="font-size:15px;color:#3a3a36;line-height:1.55;margin:0 0 16px;">Hi ${first_name || 'there'},</p>
+      <p style="font-size:15px;color:#3a3a36;line-height:1.55;margin:0 0 16px;">Quick heads-up: the Certificate of Insurance on your <strong>${brand_name || 'brand'}</strong> Demohub profile expires on <strong>${expires_label}</strong>.</p>
+      <p style="font-size:15px;color:#3a3a36;line-height:1.55;margin:0 0 24px;">Retailers can't accept new demos from brands with an expired COI, and your <strong>verified badge disappears</strong> the moment it lapses. Take a minute now and you're set for the rest of the policy year.</p>
+      <div style="background:white;border:1px solid rgba(15,44,23,0.08);border-radius:10px;padding:18px 22px;margin-bottom:24px;">
+        <ol style="margin:0;padding-left:20px;font-size:14px;color:#3a3a36;line-height:1.7;">
+          <li>Get an updated COI from your insurer (most brokers can re-issue same-day).</li>
+          <li>Upload it to your profile.</li>
+          <li>You're done — every Demohub retailer sees the new doc instantly.</li>
+        </ol>
+      </div>
+      <a href="https://demohubhq.com/brand/dashboard#profile" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
+      <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email — a human reads everything.</p>
+    </div>
+  </body></html>`;
+  return { subject: subjectMap[tier], html, text: body };
+}
+
 async function sendWelcome({ to, subject, html, text }) {
   if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — skipping welcome to', to); return false; }
   try {
@@ -414,6 +450,9 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({
           default_coi_url: publicUrl,
+          coi_warn_30_sent_at: null,
+          coi_warn_14_sent_at: null,
+          coi_warn_3_sent_at: null,
           default_coi_filename: originalName,
           default_coi_mime: mime,
           updated_at: new Date().toISOString(),
@@ -430,6 +469,9 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({
           default_coi_url: null,
+          coi_warn_30_sent_at: null,
+          coi_warn_14_sent_at: null,
+          coi_warn_3_sent_at: null,
           default_coi_filename: null,
           default_coi_mime: null,
           default_coi_expires: null,
@@ -717,7 +759,52 @@ export default async function handler(req, res) {
         errors.push({ kind: 'brand_firstdemo_query', error: String(e?.message || e) });
       }
 
-      return jsonResp(res, 200, { ok: true, retailerDay3Sent, brandFirstDemoSent, errors, ran_at: nowIso });
+      // COI expiry warnings: 30, 14, 3 days before default_coi_expires
+      const coiSent = { tier30: 0, tier14: 0, tier3: 0 };
+      const tiers = [
+        { days: 30, col: 'coi_warn_30_sent_at', windowLow: 27, windowHigh: 30 },
+        { days: 14, col: 'coi_warn_14_sent_at', windowLow: 11, windowHigh: 14 },
+        { days: 3,  col: 'coi_warn_3_sent_at',  windowLow: 1,  windowHigh: 3  },
+      ];
+      for (const tier of tiers) {
+        try {
+          // Compute date window (inclusive)
+          const lo = new Date(Date.now() + tier.windowLow * 86400000);
+          const hi = new Date(Date.now() + tier.windowHigh * 86400000);
+          const loStr = lo.toISOString().slice(0,10);
+          const hiStr = hi.toISOString().slice(0,10);
+          const path = `brands?select=id,email,company_name,contact_name,default_coi_expires,${tier.col}` +
+            `&default_coi_url=not.is.null` +
+            `&default_coi_expires=gte.${loStr}` +
+            `&default_coi_expires=lte.${hiStr}` +
+            `&${tier.col}=is.null`;
+          const r = await sb(path);
+          const list = await r.json();
+          for (const b of (Array.isArray(list) ? list : [])) {
+            try {
+              const ex = new Date(b.default_coi_expires + 'T00:00:00');
+              const daysLeft = Math.max(0, Math.ceil((ex.getTime() - Date.now()) / 86400000));
+              const expiresLabel = ex.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+              const firstName = String(b.contact_name || '').trim().split(/\s+/)[0] || b.company_name || 'there';
+              const built = coiWarningEmail({ tier: tier.days, first_name: firstName, brand_name: b.company_name, expires_label: expiresLabel, days_left: daysLeft });
+              const ok = await sendWelcome({ to: b.email, subject: built.subject, html: built.html, text: built.text });
+              if (ok) {
+                const patch = {}; patch[tier.col] = nowIso;
+                await sb(`brands?id=eq.${encodeURIComponent(b.id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+                coiSent['tier' + tier.days]++;
+              } else {
+                errors.push({ kind: 'coi_warn_' + tier.days, id: b.id, error: 'send failed' });
+              }
+            } catch (e) {
+              errors.push({ kind: 'coi_warn_' + tier.days, id: b.id, error: String(e?.message || e) });
+            }
+          }
+        } catch (e) {
+          errors.push({ kind: 'coi_warn_' + tier.days + '_query', error: String(e?.message || e) });
+        }
+      }
+
+      return jsonResp(res, 200, { ok: true, retailerDay3Sent, brandFirstDemoSent, coiSent, errors, ran_at: nowIso });
     }
 
     return jsonResp(res, 400, { error: 'Unknown action' });

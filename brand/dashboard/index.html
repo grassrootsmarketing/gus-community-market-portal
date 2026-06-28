@@ -277,6 +277,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .verified-panel .vmsg p { font-size:0.88rem; color:var(--ink-700); line-height:1.5; margin:0; }
 .verified-panel .vmsg ul { margin:8px 0 0 0; padding-left:18px; font-size:0.85rem; color:var(--ink-700); line-height:1.6; }
 .verified-panel .vmsg ul li { margin-bottom:2px; }
+
+.coi-filled .meta { display:flex; align-items:center; gap:6px; }
+.coi-warn-icon { flex-shrink:0; vertical-align:-2px; }
 </style>
 <!-- PostHog -->
 <script>
@@ -946,13 +949,32 @@ function renderProfile() {
       const name = p.default_coi_filename || 'certificate-of-insurance';
       const isPdf = (p.default_coi_mime || '').includes('pdf') || name.toLowerCase().endsWith('.pdf');
       const icon = isPdf ? 'PDF' : 'IMG';
-      const expires = p.default_coi_expires ? `Expires ${new Date(p.default_coi_expires + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}` : 'No expiration date set';
+      // Days until expiry (or negative if past)
+      let daysLeft = null;
+      if (p.default_coi_expires) {
+        const ex = new Date(p.default_coi_expires + 'T00:00:00');
+        daysLeft = Math.ceil((ex.getTime() - Date.now()) / 86400000);
+      }
+      // Build expiry display: base date + parenthetical days-left + warning icon if ≤90 days
+      let expiresText = p.default_coi_expires
+        ? `Expires ${new Date(p.default_coi_expires + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}`
+        : 'No expiration date set';
+      let expiresWarn = '';
+      if (daysLeft !== null) {
+        if (daysLeft < 0) {
+          expiresText = `Expired ${new Date(p.default_coi_expires + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}`;
+          expiresWarn = '<svg class="coi-warn-icon expired" width="16" height="16" viewBox="0 0 24 24" aria-label="Expired"><title>COI expired — upload a new one</title><circle cx="12" cy="12" r="11" fill="#c93030"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>';
+        } else if (daysLeft <= 90) {
+          expiresText += ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)`;
+          expiresWarn = `<svg class="coi-warn-icon soon" width="16" height="16" viewBox="0 0 24 24" aria-label="Expires soon"><title>COI expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} — plan to renew</title><circle cx="12" cy="12" r="11" fill="#ed682f"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+        }
+      }
       widget.innerHTML = `<div class="coi-block">
         <div class="coi-filled">
           <div class="icon">${icon}</div>
           <div class="info">
             <div class="name">${escapeHtml(name)}</div>
-            <div class="meta">${escapeHtml(expires)}</div>
+            <div class="meta">${expiresWarn}${escapeHtml(expiresText)}</div>
           </div>
           <div class="actions">
             <a class="view" href="${escapeHtml(p.default_coi_url)}" target="_blank" rel="noopener">View</a>
