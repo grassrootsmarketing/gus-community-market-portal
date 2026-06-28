@@ -1351,28 +1351,39 @@ function showTourStep() {
   document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${_activeTourSteps.length}`;
   document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
   document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
-  requestAnimationFrame(() => {
+  const targetCenterY = rect.top + scrollY + (rect.height / 2);
+  const desiredScrollY = Math.max(0, targetCenterY - (window.innerHeight / 2));
+  window.scrollTo({ top: desiredScrollY, behavior: 'smooth' });
+  setTimeout(() => {
+    const r = el.getBoundingClientRect();
     const tipRect = tooltip.getBoundingClientRect();
     const padding = 20;
+    const vh = window.innerHeight;
+    const spaceBelow = vh - r.bottom;
+    const spaceAbove = r.top;
+    let placement = step.placement || 'bottom';
+    if (placement === 'bottom' && spaceBelow < tipRect.height + padding && spaceAbove > tipRect.height + padding) placement = 'top';
+    else if (placement === 'top' && spaceAbove < tipRect.height + padding && spaceBelow > tipRect.height + padding) placement = 'bottom';
+    const newScrollY = window.scrollY;
     let top, left;
-    if (step.placement === 'bottom') {
-      top = rect.bottom + scrollY + padding;
-      left = rect.left + (rect.width/2) - (tipRect.width/2);
-    } else if (step.placement === 'top') {
-      top = rect.top + scrollY - tipRect.height - padding;
-      left = rect.left + (rect.width/2) - (tipRect.width/2);
+    if (placement === 'bottom') {
+      top = r.bottom + newScrollY + padding;
+      left = r.left + (r.width/2) - (tipRect.width/2);
+    } else if (placement === 'top') {
+      top = r.top + newScrollY - tipRect.height - padding;
+      left = r.left + (r.width/2) - (tipRect.width/2);
     } else {
-      top = rect.bottom + scrollY + padding;
-      left = rect.left;
+      top = r.bottom + newScrollY + padding;
+      left = r.left;
     }
     left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
-    top = Math.max(scrollY + 20, top);
+    const minTop = newScrollY + 20;
+    const maxTop = newScrollY + vh - tipRect.height - 20;
+    top = Math.max(minTop, Math.min(maxTop, top));
     tooltip.style.top = top + 'px';
     tooltip.style.left = left + 'px';
-    setTimeout(() => tooltip.classList.add('active'), 10);
-  });
-  const desiredY = rect.top + scrollY - 100;
-  window.scrollTo({ top: desiredY, behavior: 'smooth' });
+    tooltip.classList.add('active');
+  }, 400);
 }
 function tourNext() {
   document.getElementById('tourTooltip').classList.remove('active');
