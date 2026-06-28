@@ -399,13 +399,13 @@
 
     <div class="view active" id="adminView" style="display:none;">
         <header class="header">
-            <div class="brand" onclick="location.href='/r/gus'">
+            <div class="brand" style="cursor:default;">
                 <div class="brand-icon" id="retailerAvatar" title="Click the pencil to upload your store logo"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#d3cfc4"/><circle cx="32" cy="24" r="10" fill="#a8a298"/><path d="M14 56 C14 44, 24 38, 32 38 C40 38, 50 44, 50 56 Z" fill="#a8a298"/></svg></div>
                 <div class="brand-text"><h1 id="adminHeaderRetailerName">Loading…<button type="button" class="logo-edit-btn" id="retailerLogoEditBtn" title="Upload logo" onclick="event.stopPropagation(); document.getElementById('retailerLogoFile').click();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></h1><span>Admin Dashboard</span></div>
                 <input type="file" id="retailerLogoFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
             </div>
             <div class="header-nav">
-                <button onclick="location.href='/r/gus'">Book Demo</button>
+                <button onclick="window.open('/r/' + (window.RETAILER_SLUG || ''), '_blank')">Preview booking page</button>
                 <button class="active">Admin</button>
             </div>
         </header>
@@ -1317,7 +1317,7 @@ END:VEVENT
         // ===== Supabase client + cached state =====
         const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
         const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-        const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
+        const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || ''; window.RETAILER_SLUG = RETAILER_SLUG;
         let sb = null;
         let RETAILER_ID = null;
         window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [], bookings: [] };
