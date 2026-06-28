@@ -721,6 +721,32 @@ export default async function handler(req, res) {
       return;
     }
 
+    // -------- TEMP: send arbitrary email with attachment. Bearer-protected. --------
+    if (action === 'send-attachment') {
+      const auth = String(req.headers?.authorization || req.headers?.Authorization || '');
+      const provided = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      if (provided !== 'demohub-temp-pdf-send-026e85e9') {
+        return jsonResp(res, 401, { error: 'Unauthorized' });
+      }
+      if (!RESEND_API_KEY) return jsonResp(res, 500, { error: 'RESEND_API_KEY missing' });
+      const { to, subject, html, attachment_b64, attachment_name } = body || {};
+      if (!to || !attachment_b64) return jsonResp(res, 400, { error: 'Need to + attachment_b64' });
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'Demohub <david@demohubhq.com>',
+          to: Array.isArray(to) ? to : [to],
+          subject: subject || 'Demohub document',
+          html: html || '<p>Attached.</p>',
+          attachments: [{ filename: attachment_name || 'document.pdf', content: attachment_b64 }],
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) return jsonResp(res, 502, { error: 'Resend error', detail: j });
+      return jsonResp(res, 200, { ok: true, id: j.id });
+    }
+
     // -------- CRON: daily welcome-series job. Protected by CRON_SECRET. --------
     // Vercel cron invocations send: Authorization: Bearer <CRON_SECRET>
     if (action === 'cron') {
