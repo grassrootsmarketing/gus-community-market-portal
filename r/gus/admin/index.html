@@ -636,6 +636,12 @@
                             <div class="form-group"><label class="form-label">Calendar feed</label><div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:6px;">Subscribe in Google, Apple, or Outlook calendar to see all confirmed demos.</div><button class="btn btn-secondary" style="width: 100%; justify-content: center;" id="copyIcalBtn" onclick="copyIcalUrl()">Copy calendar URL</button></div>
                         </div>
                     </div>
+                    <div class="settings-card" id="billingCard">
+                        <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
+                        <div class="settings-card-body" id="billingCardBody">
+                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">Loading billing status…</div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2884,6 +2890,127 @@ END:VEVENT
                 setTimeout(() => inputs[0].focus(), 50);
             }
         }
-        </script>
+        
+        // ===== Plan & billing (Stripe Phase 1) =====
+        const TIER_LABELS = { solo: 'Solo', starter: 'Starter', growth: 'Growth', enterprise: 'Enterprise' };
+        const TIER_PRICES_MONTHLY = { solo: 49, starter: 99, growth: 199, enterprise: 399 };
+
+        async function renderBilling() {
+            const body = document.getElementById('billingCardBody');
+            if (!body) return;
+            try {
+                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const r = await fetch('/api/stripe?action=status&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Failed to load');
+                const tierLabel = d.tier ? TIER_LABELS[d.tier] || d.tier : 'Free (no subscription)';
+                const statusBadge = d.status === 'active' ? '<span style="display:inline-block;background:#e3edd6;color:#1f4a26;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Active</span>'
+                    : d.status === 'trialing' ? '<span style="display:inline-block;background:#fff3ed;color:#a14e2a;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Trial</span>'
+                    : d.status === 'past_due' ? '<span style="display:inline-block;background:#fdebe5;color:#c93030;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Past due</span>'
+                    : d.status === 'canceled' ? '<span style="display:inline-block;background:#f1efe8;color:#6b6a64;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Canceled</span>'
+                    : '';
+                const periodLine = d.period_end ? `<div style="font-size:0.82rem;color:var(--ink-500);margin-top:6px;">Renews ${new Date(d.period_end).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}${d.interval ? ' · billed ' + d.interval + 'ly' : ''}</div>` : '';
+
+                let buttons = '';
+                if (d.has_subscription) {
+                    buttons = `<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
+                        <button class="btn btn-primary" onclick="openBillingPortal()" style="padding:9px 16px;font-size:0.9rem;">Manage billing &rarr;</button>
+                        <button class="btn btn-secondary" onclick="openUpgradeModal()" style="padding:9px 16px;font-size:0.9rem;">Change plan</button>
+                    </div>`;
+                } else {
+                    buttons = `<div style="margin-top:14px;"><button class="btn btn-primary" onclick="openUpgradeModal()" style="padding:10px 20px;font-size:0.92rem;">Upgrade to a paid plan &rarr;</button></div>`;
+                }
+
+                body.innerHTML = `
+                    <div style="margin-bottom:6px;">
+                        <span style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">${tierLabel}</span>${statusBadge}
+                    </div>
+                    ${periodLine}
+                    ${buttons}
+                `;
+            } catch (e) {
+                body.innerHTML = '<div style="font-size:0.85rem;color:var(--clay-700);padding:6px 0;">Couldn\'t load billing status: ' + (e.message || e) + '</div>';
+            }
+        }
+
+        async function openBillingPortal() {
+            const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+            const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+            const d = await r.json();
+            if (d.url) window.location.href = d.url;
+            else alert('Failed to open billing portal: ' + (d.error || 'unknown'));
+        }
+
+        function openUpgradeModal() {
+            const m = document.getElementById('upgradeModal');
+            if (m) m.style.display = 'flex';
+        }
+        function closeUpgradeModal() {
+            const m = document.getElementById('upgradeModal');
+            if (m) m.style.display = 'none';
+        }
+
+        async function subscribeToTier(tier, interval) {
+            const btn = event?.target;
+            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+            try {
+                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const r = await fetch('/api/stripe?action=subscribe&session_id=' + encodeURIComponent(sessionId), {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ tier, interval }),
+                });
+                const d = await r.json();
+                if (d.url) { window.location.href = d.url; return; }
+                throw new Error(d.error || 'Failed');
+            } catch (e) {
+                alert('Could not start checkout: ' + (e.message || e));
+                if (btn) { btn.disabled = false; btn.textContent = 'Subscribe'; }
+            }
+        }
+
+        // Render billing whenever the settings view becomes visible
+        if (typeof loadSettings === 'function') {
+            const _origLoadSettings = loadSettings;
+            window.loadSettings = function() { _origLoadSettings(); renderBilling(); };
+        }
+</script>
+
+    <!-- Upgrade plan modal -->
+    <div class="modal-overlay" id="upgradeModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
+      <div style="max-width:760px; background:white; border-radius:16px; padding:30px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h3 style="font-size:1.5rem; color:var(--forest-900); font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; letter-spacing:-0.025em; margin:0;">Choose your plan</h3>
+          <button style="background:none;border:none;font-size:1.6rem;color:var(--ink-500);cursor:pointer;" onclick="closeUpgradeModal()">&times;</button>
+        </div>
+        <div style="font-size:0.92rem;color:var(--ink-500);margin-bottom:22px;">Annual plans save ~17%. Cancel anytime.</div>
+        <div style="display:flex; gap:8px; margin-bottom:18px;">
+          <button id="upBillMonth" class="btn btn-secondary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillMonth').classList.add('btn-primary');document.getElementById('upBillMonth').classList.remove('btn-secondary');document.getElementById('upBillYear').classList.add('btn-secondary');document.getElementById('upBillYear').classList.remove('btn-primary');window._upInterval='month';">Monthly</button>
+          <button id="upBillYear" class="btn btn-primary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillYear').classList.add('btn-primary');document.getElementById('upBillYear').classList.remove('btn-secondary');document.getElementById('upBillMonth').classList.add('btn-secondary');document.getElementById('upBillMonth').classList.remove('btn-primary');window._upInterval='year';">Yearly &mdash; save 17%</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
+          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
+            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Solo</div>
+            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">1 location</div>
+            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('solo', window._upInterval || 'year')">Subscribe</button>
+          </div>
+          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
+            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Starter</div>
+            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">Up to 3 locations</div>
+            <button class="btn btn-primary" style="width:100%;font-weight:700;" onclick="subscribeToTier('starter', window._upInterval || 'year')">Subscribe</button>
+          </div>
+          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
+            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Growth</div>
+            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">Up to 10 locations</div>
+            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('growth', window._upInterval || 'year')">Subscribe</button>
+          </div>
+          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
+            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Enterprise</div>
+            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">10+ locations</div>
+            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('enterprise', window._upInterval || 'year')">Subscribe</button>
+          </div>
+        </div>
+        <div style="font-size:0.78rem;color:var(--ink-500);margin-top:18px;text-align:center;">All plans include unlimited brand demos, COI tracking, and the verified brand badge system. Need help choosing? Email david@demohubhq.com.</div>
+      </div>
+    </div>
 </body>
 </html>

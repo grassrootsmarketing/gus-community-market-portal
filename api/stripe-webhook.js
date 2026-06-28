@@ -95,6 +95,110 @@ export default async function handler(req, res) {
         }
       }
     }
+
+    // ===== Subscription lifecycle events (Stripe Phase 1) =====
+    // checkout.session.completed for a subscription -> we record customer/sub IDs.
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      if (session.mode === 'subscription' && session.subscription) {
+        const retailerId = session.metadata?.retailer_id || session.subscription_data?.metadata?.retailer_id;
+        if (retailerId) {
+          // Fetch the subscription to know tier + period + status
+          const subRes = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(session.subscription)}?expand[]=items.data.price.product`, {
+            headers: { Authorization: `Basic ${Buffer.from(STRIPE_SECRET_KEY + ':').toString('base64')}` },
+          });
+          const sub = await subRes.json();
+          if (subRes.ok) {
+            const item = sub.items?.data?.[0];
+            const tier = item?.price?.product?.metadata?.tier || session.metadata?.tier || null;
+            const interval = item?.price?.recurring?.interval || session.metadata?.interval || null;
+            const patch = {
+              stripe_customer_id: sub.customer,
+              stripe_subscription_id: sub.id,
+              billing_tier: tier,
+              billing_status: sub.status,
+              billing_period_interval: interval,
+              billing_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+            };
+            await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+          }
+        }
+      }
+    }
+
+    // Subscription updated (tier change, status change, period rollover)
+    if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
+      const sub = event.data.object;
+      const retailerId = sub.metadata?.retailer_id;
+      if (retailerId) {
+        // Re-fetch with expanded product to read tier metadata reliably
+        const subRes = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(sub.id)}?expand[]=items.data.price.product`, {
+          headers: { Authorization: `Basic ${Buffer.from(STRIPE_SECRET_KEY + ':').toString('base64')}` },
+        });
+        const subFull = await subRes.json();
+        const item = subFull.items?.data?.[0];
+        const tier = item?.price?.product?.metadata?.tier || null;
+        const interval = item?.price?.recurring?.interval || null;
+        const patch = {
+          stripe_subscription_id: sub.id,
+          stripe_customer_id: sub.customer,
+          billing_tier: tier,
+          billing_status: sub.status,
+          billing_period_interval: interval,
+          billing_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
+        };
+        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      }
+    }
+
+    // Subscription deleted (canceled and period ended)
+    if (event.type === 'customer.subscription.deleted') {
+      const sub = event.data.object;
+      const retailerId = sub.metadata?.retailer_id;
+      if (retailerId) {
+        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            stripe_subscription_id: null,
+            billing_tier: null,
+            billing_status: 'canceled',
+            billing_period_end: null,
+            billing_period_interval: null,
+          }),
+        });
+      }
+    }
+
+    // Invoice payment failed — mark past_due so admin can see and act
+    if (event.type === 'invoice.payment_failed') {
+      const inv = event.data.object;
+      if (inv.customer) {
+        const arr = await sb(`retailers?stripe_customer_id=eq.${encodeURIComponent(inv.customer)}&select=id`);
+        const r = Array.isArray(arr) ? arr[0] : null;
+        if (r) {
+          await sb(`retailers?id=eq.${encodeURIComponent(r.id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ billing_status: 'past_due' }),
+          });
+        }
+      }
+    }
+
+    // Invoice paid — clear past_due if it was set
+    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
+      const inv = event.data.object;
+      if (inv.customer && inv.subscription) {
+        const arr = await sb(`retailers?stripe_customer_id=eq.${encodeURIComponent(inv.customer)}&select=id,billing_status`);
+        const r = Array.isArray(arr) ? arr[0] : null;
+        if (r && r.billing_status === 'past_due') {
+          await sb(`retailers?id=eq.${encodeURIComponent(r.id)}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ billing_status: 'active' }),
+          });
+        }
+      }
+    }
+
     return res.status(200).end('ok');
   } catch (e) {
     return res.status(500).end(String(e?.message || e));
