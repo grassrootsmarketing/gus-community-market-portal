@@ -429,8 +429,14 @@
         </div>
         <div class="main-scroll">
             <div class="container">
-                <div class="page-header" id="dashSection">
-                    <h2 class="page-title">Dashboard</h2>
+                <div class="page-header" id="dashSection" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+                    <div>
+                        <h2 class="page-title">Dashboard</h2>
+                        </div>
+                    <button onclick="window.replayTour && window.replayTour()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 14px;background:white;border:1px solid rgba(15,44,23,0.18);border-radius:8px;font-family:inherit;font-size:0.85rem;font-weight:600;color:var(--forest-700);cursor:pointer;transition:all 0.15s;" onmouseover="this.style.background='var(--forest-50)';this.style.borderColor='var(--forest-300)'" onmouseout="this.style.background='white';this.style.borderColor='rgba(15,44,23,0.18)'">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        Show me around
+                    </button>
                     <p class="page-subtitle">Manage your demo schedule and view earnings</p>
                 </div>
 
