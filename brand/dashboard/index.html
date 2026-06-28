@@ -287,8 +287,8 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 /* ===== Onboarding tour ===== */
 .tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
 .tour-backdrop.active { opacity: 1; pointer-events: auto; }
-.tour-spotlight { position: absolute; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none; z-index: 9999; }
-.tour-tooltip { position: absolute; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.3s; }
+.tour-spotlight { position: fixed; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.25s ease-out; pointer-events: none; z-index: 9999; }
+.tour-tooltip { position: fixed; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.25s; }
 .tour-tooltip.active { opacity: 1; transform: translateY(0); }
 .tour-tooltip .tour-step { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #ed682f; margin-bottom: 8px; }
 .tour-tooltip h3 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem; font-weight: 800; color: #0f2c17; margin: 0 0 8px; letter-spacing: -0.02em; }
@@ -1348,7 +1348,6 @@ function showTourStep() {
     }
     return 0;
   }
-
   function isSticky(node) {
     while (node && node !== document.body) {
       const p = window.getComputedStyle(node).position;
@@ -1357,33 +1356,47 @@ function showTourStep() {
     }
     return false;
   }
-
   function scrollIntoUsefulView(cb) {
-    const sticky = isSticky(el);
-    if (sticky) { cb(); return; }
+    if (isSticky(el)) { cb(); return; }
     const rect = el.getBoundingClientRect();
     const vh = window.innerHeight;
-    const offset = stickyOffset() + 16;
     const tallTarget = rect.height > vh * 0.6;
-    let desiredScrollY;
-    if (tallTarget) {
-      desiredScrollY = (rect.top + window.scrollY) - offset;
-    } else {
-      const usableCenter = offset + (vh - offset) / 2;
-      desiredScrollY = (rect.top + window.scrollY + rect.height/2) - usableCenter;
+    try {
+      el.scrollIntoView({ behavior: 'auto', block: tallTarget ? 'start' : 'center', inline: 'nearest' });
+    } catch (_) {
+      let p = el.parentElement;
+      while (p && p !== document.body) {
+        const cs = window.getComputedStyle(p);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) {
+          const elTop = el.getBoundingClientRect().top - p.getBoundingClientRect().top + p.scrollTop;
+          p.scrollTop = tallTarget ? elTop - 16 : elTop - (p.clientHeight - rect.height) / 2;
+          break;
+        }
+        p = p.parentElement;
+      }
     }
-    desiredScrollY = Math.max(0, desiredScrollY);
-    window.scrollTo({ top: desiredScrollY, behavior: 'auto' });
+    const navH = stickyOffset();
+    if (tallTarget && navH > 0) {
+      let p = el.parentElement;
+      while (p && p !== document.body) {
+        const cs = window.getComputedStyle(p);
+        if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && p.scrollHeight > p.clientHeight) {
+          p.scrollTop -= navH;
+          break;
+        }
+        p = p.parentElement;
+      }
+      // Also nudge window if window is the scroll container
+      if (window.scrollY > 0) window.scrollBy(0, -navH);
+    }
     requestAnimationFrame(() => requestAnimationFrame(cb));
   }
 
   function positionEverything() {
     const r = el.getBoundingClientRect();
-    const sy = window.scrollY;
     const spotPad = 10;
-
     spotlight.style.display = 'block';
-    spotlight.style.top  = (r.top + sy - spotPad) + 'px';
+    spotlight.style.top  = (r.top - spotPad) + 'px';
     spotlight.style.left = (r.left - spotPad) + 'px';
     spotlight.style.width  = (r.width + spotPad*2) + 'px';
     spotlight.style.height = (r.height + spotPad*2) + 'px';
@@ -1403,15 +1416,12 @@ function showTourStep() {
 
     const vh = window.innerHeight;
     const vw = window.innerWidth;
-    const gap = 14;
+    const gap = 12;
     const navH = stickyOffset();
-    const margin = 20;
+    const margin = 16;
 
-    const spotTop    = r.top - spotPad;
-    const spotBottom = r.bottom + spotPad;
-    const spaceBelow = vh - spotBottom;
-    const spaceAbove = spotTop - navH;
-
+    const spaceBelow = vh - (r.bottom + spotPad);
+    const spaceAbove = (r.top - spotPad) - navH;
     let placement = step.placement || 'bottom';
     const needs = tipRect.height + gap;
     if (placement === 'bottom' && spaceBelow < needs && spaceAbove >= needs) placement = 'top';
@@ -1419,16 +1429,14 @@ function showTourStep() {
     if ((placement === 'bottom' && spaceBelow < needs) || (placement === 'top' && spaceAbove < needs)) {
       placement = spaceBelow >= spaceAbove ? 'bottom' : 'top';
     }
-
     let top, left;
-    if (placement === 'top') top = r.top + sy - tipRect.height - gap;
-    else top = r.bottom + sy + gap;
+    if (placement === 'top') top = (r.top - spotPad) - tipRect.height - gap;
+    else top = (r.bottom + spotPad) + gap;
     left = r.left + (r.width/2) - (tipRect.width/2);
     left = Math.max(margin, Math.min(left, vw - tipRect.width - margin));
-    const minTop = sy + navH + margin;
-    const maxTop = sy + vh - tipRect.height - margin;
+    const minTop = navH + margin;
+    const maxTop = vh - tipRect.height - margin;
     top = Math.max(minTop, Math.min(maxTop, top));
-
     tooltip.style.top  = top + 'px';
     tooltip.style.left = left + 'px';
   }
