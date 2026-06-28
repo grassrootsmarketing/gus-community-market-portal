@@ -737,7 +737,7 @@
     <div class="modal-overlay" id="storeBulkModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
         <div class="modal" style="max-width:720px; background:white; border-radius:16px; padding:30px; width:100%; max-height:90vh; overflow-y:auto; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
             <h3 style="font-size:1.4rem; color:var(--forest-800); margin-bottom:6px; font-family:'Plus Jakarta Sans', sans-serif; font-weight:400;">Bulk upload stores</h3>
-            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:20px;">Upload a CSV of your store locations all at once. Most retailers name their stores after the neighborhood, area, or major street — e.g., "Mission Bay", "Haight", "Noriega".</div>
+            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:20px;">Upload a CSV of your store locations all at once. Most retailers name their stores after the neighborhood, area, or major street — e.g., "Downtown", "Westside", "Main St".</div>
 
             <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px; margin-bottom:18px;">
                 <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:8px;">CSV columns</div>
@@ -786,14 +786,10 @@
                 <div class="form-group"><label class="form-label" id="contactCompanyLabel">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
                 <div class="form-group"><label class="form-label">Venue</label>
                     <select class="form-input" id="contactVenue">
-                        <option value="Mission Bay">Mission Bay</option>
-                        <option value="Mission">Mission</option>
-                        <option value="Haight St.">Haight St.</option>
-                        <option value="Noriega">Noriega</option>
-                        <option value="Canyon">Canyon</option>
+                        <!-- options populated dynamically from window.state.venues -->
                     </select>
                 </div>
-                <div class="form-group" id="contactAddressGroup"><label class="form-label">Address</label><input type="text" class="form-input" id="contactAddress" placeholder="123 Market St, San Francisco, CA"></div>
+                <div class="form-group" id="contactAddressGroup"><label class="form-label">Address</label><input type="text" class="form-input" id="contactAddress" placeholder="123 Main St, City, ST"></div>
                 <div class="form-group"><label class="form-label">Email</label><input type="email" class="form-input" id="contactEmail" placeholder="jane@acme.com"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="contactPhone" placeholder="555-123-4567"></div>
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
@@ -839,7 +835,7 @@
     <div class="modal-overlay" id="storeModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
         <div class="modal" style="max-width: 520px; background:white; border-radius:16px; padding:32px; width:100%; max-height:90vh; overflow-y:auto; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
             <h3 id="storeModalTitle" style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 20px; font-family:'Plus Jakarta Sans', sans-serif; font-weight:400;">Add Store</h3>
-            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Store name</label><input type="text" class="form-input" id="storeName" placeholder="e.g., Mission Bay" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
+            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Store name</label><input type="text" class="form-input" id="storeName" placeholder="e.g., Downtown" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
             <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Address</label><input type="text" class="form-input" id="storeAddress" placeholder="123 Main St, City, State ZIP" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
             <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Demo fee (USD)</label><input type="number" class="form-input" id="storeFee" min="0" step="5" value="30" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
             <div class="form-group" style="margin-bottom:18px;"><label style="display:flex; align-items:center; gap:8px; font-size:0.92rem; color:var(--forest-900); cursor:pointer;"><input type="checkbox" id="storeActive" checked> Active (accepting bookings)</label></div>
@@ -859,7 +855,7 @@
         let selectedTime = null;
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
-        let currentLocation = 'Mission Bay';
+        let currentLocation = '';
         let cart = [];
         const PRICE_PER_DEMO = 30;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -998,7 +994,7 @@
         function selectLocation(location) {
             currentLocation = location;
             document.getElementById('headerLocation').textContent = location;
-            document.getElementById('summaryLocation').textContent = location + ', San Francisco';
+            document.getElementById('summaryLocation').textContent = location;
             showView('client');
             renderCalendar();
         }
@@ -2027,7 +2023,7 @@ END:VEVENT
                 document.getElementById('contactId').value = c.id;
                 document.getElementById('contactName').value = c.name || '';
                 document.getElementById('contactCompany').value = c.company || '';
-                document.getElementById('contactVenue').value = c.venue || 'Mission Bay';
+                document.getElementById('contactVenue').value = c.venue || ((window.state.venues || [])[0] || {}).name || '';
                 document.getElementById('contactAddress').value = c.address || '';
                 document.getElementById('contactEmail').value = c.email || '';
                 document.getElementById('contactPhone').value = c.phone || '';
@@ -2035,7 +2031,7 @@ END:VEVENT
                 title.textContent = cfg.addLabel;
                 document.getElementById('contactId').value = '';
                 fields.forEach(f => document.getElementById(f).value = '');
-                document.getElementById('contactVenue').value = 'Mission Bay';
+                document.getElementById('contactVenue').value = ((window.state.venues || [])[0] || {}).name || '';
             }
             m.classList.add('active');
         }
@@ -2413,9 +2409,9 @@ END:VEVENT
         }
         function downloadStoreTemplate() {
             const csv = 'name,address,demo_fee,max_demos_per_slot,active\n' +
-                'Mission Bay,"1234 4th St, San Francisco, CA 94158",30,1,yes\n' +
-                'Haight,"1801 Haight St, San Francisco, CA 94117",30,1,yes\n' +
-                'Noriega,"4001 Noriega St, San Francisco, CA 94122",30,1,yes\n';
+                'Downtown,"123 Main St, Yourtown, ST 00000",30,1,yes\n' +
+                'Westside,"456 Oak Ave, Yourtown, ST 00000",30,1,yes\n' +
+                'Main St,"789 Main St, Yourtown, ST 00000",30,1,yes\n';
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -2833,7 +2829,36 @@ END:VEVENT
 
         // ===== Big Calendar =====
         let bigCalDate = new Date();
-        const VENUE_COLOR_ORDER = ['Mission Bay','Mission','Haight St.','Noriega','Canyon'];
+        let VENUE_COLOR_ORDER = []; // populated from window.state.venues at runtime
+        // Rebuild VENUE_COLOR_ORDER from the current retailer's actual venues — never hardcoded gus data
+        
+        // Populate venue selects from current retailer venues
+        function populateVenueSelect(selectId) {
+            const sel = document.getElementById(selectId);
+            if (!sel) return;
+            const venues = window.state.venues || [];
+            const currentVal = sel.value;
+            sel.innerHTML = venues.length
+                ? venues.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('')
+                : '<option value="">(No stores yet — add one first)</option>';
+            if (currentVal && venues.some(v => v.name === currentVal)) sel.value = currentVal;
+        }
+        
+        // Populate dynamic billing party from current retailer
+        function refreshBillingTo() {
+            const retailerName = (typeof RETAILER_DISPLAY_NAME !== 'undefined' && RETAILER_DISPLAY_NAME) || document.getElementById('adminHeaderRetailerName')?.firstChild?.textContent?.trim() || 'Your Business';
+            const venues = (window.state.venues || []).filter(v => v.active !== false);
+            const billingEmail = (window.state.settings && window.state.settings.billing_email) || '';
+            window._billingTo = {
+                name: retailerName,
+                stores: venues.length + ' store' + (venues.length === 1 ? '' : 's'),
+                email: billingEmail,
+            };
+        }
+        function refreshVenueColorOrder() {
+            VENUE_COLOR_ORDER = (window.state.venues || []).map(v => v.name).filter(Boolean).slice(0, 12);
+        }
+
         function venueIndex(name) {
             const idx = VENUE_COLOR_ORDER.indexOf(name);
             return idx >= 0 ? idx : 0;
@@ -2844,6 +2869,8 @@ END:VEVENT
         function renderBigLegend() {
             const lg = document.getElementById('bigCalLegend');
             if (!lg) return;
+            refreshVenueColorOrder();
+            if (VENUE_COLOR_ORDER.length === 0) { lg.innerHTML = ''; return; }
             lg.innerHTML = VENUE_COLOR_ORDER.map((v, i) =>
                 '<div class="big-cal-legend-item"><span class="big-cal-legend-dot venue-' + i + '"></span>' + escapeHtml(v) + '</div>'
             ).join('');
@@ -2979,7 +3006,7 @@ END:VEVENT
                 + '<h1>' + monthLabel(ym) + '</h1>'
                 + '<div class="parties">'
                 + '<div class="party"><h3>From</h3><div class="party-body"><strong>Demohub</strong><br>hello@demohubhq.com<br>demohubhq.com</div></div>'
-                + '<div class="party"><h3>To</h3><div class="party-body"><strong>Gus\'s Community Market</strong><br>5 stores · San Francisco, CA<br>billing@guscommunitymarket.com</div></div>'
+                + '<div class="party"><h3>To</h3><div class="party-body"><strong>' + escapeHtml(window._billingTo?.name || 'Your Business') + '</strong><br>' + escapeHtml(window._billingTo?.stores || '') + '<br>' + escapeHtml(window._billingTo?.email || '') + '</div></div>'
                 + '</div>'
                 + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
                   '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead><tbody>'
