@@ -309,6 +309,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <a href="#overview" class="nav-tab" data-tab="overview">Overview</a>
     <a href="#calendar" class="nav-tab" data-tab="calendar">Calendar</a>
     <a href="#profile" class="nav-tab" data-tab="profile">Profile</a>
+    <a href="#team" class="nav-tab" data-tab="team">Team</a>
     <a href="#account" class="nav-tab" data-tab="account">Account</a>
   </div>
   <div class="nav-account">
@@ -559,10 +560,11 @@ function renderOverview() {
     <div class="welcome" id="welcomeBanner">
       <button class="dismiss" onclick="dismissWelcome('${welcomeDismissedKey}')">&times;</button>
       <div class="eyebrow">Welcome to Demohub</div>
-      <h3>Two quick things to finish setting up.</h3>
+      <h3>Three quick things to finish setting up.</h3>
       <ol>
         <li><strong>${needsCoi ? 'Upload your COI' : 'Round out your profile'}</strong>, ${needsCoi ? 'Add your certificate of insurance so it auto-attaches to every demo booking.' : 'Fill in your phone, website, and product details so retailer forms pre-fill at every booking.'} <a href="#profile">Edit your profile →</a></li>
         <li><strong>Share your Demohub link</strong> with retailers you work with, they can book demos with you faster if they're on Demohub.</li>
+        <li><strong>Invite your team</strong>, add up to 5 teammates so anyone at your brand can manage demos, COI, and bookings. <a href="#team">Manage team →</a></li>
       </ol>
       <p>Once you book your first demo at any Demohub retailer, it shows up here automatically.</p>
     </div>` : '';
@@ -685,26 +687,32 @@ function renderOverview() {
     }
   }
 
-  // Verified status: COI uploaded AND not expired AND core profile fields present
+  // Verified status: COI valid + business identity (website) + dedicated point of contact + email
   const coiOk = !!profile.default_coi_url && (!profile.default_coi_expires || new Date(profile.default_coi_expires + 'T00:00:00') > new Date());
-  const profileOk = !!(profile.company_name && profile.contact_name && profile.email);
-  const isVerified = coiOk && profileOk;
+  const nameOk = !!profile.company_name;
+  const pocOk = !!profile.contact_name;
+  const emailOk = !!profile.email;
+  const websiteOk = !!(profile.website && profile.website.trim().length > 4);
+  const isVerified = coiOk && nameOk && pocOk && emailOk && websiteOk;
+  const hasLogo = !!profile.logo_url;
+
   let verifiedPanelHtml = '';
   if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.</p></div>
+      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${!hasLogo ? ' <strong><a href="#profile" style="color:var(--forest-700);">Add a profile picture</a></strong> to look even more credible.' : ''}</p></div>
     </div>`;
   } else {
     const missing = [];
     if (!profile.default_coi_url) missing.push('Upload a current Certificate of Insurance');
     else if (profile.default_coi_expires && new Date(profile.default_coi_expires + 'T00:00:00') <= new Date()) missing.push('Replace your expired COI');
-    if (!profile.company_name) missing.push('Add your brand / company name');
-    if (!profile.contact_name) missing.push('Add your contact name');
-    if (!profile.email) missing.push('Add a contact email');
+    if (!nameOk) missing.push('Add your brand / company name');
+    if (!pocOk) missing.push('Add a dedicated point of contact');
+    if (!emailOk) missing.push('Add a contact email');
+    if (!websiteOk) missing.push('Add your business website (verifies your identity)');
     verifiedPanelHtml = `<div class="verified-panel pending">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge muted"><circle cx="12" cy="12" r="11" fill="#d3d1c7"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>Almost verified</strong><p>Finish these to earn the verified badge retailers trust:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul></div>
+      <div class="vmsg"><strong>Almost verified</strong><p>Finish these to earn the verified badge retailers trust:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);"><em>Recommended:</em> <a href="#profile" style="color:var(--forest-700);font-weight:600;">Add a profile picture</a> so retailers recognize your brand at a glance.</p>' : ''}</div>
     </div>`;
   }
 
@@ -1124,6 +1132,111 @@ document.body.addEventListener('click', (e) => {
     saveProfile();
   }
 });
+
+// Team management — list members, invite, role change, remove
+async function renderTeam() {
+  main.innerHTML = '<div class="card"><div class="sub">Loading team…</div></div>';
+  let result;
+  try {
+    result = await _brandApi('team-list', undefined, 'GET');
+  } catch (err) {
+    main.innerHTML = `<div class="card"><div class="sub">Couldn't load team: ${escapeHtml(err.message || '')}. <a href="/brand/signin">Sign in again</a>.</div></div>`;
+    return;
+  }
+  const members = result.members || [];
+  const yourEmail = (result.your_email || '').toLowerCase();
+  const me = members.find(m => (m.email || '').toLowerCase() === yourEmail);
+  const myRole = me ? me.role : 'owner';
+  const isOwner = myRole === 'owner';
+  const atLimit = members.length >= 5;
+  const MAX_MEMBERS = 5;
+
+  const roleBadge = (role) => {
+    const styles = {
+      owner:  'background:#e3edd6;color:#1f4a26;',
+      admin:  'background:#fbf3e0;color:#a14e2a;',
+      viewer: 'background:#f1efe8;color:#444441;',
+    };
+    return `<span style="display:inline-block;font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:3px 9px;border-radius:99px;${styles[role]||styles.viewer}">${escapeHtml(role)}</span>`;
+  };
+
+  const memberRow = (m) => {
+    const meRow = (m.email || '').toLowerCase() === yourEmail;
+    const canRemove = isOwner && m.role !== 'owner' && !meRow;
+    const canDemote = isOwner && m.role === 'admin' && !meRow;
+    const canPromote = isOwner && m.role === 'viewer' && !meRow;
+    return `<div style="display:flex;align-items:center;gap:14px;padding:14px 18px;background:white;border:1px solid rgba(15,44,23,0.08);border-radius:10px;margin-bottom:8px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;color:var(--forest-900);">${escapeHtml(m.name || m.email)} ${meRow ? '<span style="font-size:0.75rem;color:var(--ink-500);font-weight:500;">(you)</span>' : ''}</div>
+        <div style="font-size:0.85rem;color:var(--ink-500);">${escapeHtml(m.email)}</div>
+      </div>
+      ${roleBadge(m.role)}
+      ${canRemove ? `<button class="btn btn-ghost" style="color:var(--clay-700);" onclick="window.removeTeamMember('${escapeHtml(m.id)}','${escapeHtml(m.email)}')">Remove</button>` : ''}
+    </div>`;
+  };
+
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Team</h1><div class="sub">${members.length} of ${MAX_MEMBERS} teammates · invite up to ${MAX_MEMBERS - members.length} more</div></div></div>
+    ${isOwner && !atLimit ? `
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Invite a teammate</h2>
+      <div class="sub" style="margin-bottom:16px;">They'll get a magic-link sign-in email. Anyone you invite sees the same brand profile, COI, and demos.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input class="input" id="teamInviteEmailField" type="email" placeholder="teammate@yourbrand.com" style="flex:1;min-width:240px;">
+        <select id="teamInviteRoleField" style="padding:10px 14px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;background:white;">
+          <option value="admin">Admin · full access</option>
+          <option value="viewer">Viewer · read only</option>
+        </select>
+        <button class="btn" id="teamInviteButton" onclick="window.inviteTeammate()">Send invite &rarr;</button>
+      </div>
+      <div id="teamInviteError" style="display:none;margin-top:10px;padding:10px 14px;background:#fdebe5;color:var(--clay-700);border-radius:8px;font-size:0.9rem;"></div>
+    </div>` : ''}
+    ${atLimit && isOwner ? `<div class="card" style="margin-bottom:18px;background:#fff3ed;border-color:#ed682f;"><div class="sub" style="color:#a14e2a;"><strong>You're at the ${MAX_MEMBERS}-teammate limit.</strong> Remove someone to invite a new person.</div></div>` : ''}
+    <div class="card">
+      <h2 style="margin:0 0 12px;">Team members</h2>
+      ${members.map(memberRow).join('')}
+      ${members.length === 0 ? '<div class="sub">No teammates yet. Invite your first above.</div>' : ''}
+    </div>
+    ${!isOwner ? '<div class="sub" style="margin-top:14px;">You\'re a ' + escapeHtml(myRole) + ' on this brand. Only the owner can invite or remove teammates.</div>' : ''}
+  `;
+}
+
+// Invite handler
+window.inviteTeammate = async function() {
+  const emailField = document.getElementById('teamInviteEmailField');
+  const roleField = document.getElementById('teamInviteRoleField');
+  const errBox = document.getElementById('teamInviteError');
+  const btn = document.getElementById('teamInviteButton');
+  if (!emailField || !btn) return;
+  const email = emailField.value.trim().toLowerCase();
+  const role = (roleField && roleField.value) || 'admin';
+  errBox.style.display = 'none';
+  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
+    errBox.textContent = 'Enter a valid email.';
+    errBox.style.display = 'block';
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    await _brandApi('team-invite', { email, role });
+    renderTeam();
+  } catch (err) {
+    errBox.textContent = err.message || 'Could not invite.';
+    errBox.style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Send invite →';
+  }
+};
+
+// Remove handler
+window.removeTeamMember = async function(memberId, email) {
+  if (!confirm(`Remove ${email} from this brand? They\'ll lose access immediately.`)) return;
+  try {
+    await _brandApi('team-remove', { member_id: memberId });
+    renderTeam();
+  } catch (err) {
+    alert('Could not remove: ' + (err.message || 'unknown'));
+  }
+};
 
 // Account tab — real settings + sign out
 function renderAccount() {
