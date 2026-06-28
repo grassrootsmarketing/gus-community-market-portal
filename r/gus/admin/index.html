@@ -658,7 +658,23 @@
                             <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
                             <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" id="settingDemoDuration" value="3 hours" disabled></div>
                             <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" id="settingAdvanceBooking" value="14 days minimum" disabled></div>
-                            <div class="form-group"><label class="form-label">Calendar feed</label><div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:6px;">Subscribe in Google, Apple, or Outlook calendar to see all confirmed demos.</div><button class="btn btn-secondary" style="width: 100%; justify-content: center;" id="copyIcalBtn" onclick="copyIcalUrl()">Copy calendar URL</button></div>
+                            <div class="form-group">
+                                <label class="form-label">Calendar feed</label>
+                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically.</div>
+                                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToGoogleBtn" onclick="addToGoogleCal()">+ Google Calendar</button>
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToAppleBtn" onclick="addToAppleCal()">+ Apple Calendar</button>
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToOutlookBtn" onclick="addToOutlookCal()">+ Outlook</button>
+                                </div>
+                                <details style="margin-top:8px;">
+                                    <summary style="cursor:pointer; font-size:0.82rem; color:var(--forest-700); font-weight:600;">Or copy the URL manually</summary>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin:10px 0 8px; line-height:1.5;">Paste this URL into your calendar app under <em>Add calendar &rarr; From URL</em> (or similar) to subscribe. Most calendar apps auto-refresh this feed every few hours.</div>
+                                    <div style="display:flex; gap:6px;">
+                                        <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:8px 10px; border:1px solid rgba(15,44,23,0.12); border-radius:6px; font-size:0.78rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">
+                                        <button class="btn btn-secondary" style="padding:8px 14px;" id="copyIcalBtn" onclick="copyIcalUrl()">Copy</button>
+                                    </div>
+                                </details>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-card" id="billingCard">
@@ -2568,18 +2584,48 @@ END:VEVENT
             }
         }
 
-        // Calendar feed URL copy
-        function copyIcalUrl() {
+        // Calendar feed URL helpers
+        function getIcalFeedUrl() {
             const slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
-            const url = `${location.origin}/api/cal?slug=${slug}`;
+            return `${location.origin}/api/cal?slug=${slug}`;
+        }
+        function copyIcalUrl() {
+            const url = getIcalFeedUrl();
             navigator.clipboard.writeText(url).then(() => {
                 const btn = document.getElementById('copyIcalBtn');
                 if (!btn) return;
                 const orig = btn.textContent;
-                btn.textContent = 'Copied ✓';
+                btn.textContent = '✓ Copied';
                 setTimeout(() => { btn.textContent = orig; }, 1800);
             }).catch(() => { prompt('Copy this URL:', url); });
         }
+        function addToGoogleCal() {
+            // Google Calendar accepts ?cid=URL with the iCal feed URL
+            const url = getIcalFeedUrl();
+            const gcal = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(url);
+            window.open(gcal, '_blank');
+        }
+        function addToAppleCal() {
+            // Apple Calendar handles webcal:// URL — flips to Subscribe dialog when opened on macOS/iOS
+            const url = getIcalFeedUrl().replace(/^https?:\/\//, 'webcal://');
+            window.location.href = url;
+        }
+        function addToOutlookCal() {
+            // Outlook.com web accepts a feed URL via the add-calendar UI
+            const url = getIcalFeedUrl();
+            const outlook = 'https://outlook.live.com/calendar/0/addcalendar?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent('Demohub demos');
+            window.open(outlook, '_blank');
+        }
+        // Populate the readonly URL field when the settings view renders
+        document.addEventListener('DOMContentLoaded', () => {
+            const fill = () => {
+                const f = document.getElementById('icalUrlField');
+                if (f && !f.value) f.value = getIcalFeedUrl();
+            };
+            fill();
+            // Also fill it when the URL becomes available (slug is set immediately)
+            setTimeout(fill, 100);
+        });
         // ===== Sample demo (illustrative when zero real demos) =====
         function getSampleDemoForCalendar() {
             const today = new Date();
