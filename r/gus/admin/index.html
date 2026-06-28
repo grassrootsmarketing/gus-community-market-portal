@@ -232,10 +232,10 @@
         .big-cal-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
         .big-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
         .big-cal-dow { font-size: 0.72rem; font-weight: 700; color: var(--bark-500); text-align: center; padding: 8px 4px; text-transform: uppercase; letter-spacing: 0.06em; }
-        .big-cal-cell { background: var(--sand-100); border-radius: var(--radius-sm); padding: 8px; min-height: 100px; font-size: 0.85rem; position: relative; display: flex; flex-direction: column; }
+        .big-cal-cell { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: var(--radius-sm); padding: 8px; min-height: 100px; font-size: 0.85rem; position: relative; display: flex; flex-direction: column; }
         .big-cal-cell.empty { background: transparent; }
         .big-cal-cell.today { border: 2px solid var(--forest-500); background: var(--forest-50); }
-        .big-cal-cell.weekend { background: var(--cream-50); }
+        .big-cal-cell.weekend { background: #faf6ee; }
         .big-cal-day-num { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; color: var(--forest-800); font-size: 0.9rem; margin-bottom: 4px; line-height: 1; }
         .big-cal-cell.today .big-cal-day-num { color: var(--forest-700); font-weight: 600; }
         .big-cal-event { background: white; border-left: 3px solid var(--forest-500); padding: 3px 6px 3px 6px; border-radius: 3px; font-size: 0.7rem; line-height: 1.3; margin-bottom: 3px; cursor: pointer; transition: transform 0.1s; }
@@ -363,25 +363,11 @@
             .demo-filters { grid-template-columns: 1fr 1fr; }
         }
     
-        /* ===== Onboarding tour ===== */
-        .tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
-        .tour-backdrop.active { opacity: 1; pointer-events: auto; }
-        .tour-spotlight { position: absolute; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none; z-index: 9999; }
-        .tour-tooltip { position: absolute; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.3s; }
-        .tour-tooltip.active { opacity: 1; transform: translateY(0); }
-        .tour-tooltip .tour-step { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #ed682f; margin-bottom: 8px; }
-        .tour-tooltip h3 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem; font-weight: 800; color: #0f2c17; margin: 0 0 8px; letter-spacing: -0.02em; }
-        .tour-tooltip p { font-size: 0.94rem; color: #3a3a36; line-height: 1.55; margin: 0 0 18px; }
-        .tour-tooltip .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-        .tour-tooltip .tour-progress { font-size: 0.78rem; color: #6b6a64; font-weight: 600; }
-        .tour-tooltip .tour-buttons { display: flex; gap: 8px; }
-        .tour-tooltip button { padding: 9px 18px; border-radius: 8px; font-family: inherit; font-weight: 700; font-size: 0.86rem; cursor: pointer; border: none; transition: all 0.15s; }
-        .tour-tooltip button.tour-skip { background: transparent; color: #6b6a64; padding: 9px 14px; }
-        .tour-tooltip button.tour-skip:hover { color: #3a3a36; }
-        .tour-tooltip button.tour-next { background: #0f2c17; color: white; }
-        .tour-tooltip button.tour-next:hover { background: #1f4a26; }
-        .tour-tooltip button.tour-back { background: #f1efe8; color: #3a3a36; }
-        .tour-tooltip button.tour-back:hover { background: #e6e3d8; }
+        /* Section subnav */
+        .section-subnav { background: white; border-bottom: 1px solid rgba(15,44,23,0.08); position: sticky; top: 0; z-index: 40; box-shadow: 0 1px 3px rgba(15,44,23,0.04); }
+        .subnav-link { padding: 8px 14px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink-700); text-decoration: none; white-space: nowrap; transition: all 0.15s; }
+        .subnav-link:hover { background: var(--forest-50); color: var(--forest-700); }
+        .subnav-link.active { background: var(--forest-900); color: white; }
 </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -429,9 +415,21 @@
                 <button class="active">Admin</button>
             </div>
         </header>
+        <div class="section-subnav" id="adminSubnav">
+            <div class="container" style="display:flex; gap:6px; align-items:center; padding: 14px 32px; overflow-x:auto;">
+                <a href="#dashSection" class="subnav-link active" data-section="dashSection">Dashboard</a>
+                <a href="#calendarSection" class="subnav-link" data-section="calendarSection">Calendar</a>
+                <a href="#demosSection" class="subnav-link" data-section="demosSection">Demos</a>
+                <a href="#brandsSection" class="subnav-link" data-section="brandsSection">Brands</a>
+                <a href="#complianceSection" class="subnav-link" data-section="complianceSection">Compliance</a>
+                <a href="#storesSection" class="subnav-link" data-section="storesSection">Stores</a>
+                <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
+                <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
+            </div>
+        </div>
         <div class="main-scroll">
             <div class="container">
-                <div class="page-header">
+                <div class="page-header" id="dashSection">
                     <h2 class="page-title">Dashboard</h2>
                     <p class="page-subtitle">Manage your demo schedule and view earnings</p>
                 </div>
@@ -494,7 +492,7 @@
                         </table>
                     </div>
                 </div>
-                <div class="big-cal-card">
+                <div class="big-cal-card" id="calendarSection">
                     <div class="big-cal-head">
                         <div class="big-cal-title">Demo Calendar</div>
                         <div class="big-cal-nav">
@@ -511,7 +509,7 @@
                     <h3>Demos per month</h3>
                     <div class="chart-wrap"><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
                 </div>
-                <div class="table-card" style="margin-bottom: 32px;">
+                <div class="table-card" id="demosSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Upcoming Demos</h3>
                         <div class="toolbar-controls">
@@ -574,7 +572,7 @@
                         <tbody id="internalContactsTableBody"></tbody>
                     </table>
                 </div>
-                <div class="table-card" style="margin-bottom: 32px;">
+                <div class="table-card" id="brandsSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Brand Contacts</h3>
                         <div class="toolbar-controls">
@@ -591,7 +589,7 @@
                         <tbody id="brandContactsTableBody"></tbody>
                     </table>
                 </div>
-                <div class="table-card" style="margin-bottom: 32px;">
+                <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Compliance Records</h3>
                         <div class="toolbar-controls">
@@ -624,7 +622,7 @@
                 </div>
 
                 <!-- Stores editor -->
-                <div class="table-card" id="storesCard" style="margin-bottom: 32px;">
+                <div class="table-card" id="storesSection" data-name="stores" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Stores</h3>
                         <div style="display:flex; gap:8px; align-items:center;">
@@ -638,7 +636,7 @@
                     </table>
                 </div>
 
-                <div class="settings-grid">
+                <a id="settingsSection"></a><div class="settings-grid">
                     <div class="settings-card" id="availabilityCard">
                         <div class="settings-card-header">
                             <h3>Store Availability</h3>
@@ -666,7 +664,7 @@
                         </div>
                     </div>
                     <div class="settings-card">
-                        <div class="settings-card-header"><h3>Team</h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
+                        <a id="teamSection"></a><div class="settings-card-header"><h3>Team</h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">People with admin access to this store. Owners can invite others and change roles.</div>
                             <div id="teamList" style="display:flex; flex-direction:column; gap:8px;"></div>
@@ -1465,7 +1463,6 @@ END:VEVENT
             renderWelcomeBanner();
             loadCancellationPolicy();
             loadTeam();
-            setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
         }
 
         // ===== First-login welcome banner =====
@@ -3228,106 +3225,42 @@ END:VEVENT
             window.loadSettings = function() { _origLoadSettingsForPayouts(); if (typeof renderPayouts === 'function') renderPayouts(); };
         }
 
-        // ===== Onboarding tour =====
-        const TOUR_STEPS = [
-          { selector: '#welcomeBanner', title: "Welcome to your admin.", body: "This is mission control. Brands book demos through your link, and everything else flows from here automatically.", placement: 'bottom', skipIfHidden: true },
-          { selector: '.stats-grid', title: "Your numbers, at a glance.", body: "Demos this month, revenue, active brands, and compliance rate. These update as bookings come in. Right now everything's zero because you're brand new.", placement: 'bottom' },
-          { selector: '.big-cal-card', title: "Your demo calendar.", body: "Every confirmed demo shows here. We've put an example on today so you can see what it'll look like once brands start booking. Subscribe to it from Settings to sync with Google/Apple/Outlook.", placement: 'top' },
-          { selector: '.chart-card', title: "Trend chart.", body: "See your demo volume over the last 6 months. Fills in as you get bookings.", placement: 'top' },
-          { selector: '.header-nav', title: "Preview the public side.", body: "Click 'Preview booking page' anytime to see what brands see when they book with you. Share that URL with your brand partners to start filling your calendar.", placement: 'bottom' },
-        ];
-        let _tourIndex = 0;
-        function startTour(force) {
-          if (!force && localStorage.getItem('demohub_tour_complete_' + RETAILER_SLUG) === '1') return;
-          _tourIndex = 0;
-          showTourStep();
-        }
-        function showTourStep() {
-          const step = TOUR_STEPS[_tourIndex];
-          if (!step) { closeTour(); return; }
-          const el = document.querySelector(step.selector);
-          if (!el || (step.skipIfHidden && el.offsetParent === null)) {
-            _tourIndex++;
-            return showTourStep();
-          }
-          const rect = el.getBoundingClientRect();
-          const scrollY = window.scrollY;
-          const spotPad = 12;
-          const spotlight = document.getElementById('tourSpotlight');
-          spotlight.style.display = 'block';
-          spotlight.style.top = (rect.top + scrollY - spotPad) + 'px';
-          spotlight.style.left = (rect.left - spotPad) + 'px';
-          spotlight.style.width = (rect.width + spotPad*2) + 'px';
-          spotlight.style.height = (rect.height + spotPad*2) + 'px';
-
-          const backdrop = document.getElementById('tourBackdrop');
-          backdrop.classList.add('active');
-
-          const tooltip = document.getElementById('tourTooltip');
-          tooltip.style.display = 'block';
-          document.getElementById('tourTitle').textContent = step.title;
-          document.getElementById('tourBody').textContent = step.body;
-          document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${TOUR_STEPS.length}`;
-          document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${TOUR_STEPS.length}`;
-          document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
-          document.getElementById('tourNextBtn').textContent = _tourIndex === TOUR_STEPS.length - 1 ? 'Got it' : 'Next →';
-
-          // Position tooltip relative to target
-          requestAnimationFrame(() => {
-            const tipRect = tooltip.getBoundingClientRect();
-            const padding = 20;
-            let top, left;
-            if (step.placement === 'bottom') {
-              top = rect.bottom + scrollY + padding;
-              left = rect.left + (rect.width/2) - (tipRect.width/2);
-            } else if (step.placement === 'top') {
-              top = rect.top + scrollY - tipRect.height - padding;
-              left = rect.left + (rect.width/2) - (tipRect.width/2);
-            } else {
-              top = rect.bottom + scrollY + padding;
-              left = rect.left;
-            }
-            // Clamp to viewport
-            left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
-            top = Math.max(scrollY + 20, top);
-            tooltip.style.top = top + 'px';
-            tooltip.style.left = left + 'px';
-            setTimeout(() => tooltip.classList.add('active'), 10);
+        // Section subnav: active state + smooth scroll
+        (function(){
+          const subnav = document.querySelectorAll('.subnav-link');
+          subnav.forEach(link => {
+            link.addEventListener('click', (e) => {
+              e.preventDefault();
+              const id = link.dataset.section;
+              const el = document.getElementById(id);
+              if (!el) return;
+              const headerOffset = 80;
+              const top = el.getBoundingClientRect().top + window.scrollY - headerOffset;
+              window.scrollTo({ top, behavior: 'smooth' });
+              subnav.forEach(l => l.classList.remove('active'));
+              link.classList.add('active');
+            });
           });
-
-          // Scroll to keep target in view
-          const desiredY = rect.top + scrollY - 100;
-          window.scrollTo({ top: desiredY, behavior: 'smooth' });
-        }
-        function tourNext() {
-          document.getElementById('tourTooltip').classList.remove('active');
-          _tourIndex++;
-          if (_tourIndex >= TOUR_STEPS.length) { closeTour(); return; }
-          setTimeout(showTourStep, 200);
-        }
-        function tourBack() {
-          document.getElementById('tourTooltip').classList.remove('active');
-          _tourIndex = Math.max(0, _tourIndex - 1);
-          setTimeout(showTourStep, 200);
-        }
-        function closeTour(skipped) {
-          document.getElementById('tourBackdrop').classList.remove('active');
-          document.getElementById('tourSpotlight').style.display = 'none';
-          document.getElementById('tourTooltip').style.display = 'none';
-          document.getElementById('tourTooltip').classList.remove('active');
-          localStorage.setItem('demohub_tour_complete_' + RETAILER_SLUG, '1');
-        }
-        // Trigger tour after admin view + data have rendered
-        window.maybeStartTour = function() {
-          if (document.getElementById('adminView')?.style.display !== 'none') {
-            setTimeout(() => startTour(false), 800);
-          }
-        };
-        // Public: restart the tour from settings or wherever
-        window.replayTour = function() {
-          localStorage.removeItem('demohub_tour_complete_' + RETAILER_SLUG);
-          startTour(true);
-        };
+          // Optional: highlight active section on scroll
+          let _ticking = false;
+          window.addEventListener('scroll', () => {
+            if (_ticking) return;
+            _ticking = true;
+            requestAnimationFrame(() => {
+              const scrollY = window.scrollY + 120;
+              let current = null;
+              subnav.forEach(link => {
+                const el = document.getElementById(link.dataset.section);
+                if (el && el.offsetTop <= scrollY) current = link;
+              });
+              if (current) {
+                subnav.forEach(l => l.classList.remove('active'));
+                current.classList.add('active');
+              }
+              _ticking = false;
+            });
+          });
+        })();
 </script>
 
     <!-- Upgrade plan modal -->
@@ -3365,23 +3298,6 @@ END:VEVENT
           </div>
         </div>
         <div style="font-size:0.78rem;color:var(--ink-500);margin-top:18px;text-align:center;">All plans include unlimited brand demos, COI tracking, and the verified brand badge system. Need help choosing? Email david@demohubhq.com.</div>
-      </div>
-    </div>
-
-    <!-- Onboarding tour overlay -->
-    <div id="tourBackdrop" class="tour-backdrop"></div>
-    <div id="tourSpotlight" class="tour-spotlight" style="display:none;"></div>
-    <div id="tourTooltip" class="tour-tooltip" style="display:none;">
-      <div class="tour-step" id="tourStepLabel">Step 1 of 5</div>
-      <h3 id="tourTitle">Welcome.</h3>
-      <p id="tourBody">Let me show you around.</p>
-      <div class="tour-actions">
-        <span class="tour-progress" id="tourProgress">1 / 5</span>
-        <div class="tour-buttons">
-          <button class="tour-skip" onclick="closeTour(true)">Skip</button>
-          <button class="tour-back" id="tourBackBtn" onclick="tourBack()" style="display:none;">Back</button>
-          <button class="tour-next" id="tourNextBtn" onclick="tourNext()">Next &rarr;</button>
-        </div>
       </div>
     </div>
 </body>
