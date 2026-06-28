@@ -1862,6 +1862,13 @@ END:VEVENT
             const s = getBrandComplianceStatus(brandId);
             return '<span class="comp-badge ' + s.status + '"><span class="comp-dot"></span>' + escapeHtml(s.label) + '</span>';
         }
+        function isBrandVerified(brandId) {
+            return getBrandComplianceStatus(brandId).status === 'ok';
+        }
+        function verifiedBadgeSvg(size) {
+            const s = size || 14;
+            return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" style="vertical-align:-2px; margin-left:6px; flex-shrink:0;" aria-label="Verified brand"><title>Verified — compliance docs current</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+        }
 
         function renderContacts(type) {
             if (!type) { renderContacts('brand'); renderContacts('internal'); return; }
@@ -1880,8 +1887,9 @@ END:VEVENT
                 return;
             }
             tbody.innerHTML = list.map(c => {
+                const verifiedMark = (type === 'brand' && isBrandVerified(c.id)) ? verifiedBadgeSvg(14) : '';
                 let cells = '<td>' + escapeHtml(c.name) + '</td>'
-                    + '<td>' + escapeHtml(c.company) + '</td>'
+                    + '<td>' + escapeHtml(c.company) + verifiedMark + '</td>'
                     + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
                 if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
                 cells += '<td>' + escapeHtml(c.email) + '</td>'
@@ -2570,7 +2578,7 @@ END:VEVENT
                 }
                 const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}) : '—';
                 return '<tr>'
-                    + '<td>' + escapeHtml(b ? (b.company || b.name) : 'Unknown') + '</td>'
+                    + '<td>' + escapeHtml(b ? (b.company || b.name) : 'Unknown') + (b && isBrandVerified(b.id) ? verifiedBadgeSvg(14) : '') + '</td>'
                     + '<td>' + escapeHtml(docLabel[r.doc_type] || r.doc_type) + '</td>'
                     + '<td>' + escapeHtml(r.doc_number || '—') + '</td>'
                     + '<td>' + expiresFmt + '</td>'
