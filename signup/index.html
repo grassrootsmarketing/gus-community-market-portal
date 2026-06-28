@@ -164,6 +164,41 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   const storeUnit = document.getElementById('storeUnit');
   if (successCard) successCard.style.display = 'none';
 
+  // Render the success card from a known state object
+  function renderSuccess({ slug, adminUrl, publicUrl }) {
+    const adminLink  = document.getElementById('adminLink');
+    const publicLink = document.getElementById('publicLink');
+    const openAdminBtn = document.getElementById('openAdminBtn');
+    if (adminLink)  { adminLink.href = adminUrl;  adminLink.textContent = adminUrl; }
+    if (publicLink) { publicLink.href = publicUrl; publicLink.textContent = publicUrl; }
+    if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = adminUrl; };
+    formCard.style.display = 'none';
+    if (successCard) successCard.style.display = 'block';
+  }
+
+  // On page load, restore success state if present (URL param OR localStorage within 7 days)
+  (function autoRestore(){
+    try {
+      const urlSlug = new URLSearchParams(location.search).get('slug');
+      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem('demohub_signup_success_v1') || 'null'); } catch(_){}
+      // Prefer URL slug — if the URL says slug, build from it
+      if (urlSlug) {
+        const adminUrl  = 'https://demohubhq.com/r/' + urlSlug + '/admin';
+        const publicUrl = 'https://demohubhq.com/r/' + urlSlug;
+        renderSuccess({ slug: urlSlug, adminUrl, publicUrl });
+        return;
+      }
+      // Otherwise, if we have fresh localStorage, restore from that
+      if (saved && saved.slug && (Date.now() - (saved.savedAt || 0) < SEVEN_DAYS)) {
+        try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(saved.slug)); } catch(_){}
+        renderSuccess({ slug: saved.slug, adminUrl: saved.adminUrl, publicUrl: saved.publicUrl });
+        return;
+      }
+    } catch(_){}
+  })();
+
   const params = new URLSearchParams(location.search);
   const tier = (params.get('tier') || '').toLowerCase();
   const validTiers = new Set(['solo','starter','growth','enterprise']);
@@ -224,19 +259,21 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       const adminUrl = j.admin_url || ('https://demohubhq.com/r/' + slug + '/admin');
       const publicUrl = j.public_url || ('https://demohubhq.com/r/' + slug);
 
-      const adminLink  = document.getElementById('adminLink');
-      const publicLink = document.getElementById('publicLink');
-      const openAdminBtn = document.getElementById('openAdminBtn');
-      if (adminLink)  { adminLink.href = adminUrl;  adminLink.textContent = adminUrl; }
-      if (publicLink) { publicLink.href = publicUrl; publicLink.textContent = publicUrl; }
-      if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = adminUrl; };
-
+      // Persist success state for refresh-survival
+      try {
+        localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
+          slug, adminUrl, publicUrl, savedAt: Date.now(),
+          tier: initialTier || null,
+        }));
+      } catch(_){}
       if (initialTier) {
         try { localStorage.setItem('demohub_pending_tier_' + slug, initialTier); } catch(_){}
       }
 
-      formCard.style.display = 'none';
-      if (successCard) successCard.style.display = 'block';
+      // Update URL so refresh stays on success state and shareable
+      try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(slug)); } catch(_){}
+
+      renderSuccess({ slug, adminUrl, publicUrl });
     } catch (err) {
       showError(err.message || 'Sign-up failed. Try again or email david@demohubhq.com.');
       submitBtn.disabled = false;
