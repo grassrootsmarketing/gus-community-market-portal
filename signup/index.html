@@ -48,8 +48,8 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .btn:hover { background: var(--forest-700); }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .error { background: #fdebe5; color: var(--clay-700); padding: 12px 16px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px; display: none; }
-.success { display: none; text-align: center; padding: 12px 0; }
-.success .check { width: 56px; height: 56px; border-radius: 50%; background: var(--forest-100); color: var(--forest-700); display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; font-size: 30px; font-weight: 700; }
+.success { display: none; text-align: center; padding: 8px 0 4px; }
+.success .check { width: 64px; height: 64px; border-radius: 50%; background: var(--forest-100); color: var(--forest-700); display: flex; align-items: center; justify-content: center; margin: 0 auto 22px; font-size: 32px; font-weight: 700; box-shadow: 0 0 0 6px var(--forest-50); }
 .success h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.8rem; font-weight: 700; color: var(--forest-900); margin-bottom: 10px; }
 .success p { color: var(--ink-700); margin-bottom: 24px; }
 .url-card { background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: 8px; padding: 14px 18px; margin-bottom: 12px; text-align: left; }
@@ -58,6 +58,16 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .url-value a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
 .terms { font-size: 0.78rem; color: var(--ink-500); text-align: center; margin-top: 16px; }
 .terms a { color: var(--ink-500); }
+
+.success h2 { font-size: 2rem; margin-bottom: 8px; letter-spacing: -0.025em; }
+.success > p { color: var(--ink-700); font-size: 1rem; line-height: 1.55; max-width: 380px; margin: 0 auto 28px; }
+.success .url-card { transition: background 0.15s; }
+.success .url-card:hover { background: #ebf3df; }
+.success .url-value a { color: var(--forest-900); text-decoration: none; font-weight: 600; }
+.success .url-value a:hover { text-decoration: underline; }
+.url-card { padding: 16px 20px; margin-bottom: 14px; }
+.url-label { margin-bottom: 6px; }
+.success #openAdminBtn { margin-top: 32px !important; padding: 14px 24px; font-size: 1rem; }
 </style>
 <!-- PostHog -->
 <script>
@@ -129,11 +139,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <p>Your portal is ready. We've also sent a welcome email with these links.</p>
     <div class="url-card">
       <div class="url-label">Admin hub</div>
-      <div class="url-value"><a id="adminLink" href="#">, </a></div>
+      <div class="url-value"><a id="adminLink" href="#"></a></div>
     </div>
     <div class="url-card">
       <div class="url-label">Public booking link</div>
-      <div class="url-value"><a id="publicLink" href="#">, </a></div>
+      <div class="url-value"><a id="publicLink" href="#"></a></div>
     </div>
     <button class="btn" id="openAdminBtn" style="margin-top:20px;">Open admin &rarr;</button>
   </div>
