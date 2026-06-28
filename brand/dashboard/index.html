@@ -283,6 +283,26 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 
 .saved { opacity: 0; transition: opacity 0.25s; margin-left: 10px; color: var(--forest-700); font-weight: 700; font-size: 0.9rem; }
 .saved.show { opacity: 1; }
+
+/* ===== Onboarding tour ===== */
+.tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+.tour-backdrop.active { opacity: 1; pointer-events: auto; }
+.tour-spotlight { position: absolute; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.35s cubic-bezier(.4,0,.2,1); pointer-events: none; z-index: 9999; }
+.tour-tooltip { position: absolute; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.3s; }
+.tour-tooltip.active { opacity: 1; transform: translateY(0); }
+.tour-tooltip .tour-step { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #ed682f; margin-bottom: 8px; }
+.tour-tooltip h3 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.25rem; font-weight: 800; color: #0f2c17; margin: 0 0 8px; letter-spacing: -0.02em; }
+.tour-tooltip p { font-size: 0.94rem; color: #3a3a36; line-height: 1.55; margin: 0 0 18px; }
+.tour-tooltip .tour-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.tour-tooltip .tour-progress { font-size: 0.78rem; color: #6b6a64; font-weight: 600; }
+.tour-tooltip .tour-buttons { display: flex; gap: 8px; }
+.tour-tooltip button { padding: 9px 18px; border-radius: 8px; font-family: inherit; font-weight: 700; font-size: 0.86rem; cursor: pointer; border: none; transition: all 0.15s; }
+.tour-tooltip button.tour-skip { background: transparent; color: #6b6a64; padding: 9px 14px; }
+.tour-tooltip button.tour-skip:hover { color: #3a3a36; }
+.tour-tooltip button.tour-next { background: #0f2c17; color: white; }
+.tour-tooltip button.tour-next:hover { background: #1f4a26; }
+.tour-tooltip button.tour-back { background: #f1efe8; color: #3a3a36; }
+.tour-tooltip button.tour-back:hover { background: #e6e3d8; }
 </style>
 <!-- PostHog -->
 <script>
@@ -1268,11 +1288,162 @@ function renderAccount() {
 
 // ===== Bootstrap =====
 loadData()
-  .then(() => switchTab(window.location.hash.replace(/^#/, '') || 'overview'))
+  .then(() => {
+    switchTab(window.location.hash.replace(/^#/, '') || 'overview');
+    setTimeout(() => { if (window.maybeStartBrandTour) window.maybeStartBrandTour(); }, 400);
+  })
   .catch(err => {
     console.error('Brand portal load failed:', err);
     main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
   });
+
+// ===== Brand Portal Onboarding Tour =====
+const TOUR_STEPS = [
+  { selector: '#welcomeBanner', title: "Welcome to Demohub.", body: "This is your brand portal. Manage your profile, COI, and demos at every retailer from one place.", placement: 'bottom', skipIfHidden: true },
+  { selector: '.verified-panel', title: "Your verified badge.", body: "Retailers see this badge next to your brand. Upload a current COI, fill in your contact info, and add your website to earn it.", placement: 'bottom' },
+  { selector: 'a[data-tab="profile"]', title: "Your brand profile.", body: "Click here anytime to update your company info, logo, COI, and product details. Filled out once, shared with every Demohub retailer.", placement: 'bottom' },
+  { selector: 'a[data-tab="team"]', title: "Invite your team.", body: "Up to 5 teammates can manage your brand together — share COI uploads, demo bookings, profile updates. Owner / Member roles.", placement: 'bottom' },
+  { selector: 'a[data-tab="calendar"]', title: "Your demo calendar.", body: "All your confirmed demos across every retailer, in one calendar. Use the Calendar tab to navigate by month.", placement: 'bottom' },
+];
+const BRAND_TOUR_KEY = 'demohub_brand_tour_complete';
+let _tourIndex = 0;
+let _activeTourSteps = [];
+function startTour(force) {
+  if (!force && localStorage.getItem(BRAND_TOUR_KEY) === '1') return;
+  const welcome = document.getElementById('welcomeBanner');
+  if (welcome && (welcome.style.display === 'none' || !welcome.classList.contains('active'))) {
+    welcome.style.display = 'block';
+    welcome.dataset.forcedForTour = '1';
+  }
+  _activeTourSteps = TOUR_STEPS.filter(s => {
+    const el = document.querySelector(s.selector);
+    return el && el.offsetParent !== null;
+  });
+  if (_activeTourSteps.length === 0) return;
+  _tourIndex = 0;
+  showTourStep();
+}
+function showTourStep() {
+  const step = _activeTourSteps[_tourIndex];
+  if (!step) { closeTour(); return; }
+  const isFirstRun = localStorage.getItem(BRAND_TOUR_KEY) !== '1';
+  document.querySelectorAll('.tour-skip').forEach(b => b.style.display = isFirstRun ? 'none' : '');
+  const el = document.querySelector(step.selector);
+  if (!el) { _tourIndex++; return showTourStep(); }
+  const rect = el.getBoundingClientRect();
+  const scrollY = window.scrollY;
+  const spotPad = 12;
+  const spotlight = document.getElementById('tourSpotlight');
+  if (!spotlight) return;
+  spotlight.style.display = 'block';
+  spotlight.style.top = (rect.top + scrollY - spotPad) + 'px';
+  spotlight.style.left = (rect.left - spotPad) + 'px';
+  spotlight.style.width = (rect.width + spotPad*2) + 'px';
+  spotlight.style.height = (rect.height + spotPad*2) + 'px';
+  const backdrop = document.getElementById('tourBackdrop');
+  if (backdrop) backdrop.classList.add('active');
+  const tooltip = document.getElementById('tourTooltip');
+  if (!tooltip) return;
+  tooltip.style.display = 'block';
+  document.getElementById('tourTitle').textContent = step.title;
+  document.getElementById('tourBody').textContent = step.body;
+  document.getElementById('tourStepLabel').textContent = `Step ${_tourIndex+1} of ${_activeTourSteps.length}`;
+  document.getElementById('tourProgress').textContent = `${_tourIndex+1} / ${_activeTourSteps.length}`;
+  document.getElementById('tourBackBtn').style.display = _tourIndex === 0 ? 'none' : 'inline-block';
+  document.getElementById('tourNextBtn').textContent = _tourIndex === _activeTourSteps.length - 1 ? 'Got it' : 'Next →';
+  requestAnimationFrame(() => {
+    const tipRect = tooltip.getBoundingClientRect();
+    const padding = 20;
+    let top, left;
+    if (step.placement === 'bottom') {
+      top = rect.bottom + scrollY + padding;
+      left = rect.left + (rect.width/2) - (tipRect.width/2);
+    } else if (step.placement === 'top') {
+      top = rect.top + scrollY - tipRect.height - padding;
+      left = rect.left + (rect.width/2) - (tipRect.width/2);
+    } else {
+      top = rect.bottom + scrollY + padding;
+      left = rect.left;
+    }
+    left = Math.max(20, Math.min(left, window.innerWidth - tipRect.width - 20));
+    top = Math.max(scrollY + 20, top);
+    tooltip.style.top = top + 'px';
+    tooltip.style.left = left + 'px';
+    setTimeout(() => tooltip.classList.add('active'), 10);
+  });
+  const desiredY = rect.top + scrollY - 100;
+  window.scrollTo({ top: desiredY, behavior: 'smooth' });
+}
+function tourNext() {
+  document.getElementById('tourTooltip').classList.remove('active');
+  _tourIndex++;
+  if (_tourIndex >= _activeTourSteps.length) { closeTour(); return; }
+  setTimeout(showTourStep, 200);
+}
+function tourBack() {
+  document.getElementById('tourTooltip').classList.remove('active');
+  _tourIndex = Math.max(0, _tourIndex - 1);
+  setTimeout(showTourStep, 200);
+}
+function closeTour(skipped) {
+  const firstRun = localStorage.getItem(BRAND_TOUR_KEY) !== '1';
+  const welcome = document.getElementById('welcomeBanner');
+  if (welcome && welcome.dataset.forcedForTour === '1' && !firstRun) {
+    delete welcome.dataset.forcedForTour;
+  }
+  if (skipped && firstRun) {
+    const next = document.getElementById('tourNextBtn');
+    if (next && next.animate) {
+      next.animate([
+        { transform: 'translateX(0)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(6px)' },
+        { transform: 'translateX(-4px)' }, { transform: 'translateX(4px)' }, { transform: 'translateX(0)' },
+      ], { duration: 380 });
+    }
+    return;
+  }
+  document.getElementById('tourBackdrop')?.classList.remove('active');
+  const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+  const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+  const fab = document.getElementById('tourFab'); if (fab) fab.style.display = 'flex';
+  localStorage.setItem(BRAND_TOUR_KEY, '1');
+}
+window.startTour = startTour;
+window.closeTour = closeTour;
+window.replayTour = function() {
+  localStorage.removeItem(BRAND_TOUR_KEY);
+  const fab = document.getElementById('tourFab'); if (fab) fab.style.display = 'none';
+  startTour(true);
+};
+// Auto-fire after data loaded (we hook into the existing load chain)
+window.maybeStartBrandTour = function() {
+  const fab = document.getElementById('tourFab'); if (fab) fab.style.display = 'none';
+  setTimeout(() => { startTour(false); const f = document.getElementById('tourFab'); if (f) f.style.display = 'flex'; }, 800);
+};
 </script>
+
+<!-- Onboarding tour overlay -->
+<div id="tourBackdrop" class="tour-backdrop"></div>
+<div id="tourSpotlight" class="tour-spotlight" style="display:none;"></div>
+<div id="tourTooltip" class="tour-tooltip" style="display:none;">
+  <div class="tour-step" id="tourStepLabel">Step 1</div>
+  <h3 id="tourTitle">Welcome.</h3>
+  <p id="tourBody">Let me show you around.</p>
+  <div class="tour-actions">
+    <span class="tour-progress" id="tourProgress">1 / 5</span>
+    <div class="tour-buttons">
+      <button class="tour-skip" onclick="closeTour(true)">Skip</button>
+      <button class="tour-back" id="tourBackBtn" onclick="tourBack()" style="display:none;">Back</button>
+      <button class="tour-next" id="tourNextBtn" onclick="tourNext()">Next →</button>
+    </div>
+  </div>
+</div>
+<!-- Floating help / tour replay button -->
+<button id="tourFab" onclick="window.replayTour && window.replayTour()"
+    title="Show me around" aria-label="Show me around"
+    style="position: fixed; bottom: 24px; right: 24px; z-index: 9990; width: 52px; height: 52px; border-radius: 50%; background: #0f2c17; color: white; border: none; box-shadow: 0 8px 24px rgba(15,44,23,0.28); cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; font-family: inherit;"
+    onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 12px 32px rgba(15,44,23,0.36)';"
+    onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 8px 24px rgba(15,44,23,0.28)';">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+</button>
 </body>
 </html>
