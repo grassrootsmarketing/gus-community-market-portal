@@ -112,7 +112,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div class="stepper-row">
           <div class="stepper">
             <button type="button" id="storeMinus" aria-label="Decrease stores">−</button>
-            <input id="storeCount" name="store_count" type="number" min="1" max="99" value="1" inputmode="numeric">
+            <input id="storeCount" name="store_count" type="number" min="1" max="999" value="1" inputmode="numeric">
             <button type="button" id="storePlus" aria-label="Increase stores">+</button>
           </div>
           <span class="stepper-unit" id="storeUnit">store</span>
@@ -164,7 +164,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   }
 
   function setStores(n) {
-    n = Math.max(1, Math.min(99, parseInt(n, 10) || 1));
+    n = Math.max(1, Math.min(999, parseInt(n, 10) || 1));
     storeCount.value = n;
     if (storeUnit) storeUnit.textContent = n === 1 ? 'store' : 'stores';
   }
