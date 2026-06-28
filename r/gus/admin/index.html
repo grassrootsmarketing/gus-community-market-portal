@@ -3308,6 +3308,15 @@ END:VEVENT
                 try { if (typeof renderBigCalendar === 'function') renderBigCalendar(); } catch(_){}
             }, 500);
         });
+
+        // Hide the FAB while the tour is running
+        (function(){
+          const fab = () => document.getElementById('tourFab');
+          const origStart = window.startTour;
+          const origClose = window.closeTour;
+          if (origStart) window.startTour = function(force){ const f=fab(); if(f) f.style.display='none'; return origStart(force); };
+          if (origClose) window.closeTour = function(skipped){ const f=fab(); if(f) f.style.display='flex'; return origClose(skipped); };
+        })();
 </script>
 
     <!-- Upgrade plan modal -->
@@ -3347,5 +3356,25 @@ END:VEVENT
         <div style="font-size:0.78rem;color:var(--ink-500);margin-top:18px;text-align:center;">All plans include unlimited brand demos, COI tracking, and the verified brand badge system. Need help choosing? Email david@demohubhq.com.</div>
       </div>
     </div>
+
+    <!-- Floating help / tour replay button -->
+    <button id="tourFab" onclick="window.replayTour && window.replayTour()"
+        title="Show me around the dashboard"
+        aria-label="Show me around"
+        style="position: fixed; bottom: 24px; right: 24px; z-index: 9990;
+               width: 52px; height: 52px; border-radius: 50%;
+               background: #0f2c17; color: white; border: none;
+               box-shadow: 0 8px 24px rgba(15,44,23,0.28);
+               cursor: pointer; transition: all 0.2s;
+               display: flex; align-items: center; justify-content: center;
+               font-family: inherit;"
+        onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 12px 32px rgba(15,44,23,0.36)';"
+        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 8px 24px rgba(15,44,23,0.28)';">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+    </button>
 </body>
 </html>
