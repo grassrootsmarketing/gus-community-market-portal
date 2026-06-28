@@ -806,7 +806,7 @@ export default async function handler(req, res) {
             const dRes = await sb(dPath);
             const demos = await dRes.json();
             const demo = Array.isArray(demos) ? demos[0] : null;
-            if (!demo) continue;
+            if (!demo) return;
             const retailerName = demo.retailers?.name || 'your retailer';
             let demoDateLabel = demo.demo_date || '';
             try {
@@ -905,7 +905,7 @@ export default async function handler(req, res) {
               const bc = (await bcRes.json())[0];
               if (!ret || !ret.billing_email) {
                 errors.push({ kind: 'retailer_coi_warn_' + tier.days, id: rec.id, error: 'no retailer billing_email' });
-                continue;
+                return;
               }
               const brandName = (bc?.company) || (bc?.name) || 'a brand';
               const brandContactName = bc?.name || '';
