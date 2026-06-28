@@ -147,6 +147,17 @@ function setTab(name) {
 }
 tabs.forEach(t => t.addEventListener('click', () => setTab(t.dataset.tab)));
 
+// Honor #signup or #signin hash on page load
+const initialHash = (location.hash || '').replace('#','').trim();
+if (initialHash === 'signup' || initialHash === 'signin') {
+  setTab(initialHash);
+}
+// Update tab when hash changes (back/forward navigation)
+window.addEventListener('hashchange', () => {
+  const h = (location.hash || '').replace('#','').trim();
+  if (h === 'signup' || h === 'signin') setTab(h);
+});
+
 async function submit(action, data, btn, btnText) {
   errBox.style.display = 'none'; errBox.textContent = '';
   btn.disabled = true; btn.textContent = 'Sending…';
