@@ -944,7 +944,7 @@ export default async function handler(req, res) {
 
               const retailerDisplayName = (ret.branding && (ret.branding.contact_name || ret.branding.contactName)) || ret.name || '';
               const firstName = String(retailerDisplayName).trim().split(/\s+/)[0] || ret.name || 'there';
-              const adminUrl = `https://demohubhq.com/r/${ret.slug || 'gus'}/admin`;
+              const adminUrl = `https://demohubhq.com/r/${ret.slug /* slug required */}/admin`;
               const built = retailerCoiWarningEmail({
                 tier: tier.days, retailer_name: firstName, brand_name: brandName,
                 brand_contact_name: brandContactName, expires_label: expiresLabel,

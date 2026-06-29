@@ -1399,7 +1399,7 @@ METHOD:PUBLISH
             
             cart.forEach((item, index) => {
                 const times = formatDateForICS(item.date, item.time);
-                const uid = `gcm-demo-${Date.now()}-${index}@gussmarket.com`;
+                const uid = `${RETAILER_SLUG || 'demohub'}-demo-${Date.now()}-${index}@demohubhq.com`;
                 
                 ics += `BEGIN:VEVENT
 DTSTART:${times.start}

@@ -146,8 +146,8 @@ export default async function handler(req, res) {
         });
       }
 
-      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug || 'gus'}/admin?billing=success`;
-      const cancelUrl = `${SITE_ORIGIN}/r/${retailer.slug || 'gus'}/admin?billing=canceled`;
+      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=success`;
+      const cancelUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=canceled`;
       const checkout = await stripe('POST', '/v1/checkout/sessions', {
         mode: 'subscription',
         customer: customerId,
@@ -169,7 +169,7 @@ export default async function handler(req, res) {
       if (!retailer.stripe_customer_id) {
         return jsonResp(res, 400, { error: 'No Stripe customer on file. Subscribe to a plan first.' });
       }
-      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug || 'gus'}/admin?billing=managed`;
+      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=managed`;
       const portal = await stripe('POST', '/v1/billing_portal/sessions', {
         customer: retailer.stripe_customer_id,
         return_url: returnUrl,
@@ -232,7 +232,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ stripe_account_id: acctId, stripe_account_status: 'pending' }),
         });
       }
-      const baseUrl = `${SITE_ORIGIN}/r/${retailer.slug || 'gus'}/admin`;
+      const baseUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin`;
       const link = await stripe('POST', '/v1/account_links', {
         account: acctId,
         refresh_url: baseUrl + '?connect=refresh',
