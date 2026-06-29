@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     try {
       const rid = session.retailer_id;
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
-        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,website,description,billing_status,billing_tier`),
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier`),
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
         sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
         sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
