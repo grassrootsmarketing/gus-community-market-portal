@@ -443,7 +443,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div style="padding:26px 28px 18px;">
       <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.14em; color:#ed682f; margin-bottom:8px;">Demo conduct agreement</div>
       <h2 style="font-family:'Plus Jakarta Sans', sans-serif; font-size:1.4rem; font-weight:800; color:#0f2c17; margin:0 0 12px; letter-spacing:-0.02em;" id="agreementRetailerLabel">Review &amp; sign before booking</h2>
-      <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Before you book your first demo with this retailer, please review and agree to their demo conduct &amp; cancellation policies. We log your acceptance so both sides have a record.</div>
+      <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Before you book your first demo with this retailer, please review and agree to (1) their demo conduct &amp; cancellation policies below, and (2) <a href="/terms" target="_blank" rel="noopener" style="color:#2a5b32; font-weight:600;">Demohub's Terms of Service</a>. We log your acceptance so all sides have a record.</div>
     </div>
     <div style="padding:0 28px;">
       <div style="background:#f9f7f2; border-radius:12px; padding:18px 20px; margin-bottom:14px;">
@@ -460,7 +460,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       </label>
       <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:18px; cursor:pointer; font-size:0.9rem; line-height:1.45; color:#3a3a36;">
         <input id="agreementCheckbox" type="checkbox" style="margin-top:3px; flex-shrink:0;">
-        <span>I agree to follow this retailer&apos;s demo conduct &amp; cancellation policies on every demo I book at their stores.</span>
+        <span>I agree to follow this retailer&apos;s demo conduct &amp; cancellation policies on every demo I book at their stores, and to <a href="/terms" target="_blank" rel="noopener" style="color:#2a5b32; font-weight:600;">Demohub's Terms of Service</a>.</span>
       </label>
       <div id="agreementError" style="display:none; background:#fdebe5; border-left:3px solid #c93030; padding:10px 14px; border-radius:8px; font-size:0.85rem; color:#a01818; margin-bottom:14px;"></div>
     </div>
@@ -547,6 +547,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     '</div>';
                 return;
             }
+            // Wave 7 (#66) — adaptive layout based on venue count:
+            //   ≤6  → roomy 3-col grid (default)
+            //   7-12 → tighter 4-col grid, smaller hero
+            //   13+ → compact list view + search filter on top
+            const count = venues.length;
+            if (count >= 13) return renderLocationGridCompactList(venues, retailerName, demoFee);
+            if (count >= 7)  return renderLocationGridTight(venues, retailerName, demoFee);
             grid.innerHTML = venues.map(v => {
                 const nameEsc = (v.name || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const addrEsc = (v.address || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -569,7 +576,87 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             }).join('');
         }
 
-        function showView(view) {
+function renderLocationGridTight(venues, retailerName, demoFee) {
+            const grid = document.getElementById('locationGrid');
+            if (!grid) return;
+            // 4-col grid, ~half the hero, suitable for 7-12 locations
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(220px, 1fr))';
+            grid.innerHTML = venues.map(v => {
+                const nameEsc = (v.name || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const addrEsc = (v.address || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const rEsc = retailerName.replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const fee = (v.demo_fee != null ? v.demo_fee : demoFee);
+                return `<div class="location-card" style="cursor:pointer;" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')">
+                    <div style="height:80px; background:linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%); display:flex; align-items:center; justify-content:center; border-radius:10px 10px 0 0;">
+                        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#fbf7f0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    </div>
+                    <h3 style="font-size:1rem; margin:14px 18px 4px;">${rEsc}</h3>
+                    <div class="location-card-location" style="padding:0 18px 4px; font-size:0.82rem;">
+                        <svg viewBox="0 0 24 24" width="14" height="14"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                        ${addrEsc || nameEsc}
+                    </div>
+                    <div class="location-card-footer" style="padding:10px 18px 14px;">
+                        <div class="location-card-price" style="font-size:0.95rem;">$${fee}<span style="font-size:0.8rem;"> / demo</span></div>
+                        <span class="btn btn-primary" style="padding: 6px 12px; font-size: 0.8rem;">Book</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderLocationGridCompactList(venues, retailerName, demoFee) {
+            const grid = document.getElementById('locationGrid');
+            if (!grid) return;
+            grid.style.gridTemplateColumns = '1fr';
+            grid.innerHTML = `
+                <div style="grid-column:1/-1; margin-bottom:14px;">
+                    <div style="position:relative;">
+                        <input type="text" id="locationSearch" placeholder="Search ${venues.length} locations by name or address…" oninput="filterCompactLocations()" style="width:100%; padding:13px 16px 13px 44px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; background:white;">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="var(--ink-500)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="position:absolute; left:14px; top:50%; transform:translateY(-50%); pointer-events:none;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    </div>
+                </div>
+                <div id="compactLocationList" style="grid-column:1/-1; display:flex; flex-direction:column; gap:8px;"></div>
+            `;
+            window._compactVenues = venues.map(v => ({ ...v, _retailerName: retailerName, _demoFee: demoFee }));
+            renderCompactList(window._compactVenues);
+        }
+
+        function renderCompactList(venues) {
+            const list = document.getElementById('compactLocationList');
+            if (!list) return;
+            if (venues.length === 0) {
+                list.innerHTML = '<div style="padding:24px; text-align:center; color:var(--ink-500); background:white; border-radius:10px;">No locations match your search.</div>';
+                return;
+            }
+            list.innerHTML = venues.map(v => {
+                const nameEsc = (v.name || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const addrEsc = (v.address || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+                const fee = (v.demo_fee != null ? v.demo_fee : v._demoFee);
+                return `<div onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')" style="display:flex; align-items:center; gap:14px; padding:14px 18px; background:white; border:1px solid rgba(15,44,23,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--forest-700)'; this.style.transform='translateX(2px)';" onmouseout="this.style.borderColor='rgba(15,44,23,0.08)'; this.style.transform='translateX(0)';">
+                    <div style="width:40px; height:40px; background:linear-gradient(135deg, var(--forest-800) 0%, var(--forest-900) 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fbf7f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                    </div>
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:700; color:var(--forest-900); font-size:0.98rem;">${nameEsc}</div>
+                        <div style="font-size:0.84rem; color:var(--ink-500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${addrEsc || '—'}</div>
+                    </div>
+                    <div style="font-size:0.9rem; font-weight:700; color:var(--forest-900); white-space:nowrap;">$${fee}<span style="font-size:0.75rem; color:var(--ink-500); font-weight:500;"> / demo</span></div>
+                    <span class="btn btn-primary" style="padding: 7px 14px; font-size: 0.82rem;">Book</span>
+                </div>`;
+            }).join('');
+        }
+
+        function filterCompactLocations() {
+            const q = (document.getElementById('locationSearch').value || '').toLowerCase().trim();
+            const all = window._compactVenues || [];
+            if (!q) { renderCompactList(all); return; }
+            const filtered = all.filter(v =>
+                (v.name || '').toLowerCase().includes(q) ||
+                (v.address || '').toLowerCase().includes(q)
+            );
+            renderCompactList(filtered);
+        }
+
+                function showView(view) {
             // admin gate removed, admin lives at /r/<slug>/admin behind the auth gate
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(view + 'View').classList.add('active');

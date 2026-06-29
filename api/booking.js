@@ -8,6 +8,10 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.';
 const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+// Wave 7: include Demohub TOS in agreement scope (and hash) so brand explicitly
+// agrees to platform terms each time the conduct contract is signed.
+const DEMOHUB_TOS_VERSION = '2026-06-29';
+const DEMOHUB_TOS_URL = 'https://www.demohubhq.com/terms';
 
 async function sha256Hex(str) {
   const enc = new TextEncoder().encode(str || '');
@@ -88,8 +92,15 @@ export default async function handler(req, res) {
       if (!ret) return res.status(404).json({ error: 'Retailer not found' });
       const dp = ret.demo_policy || DEFAULT_DEMO_POLICY;
       const cp = ret.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
-      const curHash = await sha256Hex(dp + '\n---\n' + cp);
-      const policies = { demo_policy: dp, cancellation_policy: cp, policy_hash: curHash, retailer_name: ret.name };
+      const curHash = await sha256Hex(dp + '\n---\n' + cp + '\n---tos:' + DEMOHUB_TOS_VERSION);
+      const policies = {
+        demo_policy: dp,
+        cancellation_policy: cp,
+        policy_hash: curHash,
+        retailer_name: ret.name,
+        demohub_tos_version: DEMOHUB_TOS_VERSION,
+        demohub_tos_url: DEMOHUB_TOS_URL,
+      };
       if (!brand_email) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_email', policies });
       const brResp = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(brand_email).toLowerCase())}&select=id`, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
@@ -172,7 +183,7 @@ export default async function handler(req, res) {
           brandId = Array.isArray(created) ? created[0]?.id : null;
         }
         if (brandId) {
-          const policyHash = await sha256Hex(DEMO_POLICY + '\n---\n' + CURRENT_CANCEL_POLICY);
+          const policyHash = await sha256Hex(DEMO_POLICY + '\n---\n' + CURRENT_CANCEL_POLICY + '\n---tos:' + DEMOHUB_TOS_VERSION);
           // Supersede any prior active agreement for this brand × retailer
           const existing = await svcCall(`brand_retailer_agreements?brand_id=eq.${encodeURIComponent(brandId)}&retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&superseded_at=is.null&select=id`);
           const priorId = Array.isArray(existing) && existing[0] ? existing[0].id : null;
@@ -204,6 +215,55 @@ export default async function handler(req, res) {
               });
             } catch (_) {}
           }
+
+          // Wave 7: email the brand a receipt of what they just signed.
+          // Best-effort — does not block the booking flow if Resend is unavailable.
+          try {
+            const RESEND = process.env.RESEND_API_KEY;
+            if (RESEND && Array.isArray(newAgreement) && newAgreement[0]) {
+              const a = newAgreement[0];
+              const signedDate = new Date(a.signed_at).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+              const expiresDate = new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+              const subj = `Receipt: your demo conduct agreement with ${RETAILER_NAME}`;
+              const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:32px 36px 12px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">Agreement signed</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">Thanks ${html(signed_name)}.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">This is a receipt of the demo conduct agreement you just signed with <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong> through Demohub. Keep this for your records.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Signed as</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(signed_name)}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed on</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${signedDate}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Valid through</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${expiresDate}</td></tr>
+</table>
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin:18px 0 8px;">Demo policy you agreed to</div>
+<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;font-size:13px;line-height:1.6;color:#3a3a36;white-space:pre-wrap;margin-bottom:18px;">${html(DEMO_POLICY)}</div>
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin:18px 0 8px;">Cancellation policy you agreed to</div>
+<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;font-size:13px;line-height:1.6;color:#3a3a36;white-space:pre-wrap;margin-bottom:18px;">${html(CURRENT_CANCEL_POLICY)}</div>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">You also agreed to <a href="${DEMOHUB_TOS_URL}" style="color:#2a5b32;">Demohub's Terms of Service</a> (version ${DEMOHUB_TOS_VERSION}) as part of this agreement.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">If you ever need this agreement again, your <a href="https://www.demohubhq.com/brand/dashboard" style="color:#2a5b32;">Demohub brand portal</a> has a copy under Agreements.</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+              await fetch('https://api.resend.com/emails', {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  from: FROM_ADDRESS,
+                  to: String(contact_email).toLowerCase(),
+                  reply_to: 'david@demohubhq.com',
+                  subject: subj,
+                  html: htmlBody,
+                }),
+              });
+            }
+          } catch (e) { console.warn('agreement email skipped:', e?.message || e); }
         }
       } catch (e) {
         console.warn('agreement capture skipped:', e?.message || e);
