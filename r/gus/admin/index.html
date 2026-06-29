@@ -585,7 +585,7 @@
                     <div style="position: relative; z-index: 1;">
                         <div style="font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.18em; color: #ed682f; margin-bottom: 10px;">Welcome to Demohub</div>
                         <h2 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2rem; font-weight: 800; letter-spacing: -0.025em; margin: 0 0 8px; line-height: 1.1;">You're all set up.</h2>
-                        <p style="font-size: 1rem; color: rgba(255,255,255,0.85); line-height: 1.5; margin: 0 0 24px; max-width: 540px;">Four things to get your store ready. Demos roll in automatically once brands have your link.</p>
+                        <p style="font-size: 1rem; color: rgba(255,255,255,0.85); line-height: 1.5; margin: 0 0 24px; max-width: 540px;">Five things to get your store ready. Demos roll in automatically once brands have your link.</p>
 
                         <ol style="margin: 0 0 22px; padding: 0; list-style: none; counter-reset: step;">
                             <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
@@ -600,8 +600,12 @@
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">3</div>
                                 <div style="flex: 1;"><strong style="color: white;">Sync your calendar</strong><span style="color: rgba(255,255,255,0.7);"> — get confirmed demos into Google, Apple, or Outlook calendar with one click.</span></div>
                             </li>
-                            <li style="padding: 14px 0; display: flex; align-items: center; gap: 16px; counter-increment: step;">
+                            <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
                                 <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">4</div>
+                                <div style="flex: 1;"><strong style="color: white;">Customize your policies</strong><span style="color: rgba(255,255,255,0.7);"> — your cancellation and demo conduct policies. Brands review and sign them at first booking. Settings &rarr; scroll down.</span></div>
+                            </li>
+                            <li style="padding: 14px 0; display: flex; align-items: center; gap: 16px; counter-increment: step;">
+                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">5</div>
                                 <div style="flex: 1;"><strong style="color: white;">Share your booking link</strong><span style="color: rgba(255,255,255,0.7);"> — your brand partners book through this URL. That's how demos start.</span></div>
                             </li>
                         </ol>
@@ -798,8 +802,19 @@
                         </div>
                         <div class="settings-card-body" id="availabilityEditorBody"></div>
                     </div>
+                    <div id="policySetupCallout" style="display:none; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; margin-bottom:18px; display:flex; align-items:flex-start; gap:12px;">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ed682f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="12" y1="8" x2="12" y2="13"/>
+                            <line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">
+                            <strong style="color:#a14e2a;">Almost set up.</strong>
+                            <span id="policySetupCalloutText"> Your demo conduct policy + cancellation policy are still on the default template. Brands sign these at their first booking — make sure they match how your store actually runs.</span>
+                        </div>
+                    </div>
                     <div class="settings-card">
-                        <div class="settings-card-header"><h3>Cancellation policy</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="policyEditBtn" onclick="togglePolicyEdit()">Edit</button></div>
+                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Cancellation policy<span id="cancelPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="policyEditBtn" onclick="togglePolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown to brands on the public booking page before they submit, and included in confirmation emails.</div>
                             <textarea id="cancellationPolicy" rows="5" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.</textarea>
@@ -807,7 +822,7 @@
                         </div>
                     </div>
                     <div class="settings-card">
-                        <div class="settings-card-header"><h3>Demo policy</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
+                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout.</div>
                             <textarea id="demoPolicy" rows="6" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.</textarea>
@@ -2446,10 +2461,34 @@ END:VEVENT
         async function loadDemoPolicy() {
             try {
                 const res = await sb.from('retailers').select('demo_policy').eq('id', RETAILER_ID).maybeSingle();
-                const policy = (res.data && res.data.demo_policy) || DEMO_POLICY_DEFAULT;
+                const persisted = res.data && res.data.demo_policy;
+                const policy = persisted || DEMO_POLICY_DEFAULT;
                 const ta = document.getElementById('demoPolicy');
                 if (ta) ta.value = policy;
+                window._demoPolicyIsDefault = !persisted || persisted.trim() === DEMO_POLICY_DEFAULT.trim();
+                updatePolicyDefaultBadges();
             } catch (e) { console.warn('loadDemoPolicy', e); }
+        }
+
+        // Show/hide "Default — customize" pills + the Settings callout based on current state
+        function updatePolicyDefaultBadges() {
+            const cancelBadge = document.getElementById('cancelPolicyDefaultBadge');
+            const demoBadge = document.getElementById('demoPolicyDefaultBadge');
+            const callout = document.getElementById('policySetupCallout');
+            if (cancelBadge) cancelBadge.style.display = window._cancelPolicyIsDefault ? '' : 'none';
+            if (demoBadge) demoBadge.style.display = window._demoPolicyIsDefault ? '' : 'none';
+            const anyDefault = !!(window._cancelPolicyIsDefault || window._demoPolicyIsDefault);
+            if (callout) callout.style.display = anyDefault ? '' : 'none';
+            // Update callout text to reflect which policies still need attention
+            const calloutText = document.getElementById('policySetupCalloutText');
+            if (calloutText) {
+                const items = [];
+                if (window._demoPolicyIsDefault) items.push('demo conduct policy');
+                if (window._cancelPolicyIsDefault) items.push('cancellation policy');
+                if (items.length) {
+                    calloutText.textContent = 'Your ' + items.join(' + ') + ' ' + (items.length === 1 ? 'is' : 'are') + ' still on the default template. Brands sign these at their first booking — make sure they match how your store actually runs.';
+                }
+            }
         }
         function toggleDemoPolicyEdit() {
             const ta = document.getElementById('demoPolicy');
@@ -2476,6 +2515,8 @@ END:VEVENT
                     ta.style.background = '#f9f7f2';
                     btn.disabled = false; btn.textContent = 'Edit';
                     if (status) { status.style.color = 'var(--forest-700)'; status.textContent = 'Saved ✓'; setTimeout(() => { status.textContent = ''; }, 2000); }
+                    window._demoPolicyIsDefault = (newVal.trim() === DEMO_POLICY_DEFAULT.trim());
+                    if (typeof updatePolicyDefaultBadges === 'function') updatePolicyDefaultBadges();
                 }).catch(e => {
                     btn.disabled = false; btn.textContent = 'Save';
                     if (status) { status.style.color = 'var(--clay-700)'; status.textContent = 'Save failed: ' + (e.message || e); }
@@ -2485,13 +2526,17 @@ END:VEVENT
 
         // ===== Cancellation policy =====
         let policyEditing = false;
+        const CANCEL_POLICY_DEFAULT = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
         async function loadCancellationPolicy() {
             try {
                 const res = await sb.from('retailers').select('cancellation_policy').eq('id', RETAILER_ID).maybeSingle();
-                const policy = (res.data && res.data.cancellation_policy) ||
-                  'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                const persisted = res.data && res.data.cancellation_policy;
+                const policy = persisted || CANCEL_POLICY_DEFAULT;
                 const ta = document.getElementById('cancellationPolicy');
                 if (ta) ta.value = policy;
+                // Mark as default if persisted is null/empty OR matches the default text verbatim
+                window._cancelPolicyIsDefault = !persisted || persisted.trim() === CANCEL_POLICY_DEFAULT.trim();
+                updatePolicyDefaultBadges();
             } catch (e) { console.warn('loadCancellationPolicy', e); }
         }
         function togglePolicyEdit() {
@@ -2521,6 +2566,8 @@ END:VEVENT
                     status.style.color = 'var(--forest-700)';
                     status.textContent = 'Saved ✓';
                     setTimeout(() => { status.textContent = ''; }, 2000);
+                    window._cancelPolicyIsDefault = (newVal.trim() === CANCEL_POLICY_DEFAULT.trim());
+                    if (typeof updatePolicyDefaultBadges === 'function') updatePolicyDefaultBadges();
                 }).catch(e => {
                     btn.disabled = false; btn.textContent = 'Save';
                     status.style.color = 'var(--clay-700)';
