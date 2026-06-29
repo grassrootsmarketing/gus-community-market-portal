@@ -26,10 +26,13 @@ const ALLOWED_TABLES = new Set([
 // Fields that can be patched on the retailers table via /api/admin
 const RETAILER_PATCH_WHITELIST = new Set([
   'cancellation_policy',
+  'demo_policy',
   'name',
   'logo_url',
   'website',
   'description',
+  'monthly_summary_enabled',
+  'branding',
 ]);
 
 function send(res, status, body) {

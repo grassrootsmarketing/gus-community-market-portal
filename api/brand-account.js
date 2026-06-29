@@ -967,6 +967,105 @@ export default async function handler(req, res) {
         }
       }
 
+      // ===== Monthly retailer overview (sent once per month, ~1st of each month) =====
+      let monthlySummarySent = 0;
+      try {
+        const now = new Date();
+        // Eligible: retailers with monthly_summary_enabled=true and last_sent_at < 28 days ago (or never)
+        const twentyEightDaysAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
+        const path = `retailers?select=id,name,billing_email,slug,monthly_summary_enabled,monthly_summary_last_sent_at` +
+          `&monthly_summary_enabled=eq.true` +
+          `&billing_email=not.is.null` +
+          `&or=(monthly_summary_last_sent_at.is.null,monthly_summary_last_sent_at.lt.${encodeURIComponent(twentyEightDaysAgo)})`;
+        const eligibleR = await sb(path);
+        const eligible = await eligibleR.json();
+        const monthLabel = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        await processBatched(Array.isArray(eligible) ? eligible : [], 5, async (ret) => {
+          try {
+            // Compute summary metrics for last 30 days
+            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+            const [demosCompletedR, demoFeesR, pendingBookingsR, expiringCoiR] = await Promise.all([
+              sb(`demos?retailer_id=eq.${encodeURIComponent(ret.id)}&status=eq.completed&demo_date=gte.${since}&select=demo_fee`),
+              sb(`bookings?retailer_id=eq.${encodeURIComponent(ret.id)}&status=eq.pending&select=id`),
+              sb(`compliance_records?retailer_id=eq.${encodeURIComponent(ret.id)}&doc_type=eq.coi&expires_at=lt.${new Date(Date.now() + 45 * 86400000).toISOString().slice(0,10)}&select=id`),
+              sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(ret.id)}&created_at=gte.${since}&select=id`),
+            ]);
+            const demosCompleted = await demosCompletedR.json();
+            const pendingBookings = await pendingBookingsR.json();
+            const expiringCoi = await expiringCoiR.json();
+            const newBrands = await (await sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(ret.id)}&created_at=gte.${since}&select=id`)).json();
+            const totalFees = Array.isArray(demosCompleted) ? demosCompleted.reduce((s, d) => s + (parseFloat(d.demo_fee) || 0), 0) : 0;
+            const demosCount = Array.isArray(demosCompleted) ? demosCompleted.length : 0;
+            const pendingCount = Array.isArray(pendingBookings) ? pendingBookings.length : 0;
+            const expCoiCount = Array.isArray(expiringCoi) ? expiringCoi.length : 0;
+            const newBrandsCount = Array.isArray(newBrands) ? newBrands.length : 0;
+            const adminUrl = `https://demohubhq.com/r/${ret.slug}/admin`;
+            const subject = `${monthLabel} at ${ret.name} — ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
+            const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:32px 36px 8px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">Monthly overview · ${escapeText(monthLabel)}</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">Here's what happened last month at ${escapeText(ret.name)}.</h1>
+<table cellpadding="0" cellspacing="0" style="width:100%;margin:18px 0 6px;">
+<tr>
+  <td style="width:50%;padding:14px 12px;text-align:center;background:#f9f7f2;border-radius:10px 0 0 10px;">
+    <div style="font-size:1.8rem;font-weight:800;color:#0f2c17;line-height:1;">${demosCount}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;margin-top:6px;">Demos completed</div>
+  </td>
+  <td style="width:50%;padding:14px 12px;text-align:center;background:#f9f7f2;border-radius:0 10px 10px 0;border-left:1px solid #ede3d0;">
+    <div style="font-size:1.8rem;font-weight:800;color:#0f2c17;line-height:1;">$${totalFees.toFixed(0)}</div>
+    <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;margin-top:6px;">Demo fees collected</div>
+  </td>
+</tr>
+</table>
+<table cellpadding="0" cellspacing="0" style="width:100%;margin:8px 0 18px;">
+<tr>
+  <td style="width:33%;padding:12px 8px;text-align:center;">
+    <div style="font-size:1.3rem;font-weight:700;color:#0f2c17;line-height:1;">${pendingCount}</div>
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;margin-top:6px;">Pending bookings</div>
+  </td>
+  <td style="width:33%;padding:12px 8px;text-align:center;border-left:1px solid #ede3d0;">
+    <div style="font-size:1.3rem;font-weight:700;color:${expCoiCount > 0 ? '#a14e2a' : '#0f2c17'};line-height:1;">${expCoiCount}</div>
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;margin-top:6px;">COIs expiring &lt; 45d</div>
+  </td>
+  <td style="width:33%;padding:12px 8px;text-align:center;border-left:1px solid #ede3d0;">
+    <div style="font-size:1.3rem;font-weight:700;color:#0f2c17;line-height:1;">${newBrandsCount}</div>
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;margin-top:6px;">New brand contacts</div>
+  </td>
+</tr>
+</table>
+${pendingCount > 0 ? `<p style="background:#fff3ed;border-left:3px solid #ed682f;padding:12px 16px;border-radius:6px;font-size:13px;color:#3a3a36;margin:14px 0;">${pendingCount} booking${pendingCount === 1 ? ' is' : 's are'} waiting for your confirmation. <a href="${adminUrl}" style="color:#a14e2a;font-weight:700;">Review them &rarr;</a></p>` : ''}
+${expCoiCount > 0 ? `<p style="background:#fff3ed;border-left:3px solid #ed682f;padding:12px 16px;border-radius:6px;font-size:13px;color:#3a3a36;margin:14px 0;">${expCoiCount} brand${expCoiCount === 1 ? '' : 's'} ha${expCoiCount === 1 ? 's' : 've'} a COI expiring within 45 days. Brands receive automatic 30/14/3 day warnings, but you can preview which here. <a href="${adminUrl}" style="color:#a14e2a;font-weight:700;">View compliance &rarr;</a></p>` : ''}
+<p style="font-size:14px;color:#3a3a36;line-height:1.55;margin:18px 0;">Open your admin to dig into specific demos, brand contacts, payouts, and more.</p>
+<p style="margin:0 0 18px;"><a href="${adminUrl}" style="background:#0f2c17;color:white;padding:13px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;font-size:14px;">Open admin &rarr;</a></p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:20px 0 0;">These monthly overviews are on by default. You can turn them off anytime from Settings &rarr; Notifications.</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; [Mailing address pending — please update via virtual mailbox or PO Box. Required by CAN-SPAM. Contact david@demohubhq.com for current address.]<br>You're receiving this monthly overview because you have a Demohub admin account. Manage in Settings &rarr; Notifications.</td></tr>
+</table></body></html>`;
+            const ok = await sendWelcome({ to: ret.billing_email, subject, html: htmlBody, text: `Your ${monthLabel} overview at ${ret.name}: ${demosCount} demos completed, $${totalFees.toFixed(0)} in fees, ${pendingCount} pending bookings. Open ${adminUrl}` });
+            if (ok) {
+              await sb(`retailers?id=eq.${encodeURIComponent(ret.id)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ monthly_summary_last_sent_at: new Date().toISOString() }),
+              });
+              monthlySummarySent++;
+            } else {
+              errors.push({ kind: 'monthly_summary', id: ret.id, error: 'send failed' });
+            }
+          } catch (e) {
+            errors.push({ kind: 'monthly_summary', id: ret.id, error: String(e?.message || e) });
+          }
+        });
+      } catch (e) {
+        errors.push({ kind: 'monthly_summary_query', error: String(e?.message || e) });
+      }
+
       // === HEARTBEAT: write success row with summary ===
       try {
         await sb('cron_heartbeat', {
@@ -975,7 +1074,7 @@ export default async function handler(req, res) {
             cron_name: 'daily',
             outcome: 'succeeded',
             duration_ms: Date.now() - cronStartMs,
-            summary: { retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, errors: errors.length },
+            summary: { retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, monthlySummarySent, errors: errors.length },
           }),
         });
       } catch (_) { /* best-effort */ }

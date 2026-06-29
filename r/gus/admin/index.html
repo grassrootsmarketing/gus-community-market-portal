@@ -814,6 +814,20 @@
                         </div>
                     </div>
                     <div class="settings-card">
+                        <div class="settings-card-header"><h3>Notifications</h3></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:14px;">Choose which emails Demohub sends to your billing address.</div>
+                            <label style="display:flex; gap:12px; align-items:flex-start; cursor:pointer; padding:12px 14px; background:#f9f7f2; border-radius:10px;">
+                                <input type="checkbox" id="settingMonthlySummary" checked style="margin-top:3px; flex-shrink:0;" onchange="saveNotificationPrefs()">
+                                <div style="flex:1;">
+                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.95rem;">Monthly overview email</div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:2px;">Sent on the 1st of each month. Shows demos completed, fees collected, pending bookings, COIs expiring, new brand contacts.</div>
+                                </div>
+                            </label>
+                            <div id="notificationStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:10px; min-height:1.2em;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card">
                         <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Cancellation policy<span id="cancelPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="policyEditBtn" onclick="togglePolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown to brands on the public booking page before they submit, and included in confirmation emails.</div>
@@ -1635,6 +1649,7 @@ END:VEVENT
             loadCancellationPolicy();
             loadDemoPolicy();
             loadBrandAgreements();
+            loadNotificationPrefs();
             loadTeam();
             setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
         }
@@ -2461,6 +2476,37 @@ END:VEVENT
         // ===== Demo policy =====
         let demoPolicyEditing = false;
         const DEMO_POLICY_DEFAULT = `Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.`;
+        // ===== Notification preferences =====
+        async function loadNotificationPrefs() {
+            try {
+                const res = await sb.from('retailers').select('monthly_summary_enabled').eq('id', RETAILER_ID).maybeSingle();
+                const enabled = !res.data || res.data.monthly_summary_enabled !== false;
+                const cb = document.getElementById('settingMonthlySummary');
+                if (cb) cb.checked = enabled;
+            } catch (e) { console.warn('loadNotificationPrefs', e); }
+        }
+        async function saveNotificationPrefs() {
+            const cb = document.getElementById('settingMonthlySummary');
+            const status = document.getElementById('notificationStatus');
+            if (!cb) return;
+            try {
+                const r = await fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ monthly_summary_enabled: cb.checked }),
+                });
+                const j = await r.json();
+                if (j.error) throw new Error(j.error);
+                if (status) {
+                    status.style.color = 'var(--forest-700)';
+                    status.textContent = cb.checked ? 'Monthly overviews on.' : 'Monthly overviews off.';
+                    setTimeout(() => { if (status) status.textContent = ''; }, 2500);
+                }
+            } catch (e) {
+                if (status) { status.style.color = 'var(--clay-700)'; status.textContent = 'Save failed: ' + (e.message || e); }
+            }
+        }
+
         async function loadDemoPolicy() {
             try {
                 const res = await sb.from('retailers').select('demo_policy').eq('id', RETAILER_ID).maybeSingle();
