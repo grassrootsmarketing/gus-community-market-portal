@@ -67,7 +67,7 @@ function magicLinkEmail({ retailerName, link }) {
 
 async function checkRateLimit(req, bucketKey, maxPerHour) {
   try {
-    const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
     const key = bucketKey + ':' + ip;
     const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
     const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
