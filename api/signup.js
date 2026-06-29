@@ -132,7 +132,7 @@ export default async function handler(req, res) {
     if (!retailer) throw new Error('Retailer creation returned no rows');
 
     // 2) Seed a default venue
-    const venueCount = Math.max(1, Math.min(20, parseInt(store_count, 10) || 1));
+    const venueCount = Math.max(1, Math.min(999, parseInt(store_count, 10) || 1));
     const venuesPayload = [];
     for (let i = 1; i <= venueCount; i++) {
       venuesPayload.push({

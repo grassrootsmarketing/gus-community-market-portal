@@ -3195,12 +3195,16 @@ END:VEVENT
             };
         }
         function refreshVenueColorOrder() {
-            VENUE_COLOR_ORDER = (window.state.venues || []).map(v => v.name).filter(Boolean).slice(0, 12);
+            VENUE_COLOR_ORDER = (window.state.venues || []).map(v => v.name).filter(Boolean); // unbounded; venueIndex() wraps via modulo if needed
         }
 
         function venueIndex(name) {
+            // Map venue name → color index. CSS palette has 5 swatches (.venue-0..4) so
+            // we wrap via modulo when retailers exceed 5 stores. Visual distinction still
+            // present (5 colors repeating) and no rendering crash for large store counts.
+            const PALETTE_SIZE = 5;
             const idx = VENUE_COLOR_ORDER.indexOf(name);
-            return idx >= 0 ? idx : 0;
+            return (idx >= 0 ? idx : 0) % PALETTE_SIZE;
         }
         function bigCalPrev() { bigCalDate = new Date(bigCalDate.getFullYear(), bigCalDate.getMonth() - 1, 1); renderBigCalendar(); }
         function bigCalNext() { bigCalDate = new Date(bigCalDate.getFullYear(), bigCalDate.getMonth() + 1, 1); renderBigCalendar(); }

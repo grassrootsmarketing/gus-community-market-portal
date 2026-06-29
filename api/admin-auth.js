@@ -241,7 +241,7 @@ export default async function handler(req, res) {
       if (Array.isArray(existing) && existing.length > 0) return res.status(409).json({ error: 'That email is already on the team' });
 
       // Enforce limit: owners + admins capped at 10 per retailer. Viewers unlimited (calendar sync only).
-      const ADMIN_CAP = 10;
+      const ADMIN_CAP = 999;
       if ((role || 'admin') === 'admin') {
         const editors = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&role=in.(owner,admin)&select=id`);
         if (Array.isArray(editors) && editors.length >= ADMIN_CAP) {
@@ -320,7 +320,7 @@ export default async function handler(req, res) {
       if (targetRow.role === 'owner') return res.status(400).json({ error: 'Cannot change owner role' });
       // Cap check: promoting viewer -> admin must respect 10-admin limit
       if (role === 'admin' && targetRow.role !== 'admin') {
-        const ADMIN_CAP = 10;
+        const ADMIN_CAP = 999;
         const editors = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&role=in.(owner,admin)&select=id`);
         if (Array.isArray(editors) && editors.length >= ADMIN_CAP) {
           return res.status(409).json({ error: `Admin limit reached (${ADMIN_CAP}). Remove an admin first.` });
