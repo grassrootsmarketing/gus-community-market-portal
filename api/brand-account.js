@@ -759,6 +759,15 @@ export default async function handler(req, res) {
         return jsonResp(res, 401, { error: 'Unauthorized' });
       }
 
+      // === HEARTBEAT: write a start row so we can verify the cron is actually firing ===
+      const cronStartMs = Date.now();
+      try {
+        await sb('cron_heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({ cron_name: 'daily', outcome: 'started' }),
+        });
+      } catch (_) { /* heartbeat is best-effort, don't block the work */ }
+
       const errors = [];
       let retailerDay3Sent = 0;
       let brandFirstDemoSent = 0;
@@ -958,6 +967,18 @@ export default async function handler(req, res) {
         }
       }
 
+      // === HEARTBEAT: write success row with summary ===
+      try {
+        await sb('cron_heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({
+            cron_name: 'daily',
+            outcome: 'succeeded',
+            duration_ms: Date.now() - cronStartMs,
+            summary: { retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, errors: errors.length },
+          }),
+        });
+      } catch (_) { /* best-effort */ }
       return jsonResp(res, 200, { ok: true, retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, errors, ran_at: nowIso });
     }
 
