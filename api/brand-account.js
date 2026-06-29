@@ -110,7 +110,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <p style="margin:0 0 14px;">Free forever for brands. Always.</p>
 <p style="margin:0 0 4px;">Welcome,<br>David<br>Demohub</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 1111 NE Loop 410 #200, San Antonio TX 78209, USA<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: https://demohubhq.com/brand/dashboard\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
   const subject = `Welcome to Demohub, ${first_name || 'there'} — one profile for every retailer`;
@@ -141,7 +141,7 @@ function retailerDay3Email({ first_name }) {
 <p style="margin:0 0 14px;">Or just hit reply &mdash; happy to help by email too.</p>
 <p style="margin:0 0 4px;">Talk soon,<br>David<br>Demohub</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 1111 NE Loop 410 #200, San Antonio TX 78209, USA<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- How to price demos: Most start at $30 per slot.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\n20-min walkthrough: https://calendly.com/demohubhq/walkthrough\n\nTalk soon,\nDavid\nDemohub`;
   const subject = `${first_name || 'there'} — how's your Demohub setup going?`;
@@ -174,7 +174,7 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 <p style="margin:0 0 14px;">Reply to this email with how the demo went &mdash; we love hearing how things land at the floor.</p>
 <p style="margin:0 0 4px;">Cheers,<br>David<br>Demohub</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 1111 NE Loop 410 #200, San Antonio TX 78209, USA<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed — ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
   const subject = `Nice — your first demo at ${retailer_name || 'your retailer'} is locked in`;

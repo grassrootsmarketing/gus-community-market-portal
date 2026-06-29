@@ -59,8 +59,9 @@ function magicLinkEmail({ retailerName, link }) {
 <h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;color:#0f2c17;margin:0 0 12px;">Open your ${html(retailerName)} admin</h1>
 <p style="font-size:15px;line-height:1.55;color:#3a3a36;margin:0 0 22px;">Click below to access your Demohub admin hub. Link expires in 24 hours.</p>
 <p style="margin:0 0 22px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;">Sign in &rarr;</a></p>
-<p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore the email — no action will be taken.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:0 0 20px;">If you didn't request this, ignore the email — no action will be taken.</p>
 </td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 1111 NE Loop 410 #200, San Antonio TX 78209, USA<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
 </table></body></html>`;
 }
 
