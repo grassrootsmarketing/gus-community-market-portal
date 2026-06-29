@@ -169,13 +169,18 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   if (successCard) successCard.style.display = 'none';
 
   // Render the success card from a known state object
-  function renderSuccess({ slug, adminUrl, publicUrl }) {
+  // adminUrlAuto carries a one-shot magic-link token (~30min validity) so the
+  // "Open admin" button drops the user straight into their admin already
+  // logged in. The displayed link uses the bare URL so they can share it /
+  // bookmark it without leaking the token.
+  function renderSuccess({ slug, adminUrl, adminUrlAuto, publicUrl }) {
     const adminLink  = document.getElementById('adminLink');
     const publicLink = document.getElementById('publicLink');
     const openAdminBtn = document.getElementById('openAdminBtn');
+    const goto = adminUrlAuto || adminUrl;
     if (adminLink)  { adminLink.href = adminUrl;  adminLink.textContent = adminUrl; }
     if (publicLink) { publicLink.href = publicUrl; publicLink.textContent = publicUrl; }
-    if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = adminUrl; };
+    if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = goto; };
     formCard.style.display = 'none';
     if (successCard) successCard.style.display = 'block';
   }
@@ -191,13 +196,23 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       if (urlSlug) {
         const adminUrl  = 'https://demohubhq.com/r/' + urlSlug + '/admin';
         const publicUrl = 'https://demohubhq.com/r/' + urlSlug;
-        renderSuccess({ slug: urlSlug, adminUrl, publicUrl });
+        // No fresh token in URL-only path — button routes through /signin
+        renderSuccess({ slug: urlSlug, adminUrl, adminUrlAuto: null, publicUrl });
         return;
       }
-      // Otherwise, if we have fresh localStorage, restore from that
+      // Otherwise, if we have fresh localStorage, restore from that.
+      // adminUrlAuto only stays valid for ~30 minutes (it embeds a one-shot
+      // magic-link token); after that we drop it so the button routes through
+      // /signin (where the user can request a fresh magic link).
       if (saved && saved.slug && (Date.now() - (saved.savedAt || 0) < SEVEN_DAYS)) {
         try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(saved.slug)); } catch(_){}
-        renderSuccess({ slug: saved.slug, adminUrl: saved.adminUrl, publicUrl: saved.publicUrl });
+        const tokenStillFresh = (Date.now() - (saved.savedAt || 0)) < 30 * 60 * 1000;
+        renderSuccess({
+          slug: saved.slug,
+          adminUrl: saved.adminUrl,
+          adminUrlAuto: tokenStillFresh ? saved.adminUrlAuto : null,
+          publicUrl: saved.publicUrl,
+        });
         return;
       }
     } catch(_){}
@@ -262,11 +277,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       const slug = j.slug || '';
       const adminUrl = j.admin_url || ('https://demohubhq.com/r/' + slug + '/admin');
       const publicUrl = j.public_url || ('https://demohubhq.com/r/' + slug);
+      // adminUrlAuto carries a one-shot magic-link token so "Open admin" lands logged in
+      const adminUrlAuto = j.admin_url_with_token || adminUrl;
 
-      // Persist success state for refresh-survival
+      // Persist success state for refresh-survival. We keep adminUrlAuto for ~30 minutes
+      // (it embeds a one-shot token); after that it falls back to the bare URL which routes
+      // through /signin so the user can request a fresh magic link.
       try {
         localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
-          slug, adminUrl, publicUrl, savedAt: Date.now(),
+          slug, adminUrl, adminUrlAuto, publicUrl, savedAt: Date.now(),
           tier: initialTier || null,
         }));
       } catch(_){}
@@ -277,7 +296,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       // Update URL so refresh stays on success state and shareable
       try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(slug)); } catch(_){}
 
-      renderSuccess({ slug, adminUrl, publicUrl });
+      renderSuccess({ slug, adminUrl, adminUrlAuto, publicUrl });
     } catch (err) {
       showError(err.message || 'Sign-up failed. Try again or email david@demohubhq.com.');
       submitBtn.disabled = false;

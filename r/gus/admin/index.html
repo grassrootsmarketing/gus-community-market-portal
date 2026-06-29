@@ -718,13 +718,19 @@
                     <div class="settings-card" id="billingCard">
                         <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
-                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">Loading billing status…</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">
+                                <div style="margin-bottom:8px;">You're on the free plan.</div>
+                                <div style="font-size:0.78rem;color:var(--ink-500);">Add a payment method to unlock paid demos and team seats.</div>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-card" id="payoutsCard">
                         <div class="settings-card-header"><h3>Bank &amp; payouts</h3></div>
                         <div class="settings-card-body" id="payoutsCardBody">
-                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">Loading payout status…</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">
+                                <div style="margin-bottom:8px;">No payout bank connected yet.</div>
+                                <div style="font-size:0.78rem;color:var(--ink-500);">Add bank details to receive demo payments from brands.</div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -3135,7 +3141,7 @@ END:VEVENT
             const body = document.getElementById('billingCardBody');
             if (!body) return;
             try {
-                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
                 const r = await fetch('/api/stripe?action=status&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
@@ -3170,7 +3176,7 @@ END:VEVENT
         }
 
         async function openBillingPortal() {
-            const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
             const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
@@ -3190,7 +3196,7 @@ END:VEVENT
             const btn = event?.target;
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
-                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
                 const r = await fetch('/api/stripe?action=subscribe&session_id=' + encodeURIComponent(sessionId), {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ tier, interval }),
@@ -3215,7 +3221,7 @@ END:VEVENT
             const body = document.getElementById('payoutsCardBody');
             if (!body) return;
             try {
-                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
                 const r = await fetch('/api/stripe?action=connect-status&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
@@ -3256,7 +3262,7 @@ END:VEVENT
         async function startConnectOnboarding(btn) {
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
-                const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
                 const r = await fetch('/api/stripe?action=connect-onboard&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
                 const d = await r.json();
                 if (d.url) { window.location.href = d.url; return; }
@@ -3267,7 +3273,7 @@ END:VEVENT
             }
         }
         async function openConnectDashboard() {
-            const sessionId = (typeof getSessionId === 'function') ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || '');
+            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
             const r = await fetch('/api/stripe?action=connect-dashboard&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
@@ -3578,24 +3584,67 @@ END:VEVENT
     </div>
 
     <!-- Floating help / tour replay button -->
-    <button id="tourFab" onclick="window.replayTour && window.replayTour()"
-        title="Show me around the dashboard"
-        aria-label="Show me around"
-        style="position: fixed; bottom: 24px; right: 24px; z-index: 9990;
-               width: 52px; height: 52px; border-radius: 50%;
-               background: #0f2c17; color: white; border: none;
-               box-shadow: 0 8px 24px rgba(15,44,23,0.28);
-               cursor: pointer; transition: all 0.2s;
-               display: flex; align-items: center; justify-content: center;
-               font-family: inherit;"
-        onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 12px 32px rgba(15,44,23,0.36)';"
-        onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 8px 24px rgba(15,44,23,0.28)';">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <!-- Help FAB + popover menu -->
+    <div id="helpFabWrap" style="position: fixed; bottom: 24px; right: 24px; z-index: 9990;">
+      <div id="helpFabMenu" style="display:none; position:absolute; bottom:64px; right:0;
+           background:white; border-radius:14px; box-shadow:0 16px 40px rgba(15,44,23,0.18);
+           border:1px solid rgba(15,44,23,0.08); padding:8px; min-width:220px;
+           font-family:'Plus Jakarta Sans', system-ui, sans-serif;">
+        <a href="/faq" style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; text-decoration:none; color:#0f2c17; font-size:0.92rem; font-weight:600; transition:background 0.15s;"
+           onmouseover="this.style.background='#f9f7f2';" onmouseout="this.style.background='';">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
             <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
             <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
-    </button>
+          </svg>
+          Browse FAQ
+        </a>
+        <button type="button" onclick="document.getElementById('helpFabMenu').style.display='none'; window.replayTour && window.replayTour();"
+                style="display:flex; align-items:center; gap:10px; width:100%; padding:10px 12px; border-radius:8px; background:none; border:none; color:#0f2c17; font-size:0.92rem; font-weight:600; cursor:pointer; transition:background 0.15s; font-family:inherit; text-align:left;"
+                onmouseover="this.style.background='#f9f7f2';" onmouseout="this.style.background='';">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+          Replay tour
+        </button>
+        <a href="mailto:david@demohubhq.com?subject=Demohub%20help" style="display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; text-decoration:none; color:#0f2c17; font-size:0.92rem; font-weight:600; transition:background 0.15s;"
+           onmouseover="this.style.background='#f9f7f2';" onmouseout="this.style.background='';">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2"/>
+            <polyline points="3 7 12 13 21 7"/>
+          </svg>
+          Email support
+        </a>
+      </div>
+      <button id="tourFab" type="button"
+          title="Get help"
+          aria-label="Get help"
+          aria-haspopup="true"
+          onclick="(function(b){var m=document.getElementById('helpFabMenu');m.style.display=(m.style.display==='block'?'none':'block');})(this)"
+          style="width: 52px; height: 52px; border-radius: 50%;
+                 background: #0f2c17; color: white; border: none;
+                 box-shadow: 0 8px 24px rgba(15,44,23,0.28);
+                 cursor: pointer; transition: all 0.2s;
+                 display: flex; align-items: center; justify-content: center;
+                 font-family: inherit;"
+          onmouseover="this.style.transform='scale(1.08)'; this.style.boxShadow='0 12px 32px rgba(15,44,23,0.36)';"
+          onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 8px 24px rgba(15,44,23,0.28)';">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+      </button>
+    </div>
+    <script>
+      // Close FAB menu on outside click
+      document.addEventListener('click', function(e) {
+        var wrap = document.getElementById('helpFabWrap');
+        var menu = document.getElementById('helpFabMenu');
+        if (!wrap || !menu || menu.style.display !== 'block') return;
+        if (!wrap.contains(e.target)) menu.style.display = 'none';
+      });
+    </script>
 
     <!-- Onboarding tour overlay -->
     <div id="tourBackdrop" class="tour-backdrop"></div>

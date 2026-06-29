@@ -1,69 +1,63 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FAQ · Demohub</title>
-<meta name="description" content="Frequently asked questions about Demohub, the demo operations platform for independent retailers.">
-<meta property="og:title" content="FAQ, Demohub">
-<meta property="og:description" content="Common questions about Demohub for retailers and brands, pricing, COI tracking, scheduling, billing.">
-<meta property="og:image" content="https://demohubhq.com/og-faq.png">
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://demohubhq.com/faq">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://demohubhq.com/og-faq.png">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<meta name="description" content="Common questions about how Demohub works for retailers and brands.">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
 <style>
-:root {
-  --forest-900: #0f2c17; --forest-700: #1f4a26; --forest-600: #2a5b32; --forest-500: #3a7142;
-  --forest-100: #e3edd6; --forest-50: #f4f7ef;
-  --cream-50: #fbf7f0; --cream-100: #f6f0e4;
-  --clay-700: #a14e2a; --clay-bright: #ed682f;
-  --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.6; min-height: 100vh; }
-.nav { padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid rgba(15,44,23,0.12); position: sticky; top: 0; z-index: 50; }
-.nav .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-.nav .brand-mark { width: 32px; height: 32px; }
-.nav .brand-text { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: 1.2rem; letter-spacing: -0.04em; color: var(--forest-900); }
-.nav .nav-cta { background: var(--forest-900); color: white; padding: 10px 18px; border-radius: 99px; font-size: 0.9rem; font-weight: 600; text-decoration: none; }
-.container { max-width: 760px; margin: 64px auto 80px; padding: 0 24px; }
-.eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 18px; }
-h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 3rem; font-weight: 400; line-height: 1.08; color: var(--forest-900); margin-bottom: 16px; letter-spacing: -0.02em; }
-.lede { font-size: 1.15rem; color: var(--ink-700); margin-bottom: 56px; max-width: 620px; }
-.faq { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 8px 32px; margin-bottom: 32px; }
-details { padding: 24px 0; border-bottom: 1px solid rgba(15,44,23,0.06); }
-details:last-child { border-bottom: 0; }
-summary { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; font-weight: 400; color: var(--forest-900); cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; line-height: 1.3; }
-summary::-webkit-details-marker { display: none; }
-summary::after { content: '+'; font-size: 1.4rem; color: var(--clay-700); font-weight: 300; transition: transform 0.2s; }
-details[open] summary::after { transform: rotate(45deg); }
-details > p, details > div { font-size: 1rem; color: var(--ink-700); line-height: 1.65; margin-top: 14px; }
-details a { color: var(--forest-700); font-weight: 500; }
-.contact { background: var(--forest-50); border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 28px 32px; text-align: center; }
-.contact h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.6rem; font-weight: 400; color: var(--forest-900); margin-bottom: 8px; }
-.contact p { color: var(--ink-700); font-size: 0.98rem; margin-bottom: 18px; }
-.contact a { display: inline-block; background: var(--forest-900); color: white; padding: 12px 24px; border-radius: 99px; font-weight: 600; font-size: 0.95rem; text-decoration: none; margin: 4px 6px; }
-.contact a.secondary { background: white; color: var(--forest-900); border: 1.5px solid rgba(15,44,23,0.15); }
-footer { text-align: center; padding: 32px 24px; color: var(--ink-500); font-size: 0.88rem; border-top: 1px solid rgba(15,44,23,0.06); }
-footer a { color: var(--forest-700); text-decoration: none; }
-</style>
-<!-- PostHog -->
-<script>
-!function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister unregister_for_session getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing debug getPageViewId captureTraceFeedback captureTraceMetric".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
-  api_host: 'https://us.i.posthog.com',
-  person_profiles: 'identified_only',
-  session_recording: {
-    maskAllInputs: true,
-    maskTextSelector: '.brand-email, .token-display, .coi-link, [data-coi-url], .ph-no-capture',
-    blockSelector: 'input[type="file"], .ph-block'
+  :root {
+    --forest-900:#0f2c17; --forest-800:#1a3d23; --forest-700:#2a5b32;
+    --clay-600:#ed682f; --clay-700:#a14e2a;
+    --cream-50:#fbf7f0; --sand-100:#f1ecdf;
+    --ink-700:#3a3a36; --ink-500:#6b6a64;
   }
-});
-</script>
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--cream-50); color:var(--ink-700); font-family:'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; -webkit-font-smoothing:antialiased; }
+  .nav { display:flex; align-items:center; justify-content:space-between; padding:18px 32px; border-bottom:1px solid rgba(15,44,23,0.06); background:var(--cream-50); }
+  .brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
+  .brand-mark { width:32px; height:32px; }
+  .brand-text { font-weight:800; font-size:18px; color:var(--forest-900); letter-spacing:-0.03em; }
+  .nav-back { font-size:14px; color:var(--ink-500); text-decoration:none; font-weight:600; }
+  .nav-back:hover { color:var(--forest-800); }
 
+  main { max-width:760px; margin:0 auto; padding:48px 24px 80px; }
+  .eyebrow { font-size:13px; color:var(--clay-600); font-weight:700; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px; }
+  h1 { font-size:48px; margin:0 0 16px; color:var(--forest-900); letter-spacing:-0.03em; line-height:1.05; font-weight:800; }
+  h1 em { font-style:normal; color:var(--clay-600); }
+  .lede { font-size:18px; line-height:1.5; color:var(--ink-700); margin:0 0 40px; max-width:540px; }
+
+  .section-title { font-size:13px; font-weight:700; color:var(--forest-700); letter-spacing:0.06em; text-transform:uppercase; margin:36px 0 12px; }
+  details { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; margin-bottom:12px; padding:0; overflow:hidden; }
+  details[open] { box-shadow:0 4px 16px rgba(15,44,23,0.06); }
+  summary { cursor:pointer; padding:18px 22px; font-size:16px; font-weight:700; color:var(--forest-900); list-style:none; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:'+'; font-size:24px; color:var(--ink-500); font-weight:400; transition:transform 0.2s; }
+  details[open] summary::after { transform:rotate(45deg); }
+  .answer { padding:0 22px 22px; font-size:15px; line-height:1.65; color:var(--ink-700); }
+  .answer p { margin:0 0 12px; }
+  .answer p:last-child { margin-bottom:0; }
+  .answer a { color:var(--forest-700); }
+  .answer code { background:var(--sand-100); padding:2px 6px; border-radius:4px; font-size:13px; font-family:'SF Mono', Menlo, monospace; }
+  .answer ul { margin:0 0 12px 0; padding-left:20px; }
+  .answer li { margin-bottom:6px; }
+
+  .cta-card { margin-top:48px; background:var(--forest-900); color:white; border-radius:18px; padding:30px 32px; }
+  .cta-card h3 { margin:0 0 8px; font-size:22px; letter-spacing:-0.02em; }
+  .cta-card p { margin:0 0 16px; opacity:0.85; font-size:15px; line-height:1.55; }
+  .cta-card a.btn { display:inline-block; background:var(--clay-600); color:white; padding:11px 22px; border-radius:10px; text-decoration:none; font-weight:700; font-size:15px; }
+  .cta-card a.btn:hover { background:#d65a26; }
+
+  @media (max-width: 640px) {
+    main { padding:32px 18px 60px; }
+    h1 { font-size:32px; }
+    .lede { font-size:16px; }
+    summary { padding:14px 18px; font-size:15px; }
+    .answer { padding:0 18px 18px; }
+    .nav { padding:14px 18px; }
+  }
+</style>
 </head>
 <body>
 
@@ -77,65 +71,118 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </svg>
     <span class="brand-text">demohub</span>
   </a>
-  <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" class="nav-cta">Request a walkthrough</a>
+  <a href="javascript:history.back()" class="nav-back">← Back</a>
 </nav>
 
-<main class="container">
-  <div class="eyebrow">Frequently asked</div>
-  <h1>The short answers.</h1>
-  <p class="lede">If something's not here, the link at the bottom goes straight to David's inbox, we read every message.</p>
+<main>
+  <div class="eyebrow">Frequently asked questions</div>
+  <h1>Quick <em>answers</em></h1>
+  <p class="lede">Everything you need to know about running demos through Demohub — for retailers and brands. Can't find your answer? <a href="mailto:david@demohubhq.com">Email us</a>.</p>
 
-  <div class="faq">
-    <details open>
-      <summary>What does Demohub actually do?</summary>
-      <p>Demohub is the demo operations platform for independent retailers. Brands book demo slots at your stores through a public link. You approve the bookings, the schedule populates itself, and you get clean monthly statements at the end of every month. Compliance docs, contact info, and revenue tracking happen alongside.</p>
-    </details>
+  <div class="section-title">For retailers</div>
 
-    <details>
-      <summary>Who is this for?</summary>
-      <p>Independent grocery, wine, beer, and specialty retailers, anyone with 1 to ~30 stores who hosts in-store brand demos and is currently using spreadsheets and email threads to manage the chaos. Single-store owners get value too; multi-store operators get the most.</p>
-    </details>
+  <details>
+    <summary>How does Demohub make money?</summary>
+    <div class="answer">
+      <p>We charge retailers a flat monthly subscription based on how many stores you run — Solo ($49/mo), Starter ($99/mo), Growth ($199/mo), or Enterprise ($399/mo). Pricing is per-retailer, not per-demo, so the more demos you run, the better the deal.</p>
+      <p>You also collect a per-demo fee from each brand (you set the amount in Settings). We charge a small Demohub platform fee on top of Stripe's processing fee — the rest goes straight to your bank.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>How much does it cost?</summary>
-      <p>Free 30-day trial, no credit card to start. After that, pricing tracks your demo volume, we want it to feel like a no-brainer for stores hosting 5+ demos per month. Specific pricing will be on this site soon; meanwhile, the free trial gives you the whole product.</p>
-    </details>
+  <details>
+    <summary>When do I get paid for demos?</summary>
+    <div class="answer">
+      <p>Once you've connected your bank in Settings → Bank &amp; payouts (uses Stripe Express), demo payments land in your account within 2 business days of each demo, minus Stripe + Demohub fees.</p>
+      <p>Brands are charged when they book — funds are held until 24 hours after the demo, then released. If a demo is cancelled inside your cancellation policy window, the brand is refunded automatically.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>Do I have to enter all my brand contacts myself?</summary>
-      <p>No, that's the point. Brands book through your public link, fill out their own info, and their contact + compliance details land in your admin automatically. You can add brands manually if you want to invite a specific one, but you don't have to.</p>
-    </details>
+  <details>
+    <summary>Can I require a Certificate of Insurance (COI) from every brand?</summary>
+    <div class="answer">
+      <p>Yes — and it's required by default. Brands can't request a booking at your store without an uploaded, unexpired COI.</p>
+      <p>You get an automatic warning 90 days before any brand's COI expires, and so do they (30, 14, and 3 days out). The verified brand badge on the booking page only appears once a brand has a current COI on file.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>Can I set different hours for each store?</summary>
-      <p>Yes. Each store has its own availability schedule (open days, time windows, max demos per slot). You can also set one schedule and apply it to all your stores with a single click, handy if your stores keep consistent hours.</p>
-    </details>
+  <details>
+    <summary>What if a brand cancels last minute?</summary>
+    <div class="answer">
+      <p>You set your own cancellation policy in Settings → Cancellation policy. The default is: full refund 7+ days out, 50% refund 3–7 days out, no refund inside 72 hours.</p>
+      <p>Brands see this policy at booking time, agree to it before payment, and refunds run automatically through Stripe.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>How do brands pay the demo fee?</summary>
-      <p>Stripe Checkout integration is in development, once you have your Stripe account connected, brands pay the demo fee upfront when they book, and the funds land in your account. Until that's live, fees are tracked in your admin (so your monthly statement is accurate), and you collect via your existing process.</p>
-    </details>
+  <details>
+    <summary>How do I add my team?</summary>
+    <div class="answer">
+      <p>Settings → Team → Invite. They get a magic-link email — no password required. Owners and admins can manage everything; viewers can see the calendar and demo list but can't book or change settings.</p>
+      <p>You can have up to 10 owners/admins per retailer, and unlimited viewers.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>What's the cancellation policy?</summary>
-      <p>Up to each retailer, every store sets their own policy. You'll see it on the booking page before you submit, and it's listed in your confirmation email. Most retailers offer some grace period; some are non-refundable. When in doubt, reach out to the store directly.</p>
-    </details>
+  <details>
+    <summary>Can I sync demos to Google Calendar / Apple Calendar / Outlook?</summary>
+    <div class="answer">
+      <p>Yes — Settings → Calendar feed has a personal <code>.ics</code> URL you can subscribe to from any calendar app. New bookings appear automatically; cancellations remove themselves. One-time setup, no ongoing sync needed.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>Does Demohub work with my Google Calendar / Apple Calendar / Outlook?</summary>
-      <p>Yes, it works with all the major calendar apps. Subscribe once and confirmed demos show up automatically.</p>
-    </details>
+  <div class="section-title">For brands</div>
 
-    <details>
-      <summary>Can my whole team access the admin?</summary>
-      <p>Yes. You can invite team members to your store's admin from the Settings page, each one gets their own sign-in. You decide who can edit (admin) and who's view-only.</p>
-    </details>
+  <details>
+    <summary>How do I book a demo at a retailer?</summary>
+    <div class="answer">
+      <p>Visit the retailer's public booking page (the link they shared with you) and pick a date, store, and time slot. You'll need a brand account with a current COI uploaded — Demohub blocks bookings without one.</p>
+      <p>You pay the demo fee at booking. Funds aren't released to the retailer until 24 hours after the demo, so you're protected if anything goes sideways.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>Where's my data stored? Is it private?</summary>
-      <p>Your data is hosted on enterprise-grade infrastructure in US-West with strict access controls. Each retailer's data is fully isolated, other stores can never see your brands, bookings, or contacts. We never sell, share, or train on your data. Email <a href="mailto:david@demohubhq.com">david@demohubhq.com</a> with any privacy questions.</p>
-    </details>
+  <details>
+    <summary>What does the verified brand badge mean?</summary>
+    <div class="answer">
+      <p>The green checkmark on the booking page means: (1) your COI is uploaded and current, (2) you've completed at least one demo through Demohub, and (3) you're in good standing (no cancellation history outside policy).</p>
+      <p>Retailers can choose to only accept verified brands. Most do.</p>
+    </div>
+  </details>
 
-    <details>
-      <summary>I'm a brand, how do I book a demo?</summary>
-      <p>You don't book through Demohub directly. Your retailer will share a public booking link with you. Pick a store, pick a date, pick a slot, submit. The retailer confirms within a b
+  <details>
+    <summary>How do I upload my Certificate of Insurance?</summary>
+    <div class="answer">
+      <p>Brand portal → Profile → Insurance. PDF only, up to 10 MB. We extract the expiration date automatically (you can override it if we get it wrong). You'll get renewal reminders 30, 14, and 3 days before expiry.</p>
+    </div>
+  </details>
+
+  <div class="section-title">Technical</div>
+
+  <details>
+    <summary>Is Demohub secure? Where's my data stored?</summary>
+    <div class="answer">
+      <p>Data lives in Supabase (Postgres) hosted in US-East. All connections are TLS 1.3. Magic-link tokens are single-use and expire in 24 hours. Sessions are stored client-side in localStorage and expire after 30 days of inactivity.</p>
+      <p>Payment data is handled entirely by Stripe (PCI Level 1) — we never see or store card numbers, bank accounts, or routing numbers.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>What if I forget my login?</summary>
+    <div class="answer">
+      <p>Go to <a href="/signin">demohubhq.com/signin</a>, enter your email, and we'll send you a fresh magic link. Same for brand portal at <a href="/brand/signin">demohubhq.com/brand/signin</a>. No passwords to remember, ever.</p>
+    </div>
+  </details>
+
+  <details>
+    <summary>Can I export my data?</summary>
+    <div class="answer">
+      <p>Yes — admin → Demos → Export gives you CSV of all demos. Admin → Settings → Export account gives you a full JSON dump of stores, team, bookings, settings, and policies. Email us if you need anything else; we'll send within 48 hours.</p>
+    </div>
+  </details>
+
+  <div class="cta-card">
+    <h3>Still stuck?</h3>
+    <p>Email david@demohubhq.com and you'll get a reply same-day (usually within an hour during business hours, Pacific time). For a walkthrough, grab 30 minutes on the calendar.</p>
+    <a class="btn" href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener">Book a walkthrough →</a>
+  </div>
+</main>
+
+</body>
+</html>

@@ -150,6 +150,21 @@ export default async function handler(req, res) {
       });
     } catch (e) { console.warn('retailer_admins insert failed:', e); }
 
+    // 2.6) Generate a one-shot magic-link token so the signup success "Open admin"
+    //      button can drop the user straight into their admin (logged in) without
+    //      forcing them through an email round-trip.
+    let signupToken = null;
+    try {
+      const tokens = await sb(`admin_tokens`, {
+        method: 'POST',
+        body: JSON.stringify({
+          email: billing_email.toLowerCase().trim(),
+          retailer_id: retailer.id,
+        }),
+      });
+      signupToken = Array.isArray(tokens) ? (tokens[0]?.token || null) : null;
+    } catch (e) { console.warn('signup admin_tokens insert failed:', e?.message || e); }
+
     // 3) Seed settings row
     try {
       await sb(`settings`, {
@@ -192,7 +207,19 @@ export default async function handler(req, res) {
       } catch (_) { emailOk = false; }
     }
 
-    return res.status(200).json({ ok: true, retailer_id: retailer.id, slug, admin_url: adminUrl, public_url: publicUrl, email_sent: emailOk });
+    const adminUrlWithToken = signupToken
+      ? `${adminUrl}?token=${encodeURIComponent(signupToken)}`
+      : adminUrl;
+    return res.status(200).json({
+      ok: true,
+      retailer_id: retailer.id,
+      slug,
+      admin_url: adminUrl,
+      admin_url_with_token: adminUrlWithToken,
+      session_token: signupToken,
+      public_url: publicUrl,
+      email_sent: emailOk,
+    });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });
   }
