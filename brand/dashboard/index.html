@@ -736,7 +736,7 @@ function renderOverview() {
     if (!websiteOk) missing.push('Add your business website (verifies your identity)');
     verifiedPanelHtml = `<div class="verified-panel pending">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge muted"><circle cx="12" cy="12" r="11" fill="#d3d1c7"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>Almost verified</strong><p>Finish these to earn the verified badge retailers trust:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);"><em>Recommended:</em> <a href="#profile" style="color:var(--forest-700);font-weight:600;">Add a profile picture</a> so retailers recognize your brand at a glance.</p>' : ''}</div>
+      <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);"><em>Recommended:</em> <a href="#profile" style="color:var(--forest-700);font-weight:600;">Add a profile picture</a> so retailers recognize your brand at a glance.</p>' : ''}</div>
     </div>`;
   }
 
@@ -749,10 +749,10 @@ function renderOverview() {
     ${coiWarnHtml}
     ${verifiedPanelHtml}
     <div class="stat-row">
-      <div class="stat"><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
-      <div class="stat"><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
-      <div class="stat"><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
-      <div class="stat"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
+      <div class="stat" title="Demos you have confirmed but not yet completed. Includes confirmed bookings from today onward."><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
+      <div class="stat" title="Demos you've completed through Demohub. Builds your verified-brand history with retailers."><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
+      <div class="stat" title="Distinct retailers you've worked with on Demohub. Add new ones by booking through their public link."><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
+      <div class="stat" title="${profile.default_coi_url ? 'Your Certificate of Insurance is uploaded and current. Retailers require this for every booking.' : 'No Certificate of Insurance uploaded yet. Required before retailers will accept your bookings — upload in Profile.'}"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
     </div>
     ${perfHtml}
     ${retailersHtml}

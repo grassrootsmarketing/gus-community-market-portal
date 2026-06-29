@@ -495,7 +495,7 @@
                 <div class="stats-grid">
                     <div class="stat-card"><div class="stat-label">This Month's Demos</div><div class="stat-value" id="statMonthDemos">0</div><div class="stat-change" id="statMonthDemosDelta">Share your link to start</div></div>
                     <div class="stat-card"><div class="stat-label">Revenue (this month)</div><div class="stat-value" id="statRevenue">$0</div><div class="stat-change" id="statRevenueSub">Earnings appear once brands book</div></div>
-                    <div class="stat-card"><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">0</div><div class="stat-change" id="statBrandsSub">No brands yet</div></div>
+                    <div class="stat-card" title="Brands that have at least one demo on the calendar or one record in your compliance docs."><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">0</div><div class="stat-change" id="statBrandsSub">No brands yet</div></div>
                     <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">0%</div><div class="stat-change" id="statComplianceSub">COI status appears with brands</div></div>
                 </div>
 
@@ -556,8 +556,8 @@
                             <option value="next-30">Next 30 days</option>
                         </select>
                         <input type="text" id="brandFilter" placeholder="Filter by brand…" oninput="onDemoFilterChange()" aria-label="Filter by brand">
-                        <select id="venueFilter" onchange="onDemoFilterChange()" aria-label="Filter by venue">
-                            <option value="">All venues</option>
+                        <select id="venueFilter" onchange="onDemoFilterChange()" aria-label="Filter by location">
+                            <option value="">All locations</option>
                         </select>
                     </div>
                     <div id="demosTableView">
@@ -580,7 +580,7 @@
                         <h3 class="table-title">Internal Team Contacts</h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
-                                <option value="venue">Sort by Venue</option>
+                                <option value="venue">Sort by Location</option>
                                 <option value="name">Sort by Name</option>
                                 <option value="company">Sort by Role</option>
                             </select>
@@ -588,7 +588,7 @@
                         </div>
                     </div>
                     <table>
-                        <thead><tr><th>Name</th><th>Role</th><th>Venue</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Role</th><th>Location</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="internalContactsTableBody"></tbody>
                     </table>
                 </div>
@@ -597,7 +597,7 @@
                         <h3 class="table-title">Brand Contacts</h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="brandContactSort" onchange="renderContacts('brand')">
-                                <option value="venue">Sort by Venue</option>
+                                <option value="venue">Sort by Location</option>
                                 <option value="name">Sort by Name</option>
                                 <option value="company">Sort by Company</option>
                             </select>
@@ -605,7 +605,7 @@
                         </div>
                     </div>
                     <table>
-                        <thead><tr><th>Name</th><th>Company</th><th>Venue</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <thead><tr><th>Name</th><th>Company</th><th>Location</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="brandContactsTableBody"></tbody>
                     </table>
                 </div>
@@ -636,7 +636,7 @@
                     </div>
                     <div class="billing-summary" id="billingSummary"></div>
                     <table>
-                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead>
+                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Fee</th></tr></thead>
                         <tbody id="billingTableBody"></tbody>
                     </table>
                 </div>
@@ -810,7 +810,7 @@
                 <input type="hidden" id="contactType" value="brand">
                 <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="contactName" placeholder="Jane Doe"></div>
                 <div class="form-group"><label class="form-label" id="contactCompanyLabel">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
-                <div class="form-group"><label class="form-label">Venue</label>
+                <div class="form-group"><label class="form-label">Location</label>
                     <select class="form-input" id="contactVenue">
                         <!-- options populated dynamically from window.state.venues -->
                     </select>
@@ -1885,7 +1885,7 @@ END:VEVENT
             if (!editingStoreId) return;
             const v = (window.state.venues || []).find(x => x.id === editingStoreId);
             if (!v) return;
-            if (!confirm(`Delete "${v.name}"? Any demos already at this store will keep working, but new bookings at this venue will be disabled.`)) return;
+            if (!confirm(`Delete "${v.name}"? Any demos already at this store will keep working, but new bookings at this location will be disabled.`)) return;
             const errBox = document.getElementById('storeModalError');
             try {
                 await adminDelete('venues', editingStoreId);
@@ -2171,7 +2171,7 @@ END:VEVENT
             if (!sel) return;
             const venues = (window.state && window.state.venues) || [];
             const current = sel.value;
-            sel.innerHTML = '<option value="">All venues</option>' + venues.map(v =>
+            sel.innerHTML = '<option value="">All locations</option>' + venues.map(v =>
                 '<option value="' + escapeHtml(v.id) + '">' + escapeHtml(v.name || 'Unnamed') + '</option>'
             ).join('');
             if (current) sel.value = current;
@@ -2713,7 +2713,16 @@ END:VEVENT
         let demosChart = null;
         function renderMonthlyChart() {
             const canvas = document.getElementById('demosMonthlyChart');
-            if (!canvas || !window.Chart) return;
+            if (!canvas) return;
+            // If Chart.js failed to load (CDN blocked, slow network, etc.), show a placeholder
+            // instead of leaving the canvas area blank — David's PDF caught this empty state.
+            if (!window.Chart) {
+                const wrap = canvas.closest('.chart-wrap');
+                if (wrap) {
+                    wrap.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:180px; padding:24px; text-align:center; color: var(--ink-500); font-size:0.85rem; line-height:1.5; font-style:italic;">Chart loading… if this persists, refresh the page or check your network connection.</div>';
+                }
+                return;
+            }
             const now = new Date();
             const months = [];
             for (let i = 5; i >= 0; i--) {
@@ -3036,7 +3045,7 @@ END:VEVENT
                 + '<div class="party"><h3>To</h3><div class="party-body"><strong>' + escapeHtml(window._billingTo?.name || 'Your Business') + '</strong><br>' + escapeHtml(window._billingTo?.stores || '') + '<br>' + escapeHtml(window._billingTo?.email || '') + '</div></div>'
                 + '</div>'
                 + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
-                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Venue</th><th style="text-align:right;">Fee</th></tr></thead><tbody>'
+                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Fee</th></tr></thead><tbody>'
                 + rows
                 + '<tr class="total-row"><td colspan="4" style="text-align:right;">Total billed</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
                 + '</tbody></table>')
@@ -3099,7 +3108,7 @@ END:VEVENT
                     const vi = venueIndex(venue);
                     const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
                     const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
-                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown venue') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
+                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
