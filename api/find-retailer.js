@@ -38,6 +38,49 @@ export default async function handler(req, res) {
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
 
   try {
+    // ---- ACTION: status — health snapshot for /status page (anonymous) ----
+    if (action === 'status') {
+      const checks = { db: { ok: false, ms: null }, cron: { ok: false, last_run: null, hours_since: null }, errors: { last_24h: 0 } };
+      const startMs = Date.now();
+      try {
+        // DB ping: cheap select against retailers (anon-allowed)
+        await sb('retailers?select=id&limit=1');
+        checks.db.ok = true;
+        checks.db.ms = Date.now() - startMs;
+      } catch (e) {
+        checks.db.error = String(e?.message || e).slice(0, 200);
+      }
+
+      // Cron heartbeat: was there a successful run in the last 25 hours?
+      try {
+        if (SERVICE_KEY) {
+          const r = await sb('cron_heartbeat?select=ran_at,outcome,duration_ms&order=ran_at.desc&limit=1', true);
+          const last = Array.isArray(r) ? r[0] : null;
+          if (last) {
+            checks.cron.last_run = last.ran_at;
+            const ageH = (Date.now() - new Date(last.ran_at).getTime()) / 3600000;
+            checks.cron.hours_since = Math.round(ageH * 10) / 10;
+            checks.cron.ok = ageH < 25 && (last.outcome === 'succeeded' || last.outcome === 'started');
+            checks.cron.outcome = last.outcome;
+          }
+        }
+      } catch (e) {
+        checks.cron.error = String(e?.message || e).slice(0, 200);
+      }
+
+      // Errors in last 24h (read-only count)
+      try {
+        if (SERVICE_KEY) {
+          const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+          const r = await sb(`error_log?select=id&occurred_at=gte.${encodeURIComponent(since)}&limit=200`, true);
+          checks.errors.last_24h = Array.isArray(r) ? r.length : 0;
+        }
+      } catch (_) { /* ignore */ }
+
+      const allOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50;
+      return res.status(200).json({ ok: true, status: allOk ? 'operational' : 'degraded', checks, checked_at: new Date().toISOString() });
+    }
+
     // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
     if (action === 'public-data') {
       if (!SERVICE_KEY) return res.status(500).json({ error: 'service key not configured' });

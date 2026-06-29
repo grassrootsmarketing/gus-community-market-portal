@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Status · Demohub</title>
+<meta name="description" content="Real-time status of Demohub services.">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root { --forest-900:#0f2c17; --forest-800:#1a3d23; --forest-700:#2a5b32; --clay-600:#ed682f; --clay-700:#a14e2a; --cream-50:#fbf7f0; --sand-100:#f1ecdf; --ink-700:#3a3a36; --ink-500:#6b6a64; --ok-green:#1f4a26; --warn:#a14e2a; --err:#c93030; }
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; background:var(--cream-50); color:var(--ink-700); font-family:'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; -webkit-font-smoothing:antialiased; min-height:100vh; }
+.nav { display:flex; align-items:center; justify-content:space-between; padding:18px 32px; border-bottom:1px solid rgba(15,44,23,0.06); }
+.brand { display:flex; align-items:center; gap:10px; text-decoration:none; }
+.brand-mark { width:32px; height:32px; }
+.brand-text { font-weight:800; font-size:18px; color:var(--forest-900); letter-spacing:-0.03em; }
+.nav-back { font-size:14px; color:var(--ink-500); text-decoration:none; font-weight:600; }
+.nav-back:hover { color:var(--forest-800); }
+main { max-width:760px; margin:0 auto; padding:48px 24px 80px; }
+.eyebrow { font-size:13px; color:var(--clay-600); font-weight:700; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px; }
+h1 { font-size:44px; margin:0 0 8px; color:var(--forest-900); letter-spacing:-0.03em; line-height:1.05; font-weight:800; }
+.subtitle { font-size:18px; line-height:1.5; color:var(--ink-500); margin:0 0 32px; }
+
+.status-banner { padding:24px 28px; border-radius:14px; margin-bottom:32px; display:flex; align-items:center; gap:18px; }
+.status-banner.operational { background:#e3edd6; color:var(--ok-green); }
+.status-banner.degraded { background:#fff3ed; color:var(--warn); }
+.status-banner.outage { background:#fdebe5; color:var(--err); }
+.status-banner.checking { background:white; color:var(--ink-500); border:1px solid rgba(15,44,23,0.08); }
+.status-banner svg { flex-shrink:0; }
+.status-banner .head { font-weight:800; font-size:20px; letter-spacing:-0.01em; line-height:1.2; }
+.status-banner .meta { font-size:13px; opacity:0.8; margin-top:3px; }
+
+.checks { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; overflow:hidden; }
+.check-row { display:flex; align-items:center; gap:14px; padding:18px 22px; border-bottom:1px solid rgba(15,44,23,0.06); }
+.check-row:last-child { border-bottom:none; }
+.check-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.check-dot.ok { background:var(--ok-green); }
+.check-dot.warn { background:var(--warn); }
+.check-dot.err { background:var(--err); }
+.check-dot.unknown { background:#bdbab2; }
+.check-info { flex:1; min-width:0; }
+.check-name { font-weight:700; color:var(--forest-900); font-size:15px; }
+.check-detail { font-size:13px; color:var(--ink-500); margin-top:2px; }
+.check-value { font-size:13px; color:var(--ink-700); font-weight:600; white-space:nowrap; }
+
+.footnote { margin-top:24px; text-align:center; font-size:13px; color:var(--ink-500); }
+.footnote a { color:var(--forest-700); }
+
+@media (max-width: 640px) { main { padding:32px 18px 60px; } h1 { font-size:32px; } .nav { padding:14px 18px; } }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="brand">
+    <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+    <span class="brand-text">demohub</span>
+  </a>
+  <a href="/" class="nav-back">← Back home</a>
+</nav>
+
+<main>
+  <div class="eyebrow">System status</div>
+  <h1>Demohub status</h1>
+  <p class="subtitle">Live health check of every Demohub service. Refreshes on page load.</p>
+
+  <div class="status-banner checking" id="statusBanner">
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M12 6v6l4 2"/>
+    </svg>
+    <div>
+      <div class="head">Checking…</div>
+      <div class="meta">Running live health probes</div>
+    </div>
+  </div>
+
+  <div class="checks" id="checks">
+    <div class="check-row">
+      <div class="check-dot unknown"></div>
+      <div class="check-info">
+        <div class="check-name">Loading checks…</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footnote">
+    Latest incident reports + maintenance windows are posted on this page when active.
+    For urgent issues, email <a href="mailto:status@demohubhq.com">status@demohubhq.com</a>.
+    Last checked: <span id="checkedAt">never</span>.
+  </div>
+</main>
+
+<script>
+async function loadStatus() {
+  const banner = document.getElementById('statusBanner');
+  const checksEl = document.getElementById('checks');
+  const checkedAtEl = document.getElementById('checkedAt');
+  try {
+    const r = await fetch('/api/find-retailer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'status' }),
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+    const checks = j.checks || {};
+    const overall = j.status;
+    if (overall === 'operational') {
+      banner.className = 'status-banner operational';
+      banner.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg><div><div class="head">All systems operational</div><div class="meta">Everything's running normally.</div></div>`;
+    } else {
+      banner.className = 'status-banner degraded';
+      banner.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><div><div class="head">Some services are degraded</div><div class="meta">We're aware and investigating. Most features still work.</div></div>`;
+    }
+    const rows = [];
+    function row(name, ok, value, detail) {
+      const dotCls = ok === true ? 'ok' : (ok === false ? 'err' : 'unknown');
+      rows.push(`<div class="check-row"><div class="check-dot ${dotCls}"></div><div class="check-info"><div class="check-name">${name}</div>${detail ? `<div class="check-detail">${detail}</div>` : ''}</div><div class="check-value">${value || ''}</div></div>`);
+    }
+    row('Database (Supabase)', checks.db?.ok, checks.db?.ok ? `${checks.db.ms}ms` : 'unreachable', checks.db?.error || 'Read-only ping');
+    const cronOk = checks.cron?.ok;
+    const cronVal = checks.cron?.hours_since != null ? `last run ${checks.cron.hours_since}h ago` : (cronOk ? '—' : 'never');
+    row('Daily cron (welcome + COI warnings)', cronOk, cronVal, checks.cron?.outcome ? `outcome: ${checks.cron.outcome}` : 'Expected to run every 24h');
+    row('API errors (last 24h)', checks.errors.last_24h < 10, `${checks.errors.last_24h} 5xx`, checks.errors.last_24h < 10 ? 'Within normal range' : 'Elevated — review server log');
+    checksEl.innerHTML = rows.join('');
+    checkedAtEl.textContent = new Date(j.checked_at).toLocaleString();
+  } catch (e) {
+    banner.className = 'status-banner outage';
+    banner.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg><div><div class="head">Status check failed</div><div class="meta">Could not reach the status endpoint. This may itself be an outage.</div></div>`;
+    checksEl.innerHTML = `<div class="check-row"><div class="check-dot err"></div><div class="check-info"><div class="check-name">Could not load status</div><div class="check-detail">${e.message || e}</div></div></div>`;
+  }
+}
+loadStatus();
+</script>
+
+</body>
+</html>
