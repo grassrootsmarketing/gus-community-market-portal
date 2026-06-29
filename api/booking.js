@@ -66,6 +66,27 @@ ${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed
 </table></body></html>`;
 }
 
+// Wave 9: error log — best-effort write to error_log on any 5xx return.
+// Caller uses logError(req, e, status). Never throws.
+async function logError(req, status, message, stack) {
+  if (!SERVICE_KEY) return;
+  try {
+    await fetch(`${SUPABASE_URL}/rest/v1/error_log`, {
+      method: 'POST',
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        endpoint: '/api/booking',
+        method: req.method || 'POST',
+        status_code: status,
+        message: String(message || '').slice(0, 500),
+        stack: String(stack || '').slice(0, 2000),
+        request_meta: { url: req.url, action: (() => { try { return (typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {}).action || null; } catch(_) { return null; } })() },
+      }),
+    });
+  } catch (_) {}
+}
+
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -374,6 +395,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({ success: true, booking_id: bookingId, email_sent: emailOk, email_error: emailErr });
   } catch (e) {
+    await logError(req, 500, e?.message || e, e?.stack);
     return res.status(500).json({ error: String(e?.message || e) });
   }
 }
