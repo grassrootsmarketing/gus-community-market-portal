@@ -131,7 +131,7 @@ export default async function handler(req, res) {
     }
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy`, {
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const retailers = await retailerResp.json();
@@ -139,6 +139,7 @@ export default async function handler(req, res) {
     if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
     const RETAILER_ID = retailer.id;
     const RETAILER_NAME = retailer.name;
+    const RETAILER_BILLING_EMAIL = retailer.billing_email || null;
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';
 
     // Look up venue by retailer + name (for venue_id on the row)
@@ -262,6 +263,46 @@ export default async function handler(req, res) {
                   html: htmlBody,
                 }),
               });
+
+              // Send a parallel copy to the retailer so they have an audit trail too.
+              // Different subject so it's distinguishable in their inbox.
+              if (RETAILER_BILLING_EMAIL) {
+                const retailerSubj = `New agreement signed: ${signed_name} (${brand_name || 'unknown brand'})`;
+                const retailerHtmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:32px 36px 12px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">Brand signed your conduct agreement</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A new agreement is on file.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong style="color:#0f2c17;">${html(brand_name || 'A brand')}</strong> just signed your demo conduct &amp; cancellation policies as part of booking. Both sides now have a record of what was agreed to.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed by</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(signed_name)} &lt;${html(String(contact_email).toLowerCase())}&gt;</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed on</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${signedDate}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Valid through</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${expiresDate}</td></tr>
+</table>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You can view this agreement (and all signed agreements with brands) in your admin under <strong>Brands</strong> &mdash; each brand shows an &ldquo;Agreement &check;&rdquo; pill once they&apos;ve signed.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">If you change your demo or cancellation policy text, this brand will be re-prompted to sign before their next booking.</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+                await fetch('https://api.resend.com/emails', {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    from: FROM_ADDRESS,
+                    to: RETAILER_BILLING_EMAIL,
+                    reply_to: 'david@demohubhq.com',
+                    subject: retailerSubj,
+                    html: retailerHtmlBody,
+                  }),
+                });
+              }
             }
           } catch (e) { console.warn('agreement email skipped:', e?.message || e); }
         }
