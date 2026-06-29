@@ -418,6 +418,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<div id="persistentCoiNudge" style="display:none;"></div>
 <main class="container" id="mainContent">
   <div class="loading">
     <div class="spinner"></div>
@@ -607,9 +608,29 @@ function render() {
   else if (_currentTab === 'profile') renderProfile();
   else if (_currentTab === 'agreements') renderAgreements();
   else if (_currentTab === 'account') renderAccount();
+  if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
 }
 
 // ===== Overview =====
+// Wave 8: persistent COI nudge — shown on every tab when COI is missing or expired.
+// Brands legally can't book demos without a current COI; the more visible the nudge, the better.
+function updatePersistentCoiNudge() {
+  const banner = document.getElementById('persistentCoiNudge');
+  if (!banner) return;
+  const profile = _data && _data.profile;
+  if (!profile) { banner.style.display = 'none'; return; }
+  const hasCoi = !!profile.default_coi_url;
+  const exp = profile.default_coi_expires ? new Date(profile.default_coi_expires + 'T00:00:00') : null;
+  const expired = exp && exp <= new Date();
+  if (hasCoi && !expired) { banner.style.display = 'none'; return; }
+  const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
+  banner.innerHTML = `<div style="display:flex; align-items:center; gap:14px; padding:10px 18px; background:#fff3ed; border-bottom:1px solid #ed682f33;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    <div style="flex:1; font-size:0.88rem; line-height:1.45; color:#a14e2a;"><strong>${label}</strong> Retailers require a current COI before accepting your bookings. <a href="#profile" onclick="setTimeout(updatePersistentCoiNudge,300)" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+  </div>`;
+  banner.style.display = 'block';
+}
+
 function renderOverview() {
   const profile = _data.profile || {};
   const demos = (_data.demos || []).slice().sort((a, b) => (b.demo_date || '').localeCompare(a.demo_date || ''));
@@ -847,6 +868,27 @@ window.dismissWelcome = function(key) {
 // ===== Calendar =====
 function renderCalendar() {
   const demos = _data.demos || [];
+  // Wave 8: if NO demos at all, show an empty-state CTA above the empty calendar.
+  if (demos.length === 0) {
+    const main = document.getElementById('mainContent');
+    if (main) {
+      main.innerHTML = `
+        <div class="page-head"><div>
+          <h1>Calendar</h1>
+          <div class="sub">Your confirmed demos across every Demohub retailer.</div>
+        </div></div>
+        <div style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:18px; padding:48px 32px; text-align:center; max-width:560px; margin:40px auto;">
+          <div style="width:64px; height:64px; margin:0 auto 18px; background:var(--cream-100); border-radius:50%; display:flex; align-items:center; justify-content:center;">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <h2 style="margin:0 0 8px; font-size:1.35rem; color:var(--forest-900); letter-spacing:-0.02em;">No demos on your calendar yet</h2>
+          <p style="font-size:0.95rem; line-height:1.55; color:var(--ink-500); margin:0 0 22px;">When you book a demo at a Demohub retailer, it shows up here automatically. Each retailer shares a booking link with their brand partners.</p>
+          <a href="#overview" style="display:inline-block; background:var(--forest-900); color:white; padding:11px 22px; border-radius:10px; text-decoration:none; font-weight:700; font-size:0.92rem;">See your retailers</a>
+        </div>
+      `;
+    }
+    return;
+  }
   const monthName = new Date(_calYear, _calMonth, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' });
   const firstDow = new Date(_calYear, _calMonth, 1).getDay();
   const daysInMonth = new Date(_calYear, _calMonth + 1, 0).getDate();
