@@ -1242,52 +1242,49 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp, pendingResp, retailerResp] = await Promise.all([
-                sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
-                sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
-                sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
-                sb.from('venues').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                // Pending bookings also reserve capacity (P1: prevent double-booking before admin confirms)
-                sb.from('bookings').select('venue_id,demo_date,demo_time,status').eq('retailer_id', RETAILER_ID).eq('status', 'pending'),
-                sb.from('retailers').select('name,cancellation_policy,logo_url').eq('id', RETAILER_ID).maybeSingle(),
-            ]);
-            window.state.venues = venuesResp.data || [];
-            window.state.pendingBookings = pendingResp.data || [];
+            // Privacy Phase 0: single sanitized public endpoint replaces 8 anon table reads.
+            // /api/find-retailer?action=public-data returns ONLY public-safe fields
+            // (no PII — no contact emails, phones, names, no compliance docs, no internal staff).
+            let data = { retailer: null, venues: [], bookings: [], demos: [], settings: null };
+            try {
+                const r = await fetch('/api/find-retailer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'public-data', slug: RETAILER_SLUG }),
+                });
+                const j = await r.json();
+                if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                data = j;
+            } catch (e) {
+                console.error('public-data load failed:', e);
+            }
+            window.state.venues = data.venues || [];
+            // bookings: only venue_id/demo_date/demo_time/status (capacity-only, no PII)
+            window.state.pendingBookings = (data.bookings || []).filter(b => b.status === 'pending');
             // Stamp retailer name into the public header
             const hn = document.getElementById('publicRetailerName');
-            if (hn && retailerResp.data && retailerResp.data.name) hn.textContent = retailerResp.data.name;
-            // Swap in the retailer's uploaded logo if available, otherwise keep the bundled default
-            if (retailerResp.data && retailerResp.data.logo_url) {
+            if (hn && data.retailer && data.retailer.name) hn.textContent = data.retailer.name;
+            if (data.retailer && data.retailer.logo_url) {
                 const iconEl = document.getElementById('publicRetailerLogoIcon');
-                if (iconEl) iconEl.innerHTML = '<img src="' + retailerResp.data.logo_url + '" alt="' + (retailerResp.data.name || '') + ' logo">';
+                if (iconEl) iconEl.innerHTML = '<img src="' + data.retailer.logo_url + '" alt="' + (data.retailer.name || '') + ' logo">';
             }
-            // Stamp cancellation policy into the booking sidebar
             const cp = document.getElementById('cancellationPolicyText');
-            if (cp && retailerResp.data && retailerResp.data.cancellation_policy) {
-                cp.textContent = retailerResp.data.cancellation_policy;
+            if (cp && data.retailer && data.retailer.cancellation_policy) {
+                cp.textContent = data.retailer.cancellation_policy;
             }
-            window.state.retailerCancellationPolicy = (retailerResp.data && retailerResp.data.cancellation_policy) || '';
-            // Refresh visible calendar/time slots once venues arrive
+            window.state.retailerCancellationPolicy = (data.retailer && data.retailer.cancellation_policy) || '';
             if (document.getElementById('calendarGrid')) { renderCalendar(); applyTimeSlotAvailability(); }
-            window.state.brandContacts = brandResp.data || [];
-            window.state.internalContacts = internalResp.data || [];
-            // Keep raw demos for capacity checks (need venue_id + raw demo_time)
-            window.state.demosRaw = demosResp.data || [];
-            window.state.demos = (demosResp.data || []).map(d => ({
-                id: d.id,
-                date: d.demo_date,
-                time: d.demo_time,
-                company: d.company_name,
-                contact: d.contact_name,
-                product: d.product,
+            // No brand_contacts / internal_contacts / compliance_records on public page anymore — gone.
+            window.state.brandContacts = [];
+            window.state.internalContacts = [];
+            window.state.demosRaw = data.demos || [];
+            window.state.demos = (data.demos || []).map(d => ({
+                id: d.id, date: d.demo_date, time: d.demo_time,
                 status: (d.status || 'confirmed').replace(/^./, ch => ch.toUpperCase()),
-                demo_fee: d.demo_fee,
             }));
             UPCOMING_DEMOS = window.state.demos;
-            window.state.settings = settingsResp.data || null;
-            window.state.compliance = complianceResp.data || [];
+            window.state.settings = data.settings || null;
+            window.state.compliance = [];
             if (document.getElementById('demosTableBody')) renderDemos();
             if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');

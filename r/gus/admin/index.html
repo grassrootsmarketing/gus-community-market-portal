@@ -1580,20 +1580,23 @@ END:VEVENT
 
         async function refreshAll() {
             if (!sb || !RETAILER_ID) return;
-            const [brandResp, internalResp, demosResp, settingsResp, complianceResp, venuesResp, bookingsResp] = await Promise.all([
-                sb.from('brand_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                sb.from('internal_contacts').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                sb.from('demos').select('*').eq('retailer_id', RETAILER_ID).order('demo_date'),
-                sb.from('settings').select('*').eq('retailer_id', RETAILER_ID).maybeSingle(),
-                sb.from('compliance_records').select('*').eq('retailer_id', RETAILER_ID),
-                sb.from('venues').select('*').eq('retailer_id', RETAILER_ID).order('name'),
-                sb.from('bookings').select('*').eq('retailer_id', RETAILER_ID).order('created_at', { ascending: false }),
-            ]);
-            window.state.venues = venuesResp.data || [];
-            window.state.bookings = bookingsResp.data || [];
-            window.state.brandContacts = brandResp.data || [];
-            window.state.internalContacts = internalResp.data || [];
-            window.state.demos = (demosResp.data || []).map(d => ({
+            // Privacy Phase 0: single session-validated read endpoint replaces 7 anon reads.
+            // /api/admin?action=data uses SERVICE_KEY server-side, scoped to session.retailer_id.
+            const sid = AdminAuth.getSession();
+            let data = { venues: [], bookings: [], brand_contacts: [], internal_contacts: [], demos: [], settings: null, compliance: [] };
+            try {
+                const r = await fetch('/api/admin?action=data&session_id=' + encodeURIComponent(sid));
+                const j = await r.json();
+                if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                data = j;
+            } catch (e) {
+                console.error('admin data load failed', e);
+            }
+            window.state.venues = data.venues || [];
+            window.state.bookings = data.bookings || [];
+            window.state.brandContacts = data.brand_contacts || [];
+            window.state.internalContacts = data.internal_contacts || [];
+            window.state.demos = (data.demos || []).map(d => ({
                 id: d.id,
                 date: d.demo_date,
                 time: d.demo_time,
@@ -1607,8 +1610,8 @@ END:VEVENT
                 venue_id: d.venue_id || null,
             }));
             UPCOMING_DEMOS = window.state.demos;
-            window.state.settings = settingsResp.data || null;
-            window.state.compliance = complianceResp.data || [];
+            window.state.settings = data.settings || null;
+            window.state.compliance = data.compliance || [];
             // Demos table filters: populate venue dropdown + restore prior session selections
             if (document.getElementById('demoFilterControls')) {
                 populateVenueFilter();

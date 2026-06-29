@@ -72,11 +72,45 @@ export default async function handler(req, res) {
   if (!SERVICE_KEY) return send(res, 500, { error: 'SUPABASE_SERVICE_KEY not configured on server' });
 
   const { table, id, session_id } = req.query || {};
-  if (!table || !ALLOWED_TABLES.has(table)) return send(res, 400, { error: 'invalid or missing table parameter' });
-
   // === Session check ===
   const session = await verifySession(session_id);
   if (!session) return send(res, 401, { error: 'Invalid or missing admin session' });
+
+  // === Privacy Phase 0: read-all action ===
+  // Replaces direct anon SELECTs from the retailer admin page. Returns every
+  // bit of state for the session's retailer in one call, fully filtered server-side.
+  // Frontend calls: GET /api/admin?action=data&session_id=<uuid>
+  if (req.method === 'GET' && req.query?.action === 'data') {
+    try {
+      const rid = session.retailer_id;
+      const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,booking_advance_days,website,description,billing_status,billing_tier`),
+        sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
+        sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
+        sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
+        sb(`demos?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=demo_date`),
+        sb(`settings?retailer_id=eq.${encodeURIComponent(rid)}&select=*&limit=1`),
+        sb(`compliance_records?retailer_id=eq.${encodeURIComponent(rid)}&select=*`),
+        sb(`bookings?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=created_at.desc`),
+      ]);
+      return send(res, 200, {
+        ok: true,
+        retailer: Array.isArray(retailerArr) ? retailerArr[0] : null,
+        venues: venues || [],
+        brand_contacts: brandContacts || [],
+        internal_contacts: internalContacts || [],
+        demos: demos || [],
+        settings: Array.isArray(settingsArr) ? (settingsArr[0] || null) : null,
+        compliance: compliance || [],
+        bookings: bookings || [],
+      });
+    } catch (e) {
+      return send(res, 500, { error: 'admin-data read failed: ' + (e?.message || e) });
+    }
+  }
+
+  // For non-data actions, the table must be in the allowed list
+  if (!table || !ALLOWED_TABLES.has(table)) return send(res, 400, { error: 'invalid or missing table parameter' });
 
   // === Retailer scope check ===
   // For PATCH/DELETE: load the row first, verify it belongs to session.retailer_id.
