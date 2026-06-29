@@ -388,11 +388,48 @@ export default async function handler(req, res) {
     // ============================================================
     // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
     // ============================================================
-    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
+    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'incident-post' || action === 'incident-resolve' || action === 'incident-list') {
       return await handleOwnerAction(action, req, res, body);
     }
 
-    return res.status(400).json({ error: 'Unknown action' });
+      // === Incident management (owner-only) ===
+  // POST a new incident
+  if (action === 'incident-post') {
+    const { sessionId, title, body: incBody, severity } = body || {};
+    const v = await verifyOwnerSession(sessionId);
+    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    if (!title || String(title).trim().length < 3) return res.status(400).json({ error: 'title required' });
+    const sev = ['minor','major','maintenance'].includes(severity) ? severity : 'minor';
+    const created = await sb('status_incidents', {
+      method: 'POST',
+      body: JSON.stringify({ title: String(title).trim(), body: incBody || null, severity: sev }),
+    });
+    return res.status(200).json({ ok: true, incident: Array.isArray(created) ? created[0] : null });
+  }
+
+  // Resolve an active incident
+  if (action === 'incident-resolve') {
+    const { sessionId, incident_id } = body || {};
+    const v = await verifyOwnerSession(sessionId);
+    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    if (!incident_id) return res.status(400).json({ error: 'incident_id required' });
+    await sb(`status_incidents?id=eq.${encodeURIComponent(incident_id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ resolved_at: new Date().toISOString() }),
+    });
+    return res.status(200).json({ ok: true });
+  }
+
+  // List incidents (owner sees both active + resolved)
+  if (action === 'incident-list') {
+    const { sessionId } = body || {};
+    const v = await verifyOwnerSession(sessionId);
+    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    const rows = await sb(`status_incidents?select=*&order=started_at.desc&limit=50`);
+    return res.status(200).json({ ok: true, incidents: rows || [] });
+  }
+
+return res.status(400).json({ error: 'Unknown action' });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });
   }

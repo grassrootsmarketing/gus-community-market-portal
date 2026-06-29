@@ -106,6 +106,27 @@ async function loadStatus() {
     if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
     const checks = j.checks || {};
     const overall = j.status;
+    // Wave 9: render active incidents banner if present
+    const inc = j.incidents || [];
+    if (inc.length > 0) {
+      const main = document.querySelector('main');
+      let incHtml = '<div style="margin-bottom:24px;">';
+      for (const i of inc) {
+        const sev = i.severity || 'minor';
+        const bg = sev === 'major' ? '#fdebe5' : sev === 'maintenance' ? '#e3edd6' : '#fff3ed';
+        const fg = sev === 'major' ? '#c93030' : sev === 'maintenance' ? '#1f4a26' : '#a14e2a';
+        const startAt = new Date(i.started_at).toLocaleString();
+        incHtml += '<div style="background:' + bg + '; color:' + fg + '; padding:18px 22px; border-radius:12px; margin-bottom:10px; border-left:4px solid ' + fg + ';">' +
+          '<div style="font-weight:800; font-size:1.05rem;">' + (sev.toUpperCase()) + ': ' + (i.title || '').replace(/[<>]/g,'') + '</div>' +
+          (i.body ? '<div style="margin-top:6px; font-size:0.92rem;">' + (i.body || '').replace(/[<>]/g,'') + '</div>' : '') +
+          '<div style="margin-top:8px; font-size:0.82rem; opacity:0.8;">Started ' + startAt + '</div>' +
+        '</div>';
+      }
+      incHtml += '</div>';
+      const after = banner.parentNode;
+      const tmp = document.createElement('div'); tmp.innerHTML = incHtml;
+      banner.insertAdjacentElement('afterend', tmp.firstChild);
+    }
     if (overall === 'operational') {
       banner.className = 'status-banner operational';
       banner.innerHTML = `<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg><div><div class="head">All systems operational</div><div class="meta">Everything's running normally.</div></div>`;

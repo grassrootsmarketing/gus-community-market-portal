@@ -389,6 +389,7 @@ function renderDashboard(d) {
       <button class="owner-tab active" data-tab="overview">Overview</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
       <button class="owner-tab" data-tab="billing">Billing</button>
+      <button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
       ${stats}
@@ -398,6 +399,7 @@ function renderDashboard(d) {
     </div>
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
+    <div class="tab-pane" data-pane="status" id="statusPane"></div>
   `;
   wireTabs();
 }
@@ -411,9 +413,97 @@ function wireTabs() {
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
       if (tab === 'analytics') renderAnalytics('30d');
       if (tab === 'billing') renderBilling();
+      if (tab === 'status') renderStatusManager();
     });
   });
 }
+
+// Status incidents management (owner panel)
+async function renderStatusManager() {
+  const pane = document.getElementById('statusPane');
+  if (!pane) return;
+  pane.innerHTML = '<div style="padding:20px; color:var(--ink-500);">Loading incidents…</div>';
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  if (!sessionId) { pane.innerHTML = '<div style="padding:20px; color:var(--clay-700);">Owner session not found.</div>'; return; }
+  let incidents = [];
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-list', sessionId }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed to load');
+    incidents = j.incidents || [];
+  } catch (e) {
+    pane.innerHTML = '<div style="padding:20px; color:var(--clay-700);">Could not load: ' + e.message + '</div>';
+    return;
+  }
+  const active = incidents.filter(i => !i.resolved_at);
+  const resolved = incidents.filter(i => i.resolved_at).slice(0, 10);
+  pane.innerHTML = `
+    <div class="card">
+      <h2>Post new incident</h2>
+      <div class="sub" style="margin-bottom:14px;">Posts to public /status page immediately. Choose major to flag as outage, minor for degraded, maintenance for planned work.</div>
+      <input id="incTitle" type="text" placeholder="Short title (e.g. Bookings page slow loading)" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; margin-bottom:10px;">
+      <textarea id="incBody" placeholder="Optional detail / what's affected / what we're doing" rows="3" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; margin-bottom:10px;"></textarea>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <select id="incSeverity" style="padding:10px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit;">
+          <option value="minor">Minor (degraded)</option>
+          <option value="major">Major (outage)</option>
+          <option value="maintenance">Maintenance</option>
+        </select>
+        <button onclick="postIncident()" style="background:#0f2c17; color:white; border:none; padding:11px 22px; border-radius:8px; font-weight:700; cursor:pointer;">Post incident</button>
+        <span id="incStatus" style="font-size:0.85rem; color:var(--ink-500);"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Active incidents (${active.length})</h2>
+      ${active.length === 0 ? '<div class="sub">No active incidents. /status shows operational.</div>' : active.map(i => `
+        <div style="background:white; border-left:4px solid ${i.severity==='major'?'#c93030':i.severity==='maintenance'?'#3a7142':'#ed682f'}; padding:14px 18px; border-radius:0 10px 10px 0; margin-bottom:10px; border:1px solid rgba(15,44,23,0.06);">
+          <div style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
+            <div style="flex:1;">
+              <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(i.title)}</div>
+              ${i.body ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-top:4px;">${escapeHtml(i.body)}</div>` : ''}
+              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${i.severity.toUpperCase()} · started ${new Date(i.started_at).toLocaleString()}</div>
+            </div>
+            <button onclick="resolveIncident('${i.id}')" style="background:#2a5b32; color:white; border:none; padding:7px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:0.85rem;">Resolve</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Recently resolved</h2>
+      ${resolved.length === 0 ? '<div class="sub">No resolved incidents in history.</div>' : resolved.map(i => `
+        <div style="padding:10px 14px; border-bottom:1px solid rgba(15,44,23,0.06); font-size:0.88rem;">
+          <strong>${escapeHtml(i.title)}</strong> · ${i.severity} · ${new Date(i.started_at).toLocaleDateString()} – ${new Date(i.resolved_at).toLocaleDateString()}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+async function postIncident() {
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  const title = document.getElementById('incTitle').value.trim();
+  const body = document.getElementById('incBody').value.trim();
+  const severity = document.getElementById('incSeverity').value;
+  const status = document.getElementById('incStatus');
+  if (!title) { status.textContent = 'Title required.'; status.style.color = '#c93030'; return; }
+  status.textContent = 'Posting…'; status.style.color = '#6b6a64';
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-post', sessionId, title, body, severity }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed');
+    status.textContent = 'Posted ✓'; status.style.color = '#2a5b32';
+    setTimeout(renderStatusManager, 600);
+  } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#c93030'; }
+}
+async function resolveIncident(id) {
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-resolve', sessionId, incident_id: id }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed');
+    renderStatusManager();
+  } catch (e) { alert('Resolve failed: ' + e.message); }
+}
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // Generate plausible sample analytics data for a time range
 function generateAnalyticsSample(rangeKey) {

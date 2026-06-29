@@ -79,8 +79,23 @@ export default async function handler(req, res) {
         }
       } catch (_) { /* ignore */ }
 
-      const allOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50;
-      return res.status(200).json({ ok: true, status: allOk ? 'operational' : 'degraded', checks, checked_at: new Date().toISOString() });
+      // Active incidents posted by owner
+      const incidents = [];
+      try {
+        if (SERVICE_KEY) {
+          const rows = await sb('status_incidents?resolved_at=is.null&select=id,title,body,severity,started_at&order=started_at.desc&limit=10', true);
+          if (Array.isArray(rows)) incidents.push(...rows);
+        }
+      } catch (_) {}
+
+      // Status: incident=major → outage, incident=minor → degraded, no incidents + checks ok → operational
+      const hasMajor = incidents.some(i => i.severity === 'major');
+      const hasMinor = incidents.length > 0;
+      const allChecksOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50;
+      let status = 'operational';
+      if (hasMajor) status = 'outage';
+      else if (hasMinor || !allChecksOk) status = 'degraded';
+      return res.status(200).json({ ok: true, status, checks, incidents, checked_at: new Date().toISOString() });
     }
 
     // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
