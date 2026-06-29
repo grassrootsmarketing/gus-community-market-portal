@@ -445,6 +445,16 @@
 </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f2c17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Demohub">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+
 </head>
 <body>
     <!-- Admin auth gate — fullscreen overlay shown until session is verified -->
@@ -3403,7 +3413,15 @@ END:VEVENT
                 + '<tr class="total-row"><td colspan="4" style="text-align:right;">Total billed</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
                 + '</tbody></table>')
                 + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
-                + '</body></html>';
+                + '
+<script>
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));
+  });
+}
+</script>
+</body></html>';
 
             const win = window.open('', '_blank');
             if (!win) { alert('Statement window was blocked — allow pop-ups for this site.'); return; }

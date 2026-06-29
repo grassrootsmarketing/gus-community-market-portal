@@ -1,0 +1,36 @@
+{
+  "name": "Demohub",
+  "short_name": "Demohub",
+  "description": "Every demo. Every store. One place. The retailer + brand demo coordination platform.",
+  "start_url": "/?from=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fbf7f0",
+  "theme_color": "#0f2c17",
+  "categories": ["business", "productivity"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "icons": [
+    { "src": "/icon-192.png",            "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png",            "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-192.png",   "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-maskable-512.png",   "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Sign in",
+      "short_name": "Sign in",
+      "description": "Open Demohub sign in",
+      "url": "/signin?from=pwa",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Brand portal",
+      "short_name": "Brand",
+      "description": "Open your brand portal",
+      "url": "/brand/dashboard?from=pwa",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

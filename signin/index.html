@@ -49,6 +49,16 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 .signup-footer a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
 .signup-footer a:hover { color: var(--forest-900); text-decoration: underline; }
 </style>
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f2c17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Demohub">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+
 </head>
 <body>
 <nav class="nav">
@@ -178,6 +188,15 @@ const preset = params.get('email');
 if (preset) {
   document.getElementById('retailerEmail').value = preset;
   document.getElementById('brandEmail').value = preset;
+}
+</script>
+
+<script>
+// PWA: register service worker (conservative — only caches static assets, never HTML/API)
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));
+  });
 }
 </script>
 </body>
