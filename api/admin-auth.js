@@ -397,7 +397,7 @@ export default async function handler(req, res) {
   if (action === 'incident-post') {
     const { sessionId, title, body: incBody, severity } = body || {};
     const v = await verifyOwnerSession(sessionId);
-    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    if (!v) return res.status(401).json({ error: 'Owner auth required' });
     if (!title || String(title).trim().length < 3) return res.status(400).json({ error: 'title required' });
     const sev = ['minor','major','maintenance'].includes(severity) ? severity : 'minor';
     const created = await sb('status_incidents', {
@@ -411,7 +411,7 @@ export default async function handler(req, res) {
   if (action === 'incident-resolve') {
     const { sessionId, incident_id } = body || {};
     const v = await verifyOwnerSession(sessionId);
-    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    if (!v) return res.status(401).json({ error: 'Owner auth required' });
     if (!incident_id) return res.status(400).json({ error: 'incident_id required' });
     await sb(`status_incidents?id=eq.${encodeURIComponent(incident_id)}`, {
       method: 'PATCH',
@@ -424,7 +424,7 @@ export default async function handler(req, res) {
   if (action === 'incident-list') {
     const { sessionId } = body || {};
     const v = await verifyOwnerSession(sessionId);
-    if (!v.ok) return res.status(401).json({ error: v.error || 'Owner auth required' });
+    if (!v) return res.status(401).json({ error: 'Owner auth required' });
     const rows = await sb(`status_incidents?select=*&order=started_at.desc&limit=50`);
     return res.status(200).json({ ok: true, incidents: rows || [] });
   }
