@@ -64,6 +64,21 @@ function magicLinkEmail({ retailerName, link }) {
 </table></body></html>`;
 }
 
+
+async function checkRateLimit(req, bucketKey, maxPerHour) {
+  try {
+    const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    const key = bucketKey + ':' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (_) { return { allowed: true }; }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -81,6 +96,8 @@ export default async function handler(req, res) {
     // ---- LOGIN: request a magic link ----
     // Multi-admin: matches against retailer_admins table (multiple users per retailer).
     if (action === 'login') {
+      const rl = await checkRateLimit(req, 'admin-login', 10);
+      if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
       const { email, retailer_slug } = body || {};
       if (!email || !retailer_slug) return res.status(400).json({ error: 'email and retailer_slug required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
@@ -117,6 +134,8 @@ export default async function handler(req, res) {
 
     // ---- EMAIL-LOGIN: send magic link(s) by email only — auto-routes to right retailer(s) ----
     if (action === 'email-login') {
+      const rl = await checkRateLimit(req, 'admin-email-login', 10);
+      if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
       const { email } = body || {};
       if (!email) return res.status(400).json({ error: 'email required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });

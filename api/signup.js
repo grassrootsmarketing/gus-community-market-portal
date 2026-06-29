@@ -28,6 +28,25 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+
+// === Rate limit: max 10 signups per IP per hour (conservative; bumps for trusted IPs later) ===
+async function checkRateLimit(req, bucketKey, maxPerHour) {
+  try {
+    const ip = (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    const key = bucketKey + ':' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false, current: row.count };
+    if (row) {
+      await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    } else {
+      await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    }
+    return { allowed: true, current: (row ? row.count : 0) + 1 };
+  } catch (_) { return { allowed: true, current: 0 }; }  // fail-open on rate-limiter errors
+}
+
 async function uniqueSlug(base) {
   let slug = slugify(base);
   for (let i = 0; i < 6; i++) {
@@ -103,6 +122,10 @@ export default async function handler(req, res) {
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+
+  // Rate limit: 10 signups per IP per hour (signup is unauthenticated, prevents bulk abuse)
+  const rl = await checkRateLimit(req, 'signup', 10);
+  if (!rl.allowed) return res.status(429).json({ error: 'Too many signups from this IP. Try again in an hour.' });
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;

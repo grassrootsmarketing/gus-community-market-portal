@@ -218,6 +218,15 @@ export default async function handler(req, res) {
       }
     }
 
+    // Mark this event as processed (idempotency record)
+    try {
+      if (event.id) {
+        await sb('stripe_events_processed', {
+          method: 'POST',
+          body: JSON.stringify({ event_id: event.id, event_type: event.type }),
+        });
+      }
+    } catch (_) { /* best-effort */ }
     return res.status(200).end('ok');
   } catch (e) {
     return res.status(500).end(String(e?.message || e));
