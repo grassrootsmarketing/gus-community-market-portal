@@ -46,7 +46,7 @@ footer a { color:var(--forest-700); }
 <main class="container">
   <div class="eyebrow">Legal</div>
   <h1>Privacy Policy</h1>
-  <p class="updated">Last updated: June 25, 2026</p>
+  <p class="updated">Last updated: June 29, 2026</p>
 
   <p>This Privacy Policy explains how <strong>Demohub LLC</strong> ("Demohub", "we", "us", "our") collects, uses, and shares information when you use our service at demohubhq.com. We're a business-to-business SaaS platform, and we take privacy seriously.</p>
 
@@ -75,11 +75,14 @@ footer a { color:var(--forest-700); }
     <li>Analytics data with PII masking enabled (PostHog)</li>
   </ul>
 
+  <h3>Cookies and local storage</h3>
+  <p>Demohub does not use third-party tracking cookies. We rely on browser <code>localStorage</code> to keep you signed in (we store an opaque session ID, not your email or name). When you sign out, the session ID is removed. PostHog uses first-party local storage for analytics; you can opt out by appending <code>?__qa=1</code> to any URL in your session.</p>
+
   <h2>2. How we use information</h2>
   <ul>
     <li>Provide and operate the platform (booking flow, calendar sync, statements)</li>
     <li>Authenticate you (magic-link emails)</li>
-    <li>Send transactional emails (booking confirmations, COI expiration alerts, welcome emails)</li>
+    <li>Send transactional emails (booking confirmations, COI expiration alerts, welcome emails, signed-agreement receipts) via our processor <strong>Resend</strong> — see the <a href="/security/subprocessors">subprocessor list</a> for details</li>
     <li>Process payments through Stripe</li>
     <li>Improve the product (aggregate analytics, never individual targeting)</li>
     <li>Comply with legal obligations</li>
