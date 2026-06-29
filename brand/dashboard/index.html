@@ -360,6 +360,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <a href="#calendar" class="nav-tab" data-tab="calendar">Calendar</a>
     <a href="#profile" class="nav-tab" data-tab="profile">Profile</a>
     <a href="#team" class="nav-tab" data-tab="team">Team</a>
+    <a href="#agreements" class="nav-tab" data-tab="agreements">Agreements</a>
     <a href="#account" class="nav-tab" data-tab="account">Account</a>
   </div>
   <div class="nav-account">
@@ -385,6 +386,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <a href="#calendar" data-mobile-tab="calendar" onclick="brandMobileNavGo(event, 'calendar')">Calendar</a>
   <a href="#profile" data-mobile-tab="profile" onclick="brandMobileNavGo(event, 'profile')">Profile</a>
   <a href="#team" data-mobile-tab="team" onclick="brandMobileNavGo(event, 'team')">Team</a>
+  <a href="#agreements" data-mobile-tab="agreements" onclick="brandMobileNavGo(event, 'agreements')">Agreements</a>
   <a href="#account" data-mobile-tab="account" onclick="brandMobileNavGo(event, 'account')">Account</a>
 </nav>
 <script>
@@ -603,6 +605,7 @@ function render() {
   if (_currentTab === 'overview') renderOverview();
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'profile') renderProfile();
+  else if (_currentTab === 'agreements') renderAgreements();
   else if (_currentTab === 'account') renderAccount();
 }
 
@@ -1337,6 +1340,78 @@ window.removeTeamMember = async function(memberId, email) {
 };
 
 // Account tab — real settings + sign out
+// ===== Agreements (Wave 5: demo conduct contracts) =====
+async function renderAgreements() {
+  const main = document.getElementById('mainContent');
+  if (!main) return;
+  main.innerHTML = `
+    <div class="page-head"><div>
+      <h1>Your agreements</h1>
+      <div class="sub">Demo conduct contracts you&apos;ve signed with each retailer.</div>
+    </div></div>
+    <div id="agreementsList"><div class="loading"><div class="spinner"></div><div>Loading your agreements…</div></div></div>
+  `;
+  const profileEmail = (_data.profile && _data.profile.email) || (_session && _session.email) || '';
+  if (!profileEmail) {
+    document.getElementById('agreementsList').innerHTML = '<div style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:24px; text-align:center; color:var(--ink-500);">Sign in to see your agreements.</div>';
+    return;
+  }
+  let agreements = [];
+  try {
+    const r = await fetch('/api/brand-agreement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list', brand_email: profileEmail }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed to load');
+    agreements = j.agreements || [];
+  } catch (e) {
+    document.getElementById('agreementsList').innerHTML = '<div style="background:#fdebe5; border-left:3px solid #c93030; padding:14px 18px; border-radius:8px; color:#a01818;">Couldn&apos;t load agreements: ' + escapeHtml(e.message || String(e)) + '</div>';
+    return;
+  }
+  if (agreements.length === 0) {
+    document.getElementById('agreementsList').innerHTML = `
+      <div style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:36px 28px; text-align:center;">
+        <div style="font-size:1.05rem; font-weight:700; color:var(--forest-900); margin-bottom:6px;">No agreements yet</div>
+        <div style="font-size:0.92rem; color:var(--ink-500); max-width:420px; margin:0 auto; line-height:1.55;">When you book your first demo at a retailer, you&apos;ll be asked to review and sign their demo conduct &amp; cancellation policies. Those agreements will appear here.</div>
+      </div>`;
+    return;
+  }
+  const html = agreements.map(a => {
+    const ret = a.retailers || {};
+    const sigDate = new Date(a.signed_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
+    const expDate = new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    // Determine status pill
+    let status, statusColor, statusBg;
+    if (!a.is_active) { status = 'Superseded'; statusColor = '#6b6a64'; statusBg = '#e8e6e1'; }
+    else if (a.is_expired) { status = 'Expired'; statusColor = '#a01818'; statusBg = '#fdebe5'; }
+    else if (!a.is_current_policy) { status = 'Re-sign needed'; statusColor = '#a14e2a'; statusBg = '#fff3ed'; }
+    else { status = 'Active'; statusColor = '#1f4a26'; statusBg = '#e3edd6'; }
+    return `
+      <details style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; margin-bottom:12px; padding:0; overflow:hidden;">
+        <summary style="padding:18px 22px; display:flex; align-items:center; gap:14px; cursor:pointer; list-style:none;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:700; color:var(--forest-900); font-size:1.02rem;">${escapeHtml(ret.name || 'Unknown retailer')}</div>
+            <div style="font-size:0.84rem; color:var(--ink-500); margin-top:2px;">Signed ${escapeHtml(sigDate)} as <strong>${escapeHtml(a.signed_name)}</strong> · valid through ${escapeHtml(expDate)}</div>
+          </div>
+          <span style="background:${statusBg}; color:${statusColor}; padding:4px 12px; border-radius:99px; font-size:0.74rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; flex-shrink:0;">${status}</span>
+        </summary>
+        <div style="padding:0 22px 22px;">
+          <div style="background:#f9f7f2; border-radius:10px; padding:14px 18px; margin-bottom:10px;">
+            <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px;">Demo policy (as signed)</div>
+            <div style="font-size:0.88rem; line-height:1.55; color:var(--ink-700); white-space:pre-wrap;">${escapeHtml(a.demo_policy_snapshot || '(blank)')}</div>
+          </div>
+          <div style="background:#f9f7f2; border-radius:10px; padding:14px 18px;">
+            <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px;">Cancellation policy (as signed)</div>
+            <div style="font-size:0.88rem; line-height:1.55; color:var(--ink-700); white-space:pre-wrap;">${escapeHtml(a.cancellation_policy_snapshot || '(blank)')}</div>
+          </div>
+        </div>
+      </details>
+    `;
+  }).join('');
+  document.getElementById('agreementsList').innerHTML = html;
+}
+
 function renderAccount() {
   const p = _data.profile || {};
   main.innerHTML = `

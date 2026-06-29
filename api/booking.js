@@ -3,7 +3,33 @@
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
+
+const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.';
+const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+
+async function sha256Hex(str) {
+  const enc = new TextEncoder().encode(str || '');
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function svcCall(path, opts = {}) {
+  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_KEY not configured for write');
+  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const text = await r.text();
+  let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+  if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
+  return json;
+}
+
+function clientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) return String(xff).split(',')[0].trim();
+  return req.headers['x-real-ip'] || req.socket?.remoteAddress || null;
+}
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -47,14 +73,14 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes } = body || {};
+    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes, signed_name } = body || {};
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy`, {
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const retailers = await retailerResp.json();
@@ -81,6 +107,68 @@ export default async function handler(req, res) {
       const brandRows = await brandLookup.json();
       brandId = Array.isArray(brandRows) && brandRows[0] ? brandRows[0].id : null;
     } catch (_) { /* non-fatal */ }
+
+    // ---- Demo conduct contract: capture or refresh the brand × retailer agreement ----
+    // If the brand provided a typed signature in the booking payload, lock it in.
+    // For first-time brands (no brand row yet) we minimally create one so we have a
+    // foreign key target for the agreement. Bookings continue regardless if any of
+    // this fails — agreement is best-effort, the booking is the primary action.
+    const DEMO_POLICY = retailer.demo_policy || DEFAULT_DEMO_POLICY;
+    const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
+    if (signed_name && String(signed_name).trim().length >= 2 && SERVICE_KEY) {
+      try {
+        // Ensure we have a brand row
+        if (!brandId) {
+          const created = await svcCall('brands', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: String(contact_email).toLowerCase(),
+              name: brand_name || null,
+              company_name: brand_name || null,
+              contact_name: contact_name || null,
+              phone: contact_phone || null,
+            }),
+          });
+          brandId = Array.isArray(created) ? created[0]?.id : null;
+        }
+        if (brandId) {
+          const policyHash = await sha256Hex(DEMO_POLICY + '\n---\n' + CURRENT_CANCEL_POLICY);
+          // Supersede any prior active agreement for this brand × retailer
+          const existing = await svcCall(`brand_retailer_agreements?brand_id=eq.${encodeURIComponent(brandId)}&retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&superseded_at=is.null&select=id`);
+          const priorId = Array.isArray(existing) && existing[0] ? existing[0].id : null;
+          if (priorId) {
+            await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId)}`, {
+              method: 'PATCH',
+              body: JSON.stringify({ superseded_at: new Date().toISOString() }),
+            });
+          }
+          const newAgreement = await svcCall('brand_retailer_agreements', {
+            method: 'POST',
+            body: JSON.stringify({
+              brand_id: brandId,
+              retailer_id: RETAILER_ID,
+              signed_name: String(signed_name).trim(),
+              signed_email: String(contact_email).toLowerCase(),
+              signed_ip: clientIp(req),
+              signed_user_agent: req.headers['user-agent'] || null,
+              demo_policy_snapshot: DEMO_POLICY,
+              cancellation_policy_snapshot: CURRENT_CANCEL_POLICY,
+              policy_hash: policyHash,
+            }),
+          });
+          if (priorId && Array.isArray(newAgreement) && newAgreement[0]?.id) {
+            try {
+              await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId)}`, {
+                method: 'PATCH',
+                body: JSON.stringify({ superseded_by: newAgreement[0].id }),
+              });
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.warn('agreement capture skipped:', e?.message || e);
+      }
+    }
 
     // Insert booking row
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {

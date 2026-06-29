@@ -519,7 +519,39 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
     
 
-    <div class="modal-overlay" id="contactInfoModal">
+    <div class="modal-overlay" id="agreementModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.55); z-index:10010; align-items:center; justify-content:center; padding:20px;">
+  <div class="modal" style="background:white; border-radius:16px; max-width:560px; width:100%; max-height:calc(100vh - 40px); overflow-y:auto; box-shadow:0 24px 60px rgba(15,44,23,0.32);">
+    <div style="padding:26px 28px 18px;">
+      <div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.14em; color:#ed682f; margin-bottom:8px;">Demo conduct agreement</div>
+      <h2 style="font-family:'Plus Jakarta Sans', sans-serif; font-size:1.4rem; font-weight:800; color:#0f2c17; margin:0 0 12px; letter-spacing:-0.02em;" id="agreementRetailerLabel">Review &amp; sign before booking</h2>
+      <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Before you book your first demo with this retailer, please review and agree to their demo conduct &amp; cancellation policies. We log your acceptance so both sides have a record.</div>
+    </div>
+    <div style="padding:0 28px;">
+      <div style="background:#f9f7f2; border-radius:12px; padding:18px 20px; margin-bottom:14px;">
+        <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">Demo policy</div>
+        <div id="agreementDemoPolicy" style="font-size:0.9rem; line-height:1.55; color:#3a3a36; white-space:pre-wrap;"></div>
+      </div>
+      <div style="background:#f9f7f2; border-radius:12px; padding:18px 20px; margin-bottom:18px;">
+        <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">Cancellation policy</div>
+        <div id="agreementCancelPolicy" style="font-size:0.9rem; line-height:1.55; color:#3a3a36; white-space:pre-wrap;"></div>
+      </div>
+      <label style="display:block; margin-bottom:10px;">
+        <span style="display:block; font-size:0.85rem; font-weight:600; color:#0f2c17; margin-bottom:6px;">Type your full name to sign</span>
+        <input id="agreementSignedName" type="text" autocomplete="name" placeholder="e.g., Jordan Garcia" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; box-sizing:border-box;">
+      </label>
+      <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:18px; cursor:pointer; font-size:0.9rem; line-height:1.45; color:#3a3a36;">
+        <input id="agreementCheckbox" type="checkbox" style="margin-top:3px; flex-shrink:0;">
+        <span>I agree to follow this retailer&apos;s demo conduct &amp; cancellation policies on every demo I book at their stores.</span>
+      </label>
+      <div id="agreementError" style="display:none; background:#fdebe5; border-left:3px solid #c93030; padding:10px 14px; border-radius:8px; font-size:0.85rem; color:#a01818; margin-bottom:14px;"></div>
+    </div>
+    <div style="padding:18px 28px 24px; display:flex; gap:10px; justify-content:flex-end; border-top:1px solid rgba(15,44,23,0.06); background:#fbfaf6; border-radius:0 0 16px 16px;">
+      <button type="button" id="agreementCancelBtn" onclick="closeAgreementModal()" style="background:transparent; color:#6b6a64; border:none; padding:11px 18px; font-family:inherit; font-weight:600; font-size:0.92rem; cursor:pointer; border-radius:8px;">Cancel</button>
+      <button type="button" id="agreementConfirmBtn" onclick="confirmAgreementAndBook()" style="background:#0f2c17; color:white; border:none; padding:11px 22px; font-family:inherit; font-weight:700; font-size:0.92rem; cursor:pointer; border-radius:10px;">Agree &amp; continue booking &rarr;</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="contactInfoModal">
         <div class="modal" style="max-width: 540px;">
             <div class="modal-body" style="text-align: left; padding: 32px;">
                 <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;">Your contact info</h3>
@@ -862,8 +894,56 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             document.getElementById('contactInfoModal').classList.add('active');
         }
         function closeContactInfoModal() { document.getElementById('contactInfoModal').classList.remove('active'); }
+        // ===== Demo conduct agreement (Wave 5) =====
+        // Pre-flight: before any /api/booking call, check whether this brand×retailer has a
+        // current signed agreement. If not, show the agreement modal — the modal's confirm
+        // button captures the typed name into window._pendingSignedName and re-runs booking.
+        window._pendingSignedName = null;
+        async function ensureAgreementOrPrompt(contactEmail) {
+            try {
+                const r = await fetch('/api/brand-agreement', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'check', brand_email: contactEmail, retailer_slug: RETAILER_SLUG }),
+                });
+                const j = await r.json();
+                if (j.has_active) return { needsSigning: false };
+                // Need signing — populate modal with policies
+                const dp = (j.policies && j.policies.demo_policy) || '';
+                const cp = (j.policies && j.policies.cancellation_policy) || '';
+                const rn = (j.policies && j.policies.retailer_name) || RETAILER_NAME || 'this retailer';
+                document.getElementById('agreementDemoPolicy').textContent = dp;
+                document.getElementById('agreementCancelPolicy').textContent = cp;
+                document.getElementById('agreementRetailerLabel').textContent = 'Sign before booking at ' + rn;
+                document.getElementById('agreementSignedName').value = '';
+                document.getElementById('agreementCheckbox').checked = false;
+                document.getElementById('agreementError').style.display = 'none';
+                openAgreementModal();
+                return { needsSigning: true };
+            } catch (e) {
+                // If the check itself fails, fail-open and let the booking proceed.
+                // The agreement endpoint is best-effort; we don't want to block bookings
+                // because of a network blip.
+                console.warn('agreement check failed:', e);
+                return { needsSigning: false };
+            }
+        }
+        function openAgreementModal() { document.getElementById('agreementModal').style.display = 'flex'; }
+        function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; }
+        async function confirmAgreementAndBook() {
+            const name = document.getElementById('agreementSignedName').value.trim();
+            const checked = document.getElementById('agreementCheckbox').checked;
+            const err = document.getElementById('agreementError');
+            err.style.display = 'none';
+            if (name.length < 2) { err.textContent = 'Please type your full name (used as your signature).'; err.style.display = 'block'; return; }
+            if (!checked) { err.textContent = 'Please check the box to agree.'; err.style.display = 'block'; return; }
+            window._pendingSignedName = name;
+            closeAgreementModal();
+            // Re-run the original submit, which will now include the signature
+            await actuallySubmitBookings();
+        }
+
         async function submitContactInfo() {
-            const brandName    = document.getElementById('bookBrandName').value.trim();
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
@@ -874,6 +954,26 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             errMsg.textContent = '';
             if (!brandName || !contactEmail) { errMsg.textContent = 'Brand name and email are required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
+            // Wave 5: if no signature staged yet, run agreement pre-flight.
+            // ensureAgreementOrPrompt opens the agreement modal if needed; the modal's
+            // confirm button calls actuallySubmitBookings() which lands at the same booking
+            // loop with window._pendingSignedName populated. If no signature needed, fall through.
+            if (!window._pendingSignedName) {
+                const check = await ensureAgreementOrPrompt(contactEmail);
+                if (check.needsSigning) return;
+            }
+            await actuallySubmitBookings();
+        }
+        async function actuallySubmitBookings() {
+            const brandName    = document.getElementById('bookBrandName').value.trim();
+            const contactName  = document.getElementById('bookContactName').value.trim();
+            const contactEmail = document.getElementById('bookContactEmail').value.trim();
+            const contactPhone = document.getElementById('bookContactPhone').value.trim();
+            const product      = document.getElementById('bookProduct').value.trim();
+            const notes        = document.getElementById('bookNotes').value.trim();
+            const errMsg = document.getElementById('bookErrorMsg');
+            errMsg.style.display = 'none';
+            errMsg.textContent = '';
             const btn = document.getElementById('bookSubmitBtn');
             btn.disabled = true;
             const origLabel = btn.textContent;
@@ -897,6 +997,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                             demo_date: item.dateStr,
                             demo_time: item.time,
                             notes: notes,
+                            // Wave 5: include the typed signature if the brand
+                            // just agreed via the conduct-contract modal; the
+                            // server captures it once per booking burst.
+                            signed_name: window._pendingSignedName || null,
                         }),
                     });
                     const json = await resp.json().catch(() => ({}));
@@ -917,6 +1021,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (!okAll) {
                 errMsg.textContent = 'Some bookings failed: ' + errors.join('; ');
                 errMsg.style.display = 'block';
+                window._pendingSignedName = null;
                 return;
             }
             // Success, show success modal with details

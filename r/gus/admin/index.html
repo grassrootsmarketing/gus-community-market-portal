@@ -389,6 +389,11 @@
         /* Preferred shift star — orange when active */
         .window-row .preferred-active { color: var(--clay-600) !important; text-shadow: 0 0 4px rgba(237,104,47,0.35); }
 
+        /* Wave 5: demo conduct agreement pill on brand contacts */
+        .agreement-pill { display: inline-block; margin-left: 6px; padding: 2px 8px; border-radius: 99px; font-size: 0.68rem; font-weight: 700; letter-spacing: 0.04em; vertical-align: middle; }
+        .agreement-pill[data-state="signed"] { background: #e3edd6; color: #1f4a26; }
+        .agreement-pill[data-state="missing"] { background: #fff3ed; color: #a14e2a; }
+
         /* Section subnav */
         .section-subnav { background: white; border-bottom: 1px solid rgba(15,44,23,0.08); position: sticky; top: 0; z-index: 40; box-shadow: 0 1px 3px rgba(15,44,23,0.04); }
         .subnav-link { padding: 8px 14px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink-700); text-decoration: none; white-space: nowrap; transition: all 0.15s; }
@@ -1611,6 +1616,7 @@ END:VEVENT
             renderWelcomeBanner();
             loadCancellationPolicy();
             loadDemoPolicy();
+            loadBrandAgreements();
             loadTeam();
             setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
         }
@@ -2187,8 +2193,19 @@ END:VEVENT
             }
             tbody.innerHTML = list.map(c => {
                 const verifiedMark = (type === 'brand' && isBrandVerified(c.id)) ? verifiedBadgeSvg(14) : '';
+                // Wave 5: demo conduct agreement badge on brand contacts
+                let agreementBadge = '';
+                if (type === 'brand') {
+                    const a = window._agreementsByEmail && window._agreementsByEmail[(c.email || '').toLowerCase()];
+                    if (a) {
+                        const d = new Date(a.signed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                        agreementBadge = '<span class="agreement-pill" data-state="signed" title="Demo conduct agreement signed ' + d + '">Agreement&nbsp;✓</span>';
+                    } else {
+                        agreementBadge = '<span class="agreement-pill" data-state="missing" title="No demo conduct agreement on file. They sign at their first booking.">No&nbsp;agreement</span>';
+                    }
+                }
                 let cells = '<td>' + escapeHtml(c.name) + '</td>'
-                    + '<td>' + escapeHtml(c.company) + verifiedMark + '</td>'
+                    + '<td>' + escapeHtml(c.company) + verifiedMark + agreementBadge + '</td>'
                     + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
                 if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
                 cells += '<td>' + escapeHtml(c.email) + '</td>'
@@ -2514,6 +2531,26 @@ END:VEVENT
         }
 
         // ===== Team / multi-admin =====
+        // Wave 5: load all brand-retailer agreements for current retailer
+        window._agreementsByEmail = {};
+        async function loadBrandAgreements() {
+            try {
+                const r = await fetch('/api/brand-agreement', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'retailer-list', session_id: AdminAuth.getSession() }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Failed');
+                const map = {};
+                for (const a of (j.agreements || [])) {
+                    const e = ((a.brands && a.brands.email) || a.signed_email || '').toLowerCase();
+                    if (e) map[e] = a;
+                }
+                window._agreementsByEmail = map;
+                if (typeof renderContacts === 'function') renderContacts('brand');
+            } catch (e) { console.warn('loadBrandAgreements', e); }
+        }
+
         async function loadTeam() {
             const list = document.getElementById('teamList');
             if (!list) return;
