@@ -386,6 +386,9 @@
             .demo-filters { grid-template-columns: 1fr 1fr; }
         }
     
+        /* Preferred shift star — orange when active */
+        .window-row .preferred-active { color: var(--clay-600) !important; text-shadow: 0 0 4px rgba(237,104,47,0.35); }
+
         /* Section subnav */
         .section-subnav { background: white; border-bottom: 1px solid rgba(15,44,23,0.08); position: sticky; top: 0; z-index: 40; box-shadow: 0 1px 3px rgba(15,44,23,0.04); }
         .subnav-link { padding: 8px 14px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink-700); text-decoration: none; white-space: nowrap; transition: all 0.15s; }
@@ -796,6 +799,14 @@
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown to brands on the public booking page before they submit, and included in confirmation emails.</div>
                             <textarea id="cancellationPolicy" rows="5" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.</textarea>
                             <div id="policyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card">
+                        <div class="settings-card-header"><h3>Demo policy</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout.</div>
+                            <textarea id="demoPolicy" rows="6" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.</textarea>
+                            <div id="demoPolicyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                         </div>
                     </div>
                     <div class="settings-card">
@@ -1599,6 +1610,7 @@ END:VEVENT
             renderStores();
             renderWelcomeBanner();
             loadCancellationPolicy();
+            loadDemoPolicy();
             loadTeam();
             setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
         }
@@ -1753,7 +1765,7 @@ END:VEVENT
                     </label>
                     <span class="availability-day-name" style="padding-top:6px;">${DAY_NAMES[d]}</span>
                     <div class="availability-times" id="availTimes-${d}" style="flex:1;">
-                        ${isOpen ? renderDayWindowsHtml(d, windows) : `<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>`}
+                        ${isOpen ? renderDayWindowsHtml(d, windows) : `<div style="display:flex; align-items:center; gap:10px; padding-top:6px;"><span style="color:var(--ink-500);">Closed</span><button type="button" onclick="applyStandardShifts(${d})" style="background:none; border:1px solid rgba(15,44,23,0.12); color:var(--forest-700); font-size:0.78rem; font-weight:600; padding:4px 10px; border-radius:6px; cursor:pointer;">Quick set: 11–2 + 3–6</button></div>`}
                     </div>
                 </div>`;
             }
@@ -1765,20 +1777,21 @@ END:VEVENT
         function renderDayWindowsHtml(day, windows) {
             let html = '<div class="windows-list" data-day-windows="' + day + '">';
             windows.forEach((w, i) => {
-                html += renderWindowRow(day, i, w.open, w.close, windows.length > 1);
+                html += renderWindowRow(day, i, w.open, w.close, windows.length > 1, !!w.preferred);
             });
             html += '</div>';
             if (windows.length < 3) {
-                html += `<button type="button" onclick="addWindow(${day})" style="margin-top:6px; background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add window</button>`;
+                html += `<button type="button" onclick="addWindow(${day})" style="margin-top:6px; background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add shift</button>`;
             }
             return html;
         }
 
-        function renderWindowRow(day, idx, open, close, deletable) {
+        function renderWindowRow(day, idx, open, close, deletable, preferred) {
             return `<div class="window-row" data-window-idx="${idx}" style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="open" value="${open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
                 <span style="color:var(--ink-500);">–</span>
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="close" value="${close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
+                <button type="button" onclick="togglePreferredShift(${day}, ${idx}, this)" data-preferred="${preferred ? '1' : '0'}" class="${preferred ? 'preferred-active' : ''}" aria-pressed="${preferred ? 'true' : 'false'}" aria-label="Preferred shift" title="${preferred ? 'Preferred shift (highlighted in your dashboard)' : 'Mark as preferred shift'}" style="background:none; border:none; color:var(--clay-600); cursor:pointer; font-size:1.15rem; line-height:1; padding:0 4px;">${preferred ? '★' : '☆'}</button>
                 ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" aria-label="Remove window" style="background:none; border:none; color:var(--ink-300); cursor:pointer; font-size:1.1rem; line-height:1; padding:0 4px;">&times;</button>` : ''}
             </div>`;
         }
@@ -1789,7 +1802,9 @@ END:VEVENT
             rows.forEach((row, i) => {
                 const o = row.querySelector(`[data-field="open"]`)?.value;
                 const c = row.querySelector(`[data-field="close"]`)?.value;
-                if (o && c) out.push({ open: o, close: c });
+                const prefBtn = row.querySelector('[aria-pressed]');
+                const preferred = prefBtn && prefBtn.getAttribute('aria-pressed') === 'true';
+                if (o && c) out.push({ open: o, close: c, preferred: !!preferred });
             });
             return out;
         }
@@ -1797,9 +1812,44 @@ END:VEVENT
         function addWindow(day) {
             const current = readDayWindowsFromDom(day);
             if (current.length >= 3) return;
-            current.push({ open: '10:00', close: '18:00' });
+            // Smart defaults: if no shifts yet, suggest 11–2.
+            // If one shift ending at/before 14:00 exists, suggest 15–18 next.
+            // Otherwise fall back to a generic afternoon window.
+            let next = { open: '11:00', close: '14:00' };
+            if (current.length === 1) {
+                const c0 = current[0].close;
+                if (c0 && c0 <= '14:30') next = { open: '15:00', close: '18:00' };
+                else next = { open: c0 || '15:00', close: '18:00' };
+            } else if (current.length === 2) {
+                next = { open: '18:00', close: '20:00' };
+            }
+            current.push(next);
             const cell = document.getElementById('availTimes-' + day);
             if (cell) cell.innerHTML = renderDayWindowsHtml(day, current);
+        }
+
+        // Quick-set helper: apply the standard 11–2 + 3–6 shift pair to a day
+        function applyStandardShifts(day) {
+            const v = getSelectedVenue();
+            if (!v) return;
+            // Enable the day toggle first
+            const toggle = document.querySelector(`[data-day-toggle="${day}"]`);
+            if (toggle) toggle.checked = true;
+            // Replace the times area with the two standard windows
+            const cell = document.getElementById('availTimes-' + day);
+            if (!cell) return;
+            cell.innerHTML = renderDayWindowsHtml(day, [
+                { open: '11:00', close: '14:00' },
+                { open: '15:00', close: '18:00' },
+            ]);
+        }
+
+        // Toggle preferred-shift star on a window — visual indicator only, stored in availability.schedule
+        function togglePreferredShift(day, idx, btn) {
+            const isOn = btn.classList.toggle('preferred-active');
+            btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+            btn.title = isOn ? 'Preferred shift (highlighted in your dashboard)' : 'Mark as preferred shift';
+            btn.innerHTML = isOn ? '★' : '☆';
         }
 
         function removeWindow(day, idx) {
@@ -2372,6 +2422,49 @@ END:VEVENT
 
         // ===== Settings edit toggle =====
         function loadSettings() { applySettingsToInputs(); }
+
+        // ===== Demo policy =====
+        let demoPolicyEditing = false;
+        const DEMO_POLICY_DEFAULT = `Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.`;
+        async function loadDemoPolicy() {
+            try {
+                const res = await sb.from('retailers').select('demo_policy').eq('id', RETAILER_ID).maybeSingle();
+                const policy = (res.data && res.data.demo_policy) || DEMO_POLICY_DEFAULT;
+                const ta = document.getElementById('demoPolicy');
+                if (ta) ta.value = policy;
+            } catch (e) { console.warn('loadDemoPolicy', e); }
+        }
+        function toggleDemoPolicyEdit() {
+            const ta = document.getElementById('demoPolicy');
+            const btn = document.getElementById('demoPolicyEditBtn');
+            const status = document.getElementById('demoPolicyStatus');
+            if (!ta || !btn) return;
+            demoPolicyEditing = !demoPolicyEditing;
+            if (demoPolicyEditing) {
+                ta.readOnly = false;
+                ta.style.background = 'white';
+                btn.textContent = 'Save';
+                ta.focus();
+                if (status) status.textContent = '';
+            } else {
+                btn.disabled = true; btn.textContent = 'Saving…';
+                const newVal = ta.value.trim() || DEMO_POLICY_DEFAULT;
+                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ demo_policy: newVal }),
+                }).then(r => r.json()).then(j => {
+                    if (j.error) throw new Error(j.error);
+                    ta.readOnly = true;
+                    ta.style.background = '#f9f7f2';
+                    btn.disabled = false; btn.textContent = 'Edit';
+                    if (status) { status.style.color = 'var(--forest-700)'; status.textContent = 'Saved ✓'; setTimeout(() => { status.textContent = ''; }, 2000); }
+                }).catch(e => {
+                    btn.disabled = false; btn.textContent = 'Save';
+                    if (status) { status.style.color = 'var(--clay-700)'; status.textContent = 'Save failed: ' + (e.message || e); }
+                });
+            }
+        }
 
         // ===== Cancellation policy =====
         let policyEditing = false;

@@ -39,12 +39,21 @@ async function uniqueSlug(base) {
 }
 
 function defaultAvailability() {
+  // Default shifts: 11:00-14:00 (lunch/early afternoon) and 15:00-18:00 (afternoon/evening).
+  // Retailers can adjust per-store in admin after signup.
+  const twoShifts = [
+    { open: "11:00", close: "14:00", preferred: false },
+    { open: "15:00", close: "18:00", preferred: false },
+  ];
   return {
     schedule: {
-      "0": { open: "10:00", close: "18:00" },
-      "1": null, "2": null, "3": null, "4": null,
-      "5": { open: "10:00", close: "18:00" },
-      "6": { open: "10:00", close: "18:00" },
+      "0": null,                    // Sunday closed by default
+      "1": null,                    // Monday closed
+      "2": null,                    // Tuesday closed
+      "3": null,                    // Wednesday closed
+      "4": null,                    // Thursday closed
+      "5": twoShifts,               // Friday: both shifts
+      "6": twoShifts,               // Saturday: both shifts
     },
     blackouts: [],
   };
