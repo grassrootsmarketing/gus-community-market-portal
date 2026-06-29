@@ -972,7 +972,7 @@ window.openDemoDetail = function(demoId) {
     <div class="demo-detail-rows">
       <div class="row"><span class="k">Date</span><span class="v">${escapeHtml(niceDate)}</span></div>
       <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || ', ')}</span></div>
-      <div class="row"><span class="k">Venue</span><span class="v">${escapeHtml(venue.name || ', ')}</span></div>
+      <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || ', ')}</span></div>
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
       <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || ', ')}</span></div>
       <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || ', ')}</span></span></div>
