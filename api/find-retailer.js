@@ -35,7 +35,9 @@ export default async function handler(req, res) {
   }
   const action = body.action || '';
   const slug = String(body.slug || req.query?.slug || '').trim().toLowerCase();
-  if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
+  // status action doesn't need a slug
+  if (action === 'status') { /* handled inside try */ }
+  else if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
 
   try {
     // ---- ACTION: status — health snapshot for /status page (anonymous) ----
