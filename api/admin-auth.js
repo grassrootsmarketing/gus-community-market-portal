@@ -388,7 +388,7 @@ export default async function handler(req, res) {
     // ============================================================
     // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
     // ============================================================
-    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'incident-post' || action === 'incident-resolve' || action === 'incident-list') {
+    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
       return await handleOwnerAction(action, req, res, body);
     }
 
