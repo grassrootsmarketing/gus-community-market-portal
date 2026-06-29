@@ -281,6 +281,15 @@ async function sendWelcome({ to, subject, html, text }) {
   }
 }
 
+const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.';
+const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+
+async function sha256Hex(str) {
+  const enc = new TextEncoder().encode(str || '');
+  const buf = await globalThis.crypto.subtle.digest('SHA-256', enc);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   const body = await readBody(req);
@@ -418,6 +427,26 @@ export default async function handler(req, res) {
       const demos = await demosR.json();
       const contacts = await contactsR.json();
       return jsonResp(res, 200, { profile, demos, contacts });
+    }
+
+    if (action === 'agreement-list') {
+      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const rRows = await sb(`brand_retailer_agreements?brand_id=eq.${brandId}&select=*,retailers(id,name,slug,demo_policy,cancellation_policy)&order=signed_at.desc`);
+      const rows = await rRows.json();
+      const enriched = [];
+      for (const r of (rows || [])) {
+        const ret = r.retailers || {};
+        const curHash = await sha256Hex((ret.demo_policy || DEFAULT_DEMO_POLICY) + '\n---\n' + (ret.cancellation_policy || DEFAULT_CANCELLATION_POLICY));
+        enriched.push({
+          ...r,
+          is_active: !r.superseded_at,
+          is_expired: new Date(r.expires_at).getTime() < Date.now(),
+          is_current_policy: r.policy_hash === curHash,
+        });
+      }
+      return jsonResp(res, 200, { ok: true, agreements: enriched });
     }
 
     if (action === 'profile-update') {

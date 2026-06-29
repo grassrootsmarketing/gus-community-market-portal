@@ -73,6 +73,46 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+    // ---- Agreement check (folded in to stay under Vercel function cap) ----
+    // Public — called by the booking page before submit to decide whether to show
+    // the demo-conduct modal. Returns { has_active, needs_re_sign, reason, policies }.
+    if (body?.action === 'agreement-check') {
+      const { brand_email, retailer_slug: rs } = body;
+      if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
+      const retResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      const rets = await retResp.json();
+      const ret = Array.isArray(rets) ? rets[0] : null;
+      if (!ret) return res.status(404).json({ error: 'Retailer not found' });
+      const dp = ret.demo_policy || DEFAULT_DEMO_POLICY;
+      const cp = ret.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
+      const curHash = await sha256Hex(dp + '\n---\n' + cp);
+      const policies = { demo_policy: dp, cancellation_policy: cp, policy_hash: curHash, retailer_name: ret.name };
+      if (!brand_email) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_email', policies });
+      const brResp = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(brand_email).toLowerCase())}&select=id`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      const brs = await brResp.json();
+      const br = Array.isArray(brs) ? brs[0] : null;
+      if (!br) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_brand_account', policies });
+      // Active agreement?
+      const aResp = await fetch(`${SUPABASE_URL}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(br.id)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=*&order=signed_at.desc&limit=1`, {
+        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      const as = await aResp.json();
+      const a = Array.isArray(as) ? as[0] : null;
+      if (!a) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'never_signed', policies });
+      if (new Date(a.expires_at).getTime() < Date.now()) {
+        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'expired', current_agreement: a, policies });
+      }
+      if (a.policy_hash !== curHash) {
+        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'policy_changed', current_agreement: a, policies });
+      }
+      return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, current_agreement: a, policies });
+    }
+
     const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes, signed_name } = body || {};
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {

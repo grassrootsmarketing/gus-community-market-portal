@@ -2535,9 +2535,9 @@ END:VEVENT
         window._agreementsByEmail = {};
         async function loadBrandAgreements() {
             try {
-                const r = await fetch('/api/brand-agreement', {
+                const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'retailer-list', session_id: AdminAuth.getSession() }),
+                    body: JSON.stringify({ action: 'agreement-retailer-list', session_id: AdminAuth.getSession() }),
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');

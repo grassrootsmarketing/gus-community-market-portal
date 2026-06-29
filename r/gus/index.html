@@ -901,10 +901,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         window._pendingSignedName = null;
         async function ensureAgreementOrPrompt(contactEmail) {
             try {
-                const r = await fetch('/api/brand-agreement', {
+                const r = await fetch('/api/booking', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'check', brand_email: contactEmail, retailer_slug: RETAILER_SLUG }),
+                    body: JSON.stringify({ action: 'agreement-check', brand_email: contactEmail, retailer_slug: RETAILER_SLUG }),
                 });
                 const j = await r.json();
                 if (j.has_active) return { needsSigning: false };

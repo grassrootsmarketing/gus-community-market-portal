@@ -1358,9 +1358,11 @@ async function renderAgreements() {
   }
   let agreements = [];
   try {
-    const r = await fetch('/api/brand-agreement', {
+    // Use the same session_id pattern as /api/brand-account?action=data
+    const sessionToken = localStorage.getItem('demohub_brand_account_session') || '';
+    const r = await fetch('/api/brand-account?action=agreement-list&session_id=' + encodeURIComponent(sessionToken), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'list', brand_email: profileEmail }),
+      body: JSON.stringify({ action: 'agreement-list', session_id: sessionToken }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Failed to load');

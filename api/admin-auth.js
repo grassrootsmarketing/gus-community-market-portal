@@ -197,7 +197,16 @@ export default async function handler(req, res) {
     }
 
     // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
-    if (action === 'team-list') {
+    // ---- AGREEMENT-RETAILER-LIST: list all signed agreements for this retailer ----
+    if (action === 'agreement-retailer-list') {
+      const { session_id } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,name,email)&order=signed_at.desc`);
+      return res.status(200).json({ ok: true, agreements: rows || [] });
+    }
+
+        if (action === 'team-list') {
       const { session_id } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
