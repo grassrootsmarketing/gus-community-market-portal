@@ -202,6 +202,15 @@ export default async function handler(req, res) {
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
       const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=*&order=created_at`);
+      // For each admin, flag whether they've ever signed in (admin_sessions exists).
+      // Used by UI to render a "Pending invite" badge for invited-but-never-signed-in members.
+      try {
+        const sessions = await sb(`admin_sessions?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=email&limit=1000`);
+        const seenEmails = new Set((Array.isArray(sessions) ? sessions : []).map(s => (s.email || '').toLowerCase()));
+        for (const a of (admins || [])) {
+          a.has_signed_in = seenEmails.has((a.email || '').toLowerCase());
+        }
+      } catch (e) { /* non-fatal — UI just shows everyone as accepted */ }
       return res.status(200).json({ ok: true, admins, your_email: v.email });
     }
 

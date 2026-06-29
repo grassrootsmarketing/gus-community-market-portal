@@ -316,18 +316,41 @@
             .demo-filters { grid-template-columns: 1fr 1fr !important; }
             /* Modal padding + width */
             .modal-overlay .modal { max-width: calc(100vw - 24px); padding: 20px 18px; max-height: calc(100vh - 32px); overflow-y: auto; }
-            /* Big calendar gets smaller cells */
-            .big-cal-grid .cal-day { min-height: 56px; padding: 4px; font-size: 0.75rem; }
-            .big-cal-grid .cal-demo { font-size: 0.65rem; padding: 2px 4px; }
-            /* Demo calendar */
+            /* Big calendar — actual class names are .big-cal-cell and .big-cal-event */
+            .big-cal-card { padding: 16px 12px; }
+            .big-cal-head { gap: 8px; }
+            .big-cal-title { font-size: 1.1rem; }
+            .big-cal-nav .month-label { font-size: 0.92rem; min-width: 110px; }
+            .big-cal-nav button { width: 28px; height: 28px; font-size: 1rem; }
+            .big-cal-nav .today-btn { width: auto; padding: 0 10px; font-size: 0.78rem; }
+            .big-cal-legend { gap: 8px; margin-bottom: 12px; padding-bottom: 12px; }
+            .big-cal-legend-item { font-size: 0.7rem; }
+            .big-cal-grid { gap: 2px; }
+            .big-cal-cell { min-height: 64px; padding: 4px; font-size: 0.72rem; border-radius: 4px; }
+            .big-cal-dow { font-size: 0.62rem; padding: 4px 2px; }
+            .big-cal-day-num { font-size: 0.78rem; margin-bottom: 2px; }
+            .big-cal-event { font-size: 0.62rem; padding: 2px 4px; margin-bottom: 2px; line-height: 1.15; }
+            .big-cal-event .big-cal-event-time { display: none; } /* time fits poorly inside tiny cell */
+            /* Demo calendar (alternate view) */
             .demo-cal-grid .cal-day { min-height: 64px; font-size: 0.72rem; }
             /* Header items stack */
             .header { flex-wrap: wrap; gap: 10px; }
             .header > * { min-width: 0; }
+            /* Team rows wrap cleanly */
+            .team-row select { font-size: 0.78rem !important; }
+            .team-row button { font-size: 0.78rem !important; }
+            /* Settings cards padding tighter */
+            .settings-card { padding: 18px 16px; }
+            .settings-card-header h3 { font-size: 1rem; }
         }
         @media (max-width: 480px) {
             .table-toolbar h3.table-title { font-size: 0.95rem; }
             .table-card { padding: 14px 12px; }
+            /* Even tighter calendar at phone widths */
+            .big-cal-cell { min-height: 52px; padding: 3px; font-size: 0.66rem; }
+            .big-cal-day-num { font-size: 0.72rem; }
+            .big-cal-event { font-size: 0.56rem; padding: 1px 3px; }
+            .big-cal-event .big-cal-event-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; max-width: 100%; }
             .modal-overlay .modal { padding: 16px 14px; }
             .stat-card { padding: 14px 16px; }
             .stat-num { font-size: 1.6rem; }
@@ -368,6 +391,29 @@
         .subnav-link { padding: 8px 14px; border-radius: 8px; font-size: 0.9rem; font-weight: 600; color: var(--ink-700); text-decoration: none; white-space: nowrap; transition: all 0.15s; }
         .subnav-link:hover { background: var(--forest-50); color: var(--forest-700); }
         .subnav-link.active { background: var(--forest-900); color: white; }
+
+        /* Mobile hamburger nav — shown ≤768px, hidden on desktop */
+        .mobile-nav-bar { display: none; align-items: center; justify-content: space-between; padding: 12px 18px; gap: 12px; }
+        .mobile-nav-label { font-weight: 800; font-size: 1rem; color: var(--forest-900); letter-spacing: -0.01em; }
+        .mobile-nav-toggle { background: transparent; border: 1px solid rgba(15,44,23,0.12); border-radius: 10px; padding: 8px 12px; cursor: pointer; display: flex; align-items: center; gap: 8px; font-family: inherit; font-weight: 600; font-size: 0.86rem; color: var(--forest-900); transition: background 0.15s; }
+        .mobile-nav-toggle:hover { background: var(--forest-50); }
+        .mobile-nav-toggle svg { display: block; }
+        .mobile-nav-drawer { display: none; position: fixed; top: 0; right: 0; height: 100vh; width: 280px; max-width: 85vw; background: white; box-shadow: -4px 0 20px rgba(15,44,23,0.15); z-index: 9995; transform: translateX(100%); transition: transform 0.25s ease-out; padding: 24px 18px; overflow-y: auto; }
+        .mobile-nav-drawer.open { display: block; transform: translateX(0); }
+        .mobile-nav-drawer-backdrop { display: none; position: fixed; inset: 0; background: rgba(15,44,23,0.45); z-index: 9994; opacity: 0; transition: opacity 0.25s; }
+        .mobile-nav-drawer-backdrop.open { display: block; opacity: 1; }
+        .mobile-nav-drawer-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid rgba(15,44,23,0.08); }
+        .mobile-nav-drawer-title { font-weight: 800; font-size: 1rem; color: var(--forest-900); }
+        .mobile-nav-drawer-close { background: transparent; border: none; padding: 6px; cursor: pointer; border-radius: 6px; color: var(--ink-500); }
+        .mobile-nav-drawer-close:hover { background: var(--sand-100); color: var(--forest-900); }
+        .mobile-nav-drawer a { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; text-decoration: none; color: var(--forest-900); font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; transition: background 0.15s; }
+        .mobile-nav-drawer a:hover { background: var(--sand-100); }
+        .mobile-nav-drawer a.active { background: var(--forest-900); color: white; }
+        @media (max-width: 768px) {
+            .section-subnav > .container { display: none !important; }
+            .section-subnav { padding: 0; }
+            .mobile-nav-bar { display: flex !important; }
+        }
 
         /* ===== Onboarding tour ===== */
         .tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
@@ -446,7 +492,76 @@
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
+            <div class="mobile-nav-bar" id="mobileNavBar">
+                <div class="mobile-nav-label" id="mobileNavCurrent">Dashboard</div>
+                <button type="button" class="mobile-nav-toggle" id="mobileNavToggleBtn" aria-label="Open menu" aria-haspopup="true" aria-expanded="false" onclick="toggleMobileNavDrawer()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                    Menu
+                </button>
+            </div>
         </div>
+        <div class="mobile-nav-drawer-backdrop" id="mobileNavBackdrop" onclick="closeMobileNavDrawer()"></div>
+        <nav class="mobile-nav-drawer" id="mobileNavDrawer" aria-label="Section navigation">
+            <div class="mobile-nav-drawer-header">
+                <div class="mobile-nav-drawer-title">Sections</div>
+                <button type="button" class="mobile-nav-drawer-close" onclick="closeMobileNavDrawer()" aria-label="Close menu">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <a href="#dashSection" class="mobile-nav-item active" data-section="dashSection" onclick="mobileNavGo(event, 'dashSection', 'Dashboard')">Dashboard</a>
+            <a href="#calendarSection" class="mobile-nav-item" data-section="calendarSection" onclick="mobileNavGo(event, 'calendarSection', 'Calendar')">Calendar</a>
+            <a href="#demosSection" class="mobile-nav-item" data-section="demosSection" onclick="mobileNavGo(event, 'demosSection', 'Demos')">Demos</a>
+            <a href="#brandsSection" class="mobile-nav-item" data-section="brandsSection" onclick="mobileNavGo(event, 'brandsSection', 'Brands')">Brands</a>
+            <a href="#complianceSection" class="mobile-nav-item" data-section="complianceSection" onclick="mobileNavGo(event, 'complianceSection', 'Compliance')">Compliance</a>
+            <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Stores')">Stores</a>
+            <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
+            <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
+        </nav>
+        <script>
+            // Mobile nav drawer open/close + go-to-section
+            function openMobileNavDrawer() {
+                document.getElementById('mobileNavDrawer').classList.add('open');
+                document.getElementById('mobileNavBackdrop').classList.add('open');
+                document.getElementById('mobileNavToggleBtn').setAttribute('aria-expanded', 'true');
+            }
+            function closeMobileNavDrawer() {
+                document.getElementById('mobileNavDrawer').classList.remove('open');
+                document.getElementById('mobileNavBackdrop').classList.remove('open');
+                var t = document.getElementById('mobileNavToggleBtn');
+                if (t) t.setAttribute('aria-expanded', 'false');
+            }
+            function toggleMobileNavDrawer() {
+                var d = document.getElementById('mobileNavDrawer');
+                if (d.classList.contains('open')) closeMobileNavDrawer(); else openMobileNavDrawer();
+            }
+            function mobileNavGo(e, sectionId, label) {
+                e.preventDefault();
+                closeMobileNavDrawer();
+                // Update active state in both nav lists
+                document.querySelectorAll('.mobile-nav-item').forEach(function(a) {
+                    if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
+                });
+                document.querySelectorAll('.subnav-link').forEach(function(a) {
+                    if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
+                });
+                var lbl = document.getElementById('mobileNavCurrent');
+                if (lbl) lbl.textContent = label;
+                // Scroll the target section into view
+                var el = document.getElementById(sectionId);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            // Close drawer on escape
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') closeMobileNavDrawer();
+            });
+        </script>
         <div class="main-scroll">
             <div class="container">
                 <div class="page-header" id="dashSection">
@@ -2336,6 +2451,11 @@ END:VEVENT
                         : (a.role === 'viewer'
                             ? '<span style="background:#e8e6e1; color:var(--ink-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Viewer</span>'
                             : '<span style="background:#dceadf; color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Admin</span>');
+                    // Pending-invite indicator — shown when the member has never signed in
+                    const isPending = (a.has_signed_in === false) && !isOwner;
+                    const pendingPill = isPending
+                        ? '<span style="background:#fff3ed; color:#a14e2a; padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;" title="They have not accepted the invite yet. They will become active once they click their magic link.">Pending</span>'
+                        : '';
                     const actions = iAmOwner && !isOwner
                         ? `<div style="display:flex; gap:6px;">
                              <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.8rem; padding:4px 8px; border:1px solid rgba(15,44,23,0.12); border-radius:6px; background:white;">
@@ -2345,12 +2465,15 @@ END:VEVENT
                              <button onclick="removeTeamMember('${a.id}', '${escapeHtml(a.email)}')" style="background:transparent; border:1px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer;">Remove</button>
                            </div>`
                         : '';
-                    return `<div style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:#f9f7f2; border-radius:8px;">
-                        <div style="flex:1; min-width:0;">
+                    return `<div class="team-row" style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:#f9f7f2; border-radius:8px; flex-wrap:wrap;">
+                        <div style="flex:1 1 200px; min-width:0;">
                             <div style="font-weight:600; color:var(--forest-900); font-size:0.92rem;">${escapeHtml(a.name || a.email)} ${isMe ? '<span style="color:var(--ink-500); font-weight:400; font-size:0.78rem;">(you)</span>' : ''}</div>
-                            ${a.name ? `<div style="color:var(--ink-500); font-size:0.82rem;">${escapeHtml(a.email)}</div>` : ''}
+                            ${a.name ? `<div style="color:var(--ink-500); font-size:0.82rem; word-break:break-word;">${escapeHtml(a.email)}</div>` : ''}
                         </div>
-                        ${rolePill}
+                        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            ${pendingPill}
+                            ${rolePill}
+                        </div>
                         ${actions}
                     </div>`;
                 }).join('');
