@@ -393,7 +393,7 @@
         .vis-badge.warn { background: var(--clay-100); color: var(--clay-700); }
         .vis-badge.danger { background: #fde2e2; color: #9b2c2c; }
 
-        .vis-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; flex: 1; }
+        .vis-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; flex: 1; min-width: 0; }
         .vis-cal-cell {
             aspect-ratio: 1;
             background: var(--cream-100);
@@ -402,6 +402,9 @@
             font-size: 0.7rem;
             color: var(--ink-500);
             position: relative;
+            min-width: 0;
+            box-sizing: border-box;
+            overflow: hidden;
         }
         .vis-cal-cell.has-event { background: var(--forest-50); color: var(--forest-800); font-weight: 600; }
         .vis-cal-cell.has-event::after { content: ''; position: absolute; bottom: 6px; left: 6px; right: 6px; height: 4px; background: var(--forest-500); border-radius: 2px; }
@@ -879,7 +882,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         <div class="feature-row">
             <div class="feature-text">
-                <div class="section-eyebrow">01, Set up</div>
+                <div class="section-eyebrow">01. Set up</div>
                 <h3>Configure your stores in fifteen minutes.</h3>
                 <p>Add each location, set demo availability per store, configure your fee. We'll seed your contacts and locations so you're not starting from scratch.</p>
                 <ul class="feature-bullets">
@@ -905,7 +908,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         <div class="feature-row reverse">
             <div class="feature-text">
-                <div class="section-eyebrow">02, Share</div>
+                <div class="section-eyebrow">02. Share</div>
                 <h3>Your portal link goes to every brand you work with.</h3>
                 <p>Brands click, pick, sign, pay. No back-and-forth. No double-bookings. No "did Sarah confirm?" Slack messages at 9 PM.</p>
                 <ul class="feature-bullets">
@@ -944,7 +947,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         <div class="feature-row">
             <div class="feature-text">
-                <div class="section-eyebrow">03, Run</div>
+                <div class="section-eyebrow">03. Run</div>
                 <h3>One dashboard. Every store. Every week.</h3>
                 <p>See what's booked, who's compliant, what's expiring, what's earning. Generate monthly statements with one click. No more month-end scramble.</p>
                 <ul class="feature-bullets">
