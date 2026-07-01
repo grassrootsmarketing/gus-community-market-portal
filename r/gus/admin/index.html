@@ -760,7 +760,7 @@
                 </div>
                 <div class="table-card" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Internal Team Contacts</h3>
+                        <h3 class="table-title">Internal Team Contacts<button type="button" class="section-info" aria-label="What is this section?" title="Your team members appear here once you add them. Manage roles, phones, and locations from this list." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
                                 <option value="venue">Sort by Location</option>
@@ -777,7 +777,7 @@
                 </div>
                 <div class="table-card" id="brandsSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Brand Contacts</h3>
+                        <h3 class="table-title">Brand Contacts<button type="button" class="section-info" aria-label="What is this section?" title="Brand contacts appear here as brands book demos through your link. You can also add them manually." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="brandContactSort" onchange="renderContacts('brand')">
                                 <option value="venue">Sort by Location</option>
@@ -795,7 +795,7 @@
                 <!-- Stores editor -->
                 <div class="table-card" id="storesSection" data-name="stores" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Locations</h3>
+                        <h3 class="table-title">Locations<button type="button" class="section-info" aria-label="What is this section?" title="Your store locations. Add each location's address, demo fee, and per-slot capacity. Bulk-upload with CSV for multi-store operators." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                         <div style="display:flex; gap:8px; align-items:center;">
                             <button type="button" onclick="downloadStoreTemplate()" style="background:none; border:none; padding:6px 10px; font-size:0.8rem; color:var(--forest-700); font-weight:600; cursor:pointer;">↓ Sample CSV</button>
                             <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;" onclick="openStoreBulkUpload()">Bulk upload CSV</button>
@@ -810,7 +810,7 @@
 
                 <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
-                        <h3 class="table-title">Compliance Records</h3>
+                        <h3 class="table-title">Compliance Records<button type="button" class="section-info" aria-label="What is this section?" title="Insurance certificates (COIs) and other compliance documents. Uploaded by brands or added here manually." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                         <div class="toolbar-controls">
                             <select class="sort-select" id="complianceSort" onchange="renderCompliance()">
                                 <option value="expires_at">Sort by Expiry</option>
@@ -900,7 +900,7 @@
                         </div>
                     </div>
                     <div class="settings-card">
-                        <a id="teamSection"></a><div class="settings-card-header"><h3>Team</h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
+                        <a id="teamSection"></a><div class="settings-card-header"><h3>Team<button type="button" class="section-info" aria-label="What is this section?" title="Invite teammates so multiple people can manage bookings, brands, and settings for this retailer." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">People with admin access to this store. Owners can invite others and change roles.</div>
                             <div id="teamList" style="display:flex; flex-direction:column; gap:8px;"></div>
