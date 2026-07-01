@@ -71,6 +71,10 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .success .url-value a { color: var(--forest-900); text-decoration: none; font-weight: 600; word-break: break-word; overflow-wrap: anywhere; }
 .success .url-value a:hover { text-decoration: underline; }
 .success #openAdminBtn { width: auto; padding: 12px 28px; font-size: 0.95rem; margin: 22px auto 0; display: inline-block; }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
 <!-- PostHog -->
 <script>

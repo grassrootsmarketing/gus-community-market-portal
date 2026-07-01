@@ -57,6 +57,10 @@
     .answer { padding:0 18px 18px; }
     .nav { padding:14px 18px; }
   }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
 </head>
 <body>

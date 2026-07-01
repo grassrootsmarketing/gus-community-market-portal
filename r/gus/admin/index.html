@@ -442,6 +442,10 @@
         .tour-tooltip button.tour-next:hover { background: #1f4a26; }
         .tour-tooltip button.tour-back { background: #f1efe8; color: #3a3a36; }
         .tour-tooltip button.tour-back:hover { background: #e6e3d8; }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>

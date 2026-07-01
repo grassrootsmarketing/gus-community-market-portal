@@ -329,6 +329,10 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .tour-tooltip button.tour-next:hover { background: #1f4a26; }
 .tour-tooltip button.tour-back { background: #f1efe8; color: #3a3a36; }
 .tour-tooltip button.tour-back:hover { background: #e6e3d8; }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
 <!-- PostHog -->
 <script>

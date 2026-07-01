@@ -303,7 +303,11 @@
             .landing { padding: 24px; }
             .landing h1 { font-size: 1.75rem; }
         }
-    </style>
+    
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
+</style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- PostHog -->

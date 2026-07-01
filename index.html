@@ -575,6 +575,10 @@
         .trust-band-link { text-align: center; margin-top: 28px; }
         .trust-band-link a { font-size: 0.92rem; color: var(--forest-700); text-decoration: none; font-weight: 500; }
         .trust-band-link a:hover { color: var(--forest-900); text-decoration: underline; }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
 <!-- PostHog -->
 <script>

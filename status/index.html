@@ -47,6 +47,10 @@ h1 { font-size:44px; margin:0 0 8px; color:var(--forest-900); letter-spacing:-0.
 .footnote a { color:var(--forest-700); }
 
 @media (max-width: 640px) { main { padding:32px 18px 60px; } h1 { font-size:32px; } .nav { padding:14px 18px; } }
+
+        /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
+        label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
+        button, .btn { cursor: pointer; }
 </style>
 </head>
 <body>
