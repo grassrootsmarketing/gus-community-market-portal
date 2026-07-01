@@ -934,19 +934,17 @@
                             <div class="form-group">
                                 <label class="form-label">Calendar feed</label>
                                 <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically.</div>
-                                <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToGoogleBtn" onclick="addToGoogleCal()">+ Google Calendar</button>
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToAppleBtn" onclick="addToAppleCal()">+ Apple Calendar</button>
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToOutlookBtn" onclick="addToOutlookCal()">+ Outlook</button>
+                                <div style="display:flex; gap:6px; margin-bottom:10px;">
+                                    <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:9px 12px; border:1px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.8rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">
+                                    <button class="btn btn-primary" style="padding:9px 16px; font-size:0.85rem;" id="copyIcalBtn" onclick="copyIcalUrl(this)">Copy URL</button>
                                 </div>
-                                <details style="margin-top:8px;">
-                                    <summary style="cursor:pointer; font-size:0.82rem; color:var(--forest-700); font-weight:600;">Or copy the URL manually</summary>
-                                    <div style="font-size:0.78rem; color:var(--ink-500); margin:10px 0 8px; line-height:1.5;">Paste this URL into your calendar app under <em>Add calendar &rarr; From URL</em> (or similar) to subscribe. Most calendar apps auto-refresh this feed every few hours.</div>
-                                    <div style="display:flex; gap:6px;">
-                                        <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:8px 10px; border:1px solid rgba(15,44,23,0.12); border-radius:6px; font-size:0.78rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">
-                                        <button class="btn btn-secondary" style="padding:8px 14px;" id="copyIcalBtn" onclick="copyIcalUrl()">Copy</button>
-                                    </div>
-                                </details>
+                                <div style="font-size:0.75rem; color:var(--ink-500); margin-bottom:14px; line-height:1.5;">Or use a shortcut for your calendar app:</div>
+                                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToAppleBtn" onclick="addToAppleCal()">Apple Calendar (one-click)</button>
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToGoogleBtn" onclick="openGoogleAddByUrl(this)">Open Google Calendar</button>
+                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToOutlookBtn" onclick="openOutlookAddByUrl(this)">Open Outlook</button>
+                                </div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:10px; line-height:1.55;">Google and Outlook can\'t subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
                             </div>
                         </div>
                     </div>
@@ -3205,32 +3203,53 @@ END:VEVENT
             const slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
             return `${location.origin}/api/cal?slug=${slug}`;
         }
-        function copyIcalUrl() {
-            const url = getIcalFeedUrl();
-            navigator.clipboard.writeText(url).then(() => {
-                const btn = document.getElementById('copyIcalBtn');
-                if (!btn) return;
-                const orig = btn.textContent;
-                btn.textContent = '✓ Copied';
-                setTimeout(() => { btn.textContent = orig; }, 1800);
-            }).catch(() => { prompt('Copy this URL:', url); });
+        // ===== Calendar feed subscribe helpers =====
+        // Google Calendar's ?cid= parameter is for OTHER Google calendars, not external ICS.
+        // There's no valid one-click subscribe URL for external ICS — user MUST use "Add by URL"
+        // in Settings. Same for Outlook. We copy the URL to the clipboard and deep-link to the
+        // right settings page. Apple Calendar's webcal:// scheme is intercepted by the OS and
+        // works as a true one-click.
+        function _showCalToast(msg) {
+            const t = document.createElement('div');
+            t.textContent = msg;
+            t.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#1f4a26; color:white; padding:12px 20px; border-radius:10px; font-size:0.88rem; font-weight:600; z-index:10000; box-shadow:0 6px 24px rgba(15,44,23,0.25); max-width:520px; text-align:center; line-height:1.4;';
+            document.body.appendChild(t);
+            setTimeout(() => t.remove(), 5000);
         }
-        function addToGoogleCal() {
-            // Google Calendar accepts ?cid=URL with the iCal feed URL
+        async function _copyIcalToClipboard() {
             const url = getIcalFeedUrl();
-            const gcal = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(url);
-            window.open(gcal, '_blank');
+            try { await navigator.clipboard.writeText(url); return true; }
+            catch (_) { return false; }
+        }
+        async function copyIcalUrl(btn) {
+            const ok = await _copyIcalToClipboard();
+            if (btn) {
+                const orig = btn.textContent;
+                btn.textContent = ok ? '✓ Copied' : 'Copy failed';
+                if (ok) { btn.style.background = '#1f4a26'; btn.style.borderColor = '#1f4a26'; }
+                setTimeout(() => { btn.textContent = orig; btn.style.background = ''; btn.style.borderColor = ''; }, 1800);
+            }
+            if (!ok) prompt('Copy this URL:', getIcalFeedUrl());
         }
         function addToAppleCal() {
-            // Apple Calendar handles webcal:// URL — flips to Subscribe dialog when opened on macOS/iOS
+            // Apple Calendar handles webcal:// — Safari/macOS Calendar intercept it as Subscribe
             const url = getIcalFeedUrl().replace(/^https?:\/\//, 'webcal://');
             window.location.href = url;
         }
-        function addToOutlookCal() {
-            // Outlook.com web accepts a feed URL via the add-calendar UI
-            const url = getIcalFeedUrl();
-            const outlook = 'https://outlook.live.com/calendar/0/addcalendar?url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent('Demohub demos');
-            window.open(outlook, '_blank');
+        async function openGoogleAddByUrl(btn) {
+            // Copy URL first, then open Google Calendar's "Add by URL" settings page
+            const ok = await _copyIcalToClipboard();
+            _showCalToast(ok
+                ? 'URL copied. Paste it into the "URL of calendar" field on the next screen.'
+                : 'Copy the URL manually, then paste it into the "URL of calendar" field.');
+            window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank');
+        }
+        async function openOutlookAddByUrl(btn) {
+            const ok = await _copyIcalToClipboard();
+            _showCalToast(ok
+                ? 'URL copied. Outlook: Add calendar → Subscribe from web → paste URL.'
+                : 'Copy the URL manually, then Outlook: Add calendar → Subscribe from web → paste.');
+            window.open('https://outlook.live.com/calendar/0/addfromweb', '_blank');
         }
         // Populate the readonly URL field when the settings view renders
         document.addEventListener('DOMContentLoaded', () => {
