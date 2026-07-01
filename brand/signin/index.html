@@ -186,7 +186,17 @@ async function submit(action, data, btn, btnText) {
       body: JSON.stringify(data),
     });
     const json = await r.json();
-    if (!r.ok) throw new Error(json.error || ('HTTP ' + r.status));
+    if (!r.ok) {
+      // 409 = single-profile-per-email collision (email already registered under other role)
+      if (r.status === 409 && json.signin_url) {
+        errBox.innerHTML = (json.message || 'This email already has an account.') +
+          ` <a href="${json.signin_url}" style="color:var(--forest-700); font-weight:600; text-decoration:underline;">Sign in →</a>`;
+        errBox.style.display = 'block';
+        btn.disabled = false; btn.textContent = btnText;
+        return;
+      }
+      throw new Error(json.error || ('HTTP ' + r.status));
+    }
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('successCard').style.display = 'block';
     document.getElementById('sentEmail').textContent = data.email;

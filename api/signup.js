@@ -138,19 +138,64 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid billing_email' });
     }
 
+    // Normalize email once — DB has a unique index on lower(billing_email)
+    const normalizedEmail = billing_email.toLowerCase().trim();
+
+    // ===== Single-profile-per-email enforcement =====
+    // 1a) Already registered as a retailer?
+    try {
+      const dupR = await sb(`retailers?billing_email=eq.${encodeURIComponent(normalizedEmail)}&select=id,slug&limit=1`);
+      const dupRows = await dupR.json();
+      if (Array.isArray(dupRows) && dupRows.length > 0) {
+        const existing = dupRows[0];
+        return res.status(409).json({
+          error: 'already_retailer',
+          message: `You already have a retailer account on Demohub. Sign in to your existing admin instead.`,
+          signin_url: '/signin?email=' + encodeURIComponent(normalizedEmail),
+        });
+      }
+    } catch (_) { /* if lookup fails, fall through — unique index will still block */ }
+
+    // 1b) Already registered as a brand?
+    try {
+      const dupB = await sb(`brands?email=eq.${encodeURIComponent(normalizedEmail)}&select=id&limit=1`);
+      const dupBRows = await dupB.json();
+      if (Array.isArray(dupBRows) && dupBRows.length > 0) {
+        return res.status(409).json({
+          error: 'already_brand',
+          message: `This email is already registered as a brand on Demohub. Each email can only have one account type. Sign in to your brand portal instead.`,
+          signin_url: '/brand/signin?email=' + encodeURIComponent(normalizedEmail),
+        });
+      }
+    } catch (_) { /* fall through */ }
+
     const slug = await uniqueSlug(retailer_name);
     const fee = Math.max(1, Number(demo_fee) || 30);
 
     // 1) Create retailer
-    const retailers = await sb(`retailers`, {
-      method: 'POST',
-      body: JSON.stringify({
-        slug,
-        name: retailer_name,
-        billing_email,
-        branding: { contact_name: contact_name || '' },
-      }),
-    });
+    let retailers;
+    try {
+      retailers = await sb(`retailers`, {
+        method: 'POST',
+        body: JSON.stringify({
+          slug,
+          name: retailer_name,
+          billing_email: normalizedEmail,
+          branding: { contact_name: contact_name || '' },
+        }),
+      });
+    } catch (createErr) {
+      // Catch unique-index violation (race between our lookup and insert)
+      const msg = String(createErr && createErr.message || '');
+      if (/duplicate key|unique/i.test(msg) || /23505/.test(msg)) {
+        return res.status(409).json({
+          error: 'already_retailer',
+          message: `You already have a retailer account on Demohub. Sign in to your existing admin instead.`,
+          signin_url: '/signin?email=' + encodeURIComponent(normalizedEmail),
+        });
+      }
+      throw createErr;
+    }
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) throw new Error('Retailer creation returned no rows');
 

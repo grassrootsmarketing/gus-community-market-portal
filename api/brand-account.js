@@ -307,6 +307,19 @@ export default async function handler(req, res) {
       if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company name' });
       if (!website) return jsonResp(res, 400, { error: 'Website is required so retailers can verify your brand' });
 
+      // ===== Cross-role collision check: single-profile-per-email =====
+      try {
+        const dupR = await sb(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id&limit=1`);
+        const dupRows = await dupR.json();
+        if (Array.isArray(dupRows) && dupRows.length > 0) {
+          return jsonResp(res, 409, {
+            error: 'already_retailer',
+            message: `This email is already registered as a retailer on Demohub. Each email can only have one account type. Sign in to your retailer admin instead.`,
+            signin_url: '/signin?email=' + encodeURIComponent(email),
+          });
+        }
+      } catch (_) { /* fall through */ }
+
       const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id`);
       const existing = (await lookupR.json())[0];
       let brandId;

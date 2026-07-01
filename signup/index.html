@@ -278,7 +278,19 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         body: JSON.stringify(payload),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      if (!r.ok) {
+        // Single-profile-per-email collisions come back as 409 with a signin_url
+        if (r.status === 409 && j.signin_url) {
+          if (errorBox) {
+            errorBox.innerHTML = (j.message || 'This email already has an account.') +
+              ` <a href="${j.signin_url}" style="color:var(--forest-700); font-weight:600; text-decoration:underline;">Sign in →</a>`;
+            errorBox.style.display = 'block';
+          }
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create my Demohub →'; }
+          return;
+        }
+        throw new Error(j.error || ('HTTP ' + r.status));
+      }
 
       const slug = j.slug || '';
       const adminUrl = j.admin_url || ('https://demohubhq.com/r/' + slug + '/admin');
