@@ -1852,22 +1852,11 @@ END:VEVENT
             try {
                 await navigator.clipboard.writeText(url);
                 if (btn) {
-                    // Ensure the button is a positioning context for the floating badge
-                    const prevPos = btn.style.position;
-                    if (getComputedStyle(btn).position === 'static') btn.style.position = 'relative';
-                    const badge = document.createElement('span');
-                    badge.className = 'copy-badge';
-                    badge.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Link copied';
-                    btn.appendChild(badge);
-                    setTimeout(() => {
-                        badge.remove();
-                        if (prevPos !== undefined) btn.style.position = prevPos;
-                    }, 1500);
-                    // Button pulse
-                    btn.classList.remove('copy-copied-anim');
-                    void btn.offsetWidth; // force reflow to restart animation
-                    btn.classList.add('copy-copied-anim');
-                    setTimeout(() => btn.classList.remove('copy-copied-anim'), 550);
+                    // Simple inline swap: replace icon with checkmark, text with "Copied"
+                    const orig = btn.innerHTML;
+                    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Copied';
+                    btn.style.color = '#1f4a26';
+                    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 1400);
                 }
                 try {
                     localStorage.setItem('demohub_link_copied_' + (window.RETAILER_SLUG||''), '1');
@@ -1877,7 +1866,7 @@ END:VEVENT
                 if (btn) {
                     const orig = btn.innerHTML;
                     btn.textContent = 'Copy failed';
-                    setTimeout(() => { btn.innerHTML = orig; }, 1800);
+                    setTimeout(() => { btn.innerHTML = orig; }, 1400);
                 }
             }
         };
