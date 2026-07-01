@@ -2216,17 +2216,8 @@ END:VEVENT
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
             if (fee) fee.value = '$' + Number(s.demo_fee || 30).toFixed(2);
-            if (dur) {
-                const val = s.demo_duration || '3 hours';
-                // Try exact match; fallback to '3 hours' if the stored value is stale (e.g. free-text 'asd')
-                const found = Array.from(dur.options).some(o => o.value === val);
-                dur.value = found ? val : '3 hours';
-            }
-            if (adv) {
-                const days = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
-                const found = Array.from(adv.options).some(o => o.value === days);
-                adv.value = found ? days : '14';
-            }
+            if (dur) dur.value = s.demo_duration || '3 hours';
+            if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
         }
 
         // ===== Stores editor =====
