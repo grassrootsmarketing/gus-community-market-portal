@@ -1952,6 +1952,7 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
                 + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
                 + '
 <script>
+// PWA: register service worker (conservative — only caches static assets, never HTML/API)
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));
