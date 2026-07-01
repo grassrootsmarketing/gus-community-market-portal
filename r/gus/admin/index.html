@@ -973,21 +973,32 @@
 
     <!-- Team invite modal -->
     <div class="modal-overlay" id="teamInviteModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
-        <div class="modal" style="max-width:480px; background:white; border-radius:16px; padding:30px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
-            <h3 style="font-size:1.4rem; color:var(--forest-800); margin-bottom:6px; font-family:'Plus Jakarta Sans', sans-serif; font-weight:400;">Invite a team member</h3>
-            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:18px;">They'll get an email with a sign-in link.</div>
-            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Email</label><input type="email" class="form-input" id="teamInviteEmail" placeholder="teammate@yourstore.com" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
-            <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Name (optional)</label><input type="text" class="form-input" id="teamInviteName" placeholder="First and last" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
-            <div class="form-group" style="margin-bottom:18px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Role</label>
+        <div class="modal" style="max-width:520px; background:white; border-radius:16px; padding:30px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
+            <h3 style="font-size:1.4rem; color:var(--forest-800); margin-bottom:6px; font-family:'Plus Jakarta Sans', sans-serif; font-weight:400;">Invite team members</h3>
+            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:18px;">Each person gets an email with their sign-in link.</div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Email addresses</label>
+                <textarea id="teamInviteEmail" rows="3" placeholder="teammate@yourstore.com&#10;another@yourstore.com&#10;(paste multiple, one per line or comma-separated)" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; resize:vertical; min-height:80px;"></textarea>
+                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:5px;">One per line, or separate with commas / semicolons. Paste right in.</div>
+            </div>
+            <div class="form-group" style="margin-bottom:14px;">
+                <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Name <span style="color:var(--ink-500); font-weight:400;">(optional — only used if inviting a single person)</span></label>
+                <input type="text" class="form-input" id="teamInviteName" placeholder="First and last" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
+            </div>
+            <div class="form-group" style="margin-bottom:18px;">
+                <label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Role</label>
                 <select id="teamInviteRole" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background:white;">
-                    <option value="admin">Admin — can do everything except remove team members</option>
-                    <option value="viewer">Viewer — view-only access</option>
+                    <option value="admin">Admin</option>
+                    <option value="viewer">Viewer</option>
                 </select>
+                <div id="teamInviteRoleHint" style="font-size:0.75rem; color:var(--ink-500); margin-top:5px; line-height:1.4;">Full access to bookings, brands, and settings — cannot remove other team members.</div>
             </div>
             <div id="teamInviteError" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <div id="teamInviteProgress" style="display:none; background:#f4f8f0; color:var(--forest-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-bottom:14px;"></div>
+            <div style="display:flex; gap:10px; justify-content:flex-end; align-items:center;">
+                <span id="teamInviteCount" style="font-size:0.82rem; color:var(--ink-500); margin-right:auto;"></span>
                 <button class="btn btn-secondary" style="padding:10px 18px;" onclick="closeTeamInvite()">Cancel</button>
-                <button class="btn btn-primary" style="padding:10px 18px;" onclick="sendTeamInvite()" id="teamInviteSendBtn">Send invite</button>
+                <button class="btn btn-primary" style="padding:10px 18px;" onclick="sendTeamInvite()" id="teamInviteSendBtn">Send invites</button>
             </div>
         </div>
     </div>
@@ -2938,34 +2949,111 @@ END:VEVENT
             document.getElementById('teamInviteName').value = '';
             document.getElementById('teamInviteRole').value = 'admin';
             document.getElementById('teamInviteError').style.display = 'none';
+            document.getElementById('teamInviteProgress').style.display = 'none';
+            document.getElementById('teamInviteCount').textContent = '';
+            _teamInviteWireRoleHint();
+            _teamInviteWireLiveCount();
             m.style.display = 'flex';
+            setTimeout(() => document.getElementById('teamInviteEmail').focus(), 50);
         }
         function closeTeamInvite() {
             const m = document.getElementById('teamInviteModal');
             if (m) m.style.display = 'none';
         }
+        // Update the role hint text to explain the current selection
+        function _teamInviteWireRoleHint() {
+            const sel = document.getElementById('teamInviteRole');
+            const hint = document.getElementById('teamInviteRoleHint');
+            if (!sel || !hint) return;
+            const messages = {
+                admin: 'Full access to bookings, brands, and settings — cannot remove other team members.',
+                viewer: 'Read-only access: view the schedule, brands, and reports. No editing.',
+            };
+            sel.onchange = () => { hint.textContent = messages[sel.value] || ''; };
+            hint.textContent = messages[sel.value] || messages.admin;
+        }
+        // Parse the emails textarea and update the live count next to Send button
+        function _teamInviteParseEmails(raw) {
+            return String(raw || '')
+                .split(/[\s,;]+/)
+                .map(s => s.trim().toLowerCase())
+                .filter(s => s && /^[^@]+@[^@]+\.[^@]+$/.test(s));
+        }
+        function _teamInviteWireLiveCount() {
+            const ta = document.getElementById('teamInviteEmail');
+            const label = document.getElementById('teamInviteCount');
+            const btn = document.getElementById('teamInviteSendBtn');
+            const name = document.getElementById('teamInviteName').parentElement;
+            if (!ta || !label) return;
+            const update = () => {
+                const emails = _teamInviteParseEmails(ta.value);
+                const n = emails.length;
+                if (n === 0) { label.textContent = ''; btn.textContent = 'Send invites'; }
+                else if (n === 1) { label.textContent = '1 person'; btn.textContent = 'Send invite'; }
+                else { label.textContent = n + ' people'; btn.textContent = 'Send ' + n + ' invites'; }
+                // Hide the Name field when > 1 email (it only applies to single invites)
+                if (name) name.style.opacity = n > 1 ? '0.4' : '1';
+                if (name) name.style.pointerEvents = n > 1 ? 'none' : '';
+            };
+            ta.oninput = update;
+            update();
+        }
         async function sendTeamInvite() {
-            const email = document.getElementById('teamInviteEmail').value.trim();
+            const rawEmails = document.getElementById('teamInviteEmail').value;
             const name = document.getElementById('teamInviteName').value.trim();
             const role = document.getElementById('teamInviteRole').value;
             const err = document.getElementById('teamInviteError');
+            const prog = document.getElementById('teamInviteProgress');
             const btn = document.getElementById('teamInviteSendBtn');
             err.style.display = 'none';
-            if (!email) { err.textContent = 'Email required'; err.style.display = 'block'; return; }
-            btn.disabled = true; btn.textContent = 'Sending…';
-            try {
-                const r = await fetch('/api/admin-auth', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'team-invite', session_id: AdminAuth.getSession(), email, name, role }),
-                });
-                const j = await r.json();
-                if (!r.ok) throw new Error(j.error || 'Failed');
+            prog.style.display = 'none';
+            const emails = _teamInviteParseEmails(rawEmails);
+            if (emails.length === 0) {
+                err.textContent = 'Enter at least one valid email address.';
+                err.style.display = 'block';
+                return;
+            }
+            // Deduplicate while preserving order
+            const seen = new Set();
+            const uniqueEmails = emails.filter(e => (seen.has(e) ? false : (seen.add(e), true)));
+            btn.disabled = true;
+            const origBtn = btn.textContent;
+            let sent = 0, failed = 0;
+            const failures = [];
+            for (let i = 0; i < uniqueEmails.length; i++) {
+                const em = uniqueEmails[i];
+                prog.textContent = `Sending ${i+1} of ${uniqueEmails.length} — ${em}…`;
+                prog.style.display = 'block';
+                btn.textContent = `Sending ${i+1}/${uniqueEmails.length}…`;
+                try {
+                    const r = await fetch('/api/admin-auth', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'team-invite',
+                            session_id: AdminAuth.getSession(),
+                            email: em,
+                            name: uniqueEmails.length === 1 ? name : '',
+                            role,
+                        }),
+                    });
+                    const j = await r.json();
+                    if (!r.ok) { failed++; failures.push(`${em}: ${j.error || 'failed'}`); }
+                    else { sent++; }
+                } catch (e) {
+                    failed++;
+                    failures.push(`${em}: ${e.message}`);
+                }
+            }
+            btn.disabled = false;
+            btn.textContent = origBtn;
+            if (failed === 0) {
                 closeTeamInvite();
                 loadTeam();
-            } catch (e) {
-                err.textContent = e.message; err.style.display = 'block';
-            } finally {
-                btn.disabled = false; btn.textContent = 'Send invite';
+            } else {
+                prog.style.display = 'none';
+                err.innerHTML = `<div style="font-weight:600; margin-bottom:6px;">${sent} sent, ${failed} failed.</div>` + failures.map(f => '<div style="font-size:0.82rem;">' + f + '</div>').join('');
+                err.style.display = 'block';
+                loadTeam();
             }
         }
         async function updateTeamRole(id, role) {
