@@ -869,17 +869,16 @@
                         </div>
                     </div>
                     <div class="settings-card">
-                        <div class="settings-card-header"><h3>Notifications</h3></div>
-                        <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:14px;">Choose which emails Demohub sends to your billing address.</div>
-                            <label style="display:flex; gap:12px; align-items:flex-start; cursor:pointer; padding:12px 14px; background:#f9f7f2; border-radius:10px;">
-                                <input type="checkbox" id="settingMonthlySummary" checked style="margin-top:3px; flex-shrink:0;" onchange="saveNotificationPrefs()">
-                                <div style="flex:1;">
-                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.95rem;">Monthly overview email</div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:2px;">Sent on the 1st of each month. Shows demos completed, fees collected, pending bookings, COIs expiring, new brand contacts.</div>
-                                </div>
+                        <div class="settings-card-header" style="display:flex; align-items:center; justify-content:space-between;">
+                            <h3>Monthly overview email</h3>
+                            <label class="toggle" title="Toggle monthly overview email">
+                                <input type="checkbox" id="settingMonthlySummary" checked onchange="saveNotificationPrefs()">
+                                <span class="toggle-slider"></span>
                             </label>
-                            <div id="notificationStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:10px; min-height:1.2em;"></div>
+                        </div>
+                        <div class="settings-card-body" style="padding-top:14px;">
+                            <div style="font-size:0.82rem; color:var(--ink-500); line-height:1.55;">Sent on the 1st of each month with demos completed, fees collected, pending bookings, COIs expiring, and new brand contacts.</div>
+                            <div id="notificationStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:8px; min-height:1em;"></div>
                         </div>
                     </div>
                     <div class="settings-card">
