@@ -908,9 +908,33 @@
                     <div class="settings-card">
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
-                            <div class="form-group"><label class="form-label">Demo Fee</label><input type="text" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
-                            <div class="form-group"><label class="form-label">Demo Duration</label><input type="text" class="form-input" id="settingDemoDuration" value="3 hours" disabled></div>
-                            <div class="form-group"><label class="form-label">Advance Booking</label><input type="text" class="form-input" id="settingAdvanceBooking" value="14 days minimum" disabled></div>
+                            <div class="form-group"><label class="form-label">Default Demo Fee</label><input type="text" inputmode="decimal" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
+                            <div class="form-group">
+                                <label class="form-label">Demo Duration</label>
+                                <select class="form-input" id="settingDemoDuration" disabled>
+                                    <option value="30 min">30 minutes</option>
+                                    <option value="1 hour">1 hour</option>
+                                    <option value="2 hours">2 hours</option>
+                                    <option value="3 hours" selected>3 hours</option>
+                                    <option value="4 hours">4 hours</option>
+                                    <option value="6 hours">6 hours</option>
+                                    <option value="all day">All day</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Minimum advance notice</label>
+                                <select class="form-input" id="settingAdvanceBooking" disabled>
+                                    <option value="0">Same day</option>
+                                    <option value="1">1 day ahead</option>
+                                    <option value="2">2 days ahead</option>
+                                    <option value="3">3 days ahead</option>
+                                    <option value="7">1 week ahead</option>
+                                    <option value="14" selected>2 weeks ahead</option>
+                                    <option value="21">3 weeks ahead</option>
+                                    <option value="30">30 days ahead</option>
+                                </select>
+                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">How far ahead a brand must book. Prevents last-minute demos.</div>
+                            </div>
                             <div class="form-group">
                                 <label class="form-label">Calendar feed</label>
                                 <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically.</div>
@@ -2195,9 +2219,18 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            if (fee) fee.value = '$' + Number(s.demo_fee).toFixed(2);
-            if (dur) dur.value = s.demo_duration || '3 hours';
-            if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
+            if (fee) fee.value = '$' + Number(s.demo_fee || 30).toFixed(2);
+            if (dur) {
+                const val = s.demo_duration || '3 hours';
+                // Try exact match; fallback to '3 hours' if the stored value is stale (e.g. free-text 'asd')
+                const found = Array.from(dur.options).some(o => o.value === val);
+                dur.value = found ? val : '3 hours';
+            }
+            if (adv) {
+                const days = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
+                const found = Array.from(adv.options).some(o => o.value === days);
+                adv.value = found ? days : '14';
+            }
         }
 
         // ===== Stores editor =====
@@ -3699,18 +3732,21 @@ END:VEVENT
 
         async function toggleSettingsEdit() {
             const btn = document.getElementById('settingsEditBtn');
-            const ids = ['settingDemoFee', 'settingDemoDuration', 'settingAdvanceBooking'];
-            const inputs = ids.map(id => document.getElementById(id));
+            const fee = document.getElementById('settingDemoFee');
+            const dur = document.getElementById('settingDemoDuration');
+            const adv = document.getElementById('settingAdvanceBooking');
+            const inputs = [fee, dur, adv].filter(Boolean);
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
                 if (window.state.settings && window.state.settings.id) {
-                    const feeStr = inputs[0].value.replace(/[^0-9.]/g,'');
-                    const advStr = inputs[2].value.replace(/[^0-9]/g,'');
+                    // Demo Fee still comes from a text input with $ prefix; strip non-numerics.
+                    const feeStr = (fee.value || '').replace(/[^0-9.]/g, '');
+                    const feeNum = parseFloat(feeStr);
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
-                            demo_fee: parseFloat(feeStr) || 30,
-                            demo_duration: inputs[1].value,
-                            advance_booking_days: parseInt(advStr,10) || 14,
+                            demo_fee: Number.isFinite(feeNum) && feeNum > 0 ? feeNum : 30,
+                            demo_duration: dur.value,                    // dropdown value, always valid
+                            advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
                         });
                         await refreshAll();
                     } catch (e) { alert('Save failed: ' + e.message); return; }
@@ -3720,7 +3756,7 @@ END:VEVENT
             } else {
                 inputs.forEach(i => i.disabled = false);
                 btn.textContent = 'Save';
-                setTimeout(() => inputs[0].focus(), 50);
+                setTimeout(() => fee && fee.focus(), 50);
             }
         }
         
