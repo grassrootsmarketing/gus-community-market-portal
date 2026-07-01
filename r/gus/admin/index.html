@@ -525,7 +525,7 @@
     <div class="view active" id="adminView" style="display:none;">
         <header class="header">
             <div class="brand" style="cursor:default;">
-                <div class="brand-icon" id="retailerAvatar" title="Click to upload your store logo" onclick="event.stopPropagation(); document.getElementById('retailerLogoFile').click();"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#e8e4d8"/><g transform="translate(22, 22)" fill="none" stroke="#8f8b82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M0 8 L2 3 L18 3 L20 8" /><path d="M2 8 L2 18 L18 18 L18 8" /><path d="M8 18 L8 13 L12 13 L12 18" /></g></svg><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
+                <div class="brand-icon" id="retailerAvatar" title="Click to upload your store logo" onclick="event.stopPropagation(); document.getElementById('retailerLogoFile').click();"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#ece8dc"/><g transform="translate(20, 22)" fill="none" stroke="#8f8b82" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="18" rx="2"/><circle cx="8" cy="8" r="2"/><path d="M1 16 L8 11 L16 16 L23 12"/></g></svg><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
                 <div class="brand-text"><h1 id="adminHeaderRetailerName">Loading…<button type="button" class="logo-edit-btn" id="retailerNameEditBtn" title="Edit retailer name" onclick="event.stopPropagation(); editRetailerName();"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></h1><span>Admin Dashboard</span></div>
                 <input type="file" id="retailerLogoFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
             </div>
@@ -1603,7 +1603,7 @@ END:VEVENT
                 el.innerHTML = `<img src="${url}" alt="Store logo">`;
                 el.title = 'Click the pencil to replace your store logo';
             } else {
-                el.innerHTML = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#e8e4d8"/><g transform="translate(22, 22)" fill="none" stroke="#8f8b82" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M0 8 L2 3 L18 3 L20 8" /><path d="M2 8 L2 18 L18 18 L18 8" /><path d="M8 18 L8 13 L12 13 L12 18" /></g></svg>`;
+                el.innerHTML = `<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><circle cx="32" cy="32" r="32" fill="#ece8dc"/><g transform="translate(20, 22)" fill="none" stroke="#8f8b82" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="22" height="18" rx="2"/><circle cx="8" cy="8" r="2"/><path d="M1 16 L8 11 L16 16 L23 12"/></g></svg>`;
             }
         }
 
