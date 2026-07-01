@@ -214,21 +214,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         renderSuccess({ slug: urlSlug, adminUrl, adminUrlAuto: null, publicUrl });
         return;
       }
-      // Otherwise, if we have fresh localStorage, restore from that.
-      // adminUrlAuto only stays valid for ~30 minutes (it embeds a one-shot
-      // magic-link token); after that we drop it so the button routes through
-      // /signin (where the user can request a fresh magic link).
-      if (saved && saved.slug && (Date.now() - (saved.savedAt || 0) < SEVEN_DAYS)) {
-        try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(saved.slug)); } catch(_){}
-        const tokenStillFresh = (Date.now() - (saved.savedAt || 0)) < 30 * 60 * 1000;
-        renderSuccess({
-          slug: saved.slug,
-          adminUrl: saved.adminUrl,
-          adminUrlAuto: tokenStillFresh ? saved.adminUrlAuto : null,
-          publicUrl: saved.publicUrl,
-        });
-        return;
-      }
+      // Do NOT auto-restore from localStorage on a bare /signup URL.
+      // Previously we did — but that surprised users who wanted to sign up again
+      // (their last success card kept resurrecting even after typing /signup fresh).
+      // Now the only restore path is when the URL explicitly has ?slug=X — meaning
+      // the user is intentionally coming back to a specific success page.
+      // localStorage kept for backwards compatibility with success card refresh in-flow,
+      // but no auto-write to URL / auto-render on cold start.
     } catch(_){}
   })();
 
