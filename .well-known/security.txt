@@ -1,0 +1,15 @@
+# Demohub Security Contact
+# Compliant with RFC 9116 (https://www.rfc-editor.org/rfc/rfc9116)
+
+Contact: mailto:david@demohubhq.com
+Expires: 2026-12-28T00:13:06.000Z
+Preferred-Languages: en
+Canonical: https://demohubhq.com/.well-known/security.txt
+Policy: https://demohubhq.com/security
+
+# We follow a coordinated disclosure model. Reports are acknowledged within
+# 2 business days, triaged within 5. Good-faith research on the platform is
+# welcome; please do not access other users' data or degrade service.
+
+# For general privacy questions (not security vulnerabilities):
+# mailto:david@demohubhq.com
