@@ -907,7 +907,13 @@
                     <div class="settings-card">
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
-                            <div class="form-group"><label class="form-label">Default Demo Fee</label><input type="text" inputmode="decimal" class="form-input" id="settingDemoFee" value="$30.00" disabled></div>
+                            <div class="form-group">
+                                <label class="form-label">Default Demo Fee</label>
+                                <div style="position:relative; display:flex; align-items:center;">
+                                    <span aria-hidden="true" style="position:absolute; left:14px; font-weight:600; color:var(--ink-700); pointer-events:none; z-index:1;">$</span>
+                                    <input type="number" step="0.01" min="0" max="9999" inputmode="decimal" class="form-input" id="settingDemoFee" value="30.00" disabled style="padding-left:26px; width:100%;">
+                                </div>
+                            </div>
                             <div class="form-group">
                                 <label class="form-label">Demo Duration</label>
                                 <select class="form-input" id="settingDemoDuration" disabled>
@@ -2207,7 +2213,7 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            if (fee) fee.value = '$' + Number(s.demo_fee || 30).toFixed(2);
+            if (fee) fee.value = Number(s.demo_fee || 30).toFixed(2);
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
         }
@@ -3739,9 +3745,8 @@ END:VEVENT
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
                 if (window.state.settings && window.state.settings.id) {
-                    // Demo Fee still comes from a text input with $ prefix; strip non-numerics.
-                    const feeStr = (fee.value || '').replace(/[^0-9.]/g, '');
-                    const feeNum = parseFloat(feeStr);
+                    // Demo Fee is type=number - .value is a clean numeric string (or empty)
+                    const feeNum = parseFloat(fee.value);
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
                             demo_fee: Number.isFinite(feeNum) && feeNum > 0 ? feeNum : 30,
