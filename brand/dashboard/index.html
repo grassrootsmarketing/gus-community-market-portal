@@ -11,7 +11,9 @@
 
         /* Universal caret suppression - text cursor only on real inputs */
         * { caret-color: transparent; }
-        input, textarea, select, [contenteditable="true"] { caret-color: auto; }
+        input:not([readonly]):not([disabled]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+        textarea:not([readonly]):not([disabled]),
+        [contenteditable="true"] { caret-color: auto; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
 

@@ -19,9 +19,11 @@
             --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
         }
 
-        /* Universal caret suppression - text cursor only on real inputs */
+        /* Universal caret suppression - text cursor only on actively editable inputs */
         * { caret-color: transparent; }
-        input, textarea, select, [contenteditable="true"] { caret-color: auto; }
+        input:not([readonly]):not([disabled]):not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]),
+        textarea:not([readonly]):not([disabled]),
+        [contenteditable="true"] { caret-color: auto; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.6; }
@@ -795,7 +797,7 @@
                     <div class="table-toolbar">
                         <h3 class="table-title">Locations</h3>
                         <div style="display:flex; gap:8px; align-items:center;">
-                            <button type="button" onclick="downloadStoreTemplate()" style="background:none; border:none; padding:6px 10px; font-size:0.8rem; color:var(--forest-700); font-weight:600; cursor:pointer; text-decoration:underline; text-underline-offset:2px;">Download sample CSV ↓</button>
+                            <button type="button" onclick="downloadStoreTemplate()" style="background:none; border:none; padding:6px 10px; font-size:0.8rem; color:var(--forest-700); font-weight:600; cursor:pointer;">↓ Sample CSV</button>
                             <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;" onclick="openStoreBulkUpload()">Bulk upload CSV</button>
                             <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStoreModal()">+ Add Location</button>
                         </div>
