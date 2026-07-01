@@ -16,6 +16,10 @@
             --shadow-lg: 0 12px 40px rgba(13,31,18,0.12); --shadow-xl: 0 24px 60px rgba(13,31,18,0.16);
             --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
         }
+
+        /* Universal caret suppression - text cursor only on real inputs */
+        * { caret-color: transparent; }
+        input, textarea, select, [contenteditable="true"] { caret-color: auto; }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
         body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.6; }
@@ -540,8 +544,8 @@
                 <a href="#calendarSection" class="subnav-link" data-section="calendarSection">Calendar</a>
                 <a href="#demosSection" class="subnav-link" data-section="demosSection">Demos</a>
                 <a href="#brandsSection" class="subnav-link" data-section="brandsSection">Brands</a>
+                <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#complianceSection" class="subnav-link" data-section="complianceSection">Compliance</a>
-                <a href="#storesSection" class="subnav-link" data-section="storesSection">Stores</a>
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
@@ -572,8 +576,8 @@
             <a href="#calendarSection" class="mobile-nav-item" data-section="calendarSection" onclick="mobileNavGo(event, 'calendarSection', 'Calendar')">Calendar</a>
             <a href="#demosSection" class="mobile-nav-item" data-section="demosSection" onclick="mobileNavGo(event, 'demosSection', 'Demos')">Demos</a>
             <a href="#brandsSection" class="mobile-nav-item" data-section="brandsSection" onclick="mobileNavGo(event, 'brandsSection', 'Brands')">Brands</a>
+            <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#complianceSection" class="mobile-nav-item" data-section="complianceSection" onclick="mobileNavGo(event, 'complianceSection', 'Compliance')">Compliance</a>
-            <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Stores')">Stores</a>
             <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
             <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
         </nav>
@@ -606,9 +610,13 @@
                 });
                 var lbl = document.getElementById('mobileNavCurrent');
                 if (lbl) lbl.textContent = label;
-                // Scroll the target section into view
+                // Scroll the target section into view - use .main-scroll container
                 var el = document.getElementById(sectionId);
-                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                var sc = document.querySelector('.main-scroll');
+                if (el && sc) {
+                    var top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 20;
+                    sc.scrollTo({ top: top, behavior: 'smooth' });
+                }
             }
             // Close drawer on escape
             document.addEventListener('keydown', function(e) {
@@ -735,7 +743,7 @@
                     <div id="demosTableView">
                         <table>
                             <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th></tr></thead>
-                            <tbody id="demosTableBody"></tbody>
+                            <tbody id="demosTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Demo requests will appear here as brands submit them through your booking link. Confirm requests to add them to your calendar.</td></tr></tbody>
                         </table>
                     </div>
                     <div id="demosCalendarView" class="demo-cal-wrap" style="display:none;">
@@ -761,7 +769,7 @@
                     </div>
                     <table>
                         <thead><tr><th>Name</th><th>Role</th><th>Location</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="internalContactsTableBody"></tbody>
+                        <tbody id="internalContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your team members will appear here once you add them. Click <b>+ Add Team Contact</b> above to get started.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="table-card" id="brandsSection" style="margin-bottom: 32px;">
@@ -778,9 +786,24 @@
                     </div>
                     <table>
                         <thead><tr><th>Name</th><th>Company</th><th>Location</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="brandContactsTableBody"></tbody>
+                        <tbody id="brandContactsTableBody"><tr class="empty-placeholder"><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Brand contacts will appear here as brands book demos through your booking link. You can also add them manually with <b>+ Add Brand Contact</b>.</td></tr></tbody>
                     </table>
                 </div>
+                <!-- Stores editor -->
+                <div class="table-card" id="storesSection" data-name="stores" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Locations</h3>
+                        <div style="display:flex; gap:8px; align-items:center;">
+                            <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;" onclick="openStoreBulkUpload()">Bulk upload CSV</button>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStoreModal()">+ Add Location</button>
+                        </div>
+                    </div>
+                    <table class="data-table">
+                        <thead><tr><th>Name</th><th>Address</th><th style="text-align:right;">Demo Fee</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="storesTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your store locations will appear here. Add your first location with <b>+ Add Location</b>, or bulk import via CSV for multi-store operators.</td></tr></tbody>
+                    </table>
+                </div>
+
                 <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Compliance Records</h3>
@@ -795,7 +818,7 @@
                     </div>
                     <table>
                         <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="complianceTableBody"></tbody>
+                        <tbody id="complianceTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Insurance certificates (COIs) and other compliance documents will appear here once uploaded by brands or added manually with <b>+ Add Record</b>.</td></tr></tbody>
                     </table>
                 </div>
                 <div class="billing-card">
@@ -809,22 +832,7 @@
                     <div class="billing-summary" id="billingSummary"></div>
                     <table>
                         <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Fee</th></tr></thead>
-                        <tbody id="billingTableBody"></tbody>
-                    </table>
-                </div>
-
-                <!-- Stores editor -->
-                <div class="table-card" id="storesSection" data-name="stores" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Stores</h3>
-                        <div style="display:flex; gap:8px; align-items:center;">
-                            <button class="btn btn-secondary" style="padding: 8px 14px; font-size: 0.85rem;" onclick="openStoreBulkUpload()">Bulk upload CSV</button>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStoreModal()">+ Add Store</button>
-                        </div>
-                    </div>
-                    <table class="data-table">
-                        <thead><tr><th>Name</th><th>Address</th><th style="text-align:right;">Demo Fee</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="storesTableBody"></tbody>
+                        <tbody id="billingTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Completed demos and payouts will appear here at the end of each month. Statements can be downloaded once billing data is available.</td></tr></tbody>
                     </table>
                 </div>
 
@@ -1784,6 +1792,12 @@ END:VEVENT
             loadNotificationPrefs();
             loadTeam();
             setTimeout(() => { if (window.maybeStartTour) window.maybeStartTour(); }, 600);
+            // Fallback: retry tour if adminView wasn't visible yet at initial trigger
+            setTimeout(() => {
+              if (window.maybeStartTour && localStorage.getItem('demohub_tour_complete_' + (window.RETAILER_SLUG||'')) !== '1') {
+                window.maybeStartTour();
+              }
+            }, 2000);
         }
 
         // ===== First-login welcome banner =====
@@ -3780,29 +3794,32 @@ END:VEVENT
             window.loadSettings = function() { _origLoadSettingsForPayouts(); if (typeof renderPayouts === 'function') renderPayouts(); };
         }
 
-        // Section subnav: active state + smooth scroll
+        // Section subnav: active state + smooth scroll (scrolls .main-scroll container, NOT window)
         (function(){
           const subnav = document.querySelectorAll('.subnav-link');
+          function getScroller() { return document.querySelector('.main-scroll'); }
           subnav.forEach(link => {
             link.addEventListener('click', (e) => {
               e.preventDefault();
               const id = link.dataset.section;
               const el = document.getElementById(id);
-              if (!el) return;
-              const headerOffset = 80;
-              const top = el.getBoundingClientRect().top + window.scrollY - headerOffset;
-              window.scrollTo({ top, behavior: 'smooth' });
+              const sc = getScroller();
+              if (!el || !sc) return;
+              const headerOffset = 20;
+              const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - headerOffset;
+              sc.scrollTo({ top, behavior: 'smooth' });
               subnav.forEach(l => l.classList.remove('active'));
               link.classList.add('active');
             });
           });
-          // Optional: highlight active section on scroll
+          // Highlight active section on .main-scroll scroll
           let _ticking = false;
-          window.addEventListener('scroll', () => {
+          const sc = getScroller();
+          if (sc) sc.addEventListener('scroll', () => {
             if (_ticking) return;
             _ticking = true;
             requestAnimationFrame(() => {
-              const scrollY = window.scrollY + 120;
+              const scrollY = sc.scrollTop + 120;
               let current = null;
               subnav.forEach(link => {
                 const el = document.getElementById(link.dataset.section);
@@ -4027,6 +4044,17 @@ END:VEVENT
           startTour(true);
         };
         window.startTour = startTour;
+        // Empty-state helper: keep placeholder rows when data is empty
+        window._maintainEmptyPlaceholder = function(tbodyId, rows, colspan, message) {
+          const tbody = document.getElementById(tbodyId);
+          if (!tbody) return false;
+          if (!rows || rows.length === 0) {
+            tbody.innerHTML = `<tr class="empty-placeholder"><td colspan="${colspan}" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">${message}</td></tr>`;
+            return true; // handled
+          }
+          return false; // caller renders rows normally
+        };
+
         window.closeTour = closeTour;
 
         // Hide the FAB while the tour is running
