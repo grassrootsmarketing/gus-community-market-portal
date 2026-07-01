@@ -8,6 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root { --forest-900:#0f2c17; --forest-700:#1f4a26; --forest-500:#3a7142; --forest-100:#e3edd6; --forest-50:#f4f7ef; --cream-50:#fbf7f0; --cream-100:#f6f0e4; --clay-700:#a14e2a; --clay-bright:#ed682f; --ink-900:#1c1c1a; --ink-700:#3a3a36; --ink-500:#6b6a64; }
+
+        /* Universal caret suppression - text cursor only on real inputs */
+        * { caret-color: transparent; }
+        input, textarea, select, [contenteditable="true"] { caret-color: auto; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
 
@@ -21,10 +25,16 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .nav-tab:hover { background:var(--cream-100); color:var(--forest-900); }
 .nav-tab.active { background:var(--forest-900); color:white; }
 .nav-account { display:flex; align-items:center; gap:12px; flex-shrink:0; }
-.nav-avatar { width:36px; height:36px; border-radius:50%; background:var(--cream-100); overflow:hidden; display:flex; align-items:center; justify-content:center; border:1.5px solid rgba(15,44,23,0.1); }
+.nav-avatar { width:36px; height:36px; border-radius:50%; background:var(--cream-100); overflow:hidden; display:flex; align-items:center; justify-content:center; border:1.5px solid rgba(15,44,23,0.1); position:relative; cursor:pointer; transition: outline 0.15s, outline-offset 0.15s; outline: 1.5px dashed transparent; outline-offset: 1px; }
+.nav-avatar:hover { outline: 1.5px dashed var(--forest-700); outline-offset: 2px; }
+.nav-avatar .avatar-upload-overlay { position:absolute; inset:0; border-radius:50%; background:rgba(15,44,23,0.55); color:white; display:flex; align-items:center; justify-content:center; opacity:0; transition:opacity 0.15s; pointer-events:none; }
+.nav-avatar .avatar-upload-overlay svg { width:40%; height:40%; display:block; }
+.nav-avatar:hover .avatar-upload-overlay { opacity:1; }
 .nav-avatar img { width:100%; height:100%; object-fit:cover; }
 .nav-avatar svg { width:36px; height:36px; display:block; }
-.nav-name { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.nav-name { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; padding:2px 6px; border-radius:5px; transition:background 0.15s; }
+.nav-name:hover:not([contenteditable="true"]) { background: rgba(15,44,23,0.05); }
+.nav-name[contenteditable="true"] { background: var(--cream-50); outline: 2px solid var(--forest-700); outline-offset: 2px; text-overflow: clip; max-width: none; }
 /* Mobile hamburger nav */
 .nav-mobile-toggle { display:none; background:transparent; border:1px solid rgba(15,44,23,0.12); border-radius:10px; padding:6px 10px; cursor:pointer; align-items:center; gap:6px; font-family:inherit; font-weight:600; font-size:0.82rem; color:var(--forest-900); }
 .nav-mobile-toggle:hover { background:var(--cream-100); }
@@ -378,8 +388,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <a href="#account" class="nav-tab" data-tab="account">Account</a>
   </div>
   <div class="nav-account">
-    <div class="nav-avatar" id="navAvatar"></div>
-    <span class="nav-name" id="navName">, </span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+    <div class="nav-avatar" id="navAvatar" title="Click to upload your logo" onclick="brandAvatarClick(event)"><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
+    <input type="file" id="navAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
+    <span class="nav-name" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)">, </span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
   </div>
   <button type="button" class="nav-mobile-toggle" aria-label="Open menu" aria-haspopup="true" aria-expanded="false" onclick="toggleBrandMobileNav()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -602,11 +613,15 @@ async function loadData() {
   const _profOk = !!(profile.company_name && profile.contact_name && profile.email);
   if (navVerifyMark) navVerifyMark.style.display = (_coiOk && _profOk) ? 'inline-flex' : 'none';
   renderAvatar(navAvatar, profile.logo_url);
+  // Re-append the upload overlay after renderAvatar sets innerHTML
+  if (navAvatar && !navAvatar.querySelector('.avatar-upload-overlay')) {
+    navAvatar.insertAdjacentHTML('beforeend', `<div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>`);
+  }
 }
 
 // ===== Tab Router =====
 function switchTab(name) {
-  if (!['overview','calendar','profile','account'].includes(name)) name = 'overview';
+  if (!['overview','calendar','profile','team','agreements','account'].includes(name)) name = 'overview';
   _currentTab = name;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   render();
@@ -620,6 +635,7 @@ function render() {
   if (_currentTab === 'overview') renderOverview();
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'profile') renderProfile();
+  else if (_currentTab === 'team') renderTeam();
   else if (_currentTab === 'agreements') renderAgreements();
   else if (_currentTab === 'account') renderAccount();
   if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
@@ -1077,6 +1093,13 @@ function renderProfile() {
           <textarea class="textarea" id="f_default_product_info" placeholder="What you typically demo">${escapeHtml(profile.default_product_info || '')}</textarea>
           <div class="help">Auto-fills the "Product" field when you book at any Demohub retailer.</div>
         </div>
+        <div class="form-row">
+          <label class="label" style="display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
+            <input type="checkbox" id="f_needs_electricity" ${profile.needs_electricity ? 'checked' : ''} style="width:16px; height:16px; accent-color:var(--forest-700);">
+            <span>My demos need electricity</span>
+          </label>
+          <div class="help">Retailers see this on every booking so they can assign you a location near an outlet.</div>
+        </div>
       </div>
       <div style="margin-top:18px;display:flex;align-items:center;">
         <button class="btn" id="saveProfileBtn">Save changes</button>
@@ -1217,6 +1240,7 @@ async function saveProfile() {
       default_coi_expires: document.getElementById('f_default_coi_expires')?.value || null,
       default_product_info: document.getElementById('f_default_product_info')?.value.trim() || '',
       default_categories: document.getElementById('f_default_categories')?.value || '',
+      needs_electricity: !!document.getElementById('f_needs_electricity')?.checked,
     };
     await _brandApi('profile-update', payload);
     Object.assign(_data.profile, payload);
@@ -1251,7 +1275,13 @@ window.removeAvatar = async function() {
     await _brandApi('remove-avatar', {});
     _data.profile.logo_url = null;
     renderAvatar(document.getElementById('profileAvatar'), null);
-    renderAvatar(document.getElementById('navAvatar'), null);
+    (function() {
+      const na = document.getElementById('navAvatar');
+      renderAvatar(na, null);
+      if (na && !na.querySelector('.avatar-upload-overlay')) {
+        na.insertAdjacentHTML('beforeend', `<div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div>`);
+      }
+    })();
     render();
   } catch (err) {
     alert('Could not remove avatar: ' + (err.message || 'unknown'));
@@ -1732,6 +1762,86 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));
   });
 }
+
+
+// ===== Nav-avatar click → open file picker (like retailer admin) =====
+window.brandAvatarClick = function(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const fi = document.getElementById('navAvatarFile');
+  if (fi) fi.click();
+};
+
+// Wire file input to upload
+document.addEventListener('DOMContentLoaded', function() {
+  const fi = document.getElementById('navAvatarFile');
+  if (!fi) return;
+  fi.addEventListener('change', async function(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { alert('Image too large — max 2MB'); e.target.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = async function() {
+      try {
+        await _brandApi('upload-logo', { image: reader.result });
+        // Reload profile so nav avatar refreshes
+        await loadData();
+        render();
+      } catch (err) {
+        alert('Upload failed: ' + (err.message || 'unknown'));
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+});
+
+// ===== Inline editable brand name in top-right nav =====
+window.editBrandNameInline = function(e) {
+  if (e) { e.preventDefault(); e.stopPropagation(); }
+  const el = document.getElementById('navName');
+  if (!el || el.dataset.editing === '1') return;
+  const originalName = (_data && _data.profile && _data.profile.company_name) || el.textContent.trim();
+  el.dataset.editing = '1';
+  el.contentEditable = 'plaintext-only';
+  el.spellcheck = false;
+  el.textContent = originalName;
+  // Select all
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  el.focus();
+
+  const commit = async function() {
+    const clean = (el.textContent || '').trim().slice(0, 120);
+    el.contentEditable = 'false';
+    el.dataset.editing = '';
+    if (!clean || clean === originalName) {
+      el.textContent = originalName;
+      return;
+    }
+    try {
+      await _brandApi('profile-update', { company_name: clean });
+      if (_data && _data.profile) _data.profile.company_name = clean;
+      el.textContent = clean;
+    } catch (err) {
+      el.textContent = originalName;
+      const toast = document.createElement('div');
+      toast.textContent = 'Rename failed: ' + (err.message || 'unknown');
+      toast.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:#a14e2a; color:white; padding:10px 18px; border-radius:8px; font-size:0.9rem; z-index:10000;';
+      document.body.appendChild(toast);
+      setTimeout(function() { toast.remove(); }, 3000);
+    }
+  };
+
+  el.addEventListener('keydown', function(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); el.blur(); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); el.contentEditable = 'false'; el.dataset.editing = ''; el.textContent = originalName; }
+  }, { once: false });
+  el.addEventListener('blur', commit, { once: true });
+};
+
+_maintainBrandAvatarUX = 1;
 </script>
 </body>
 </html>

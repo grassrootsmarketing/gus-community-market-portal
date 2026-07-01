@@ -453,12 +453,14 @@ export default async function handler(req, res) {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs'];
+      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) {
           if (k === 'notification_prefs') {
             patch[k] = body[k] && typeof body[k] === 'object' ? body[k] : null;
+          } else if (k === 'needs_electricity') {
+            patch[k] = !!body[k];
           } else {
             patch[k] = body[k] === '' ? null : body[k];
           }
@@ -472,7 +474,7 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    if (action === 'upload-avatar') {
+    if (action === 'upload-avatar' || action === 'upload-logo') {
       const sessionToken = (req.query?.session_id || body.session_id || '').toString();
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
