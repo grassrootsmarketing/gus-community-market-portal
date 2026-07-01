@@ -534,6 +534,7 @@
                 <input type="file" id="retailerLogoFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
             </div>
             <div class="header-nav">
+                <button id="hdrCopyLinkBtn" onclick="copyScheduleLinkHeader(this)" title="Copy your booking link to share with brands" style="display:inline-flex; align-items:center; gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copy schedule link</button>
                 <button onclick="window.open('/r/' + (window.RETAILER_SLUG || ''), '_blank')">Preview booking page</button>
                 <button class="active">Admin</button>
             </div>
@@ -630,69 +631,51 @@
                     <p class="page-subtitle">Manage your demo schedule and view earnings</p>
                 </div>
 
-                <!-- Welcome banner — only renders for retailers with zero demos -->
-                <div id="welcomeBanner" style="display:none; background: linear-gradient(135deg, #0f2c17 0%, #1f4a26 50%, #2a5b32 100%); color: white; border-radius: 18px; padding: 36px 40px; margin-bottom: 28px; position: relative; box-shadow: 0 12px 32px rgba(15,44,23,0.18); overflow: hidden;">
-                    <div style="position: absolute; top: -30px; right: -30px; width: 180px; height: 180px; background: radial-gradient(circle, rgba(237,104,47,0.25) 0%, transparent 70%); border-radius: 50%;"></div>
-                    <button onclick="dismissWelcome()" style="position: absolute; top: 18px; right: 22px; background: rgba(255,255,255,0.1); border: none; color: rgba(255,255,255,0.7); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 18px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'; this.style.color='white';" onmouseout="this.style.background='rgba(255,255,255,0.1)'; this.style.color='rgba(255,255,255,0.7)';" aria-label="Dismiss welcome">&times;</button>
-
-                    <div style="position: relative; z-index: 1;">
-                        <div style="font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.18em; color: #ed682f; margin-bottom: 10px;">Welcome to Demohub</div>
-                        <h2 style="font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2rem; font-weight: 800; letter-spacing: -0.025em; margin: 0 0 8px; line-height: 1.1;">You're all set up.</h2>
-                        <p style="font-size: 1rem; color: rgba(255,255,255,0.85); line-height: 1.5; margin: 0 0 24px; max-width: 540px;">Five things to get your store ready. Demos roll in automatically once brands have your link.</p>
-
-                        <ol style="margin: 0 0 22px; padding: 0; list-style: none; counter-reset: step;">
-                            <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">1</div>
-                                <div style="flex: 1;"><strong style="color: white;">Set your store hours</strong><span style="color: rgba(255,255,255,0.7);"> — choose schedules per store so brands can only book inside slots you actually staff.</span></div>
-                            </li>
-                            <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">2</div>
-                                <div style="flex: 1;"><strong style="color: white;">Add your team</strong><span style="color: rgba(255,255,255,0.7);"> — managers, store leads, anyone who needs visibility on the schedule.</span></div>
-                            </li>
-                            <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">3</div>
-                                <div style="flex: 1;"><strong style="color: white;">Sync your calendar</strong><span style="color: rgba(255,255,255,0.7);"> — get confirmed demos into Google, Apple, or Outlook calendar with one click.</span></div>
-                            </li>
-                            <li style="padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; gap: 16px; counter-increment: step;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">4</div>
-                                <div style="flex: 1;"><strong style="color: white;">Customize your policies</strong><span style="color: rgba(255,255,255,0.7);"> — your cancellation and demo conduct policies. Brands review and sign them at first booking. Settings &rarr; scroll down.</span></div>
-                            </li>
-                            <li style="padding: 14px 0; display: flex; align-items: center; gap: 16px; counter-increment: step;">
-                                <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(237,104,47,0.2); color: #ed682f; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.95rem; flex-shrink: 0;">5</div>
-                                <div style="flex: 1;"><strong style="color: white;">Share your booking link</strong><span style="color: rgba(255,255,255,0.7);"> — your brand partners book through this URL. That's how demos start.</span></div>
-                            </li>
-                        </ol>
-
-                        <div style="background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                            <div style="flex: 1; min-width: 200px;">
-                                <div style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; color: rgba(255,255,255,0.6); font-weight: 700; margin-bottom: 4px;">Your booking link</div>
-                                <div id="welcomeBookingLinkText" style="font-family: 'Courier', monospace; font-size: 0.92rem; color: white; word-break: break-all;">demohubhq.com/r/...</div>
-                            </div>
-                            <button onclick="copyWelcomeBookingLink(this)" id="welcomeCopyBtn" style="background: #ed682f; color: white; border: none; padding: 11px 22px; border-radius: 10px; font-family: inherit; font-weight: 700; font-size: 0.92rem; cursor: pointer; transition: background 0.2s; flex-shrink: 0;" onmouseover="this.style.background='#d85a30';" onmouseout="this.style.background='#ed682f';">Copy link</button>
+                <!-- Compact onboarding checklist: auto-completes as user finishes each step -->
+                <div id="welcomeBanner" style="display:none; background: white; border: 1px solid var(--sand-200); border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
+                        <div>
+                            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--clay-700); font-weight: 800;">Get started</div>
+                            <div style="font-size: 1.05rem; font-weight: 700; color: var(--forest-900); margin-top: 2px;">Finish setting up · <span id="onboardingProgress">0 of 5</span></div>
                         </div>
+                        <button onclick="dismissWelcome()" title="Dismiss" style="background: transparent; border: none; color: var(--ink-500); cursor: pointer; padding: 4px 8px; font-size: 18px; line-height: 1;" aria-label="Dismiss">&times;</button>
                     </div>
+                    <div style="height: 4px; background: var(--sand-100); border-radius: 999px; overflow: hidden; margin-bottom: 14px;">
+                        <div id="onboardingProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #ed682f, #d85a30); transition: width 0.3s;"></div>
+                    </div>
+                    <ol id="onboardingChecklist" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;">
+                        <li data-step="hours" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Set your store hours</strong> — <span style="color:var(--ink-500);">so brands only book slots you staff.</span></span>
+                            <a href="#storesSection" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Set hours →</a>
+                        </li>
+                        <li data-step="team" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your team</strong> — <span style="color:var(--ink-500);">give staff visibility on the schedule.</span></span>
+                            <a href="#teamSection" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Add team →</a>
+                        </li>
+                        <li data-step="policies" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Customize your policies</strong> — <span style="color:var(--ink-500);">cancellation + demo conduct that brands sign.</span></span>
+                            <a href="#settingsSection" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Edit →</a>
+                        </li>
+                        <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong> — <span style="color:var(--ink-500);">receive payouts from Stripe.</span></span>
+                            <a href="#settingsSection" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Connect →</a>
+                        </li>
+                        <li data-step="link" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Share your booking link</strong> — <span style="color:var(--ink-500);">brand partners book through it.</span></span>
+                            <button type="button" onclick="copyScheduleLinkHeader(this)" style="background:transparent; border:none; font-size:0.8rem; color:var(--forest-700); font-weight:600; cursor:pointer; padding:0; white-space:nowrap;">Copy link →</button>
+                        </li>
+                    </ol>
                 </div>
                 <div class="stats-grid">
                     <div class="stat-card"><div class="stat-label">This Month's Demos</div><div class="stat-value" id="statMonthDemos">0</div><div class="stat-change" id="statMonthDemosDelta">Share your link to start</div></div>
                     <div class="stat-card"><div class="stat-label">Revenue (this month)</div><div class="stat-value" id="statRevenue">$0</div><div class="stat-change" id="statRevenueSub">Earnings appear once brands book</div></div>
                     <div class="stat-card" title="Brands that have at least one demo on the calendar or one record in your compliance docs."><div class="stat-label">Active Brands</div><div class="stat-value" id="statBrands">0</div><div class="stat-change" id="statBrandsSub">No brands yet</div></div>
                     <div class="stat-card"><div class="stat-label">Compliance Rate</div><div class="stat-value" id="statCompliance">0%</div><div class="stat-change" id="statComplianceSub">COI status appears with brands</div></div>
-                </div>
-
-                <!-- Persistent booking-link card: always visible so retailers can grab their link -->
-                <div id="bookingLinkCard" style="background: white; border: 1px solid var(--sand-200); border-radius: 14px; box-shadow: var(--shadow-sm); padding: 22px 28px; margin-bottom: 28px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap;">
-                    <div style="flex-shrink:0; width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg,#ed682f 0%,#d85a30 100%); display:flex; align-items:center; justify-content:center; color:white;">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                    </div>
-                    <div style="flex:1; min-width:220px;">
-                        <div style="font-size:0.72rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--clay-700); font-weight:800; margin-bottom:4px;">Your booking link</div>
-                        <div id="persistentBookingLinkText" style="font-family:'Courier',monospace; font-size:0.95rem; color:var(--forest-900); font-weight:700; word-break:break-all;">demohubhq.com/r/…</div>
-                        <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">Share this URL with brand partners to start filling your calendar.</div>
-                    </div>
-                    <div style="display:flex; gap:8px; flex-shrink:0;">
-                        <button onclick="copyPersistentBookingLink(this)" id="persistentCopyBtn" class="btn btn-primary" style="padding:9px 18px; font-size:0.88rem;">Copy link</button>
-                        <button onclick="window.open('/r/' + (window.RETAILER_SLUG || ''), '_blank')" class="btn btn-secondary" style="padding:9px 18px; font-size:0.88rem;">Open ↗</button>
-                    </div>
                 </div>
 
                 <!-- Pending Bookings Inbox -->
@@ -723,7 +706,7 @@
                 </div>
                 <div class="chart-card">
                     <h3>Demos per month</h3>
-                    <div class="chart-wrap"><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
+                    <div class="chart-wrap" style="position:relative;"><div id="chartFallback" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; color:var(--ink-500); font-size:0.88rem; line-height:1.5;"><div><div style="font-weight:700; color:var(--forest-800); font-size:0.95rem; margin-bottom:6px;">No demos yet</div><div style="max-width:320px; margin:0 auto;">Your monthly demo count will chart here once brands start booking through your link.</div></div></div><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
                 </div>
                 <div class="table-card" id="demosSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
@@ -3181,7 +3164,9 @@ END:VEVENT
         // ===== Sample demo (illustrative when zero real demos) =====
         function getSampleDemoForCalendar() {
             const today = new Date();
-            const dateStr = today.toISOString().slice(0,10);
+            // Use LOCAL date (not UTC) so the sample lands on today in the user's timezone
+            const pad = n => String(n).padStart(2, '0');
+            const dateStr = today.getFullYear() + '-' + pad(today.getMonth()+1) + '-' + pad(today.getDate());
             const venue = (window.state.venues || [])[0];
             const venueName = venue ? venue.name : 'Main Store';
             return {
@@ -3257,6 +3242,11 @@ END:VEVENT
                 } else if (overlay) {
                     overlay.remove();
                 }
+                // Hide the always-visible fallback when we have real data
+                const fallback = document.getElementById('chartFallback');
+                if (fallback) fallback.style.display = allZero ? 'none' : 'none';
+                // Actually: only hide when we actually rendered (both cases). Keep visible if truly empty AND overlay didn't render.
+                if (fallback && !allZero) fallback.style.display = 'none';
             }
             if (allZero) {
               counts = counts.map((c, i) => i === months.length - 1 ? 1 : 0);
