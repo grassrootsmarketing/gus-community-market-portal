@@ -271,7 +271,7 @@ export default async function handler(req, res) {
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">You also agreed to <a href="${DEMOHUB_TOS_URL}" style="color:#2a5b32;">Demohub's Terms of Service</a> (version ${DEMOHUB_TOS_VERSION}) as part of this agreement.</p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">If you ever need this agreement again, your <a href="https://www.demohubhq.com/brand/dashboard" style="color:#2a5b32;">Demohub brand portal</a> has a copy under Agreements.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; [Mailing address pending — please update via virtual mailbox or PO Box. Required by CAN-SPAM. Contact david@demohubhq.com for current address.]<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
               await fetch('https://api.resend.com/emails', {
                 method: 'POST',
@@ -310,7 +310,7 @@ export default async function handler(req, res) {
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You can view this agreement (and all signed agreements with brands) in your admin under <strong>Brands</strong> &mdash; each brand shows an &ldquo;Agreement &check;&rdquo; pill once they&apos;ve signed.</p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">If you change your demo or cancellation policy text, this brand will be re-prompted to sign before their next booking.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; [Mailing address pending — please update via virtual mailbox or PO Box. Required by CAN-SPAM. Contact david@demohubhq.com for current address.]<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
                 await fetch('https://api.resend.com/emails', {
                   method: 'POST',

@@ -61,7 +61,7 @@ function magicLinkEmail({ retailerName, link }) {
 <p style="margin:0 0 22px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;">Sign in &rarr;</a></p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:0 0 20px;">If you didn't request this, ignore the email — no action will be taken.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; [Mailing address pending — please update via virtual mailbox or PO Box. Required by CAN-SPAM. Contact david@demohubhq.com for current address.]<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
 </table></body></html>`;
 }
 
