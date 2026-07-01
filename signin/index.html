@@ -48,6 +48,22 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 .signup-footer { margin-top: 22px; padding-top: 18px; border-top: 1px solid rgba(15,44,23,0.08); text-align: center; font-size: 0.95rem; color: var(--ink-500); }
 .signup-footer a { color: var(--forest-700); text-decoration: none; font-weight: 600; }
 .signup-footer a:hover { color: var(--forest-900); text-decoration: underline; }
+/* ===== Recognized-user card (X-style repeat visitor) ===== */
+.recognized-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 32px 28px 24px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); text-align: center; max-width: 420px; margin: 0 auto; }
+.recognized-avatar { width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, #e8e4d8, #cec9bd); display: inline-flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--forest-900); margin-bottom: 16px; letter-spacing: -0.02em; }
+.recognized-name { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.35rem; font-weight: 700; color: var(--forest-900); margin-bottom: 4px; letter-spacing: -0.01em; }
+.recognized-email { font-size: 0.9rem; color: var(--ink-500); margin-bottom: 24px; }
+.recognized-btn { background: var(--forest-900); color: white; border: none; border-radius: 999px; padding: 13px 32px; font-size: 1rem; font-weight: 600; cursor: pointer; font-family: inherit; width: 100%; max-width: 300px; transition: background 0.15s; }
+.recognized-btn:hover { background: var(--forest-700); }
+.recognized-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.recognized-notyou { display: block; margin-top: 18px; font-size: 0.88rem; color: var(--ink-500); text-decoration: none; }
+.recognized-notyou:hover { color: var(--forest-900); text-decoration: underline; }
+.recognized-role { display: inline-block; background: var(--forest-50); color: var(--forest-700); padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 14px; }
+.recognized-check { display: none; margin-top: 18px; padding: 16px 18px; background: var(--forest-50); border: 1px solid var(--forest-100); border-radius: 10px; text-align: left; }
+.recognized-check.show { display: block; }
+.recognized-check strong { color: var(--forest-900); font-size: 0.95rem; display: block; margin-bottom: 4px; }
+.recognized-check p { font-size: 0.85rem; color: var(--ink-700); line-height: 1.45; }
+
 
         /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
         label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
@@ -76,7 +92,19 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
   <div class="eyebrow">Sign in</div>
   <h1>Welcome back to Demohub</h1>
   <p class="lede">Pick the account you're signing in to. Each has its own dashboard.</p>
-  <div class="signin-grid">
+  <div id="recognizedCard" class="recognized-card" style="display:none;">
+    <div class="recognized-avatar" id="recognizedAvatar">D</div>
+    <div class="recognized-role" id="recognizedRole">Retailer admin</div>
+    <div class="recognized-name" id="recognizedName">David</div>
+    <div class="recognized-email" id="recognizedEmail">david@demohubhq.com</div>
+    <button type="button" class="recognized-btn" id="recognizedBtn">Continue &rarr;</button>
+    <a href="#" class="recognized-notyou" id="recognizedNotYou">Not you? Sign in with a different account</a>
+    <div class="recognized-check" id="recognizedCheck">
+        <strong>Check your inbox.</strong>
+        <p>We sent a fresh sign-in link to <span id="recognizedSentTo"></span>. The link expires in 24 hours.</p>
+    </div>
+</div>
+<div id="signinGridWrap"><div class="signin-grid">
     <div class="signin-card">
       <div class="signin-card-eyebrow">Retailer</div>
       <h2>Sign in to your admin</h2>
@@ -126,6 +154,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
       </div>
     </div>
   </div>
+</div>
 </main>
 <script>
 function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, endpoint, action }) {
@@ -186,6 +215,99 @@ wireForm({
   btnId: 'brandBtn', errId: 'brandErr', checkId: 'brandCheck',
   sentToId: 'brandSentTo', endpoint: '/api/brand-account', action: 'login'
 });
+
+// ===== Recognized-user experience for repeat visitors =====
+// On successful signin from either form, we remember { email, name, role, avatarInitial }.
+// On next visit, we show that as a single "Continue as [name]" card instead of two full forms.
+(function() {
+  const KEY = 'demohub_signin_last_v1';
+  const forceFresh = new URLSearchParams(location.search).get('fresh') === '1';
+
+  function getLast() {
+    try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch(_) { return null; }
+  }
+  function setLast(data) {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(_){}
+  }
+  function clearLast() {
+    try { localStorage.removeItem(KEY); } catch(_){}
+  }
+
+  // Show recognized card if we have a remembered user (and not forced fresh)
+  const last = getLast();
+  const card = document.getElementById('recognizedCard');
+  const gridWrap = document.getElementById('signinGridWrap');
+  if (last && last.email && !forceFresh) {
+    card.style.display = 'block';
+    if (gridWrap) gridWrap.style.display = 'none';
+    document.querySelector('.eyebrow').style.display = 'none';
+    document.querySelector('h1').textContent = 'Welcome back';
+    document.querySelector('.lede').textContent = 'Continue where you left off, or switch accounts.';
+    document.getElementById('recognizedAvatar').textContent = (last.name || last.email || '?').trim().charAt(0).toUpperCase();
+    document.getElementById('recognizedName').textContent = last.name || last.email.split('@')[0];
+    document.getElementById('recognizedEmail').textContent = last.email;
+    document.getElementById('recognizedRole').textContent = last.role === 'brand' ? 'Brand portal' : 'Retailer admin';
+  }
+
+  // "Continue" button → resend magic link for the remembered account
+  const contBtn = document.getElementById('recognizedBtn');
+  if (contBtn) contBtn.addEventListener('click', async () => {
+    const l = getLast();
+    if (!l || !l.email) return;
+    contBtn.disabled = true;
+    contBtn.textContent = 'Sending…';
+    const endpoint = l.role === 'brand' ? '/api/brand-account' : '/api/admin-auth';
+    const action = l.role === 'brand' ? 'login' : 'email-login';
+    try {
+      const r = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ action, email: l.email }),
+      });
+      if (r.ok) {
+        document.getElementById('recognizedSentTo').textContent = l.email;
+        document.getElementById('recognizedCheck').classList.add('show');
+        contBtn.style.display = 'none';
+      } else {
+        contBtn.textContent = 'Try again';
+        contBtn.disabled = false;
+      }
+    } catch(_) {
+      contBtn.textContent = 'Try again';
+      contBtn.disabled = false;
+    }
+  });
+
+  // "Not you?" → drop the memory + reload showing the standard two-column form
+  const notYou = document.getElementById('recognizedNotYou');
+  if (notYou) notYou.addEventListener('click', (e) => {
+    e.preventDefault();
+    clearLast();
+    location.href = '/signin?fresh=1';
+  });
+
+  // Hook into both forms to remember on successful submit
+  ['retailerForm','brandForm'].forEach(formId => {
+    const form = document.getElementById(formId);
+    if (!form) return;
+    form.addEventListener('submit', function() {
+      // Wait one tick for wireForm's success path to update DOM
+      const emailInput = form.querySelector('input[type="email"]');
+      const check = form.querySelector('.check-inbox');
+      const observer = new MutationObserver(() => {
+        if (check.classList.contains('show')) {
+          const email = (emailInput.value || '').trim().toLowerCase();
+          const role = formId === 'brandForm' ? 'brand' : 'retailer';
+          const name = email.split('@')[0].replace(/[._-]/g, ' ');
+          setLast({ email, role, name });
+          observer.disconnect();
+        }
+      });
+      observer.observe(check, { attributes: true, attributeFilter: ['class'] });
+      setTimeout(() => observer.disconnect(), 30000);
+    });
+  });
+})();
 
 const params = new URLSearchParams(location.search);
 const preset = params.get('email');
