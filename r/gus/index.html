@@ -1982,7 +1982,6 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
                 + '</tbody></table>')
                 + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
                 + '</body></html>';
-</body></html>';
 
             const win = window.open('', '_blank');
             if (!win) { alert('Statement window was blocked, allow pop-ups for this site.'); return; }
@@ -1996,4 +1995,9 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
             const label = document.getElementById('bigCalMonthLabel');
             if (!grid || !label) return;
             renderBigLegend();
-            
+            // (Public booking page has no big-cal element - safe early return above.)
+        }
+    </script>
+
+</body>
+</html>

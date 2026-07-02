@@ -3849,7 +3849,7 @@ END:VEVENT
         const TIER_LABELS = { solo: 'Solo', starter: 'Starter', growth: 'Growth', enterprise: 'Enterprise' };
         const TIER_PRICES_MONTHLY = { solo: 49, starter: 99, growth: 199, enterprise: 399 };
 
-        async function renderBilling() {
+        async function renderPlanCard() {
             const body = document.getElementById('billingCardBody');
             if (!body) return;
             try {
@@ -3925,7 +3925,7 @@ END:VEVENT
         // Render billing whenever the settings view becomes visible
         if (typeof loadSettings === 'function') {
             const _origLoadSettings = loadSettings;
-            window.loadSettings = function() { _origLoadSettings(); renderBilling(); };
+            window.loadSettings = function() { _origLoadSettings(); renderPlanCard(); };
         }
 
         // ===== Bank & payouts (Stripe Connect Express) =====

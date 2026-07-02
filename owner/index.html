@@ -507,7 +507,6 @@ async function resolveIncident(id) {
     renderStatusManager();
   } catch (e) { alert('Resolve failed: ' + e.message); }
 }
-function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // Generate plausible sample analytics data for a time range
 function generateAnalyticsSample(rangeKey) {
