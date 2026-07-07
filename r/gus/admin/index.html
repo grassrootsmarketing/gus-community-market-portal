@@ -802,9 +802,23 @@
                             <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openStoreModal()">+ Add Location</button>
                         </div>
                     </div>
+                    <!-- Bulk action bar (shown when rows selected) -->
+                    <div id="storesBulkBar" style="display:none; align-items:center; gap:10px; padding:10px 14px; background:var(--forest-100); border-radius:8px; margin-bottom:10px; font-size:0.88rem;">
+                        <span id="storesBulkCount" style="font-weight:700; color:var(--forest-800);">0 selected</span>
+                        <span style="color:var(--ink-500);">•</span>
+                        <button type="button" onclick="bulkStoresSetActive(true)" style="background:none; border:1px solid var(--forest-300); border-radius:6px; padding:5px 12px; font-size:0.82rem; color:var(--forest-700); font-weight:600; cursor:pointer;">Set Active</button>
+                        <button type="button" onclick="bulkStoresSetActive(false)" style="background:none; border:1px solid var(--forest-300); border-radius:6px; padding:5px 12px; font-size:0.82rem; color:var(--forest-700); font-weight:600; cursor:pointer;">Set Paused</button>
+                        <button type="button" onclick="bulkStoresSetFee()" style="background:none; border:1px solid var(--forest-300); border-radius:6px; padding:5px 12px; font-size:0.82rem; color:var(--forest-700); font-weight:600; cursor:pointer;">Set demo fee&hellip;</button>
+                        <div style="flex:1;"></div>
+                        <button type="button" onclick="bulkStoresDelete()" style="background:none; border:1px solid var(--clay-500); border-radius:6px; padding:5px 12px; font-size:0.82rem; color:var(--clay-600); font-weight:600; cursor:pointer;">Delete selected</button>
+                        <button type="button" onclick="clearStoresSelection()" style="background:none; border:none; padding:5px 8px; font-size:0.82rem; color:var(--ink-500); font-weight:600; cursor:pointer;">Cancel</button>
+                    </div>
                     <table class="data-table">
-                        <thead><tr><th>Name</th><th>Address</th><th style="text-align:right;">Demo Fee</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="storesTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your store locations will appear here. Add your first location with <b>+ Add Location</b>, or bulk import via CSV for multi-store operators.</td></tr></tbody>
+                        <thead><tr>
+                            <th style="width:34px; text-align:center;"><input type="checkbox" id="storesSelectAll" onchange="toggleAllStoresSelection(this.checked)" style="width:16px; height:16px; cursor:pointer; accent-color:var(--forest-700);" title="Select all" /></th>
+                            <th>Name</th><th>Address</th><th style="text-align:right;">Demo Fee</th><th>Status</th><th style="text-align:right;">Actions</th>
+                        </tr></thead>
+                        <tbody id="storesTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your store locations will appear here. Add your first location with <b>+ Add Location</b>, or bulk import via CSV for multi-store operators.</td></tr></tbody>
                     </table>
                 </div>
 
@@ -2410,13 +2424,17 @@ END:VEVENT
             if (!tbody) return;
             const venues = (window.state.venues || []).slice().sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || (a.name || '').localeCompare(b.name || ''));
             if (venues.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:32px 20px; color: var(--ink-500);">No stores yet. Click <strong>+ Add Store</strong> to add your first location.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:32px 20px; color: var(--ink-500);">No stores yet. Click <strong>+ Add Location</strong> to add your first location.</td></tr>';
+                clearStoresSelection();
                 return;
             }
+            const selected = window._storesSelected || new Set();
             tbody.innerHTML = venues.map(v => {
                 const active = v.active !== false;
                 const fee = v.demo_fee != null ? '$' + Number(v.demo_fee).toFixed(0) : '—';
-                return `<tr>
+                const isSel = selected.has(v.id);
+                return `<tr data-store-row="${v.id}"${isSel ? ' style="background:#f4f8f0;"' : ''}>
+                    <td style="text-align:center;"><input type="checkbox" data-store-check="${v.id}" onchange="toggleStoreSelection('${v.id}', this.checked)" ${isSel?'checked':''} style="width:16px; height:16px; cursor:pointer; accent-color:var(--forest-700);" /></td>
                     <td><strong>${escapeHtml(v.name)}</strong></td>
                     <td style="color:var(--ink-500);">${escapeHtml(v.address || '—')}</td>
                     <td style="text-align:right;">${fee}</td>
@@ -2424,6 +2442,104 @@ END:VEVENT
                     <td style="text-align:right;"><button class="btn btn-secondary" style="padding:5px 12px; font-size:0.82rem;" onclick="openStoreModal('${v.id}')">Edit</button></td>
                 </tr>`;
             }).join('');
+            updateStoresBulkBar();
+        }
+
+        // ===== Bulk edit for Locations =====
+        window._storesSelected = window._storesSelected || new Set();
+        function toggleStoreSelection(id, on) {
+            if (on) window._storesSelected.add(id); else window._storesSelected.delete(id);
+            const row = document.querySelector(`tr[data-store-row="${id}"]`);
+            if (row) row.style.background = on ? '#f4f8f0' : '';
+            updateStoresBulkBar();
+        }
+        function toggleAllStoresSelection(on) {
+            const venues = window.state.venues || [];
+            window._storesSelected = new Set(on ? venues.map(v => v.id) : []);
+            renderStores();
+        }
+        function clearStoresSelection() {
+            window._storesSelected = new Set();
+            const sa = document.getElementById('storesSelectAll');
+            if (sa) sa.checked = false;
+            document.querySelectorAll('input[data-store-check]').forEach(cb => { cb.checked = false; });
+            document.querySelectorAll('tr[data-store-row]').forEach(r => { r.style.background = ''; });
+            updateStoresBulkBar();
+        }
+        function updateStoresBulkBar() {
+            const n = (window._storesSelected || new Set()).size;
+            const bar = document.getElementById('storesBulkBar');
+            const label = document.getElementById('storesBulkCount');
+            if (!bar || !label) return;
+            if (n > 0) {
+                bar.style.display = 'flex';
+                label.textContent = `${n} selected`;
+            } else {
+                bar.style.display = 'none';
+            }
+            // Header checkbox: indeterminate if partial
+            const total = (window.state.venues || []).length;
+            const sa = document.getElementById('storesSelectAll');
+            if (sa) {
+                sa.checked = n > 0 && n === total;
+                sa.indeterminate = n > 0 && n < total;
+            }
+        }
+        async function _bulkStoresPatch(patch, actionLabel) {
+            const ids = Array.from(window._storesSelected || []);
+            if (!ids.length) return;
+            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
+            const results = await Promise.allSettled(ids.map(id =>
+                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}&session_id=${encodeURIComponent(sessionId)}`, {
+                    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch)
+                }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+            ));
+            const ok = results.filter(r => r.status === 'fulfilled').length;
+            const fail = results.length - ok;
+            // Update local state optimistically
+            (window.state.venues || []).forEach(v => { if (window._storesSelected.has(v.id)) Object.assign(v, patch); });
+            clearStoresSelection();
+            renderStores();
+            if (typeof toast === 'function') {
+                toast(fail === 0 ? `${ok} location${ok===1?'':'s'} ${actionLabel}` : `${ok} updated, ${fail} failed`, fail === 0 ? 'success' : 'warn');
+            } else {
+                alert(fail === 0 ? `${ok} location${ok===1?'':'s'} ${actionLabel}` : `${ok} updated, ${fail} failed`);
+            }
+        }
+        function bulkStoresSetActive(on) {
+            _bulkStoresPatch({ active: !!on }, on ? 'set to Active' : 'paused');
+        }
+        function bulkStoresSetFee() {
+            const s = prompt('Set demo fee ($) for all selected locations:', '30');
+            if (s === null) return;
+            const fee = parseFloat(s);
+            if (!Number.isFinite(fee) || fee < 0) { alert('Invalid fee. Enter a number like 30 or 45.'); return; }
+            _bulkStoresPatch({ demo_fee: fee }, `set to $${fee.toFixed(0)}`);
+        }
+        async function bulkStoresDelete() {
+            const ids = Array.from(window._storesSelected || []);
+            if (!ids.length) return;
+            const venues = window.state.venues || [];
+            const names = ids.map(id => (venues.find(v => v.id === id) || {}).name).filter(Boolean);
+            const preview = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length-3} more` : '');
+            if (!confirm(`Delete ${ids.length} location${ids.length===1?'':'s'}?\n\n${preview}\n\nThis can't be undone.`)) return;
+            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
+            const results = await Promise.allSettled(ids.map(id =>
+                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}&session_id=${encodeURIComponent(sessionId)}`, {
+                    method: 'DELETE'
+                }).then(r => r.ok ? r.text() : r.text().then(e => Promise.reject(e)))
+            ));
+            const ok = results.filter(r => r.status === 'fulfilled').length;
+            const fail = results.length - ok;
+            // Remove deleted from local state
+            window.state.venues = (window.state.venues || []).filter(v => !window._storesSelected.has(v.id));
+            clearStoresSelection();
+            renderStores();
+            if (typeof toast === 'function') {
+                toast(fail === 0 ? `Deleted ${ok} location${ok===1?'':'s'}` : `${ok} deleted, ${fail} failed`, fail === 0 ? 'success' : 'warn');
+            } else {
+                alert(fail === 0 ? `Deleted ${ok} location${ok===1?'':'s'}` : `${ok} deleted, ${fail} failed`);
+            }
         }
 
         // Parse a full US address string like "1301 Divisadero St, San Francisco, CA 94115"
