@@ -3377,23 +3377,38 @@ END:VEVENT
                 }
             }, 500);
         });
+        // Read a File as text using FileReader (more compatible than await file.text()
+        // which can hang in some browser environments). 8-second timeout as a safety net.
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                const timer = setTimeout(() => {
+                    fr.abort();
+                    reject(new Error('File read timed out after 8s'));
+                }, 8000);
+                fr.onload = () => { clearTimeout(timer); resolve(String(fr.result || '')); };
+                fr.onerror = () => { clearTimeout(timer); reject(new Error('FileReader error: ' + (fr.error && fr.error.message || 'unknown'))); };
+                fr.onabort = () => { clearTimeout(timer); reject(new Error('FileReader aborted')); };
+                try { fr.readAsText(file); }
+                catch (e) { clearTimeout(timer); reject(e); }
+            });
+        }
         async function handleStoreCsvFile(file) {
-            console.log('[bulk-upload] handleStoreCsvFile called with:', file);
+            console.log('[bulk-upload] handleStoreCsvFile called with:', file && (file.name + ' (' + file.size + ' bytes)'));
             if (!file) {
                 console.warn('[bulk-upload] no file passed');
                 return;
             }
             const previewBox = document.getElementById('storeBulkPreview');
             const previewBody = document.getElementById('storeBulkPreviewBody');
-            // Show immediate feedback
             if (previewBox) previewBox.style.display = 'block';
             if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--ink-500); font-size:0.88rem;">Reading ' + (file.name || 'file') + '&hellip;</td></tr>';
             let text;
             try {
-                text = await file.text();
+                text = await readFileAsText(file);
                 console.log('[bulk-upload] file read, length:', text.length);
             } catch (e) {
-                console.error('[bulk-upload] file.text() failed:', e);
+                console.error('[bulk-upload] readFileAsText failed:', e);
                 if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>Could not read file:</strong> ' + escapeHtml(e.message || String(e)) + '</td></tr>';
                 return;
             }
