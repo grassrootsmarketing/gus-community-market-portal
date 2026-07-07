@@ -2072,7 +2072,30 @@ END:VEVENT
             }
             if (maxInput) maxInput.value = v.max_demos_per_slot != null ? v.max_demos_per_slot : 1;
             const schedule = (v.availability && v.availability.schedule) || {};
-            let html = '';
+
+            // ===== Preset chips: apply a standard time window to all 7 days at once =====
+            // These match the two industry-standard demo windows for indie grocery (per Gus's,
+            // Woodlands, Whole Foods playbooks). Retailer can also use Custom below for granular
+            // per-day editing.
+            let html = `
+                <div style="padding:14px 4px 18px; margin-bottom:6px; border-bottom:1px solid var(--sand-200);">
+                    <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:10px;">Quick set for all days</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                        <button type="button" onclick="applyPresetWindowAllDays('11:00 AM','2:00 PM')" style="background:white; border:1.5px solid var(--sand-300); border-radius:999px; padding:8px 16px; font-size:0.85rem; font-weight:600; color:var(--forest-800); font-family:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition: all 0.15s;" onmouseover="this.style.borderColor='var(--forest-500)'; this.style.background='#f4f8f0';" onmouseout="this.style.borderColor='var(--sand-300)'; this.style.background='white';">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            11 AM &ndash; 2 PM
+                        </button>
+                        <button type="button" onclick="applyPresetWindowAllDays('3:00 PM','6:00 PM')" style="background:white; border:1.5px solid var(--sand-300); border-radius:999px; padding:8px 16px; font-size:0.85rem; font-weight:600; color:var(--forest-800); font-family:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition: all 0.15s;" onmouseover="this.style.borderColor='var(--forest-500)'; this.style.background='#f4f8f0';" onmouseout="this.style.borderColor='var(--sand-300)'; this.style.background='white';">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            3 PM &ndash; 6 PM
+                        </button>
+                        <button type="button" onclick="openCustomAvailabilityHelp()" style="background:transparent; border:1.5px solid transparent; border-radius:999px; padding:8px 14px; font-size:0.85rem; font-weight:600; color:var(--ink-500); font-family:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:color 0.15s;" onmouseover="this.style.color='var(--forest-700)';" onmouseout="this.style.color='var(--ink-500)';">
+                            Custom &rarr; use the per-day editor below
+                        </button>
+                    </div>
+                    <div style="font-size:0.75rem; color:var(--ink-500); margin-top:10px;">Chips add the window to every day. Toggle individual days off in the editor below.</div>
+                </div>`;
+
             for (let d = 0; d < 7; d++) {
                 const windows = normalizeDayWindows(schedule[String(d)]);
                 const isOpen = windows.length > 0;
