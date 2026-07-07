@@ -425,6 +425,14 @@
             .demo-filters { grid-template-columns: 1fr 1fr; }
         }
     
+
+        /* Custom tooltip that fires reliably regardless of browser title-attribute behavior */
+        .dh-tt-host { position: fixed; z-index: 10050; pointer-events: none; opacity: 0; transform: translateY(4px); transition: opacity .12s ease-out, transform .12s ease-out; max-width: 300px; background: var(--forest-900, #1f4a26); color: #fbf7f0; padding: 8px 12px; border-radius: 8px; font-size: 0.82rem; line-height: 1.45; font-weight: 500; box-shadow: 0 6px 18px rgba(15,44,23,0.25); white-space: normal; font-family: inherit; }
+        .dh-tt-host.visible { opacity: 1; transform: translateY(0); }
+        .dh-tt-host::after { content: ""; position: absolute; width: 0; height: 0; border: 5px solid transparent; }
+        .dh-tt-host.pos-top::after { top: 100%; left: 50%; transform: translateX(-50%); border-top-color: var(--forest-900, #1f4a26); }
+        .dh-tt-host.pos-bottom::after { bottom: 100%; left: 50%; transform: translateX(-50%); border-bottom-color: var(--forest-900, #1f4a26); }
+
         /* Preferred shift star — orange when active */
         .window-row .preferred-active { color: var(--clay-600) !important; text-shadow: 0 0 4px rgba(237,104,47,0.35); }
 
@@ -903,7 +911,7 @@
                             <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:16px; line-height:1.55;">How incoming demo requests are handled and what refund policy brands agree to.</div>
                             <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">New booking handling</div>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
-                                <input type="radio" name="approvalMode" value="auto" id="approvalAuto" style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="onApprovalModeChange()">
+                                <input type="radio" name="approvalMode" value="auto" id="approvalAuto" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="onApprovalModeChange()">
                                 <div style="flex:1;">
                                     <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Automatic approval <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">DEFAULT</span></div>
                                     <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Every demo request is confirmed automatically. Brands get an instant confirmation email — no manual step in your inbox.</div>
@@ -921,7 +929,7 @@
 
                             <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Cancellation policy</div>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
-                                <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
+                                <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
                                 <div style="flex:1;">
                                     <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">14-day refund window <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">RECOMMENDED</span></div>
                                     <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Brands can cancel and receive a full refund within 14 days of the booking date. After 14 days, non-refundable.</div>
@@ -1285,6 +1293,74 @@
         let cart = [];
         const PRICE_PER_DEMO = 30;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+
+        // ===== Lightweight, reliable tooltip (title= attribute is unreliable across browsers) =====
+        (function() {
+            let hostEl = null;
+            function ensureHost() {
+                if (hostEl) return hostEl;
+                hostEl = document.createElement('div');
+                hostEl.className = 'dh-tt-host';
+                document.body.appendChild(hostEl);
+                return hostEl;
+            }
+            function show(target, text) {
+                const h = ensureHost();
+                h.textContent = text;
+                const rect = target.getBoundingClientRect();
+                // Position above target by default, flip below if too close to top
+                h.classList.remove('pos-top', 'pos-bottom');
+                h.style.left = '0px'; h.style.top = '0px'; // reset for measurement
+                h.classList.add('visible');
+                const hRect = h.getBoundingClientRect();
+                let top = rect.top - hRect.height - 8;
+                let posClass = 'pos-top';
+                if (top < 8) { top = rect.bottom + 8; posClass = 'pos-bottom'; }
+                let left = rect.left + (rect.width / 2) - (hRect.width / 2);
+                left = Math.max(8, Math.min(left, window.innerWidth - hRect.width - 8));
+                h.style.left = left + 'px';
+                h.style.top = top + 'px';
+                h.classList.add(posClass);
+            }
+            function hide() { if (hostEl) hostEl.classList.remove('visible', 'pos-top', 'pos-bottom'); }
+
+            // Rewrite title= attrs into data-tooltip on load so we own the display
+            function upgradeTitles() {
+                document.querySelectorAll('[title]:not([data-tooltip-scanned])').forEach(el => {
+                    // Don't hijack form inputs or elements where users expect native title (rare)
+                    if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return;
+                    const t = el.getAttribute('title');
+                    if (!t || t.length < 2) return;
+                    el.setAttribute('data-tooltip', t);
+                    el.setAttribute('data-tooltip-scanned', '1');
+                    el.removeAttribute('title'); // prevent native tooltip from also firing
+                });
+            }
+            document.addEventListener('DOMContentLoaded', () => {
+                upgradeTitles();
+                // Re-scan on mutations (new content added dynamically)
+                new MutationObserver(() => upgradeTitles()).observe(document.body, { childList: true, subtree: true });
+            });
+
+            // Delegated hover: any element with data-tooltip triggers show/hide
+            document.addEventListener('mouseover', (e) => {
+                const tgt = e.target.closest('[data-tooltip]');
+                if (!tgt) return;
+                const text = tgt.getAttribute('data-tooltip');
+                if (text) show(tgt, text);
+            });
+            document.addEventListener('mouseout', (e) => {
+                const tgt = e.target.closest('[data-tooltip]');
+                if (!tgt) return;
+                hide();
+            });
+            document.addEventListener('scroll', hide, true);
+            document.addEventListener('click', (e) => {
+                // If click on the tooltip-target itself, hide (so clicks don't leave stale tt)
+                if (e.target.closest('[data-tooltip]')) hide();
+            });
+        })();
 
         // ===== DhModal — branded prompt/confirm/alert/toast to replace native dialogs =====
         window.DhModal = (function() {
@@ -3681,7 +3757,7 @@ END:VEVENT
                 });
                 const j = await r.json();
                 if (j.error) throw new Error(j.error);
-                let admins = j.admins || [];
+                let admins = j.admins || []; window._teamAdmins = admins;
                 const yourEmail = (j.your_email || '').toLowerCase();
                 let myRow = admins.find(a => (a.email || '').toLowerCase() === yourEmail);
                 // Defense: if the current signed-in admin isn't in the retailer_admins list
@@ -3814,7 +3890,13 @@ END:VEVENT
                 if (!name) { badRows.push(`Row ${i+1}: name is required`); continue; }
                 if (!email) { badRows.push(`Row ${i+1}: email is required`); continue; }
                 if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) { badRows.push(`Row ${i+1}: "${email}" isn\'t a valid email`); continue; }
-                if (seen.has(email)) continue;
+                if (seen.has(email)) { badRows.push(`Row ${i+1}: "${email}" is a duplicate in this form`); continue; }
+                // Reject if this email is already in the team roster
+                const existingTeam = (window._teamAdmins || window.state?.team || []);
+                if (existingTeam.some(t => (t.email || '').toLowerCase() === email)) {
+                    badRows.push(`Row ${i+1}: "${email}" is already on the team`);
+                    continue;
+                }
                 seen.add(email);
                 invites.push({ email, name, role });
             }
