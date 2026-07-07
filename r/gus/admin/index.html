@@ -463,9 +463,9 @@
         }
 
         /* ===== Onboarding tour ===== */
-        .tour-backdrop { position: fixed; inset: 0; background: rgba(15,44,23,0.65); z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+        .tour-backdrop { position: fixed; inset: 0; background: transparent; z-index: 9998; opacity: 0; pointer-events: none; transition: opacity 0.25s; }
         .tour-backdrop.active { opacity: 1; pointer-events: auto; }
-        .tour-spotlight { position: fixed; border-radius: 14px; box-shadow: 0 0 0 4px #ed682f, 0 0 0 9999px rgba(15,44,23,0.65); transition: all 0.25s ease-out; pointer-events: none; z-index: 9999; }
+        .tour-spotlight { position: fixed; border-radius: 14px; box-shadow: 0 0 0 3px #ed682f, 0 0 24px 6px rgba(237,104,47,0.35), 0 0 0 9999px rgba(15,44,23,0.42); transition: all 0.25s ease-out; pointer-events: none; z-index: 9999; }
         .tour-tooltip { position: fixed; z-index: 10000; background: white; border-radius: 14px; padding: 24px 26px; box-shadow: 0 16px 48px rgba(15,44,23,0.32); max-width: 380px; transform: translateY(8px); opacity: 0; transition: all 0.25s; }
         .tour-tooltip.active { opacity: 1; transform: translateY(0); }
         .tour-tooltip .tour-step { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: #ed682f; margin-bottom: 8px; }
