@@ -865,7 +865,7 @@
                             <h3>Location availability</h3>
                             <div style="display:flex; gap:8px;">
                                 <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this location's schedule + capacity to every location">Apply to all</button>
-                                <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
+                                <span id="availabilityAutoSaveStatus" style="font-size:0.82rem; color:var(--ink-500); font-weight:500; padding: 8px 4px;">All changes save automatically.</span>
                             </div>
                         </div>
                         <div id="availabilityPickerBlock">
@@ -879,7 +879,7 @@
                                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                                     <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
                                 </div>
-                                <select id="availabilityMaxPerSlot" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="12">12</option><option value="15">15</option><option value="20">20</option></select>
+                                <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
                                 <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
                                 <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                             </div>
@@ -2288,7 +2288,7 @@ END:VEVENT
                 if (maxInput) maxInput.value = 1;
                 return;
             }
-            if (maxInput) maxInput.value = v.max_demos_per_slot != null ? v.max_demos_per_slot : 1;
+            if (maxInput) maxInput.value = v.max_demos_per_slot == null ? '0' : String(v.max_demos_per_slot);
             // If venue has NO saved availability at all, seed the standard 11-2 + 3-6 windows on all 7 days
             // so the retailer sees the sensible default instead of a blank calendar. They can toggle days off
             // or edit windows as needed; the schedule persists only on Save.
@@ -2475,28 +2475,72 @@ END:VEVENT
             return schedule;
         }
 
+        // Debounced auto-save. Any change in the availability editor (toggle, time input,
+        // max-per-slot dropdown, add/remove window) triggers this. 600ms coalesce so a burst
+        // of edits (like using Quick-set chips) becomes one save.
+        let _autoSaveTimer = null;
+        function scheduleAutoSave() {
+            const status = document.getElementById('availabilityAutoSaveStatus');
+            if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-500)'; }
+            if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
+            _autoSaveTimer = setTimeout(() => { saveAvailability(); }, 600);
+        }
+
         async function saveAvailability() {
             const v = getSelectedVenue();
-            const status = document.getElementById('availabilityStatus');
-            if (!v) { if (status) status.textContent = 'No store selected.'; return; }
+            const legacyStatus = document.getElementById('availabilityStatus');
+            const status = document.getElementById('availabilityAutoSaveStatus');
+            if (!v) { if (status) status.textContent = 'Pick a store first.'; return; }
             const schedule = buildScheduleFromDom();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
-            const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
+            // 0 = No limit. Persist as null so booking logic can treat it as unlimited.
+            const raw = parseInt(maxInput?.value || '1', 10);
+            const maxPerSlot = raw === 0 ? null : Math.max(1, raw || 1);
             const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] }, max_demos_per_slot: maxPerSlot };
-            const btn = document.getElementById('availabilitySaveBtn');
-            if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-            if (status) status.textContent = '';
+            if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-500)'; }
             try {
                 await adminUpdate('venues', v.id, payload);
                 const idx = window.state.venues.findIndex(x => x.id === v.id);
                 if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
-                if (status) { status.textContent = 'Saved ✓'; status.style.color = 'var(--forest-600)'; }
+                if (status) {
+                    status.textContent = 'Saved ✓ · All changes save automatically.';
+                    status.style.color = 'var(--forest-700)';
+                    // Fade back to neutral after 2s
+                    clearTimeout(status._resetTimer);
+                    status._resetTimer = setTimeout(() => {
+                        status.textContent = 'All changes save automatically.';
+                        status.style.color = 'var(--ink-500)';
+                    }, 2000);
+                }
+                if (legacyStatus) legacyStatus.textContent = '';
             } catch (e) {
-                if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
-            } finally {
-                if (btn) { btn.disabled = false; btn.textContent = 'Save'; }
+                if (status) { status.textContent = 'Save failed: ' + e.message; status.style.color = 'var(--clay-700)'; }
             }
         }
+
+        // Delegated change handler: any input/select/checkbox change inside the availability editor
+        // body triggers auto-save. Wired once on DOMContentLoaded.
+        document.addEventListener('DOMContentLoaded', () => {
+            const wire = () => {
+                const editor = document.getElementById('availabilityEditorBody');
+                if (editor && !editor.dataset.autoSaveWired) {
+                    editor.dataset.autoSaveWired = '1';
+                    editor.addEventListener('change', scheduleAutoSave);
+                    editor.addEventListener('input', (e) => {
+                        // Debounce more aggressively for text time inputs so typing doesn't spam
+                        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT')) scheduleAutoSave();
+                    });
+                }
+                const maxSel = document.getElementById('availabilityMaxPerSlot');
+                if (maxSel && !maxSel.dataset.autoSaveWired) {
+                    maxSel.dataset.autoSaveWired = '1';
+                    maxSel.addEventListener('change', scheduleAutoSave);
+                }
+            };
+            setTimeout(wire, 500);
+            setTimeout(wire, 1500);
+        });
+
 
         async function applyScheduleToAllStores() {
             const v = getSelectedVenue();
