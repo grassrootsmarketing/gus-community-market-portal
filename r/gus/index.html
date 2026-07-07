@@ -577,6 +577,24 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (al) al.href = '/r/' + RETAILER_SLUG + '/admin';
         });
         
+
+        // Returns HTML for a retailer avatar - uses uploaded logo_url if available,
+        // falls back to the retailer's initials on a forest gradient. Kills the
+        // stock-house-icon look entirely (David: "we want to avoid these stock image headers").
+        function retailerAvatarHtml(retailer, size, opts) {
+            opts = opts || {};
+            const url = retailer && retailer.logo_url;
+            const name = (retailer && retailer.name) || 'D';
+            const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'D';
+            const bg = opts.bg || 'linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%)';
+            const radius = opts.radius || '10px 10px 0 0';
+            const textSize = size >= 100 ? '2.6rem' : size >= 60 ? '1.55rem' : '1.05rem';
+            if (url) {
+                return `<img src="${url.replace(/"/g,'&quot;')}" alt="${name.replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;border-radius:${radius};display:block;">`;
+            }
+            return `<div style="width:100%;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;border-radius:${radius};"><span style="font-family:'Plus Jakarta Sans','Inter',sans-serif;font-weight:700;font-size:${textSize};color:#fbf7f0;letter-spacing:0.02em;">${initials}</span></div>`;
+        }
+
         function renderLocationGrid(retailer) {
             const grid = document.getElementById('locationGrid');
             if (!grid) return;
@@ -615,16 +633,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             //   7-12 → tighter 4-col grid, smaller hero
             //   13+ → compact list view + search filter on top
             const count = venues.length;
-            if (count >= 13) return renderLocationGridCompactList(venues, retailerName, demoFee);
-            if (count >= 7)  return renderLocationGridTight(venues, retailerName, demoFee);
+            if (count >= 13) return renderLocationGridCompactList(venues, retailer, demoFee);
+            if (count >= 7)  return renderLocationGridTight(venues, retailer, demoFee);
             grid.innerHTML = venues.map(v => {
                 const nameEsc = (v.name || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const addrEsc = (v.address || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const rNameEsc = retailerName.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const fee = (v.demo_fee != null ? v.demo_fee : demoFee);
                 return `<div class="location-card" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')">
-                    <div style="height:140px; background:linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%); display:flex; align-items:center; justify-content:center; border-radius:10px 10px 0 0; position:relative;">
-                        <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#fbf7f0" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <div style="height:140px; border-radius:10px 10px 0 0; overflow:hidden; position:relative;">
+                        ${retailerAvatarHtml(retailer, 140)}
                     </div>
                     <h3>${rNameEsc}</h3>
                     <div class="location-card-location">
@@ -639,7 +657,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             }).join('');
         }
 
-function renderLocationGridTight(venues, retailerName, demoFee) {
+function renderLocationGridTight(venues, retailer, demoFee) {
+            const retailerName = (retailer && retailer.name) || '';
             const grid = document.getElementById('locationGrid');
             if (!grid) return;
             // 4-col grid, ~half the hero, suitable for 7-12 locations
@@ -650,8 +669,8 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
                 const rEsc = retailerName.replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const fee = (v.demo_fee != null ? v.demo_fee : demoFee);
                 return `<div class="location-card" style="cursor:pointer;" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')">
-                    <div style="height:80px; background:linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%); display:flex; align-items:center; justify-content:center; border-radius:10px 10px 0 0;">
-                        <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#fbf7f0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                    <div style="height:80px; border-radius:10px 10px 0 0; overflow:hidden;">
+                        ${retailerAvatarHtml(retailer, 80)}
                     </div>
                     <h3 style="font-size:1rem; margin:14px 18px 4px;">${rEsc}</h3>
                     <div class="location-card-location" style="padding:0 18px 4px; font-size:0.82rem;">
@@ -666,7 +685,9 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
             }).join('');
         }
 
-        function renderLocationGridCompactList(venues, retailerName, demoFee) {
+        function renderLocationGridCompactList(venues, retailer, demoFee) {
+            const retailerName = (retailer && retailer.name) || '';
+            window._retailerForCompact = retailer;
             const grid = document.getElementById('locationGrid');
             if (!grid) return;
             grid.style.gridTemplateColumns = '1fr';
@@ -695,8 +716,8 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
                 const addrEsc = (v.address || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const fee = (v.demo_fee != null ? v.demo_fee : v._demoFee);
                 return `<div onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')" style="display:flex; align-items:center; gap:14px; padding:14px 18px; background:white; border:1px solid rgba(15,44,23,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--forest-700)'; this.style.transform='translateX(2px)';" onmouseout="this.style.borderColor='rgba(15,44,23,0.08)'; this.style.transform='translateX(0)';">
-                    <div style="width:40px; height:40px; background:linear-gradient(135deg, var(--forest-800) 0%, var(--forest-900) 100%); border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#fbf7f0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.85;"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                    <div style="width:40px; height:40px; border-radius:8px; flex-shrink:0; overflow:hidden;">
+                        ${retailerAvatarHtml(window._retailerForCompact, 40, {radius:'8px'})}
                     </div>
                     <div style="flex:1; min-width:0;">
                         <div style="font-weight:700; color:var(--forest-900); font-size:0.98rem;">${nameEsc}</div>
@@ -1370,9 +1391,17 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
             if (hn && data.retailer && data.retailer.name) hn.textContent = data.retailer.name;
             // Swap the landing logo to the retailer's uploaded image if present
             const landingLogo = document.getElementById('landingLogo');
-            if (landingLogo && data.retailer && data.retailer.logo_url) {
-                landingLogo.style.background = 'white';
-                landingLogo.innerHTML = `<img src="${data.retailer.logo_url}" alt="${(data.retailer.name || '').replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;">`;
+            // Landing avatar: use uploaded logo if available, otherwise show initials on the forest gradient.
+            // Kills the stock house icon.
+            if (landingLogo && data.retailer) {
+                if (data.retailer.logo_url) {
+                    landingLogo.style.background = 'white';
+                    landingLogo.innerHTML = `<img src="${data.retailer.logo_url}" alt="${(data.retailer.name || '').replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+                } else {
+                    const name = (data.retailer.name || 'D');
+                    const initials = name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase().slice(0,2) || 'D';
+                    landingLogo.innerHTML = `<span style="font-family:'Plus Jakarta Sans','Inter',sans-serif;font-weight:700;font-size:2rem;color:#fbf7f0;letter-spacing:0.02em;">${initials}</span>`;
+                }
             }
             // Also update the landing page title to the retailer's name (was generic 'Demo Scheduling Portal')
             // Show verified badge if retailer is approved
