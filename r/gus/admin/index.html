@@ -2289,7 +2289,25 @@ END:VEVENT
                 return;
             }
             if (maxInput) maxInput.value = v.max_demos_per_slot != null ? v.max_demos_per_slot : 1;
-            const schedule = (v.availability && v.availability.schedule) || {};
+            // If venue has NO saved availability at all, seed the standard 11-2 + 3-6 windows on all 7 days
+            // so the retailer sees the sensible default instead of a blank calendar. They can toggle days off
+            // or edit windows as needed; the schedule persists only on Save.
+            const DEFAULT_STANDARD_SCHEDULE = {
+                '0': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '1': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '2': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '3': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '4': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '5': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '6': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+            };
+            const savedSchedule = (v.availability && v.availability.schedule) || {};
+            // Detect "no availability set" = no schedule OR schedule with zero non-empty days
+            const hasAnyPersistedDay = Object.keys(savedSchedule).some(k => {
+                const arr = normalizeDayWindows(savedSchedule[k]);
+                return arr.length > 0;
+            });
+            const schedule = hasAnyPersistedDay ? savedSchedule : DEFAULT_STANDARD_SCHEDULE;
 
             // ===== Preset chips: apply a standard time window to all 7 days at once =====
             // These match the two industry-standard demo windows for indie grocery (per Gus's,
@@ -2809,7 +2827,19 @@ END:VEVENT
                     const idx = window.state.venues.findIndex(x => x.id === editingStoreId);
                     if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], name, address, demo_fee: fee, active };
                 } else {
-                    const created = await adminInsert('venues', { name, address: address || null, demo_fee: fee, active, display_order: (window.state.venues || []).length });
+                    // New venue seeded with the standard 11-2 + 3-6 windows on all 7 days by default.
+                    // Retailer can toggle days off in the Location Availability card.
+                    const _defaultSched = {};
+                    for (let _d = 0; _d < 7; _d++) _defaultSched[String(_d)] = [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }];
+                    const created = await adminInsert('venues', {
+                        name,
+                        address: address || null,
+                        demo_fee: fee,
+                        active,
+                        display_order: (window.state.venues || []).length,
+                        availability: { schedule: _defaultSched, blackouts: [] },
+                        max_demos_per_slot: 1,
+                    });
                     if (Array.isArray(created) && created[0]) window.state.venues.push(created[0]);
                 }
                 closeStoreModal();

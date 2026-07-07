@@ -149,7 +149,27 @@ export default async function handler(req, res) {
   const parsedRows = [];
   const errors = [];
   for (let r = 1; r < rows.length; r++) {
-    const rec = { name: '', address: null, demo_fee: 30, max_demos_per_slot: 1, active: true };
+    const rec = {
+      name: '',
+      address: null,
+      demo_fee: 30,
+      max_demos_per_slot: 1,
+      active: true,
+      // Seed the standard 11-2 + 3-6 windows on all 7 days by default so bulk-imported
+      // venues are immediately bookable. Retailer can toggle days off in the admin.
+      availability: {
+        schedule: {
+          '0': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '1': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '2': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '3': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '4': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '5': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '6': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+        },
+        blackouts: [],
+      },
+    };
     for (let c = 0; c < rows[r].length; c++) {
       const col = columnMap[c];
       if (!col) continue;
