@@ -358,6 +358,35 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     Loading locations…
                 </div>
             </div>
+            <script>
+                // Early paint: if the viewer is signed in as an admin for this slug, show the
+                // 'Add your first location' CTA immediately without waiting for the /find-retailer
+                // API round-trip. Prevents brands/retailers from staring at 'Loading locations…' when
+                // no venues exist yet.
+                (function(){
+                    try {
+                        var slug = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
+                        if (!slug) return;
+                        var isRetailerViewer = !!localStorage.getItem('demohub_admin_session_' + slug);
+                        if (!isRetailerViewer) return;
+                        var grid = document.getElementById('locationGrid');
+                        if (!grid) return;
+                        grid.innerHTML = '<div style="grid-column:1/-1; padding:56px 32px; text-align:center; background:white; border-radius:16px; border:2px dashed rgba(15,44,23,0.15);">' +
+                            '<div style="width:56px; height:56px; margin:0 auto 18px; border-radius:14px; background:linear-gradient(135deg,#ed682f,#d85a30); display:flex; align-items:center; justify-content:center;">' +
+                                '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' +
+                            '</div>' +
+                            '<div style="font-weight:700; color:var(--forest-900); margin-bottom:8px; font-size:1.15rem; font-family:\'Plus Jakarta Sans\',sans-serif;">Add your first location to activate your booking page</div>' +
+                            '<div style="color:var(--ink-500); font-size:0.95rem; line-height:1.55; max-width:480px; margin:0 auto 20px;">Your public booking page won\'t show anything to brands until you add at least one store location. Locations are where brands pick a store, hours, and a demo fee at booking. Add one now and you\'re live.</div>' +
+                            '<a href="/r/' + slug + '/admin#storesSection" style="display:inline-flex; align-items:center; gap:8px; background:var(--forest-900); color:white; padding:12px 22px; border-radius:10px; text-decoration:none; font-weight:600; font-size:0.95rem;">' +
+                                '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>' +
+                                'Add your first location' +
+                            '</a>' +
+                            '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px;">Have multiple locations? <a href="/r/' + slug + '/admin#storesSection" style="color:var(--forest-700); font-weight:600;">Bulk-upload with CSV instead \u2192</a></div>' +
+                            '<div style="font-size:0.72rem; color:var(--ink-500); margin-top:22px; padding-top:18px; border-top:1px solid rgba(15,44,23,0.08); max-width:420px; margin-left:auto; margin-right:auto;">You\'re seeing this because you\'re signed in as an admin. Brands who visit this URL will see \'Booking coming soon\' until you add a location.</div>' +
+                        '</div>';
+                    } catch(_){}
+                })();
+            </script>
 
 
         </div>
