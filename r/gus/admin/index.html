@@ -3079,9 +3079,16 @@ END:VEVENT
                 });
                 const j = await r.json();
                 if (j.error) throw new Error(j.error);
-                const admins = j.admins || [];
+                let admins = j.admins || [];
                 const yourEmail = (j.your_email || '').toLowerCase();
-                const myRow = admins.find(a => (a.email || '').toLowerCase() === yourEmail);
+                let myRow = admins.find(a => (a.email || '').toLowerCase() === yourEmail);
+                // Defense: if the current signed-in admin isn't in the retailer_admins list
+                // for whatever reason (data inconsistency from an old cleanup), synthesize a
+                // row so at least they see themselves. Doesn't change their permissions.
+                if (!myRow && yourEmail) {
+                    myRow = { id: '__self__', email: yourEmail, role: 'owner', has_signed_in: true, name: '' };
+                    admins = [myRow].concat(admins);
+                }
                 const iAmOwner = myRow && myRow.role === 'owner';
                 window._teamIsOwner = iAmOwner;
                 const inviteBtn = document.getElementById('teamInviteBtn');
@@ -3105,7 +3112,7 @@ END:VEVENT
                         : '';
                     const actions = iAmOwner && !isOwner
                         ? `<div style="display:flex; gap:6px;">
-                             <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.8rem; padding:4px 8px; border:1px solid rgba(15,44,23,0.12); border-radius:6px; background:white;">
+                             <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.82rem; padding:6px 28px 6px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; background:white; font-family:inherit; font-weight:600; color:var(--forest-800); appearance:none; -webkit-appearance:none; -moz-appearance:none; background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%230f2c17' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1 1 5 5 9 1'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 10px center; cursor:pointer;">
                                <option value="admin"${a.role === 'admin' ? ' selected' : ''}>Admin</option>
                                <option value="viewer"${a.role === 'viewer' ? ' selected' : ''}>Viewer</option>
                              </select>
