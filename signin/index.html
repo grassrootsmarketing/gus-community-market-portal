@@ -283,6 +283,81 @@ window.verifyLoginCode = async function(side) {
     }
 };
 
+// ===== Verify code from the recognized-user card =====
+// The recognized card (Welcome back / Continue) pulls email from localStorage
+// (via the KEY constant), so we can't use verifyLoginCode which reads from
+// the two-column form inputs. This mirrors the same logic but sources email + role
+// from the remembered profile.
+window.verifyRecognizedCode = async function() {
+    const codeInput = document.getElementById('recognizedCode');
+    const btn = document.getElementById('recognizedCodeBtn');
+    const err = document.getElementById('recognizedCodeErr');
+    if (!codeInput || !btn) return;
+    err.style.display = 'none';
+    // Pull email + role from the remembered profile (same localStorage key the outer IIFE uses)
+    let profile = null;
+    try { profile = JSON.parse(localStorage.getItem('demohub_signin_last_v1') || 'null'); } catch(_){}
+    if (!profile || !profile.email) {
+        err.textContent = 'Session expired. Refresh and start over.';
+        err.style.display = 'block';
+        return;
+    }
+    const email = (profile.email || '').trim().toLowerCase();
+    const role = profile.role || 'retailer';
+    const code = (codeInput.value || '').replace(/\D/g, '').trim();
+    if (code.length !== 6) {
+        err.textContent = 'Enter a 6-digit code.';
+        err.style.display = 'block';
+        return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Verifying…';
+    try {
+        const endpoint = role === 'brand' ? '/api/brand-account?action=verify-code' : '/api/admin-auth';
+        const payload = role === 'brand' ? { email, code } : { action: 'verify-code', email, code };
+        const r = await fetch(endpoint, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+            err.textContent = j.error || 'Invalid code.';
+            err.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Verify code →';
+            return;
+        }
+        if (role === 'brand') {
+            if (j.session_id) localStorage.setItem('demohub_brand_account_session', j.session_id);
+            window.location.href = '/brand/dashboard';
+        } else {
+            if (j.session_id && j.retailer_slug) {
+                localStorage.setItem('demohub_admin_session_' + j.retailer_slug, j.session_id);
+                window.location.href = '/r/' + j.retailer_slug + '/admin';
+            } else {
+                err.textContent = 'Session created but retailer slug missing. Contact support.';
+                err.style.display = 'block';
+                btn.disabled = false;
+                btn.textContent = 'Verify code →';
+            }
+        }
+    } catch (e) {
+        err.textContent = 'Network error. Try again.';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Verify code →';
+    }
+};
+
+// Also allow Enter to submit
+document.addEventListener('DOMContentLoaded', () => {
+    const ri = document.getElementById('recognizedCode');
+    if (ri) ri.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); if (typeof verifyRecognizedCode === 'function') verifyRecognizedCode(); }
+    });
+});
+
 
 // ===== Recognized-user experience for repeat visitors =====
 // On successful signin from either form, we remember { email, name, role, avatarInitial }.
