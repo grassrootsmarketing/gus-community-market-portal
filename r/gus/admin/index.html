@@ -3207,12 +3207,14 @@ END:VEVENT
             document.getElementById('storeBulkModal').style.display = 'none';
         }
         function downloadStoreTemplate() {
-            // Sample rows pre-filled with Gus's Community Market SF locations.
-            // Retailer can overwrite with their own before importing.
+            // Sample rows pre-filled with Gus's Community Market's 5 real SF locations
+            // (per gussmarket.com/locations). Retailer can overwrite with their own before importing.
             const csv = 'name,address,demo_fee,max_demos_per_slot,active\n' +
-                'Divisadero,"1301 Divisadero St, San Francisco, CA 94115",30,1,yes\n' +
-                'Noriega,"3401 Noriega St, San Francisco, CA 94122",30,1,yes\n' +
-                'Haight,"1550 Haight St, San Francisco, CA 94117",30,1,yes\n';
+                'Mission Bay,"4th and Channel, San Francisco, CA",30,1,yes\n' +
+                'Mission,"17th and Harrison, San Francisco, CA",30,1,yes\n' +
+                'Haight St,"Haight and Ashbury, San Francisco, CA",30,1,yes\n' +
+                'Noriega,"44th and Noriega, San Francisco, CA",30,1,yes\n' +
+                'Canyon,"Diamond and Wilder, San Francisco, CA",30,1,yes\n';
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
