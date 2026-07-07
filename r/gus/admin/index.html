@@ -552,6 +552,7 @@
                 <a href="#complianceSection" class="subnav-link" data-section="complianceSection">Compliance</a>
                 <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
+                <a href="#billingSection" class="subnav-link" data-section="billingSection">Billing</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
             <div class="mobile-nav-bar" id="mobileNavBar">
@@ -584,6 +585,7 @@
             <a href="#complianceSection" class="mobile-nav-item" data-section="complianceSection" onclick="mobileNavGo(event, 'complianceSection', 'Compliance')">Compliance</a>
             <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
+            <a href="#billingSection" class="mobile-nav-item" data-section="billingSection" onclick="mobileNavGo(event, 'billingSection', 'Billing')">Billing</a>
             <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
         </nav>
         <script>
@@ -841,7 +843,8 @@
                 </div>
 
 
-                <div class="billing-card">
+                <a id="billingSection"></a>
+                <div class="billing-card" id="billingSectionCard">
                     <div class="billing-head">
                         <div class="billing-title">Billing & Statements</div>
                         <div class="billing-controls">
