@@ -4380,6 +4380,62 @@ END:VEVENT
             window.loadSettings = function() { _origLoadSettings(); renderPlanCard(); };
         }
 
+
+        // On return from Stripe Connect onboarding, poll status for up to 30s (status can lag).
+        // Show a friendly banner while polling so the retailer isn't confused.
+        (function detectStripeReturn() {
+            const params = new URLSearchParams(location.search);
+            const connect = params.get('connect');
+            if (!connect) return;
+            // Strip the query so refresh doesn't re-trigger the polling
+            try { history.replaceState({}, '', location.pathname + location.hash); } catch(_){}
+
+            document.addEventListener('DOMContentLoaded', () => {
+                setTimeout(() => {
+                    // Scroll payouts card into view + show a banner
+                    const card = document.getElementById('payoutsCardBody');
+                    if (!card) return;
+                    const banner = document.createElement('div');
+                    banner.id = 'stripeReturnBanner';
+                    if (connect === 'return') {
+                        banner.style.cssText = 'background:#f4f8f0; border-left:4px solid #1f4a26; border-radius:8px; padding:12px 16px; margin:0 0 14px; font-size:0.9rem; color:var(--forest-800);';
+                        banner.innerHTML = '<strong>Thanks — checking your verification status with Stripe…</strong><br><span style="font-size:0.82rem; color:var(--ink-500);">This can take a few seconds. We\'ll update the card below when we hear back.</span>';
+                    } else {
+                        banner.style.cssText = 'background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; padding:12px 16px; margin:0 0 14px; font-size:0.9rem; color:#a14e2a;';
+                        banner.innerHTML = '<strong>Welcome back.</strong> Your onboarding session with Stripe expired. Click <b>Continue onboarding</b> below to resume where you left off.';
+                    }
+                    card.parentNode.insertBefore(banner, card);
+                    if (card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Poll status every 3s for up to 30s (10 tries)
+                    if (connect === 'return') {
+                        let tries = 0;
+                        const poll = setInterval(async () => {
+                            tries++;
+                            try {
+                                await renderPayouts();
+                                // If body now shows the 'active' state, remove banner + stop polling
+                                const stillPending = card.innerHTML.includes('Onboarding in progress') || card.innerHTML.includes('checking');
+                                const nowActive = card.innerHTML.includes('Bank connected');
+                                if (nowActive) {
+                                    banner.style.background = '#e3edd6';
+                                    banner.style.borderLeftColor = '#1f4a26';
+                                    banner.innerHTML = '<strong>Bank connected · verification complete.</strong>';
+                                    setTimeout(() => banner.remove(), 4000);
+                                    clearInterval(poll);
+                                }
+                            } catch(_){}
+                            if (tries >= 10) {
+                                clearInterval(poll);
+                                if (banner.parentNode) {
+                                    banner.innerHTML = '<strong>Status pending.</strong><br><span style="font-size:0.82rem; color:var(--ink-500);">Stripe is still processing. This can take up to 1 business day for micro-deposit verification. Check back later.</span>';
+                                }
+                            }
+                        }, 3000);
+                    }
+                }, 500);
+            });
+        })();
+
         // ===== Bank & payouts (Stripe Connect Express) =====
         async function renderPayouts() {
             const body = document.getElementById('payoutsCardBody');
@@ -4392,21 +4448,38 @@ END:VEVENT
 
                 if (!d.connected) {
                     body.innerHTML = `
-                        <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:12px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
-                        <div style="background:#f9f7f2;border-radius:10px;padding:14px 16px;margin-bottom:14px;">
-                            <div style="font-size:0.82rem;color:var(--ink-500);line-height:1.55;">Stripe handles verification (bank-by-bank instant Plaid login, or manual account+routing). Takes ~3 minutes. You'll be redirected to Stripe's onboarding, then back here when done.</div>
+                        <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:14px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
+                        <div style="background:#f9f7f2;border-radius:10px;padding:14px 16px;margin-bottom:8px;">
+                            <div style="font-size:0.82rem;font-weight:700;color:var(--forest-900);margin-bottom:8px;">Two ways to verify your bank</div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:0.8rem; color:var(--ink-700); line-height:1.55;">
+                                <div>
+                                    <div style="font-weight:700; color:var(--forest-900); margin-bottom:2px;">Instant (via Plaid)</div>
+                                    <div style="color:var(--ink-500);">Log into your bank inside Stripe's window. Verified in 30 seconds. Recommended.</div>
+                                </div>
+                                <div>
+                                    <div style="font-weight:700; color:var(--forest-900); margin-bottom:2px;">Manual (micro-deposits)</div>
+                                    <div style="color:var(--ink-500);">Enter routing + account numbers. Stripe deposits a few cents, you confirm the amount 1-2 business days later.</div>
+                                </div>
+                            </div>
+                            <div style="font-size:0.75rem; color:var(--ink-500); margin-top:10px; line-height:1.5;">Stripe offers both options during onboarding. Pick whichever you're comfortable with.</div>
                         </div>
+                        <div style="font-size:0.78rem; color:var(--ink-500); margin-bottom:14px;">Takes ~3 minutes. You'll be redirected to Stripe, then back here when done.</div>
                         <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:11px 22px;font-size:0.95rem;">Connect bank for payouts &rarr;</button>
                     `;
                     return;
                 }
                 if (d.charges_enabled && d.payouts_enabled) {
+                    // Show masked bank info if Stripe returned it (external_account)
+                    const bankLine = d.bank_last4
+                        ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Bank account ending in <strong style="color:var(--forest-900); font-family:monospace;">••••${d.bank_last4}</strong>${d.bank_name ? ' (' + d.bank_name + ')' : ''}</div>`
+                        : '';
                     body.innerHTML = `
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
                             <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
                             <div style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">Bank connected · payouts active</div>
                         </div>
-                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">You'll receive payouts to your bank within 2 business days of each demo payment, minus Stripe + Demohub platform fees.</div>
+                        ${bankLine}
+                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">You'll receive payouts within 2 business days of each demo payment, minus Stripe + Demohub platform fees.</div>
                         <button class="btn btn-secondary" onclick="openConnectDashboard()" style="padding:9px 16px;font-size:0.9rem;">Open Stripe Express dashboard &rarr;</button>
                     `;
                 } else {

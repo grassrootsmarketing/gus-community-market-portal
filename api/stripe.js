@@ -270,10 +270,22 @@ export default async function handler(req, res) {
           stripe_account_status: status,
         }),
       });
+      // Fetch the primary external account (bank) to show last4 + bank name in admin
+      let bank_last4 = null, bank_name = null;
+      try {
+        const ea = await stripe('GET', `/v1/accounts/${encodeURIComponent(retailer.stripe_account_id)}/external_accounts?limit=1&object=bank_account`);
+        const bank = Array.isArray(ea?.data) ? ea.data[0] : null;
+        if (bank) {
+          bank_last4 = bank.last4 || null;
+          bank_name = bank.bank_name || null;
+        }
+      } catch (_) { /* non-fatal */ }
       return jsonResp(res, 200, {
         connected: true,
         charges_enabled: charges,
         payouts_enabled: payouts,
+        bank_last4,
+        bank_name,
         status,
         requirements: acct.requirements?.currently_due || [],
       });
