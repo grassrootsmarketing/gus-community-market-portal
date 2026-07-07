@@ -3207,10 +3207,12 @@ END:VEVENT
             document.getElementById('storeBulkModal').style.display = 'none';
         }
         function downloadStoreTemplate() {
+            // Sample rows pre-filled with Gus's Community Market SF locations.
+            // Retailer can overwrite with their own before importing.
             const csv = 'name,address,demo_fee,max_demos_per_slot,active\n' +
-                'Downtown,"123 Main St, Yourtown, ST 00000",30,1,yes\n' +
-                'Westside,"456 Oak Ave, Yourtown, ST 00000",30,1,yes\n' +
-                'Main St,"789 Main St, Yourtown, ST 00000",30,1,yes\n';
+                'Divisadero,"1301 Divisadero St, San Francisco, CA 94115",30,1,yes\n' +
+                'Noriega,"3401 Noriega St, San Francisco, CA 94122",30,1,yes\n' +
+                'Haight,"1550 Haight St, San Francisco, CA 94117",30,1,yes\n';
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
