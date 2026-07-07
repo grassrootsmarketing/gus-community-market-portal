@@ -943,9 +943,36 @@
 <div class="settings-card">
                         <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout.</div>
-                            <textarea id="demoPolicy" rows="6" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.</textarea>
-                            <div id="demoPolicyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout. <strong>Two options:</strong> type it below, or upload your existing PDF (e.g. an Erewhon-style guidelines doc).</div>
+
+                            <!-- PDF uploaded state (hidden by default, shown when demo_policy_url exists) -->
+                            <div id="demoPolicyPdfCard" style="display:none; align-items:center; gap:14px; padding:14px 16px; background:linear-gradient(135deg, #f4f8f0 0%, #eef4e5 100%); border:1.5px solid var(--forest-200, #c8d4c1); border-radius:10px; margin-bottom:10px;">
+                                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--forest-800, #2a5b32)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-size:0.78rem; font-weight:700; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.05em;">Uploaded — brands see this</div>
+                                    <div id="demoPolicyFileName" style="font-size:0.95rem; font-weight:600; color:var(--forest-900); margin-top:2px; word-break:break-all;">demo-policy.pdf</div>
+                                    <a id="demoPolicyPdfViewLink" href="#" target="_blank" rel="noopener" style="font-size:0.82rem; color:var(--forest-700); font-weight:600; text-decoration:underline; text-underline-offset:2px;">View PDF &rarr;</a>
+                                </div>
+                                <button type="button" onclick="removeDemoPolicyPdf()" style="background:none; border:1.5px solid var(--clay-500, #c14a2f); color:var(--clay-600, #a63e26); padding:6px 12px; border-radius:6px; font-size:0.82rem; font-weight:600; cursor:pointer;">Remove</button>
+                            </div>
+
+                            <!-- Text policy (shown when no PDF uploaded) -->
+                            <div id="demoPolicyTextBlock">
+                                <textarea id="demoPolicy" rows="6" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.</textarea>
+                            </div>
+
+                            <!-- Upload / Replace zone (always visible) -->
+                            <div style="display:flex; align-items:center; gap:12px; margin-top:12px; padding:14px 16px; background:#fdfcf7; border:1.5px dashed var(--forest-200, #c8d4c1); border-radius:10px;">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700, #2a5b32)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-size:0.9rem; font-weight:600; color:var(--forest-900);">Prefer to upload a PDF?</div>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">Most retailers already have a PDF policy doc — upload it and brands will see that instead of the text.</div>
+                                </div>
+                                <label for="demoPolicyPdfInput" style="cursor:pointer; background:var(--forest-900, #1f4a26); color:#fff; padding:9px 16px; border-radius:8px; font-size:0.85rem; font-weight:600; white-space:nowrap;"><span id="demoPolicyUploadLabel">Upload PDF instead</span></label>
+                                <input type="file" id="demoPolicyPdfInput" accept="application/pdf,.pdf" onchange="uploadDemoPolicyPdf(this)" style="display:none;">
+                            </div>
+
+                            <div id="demoPolicyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:10px; min-height:1.2em;"></div>
                         </div>
                     </div>
                     <div class="settings-card">
