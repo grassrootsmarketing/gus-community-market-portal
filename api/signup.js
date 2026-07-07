@@ -95,10 +95,10 @@ function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
 <p style="margin:0 0 14px;">Welcome to Demohub. Your admin is live and waiting for you here: <strong><a href="${au}" style="color:#2a5b32;">${au}</a></strong></p>
-<p style="margin:0 0 14px;">I built this for retailers like you &mdash; independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every store you operate.</p>
+<p style="margin:0 0 14px;">I built this for retailers like you &mdash; independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.</p>
 <p style="margin:0 0 8px;">Four things to get you set up:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">
-<li style="margin-bottom:6px;"><strong>Set your hours and demo windows</strong> for each store, so brands can only book inside slots you actually staff. (Settings &rarr; Stores.)</li>
+<li style="margin-bottom:6px;"><strong>Set your hours and demo windows</strong> for each store, so brands can only book inside slots you actually staff. (Settings &rarr; Locations.)</li>
 <li style="margin-bottom:6px;"><strong>Add your team contacts</strong> &mdash; the manager, the floor lead, anyone who needs the demo schedule. (Settings &rarr; Team.)</li>
 <li style="margin-bottom:6px;"><strong>Sync your calendar</strong> so confirmed demos show up next to everything else on your week. (Settings &rarr; Calendar feed.)</li>
 <li style="margin-bottom:6px;"><strong>Share your booking link</strong> with the brands you already work with: <a href="${pu}" style="color:#2a5b32;">${pu}</a></li>
@@ -108,7 +108,7 @@ function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nWelcome to Demohub. Your admin is live and waiting for you here: ${admin_url}\n\nI built this for retailers like you — independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every store you operate.\n\nFour things to get you set up:\n\n1. Set your hours and demo windows for each store, so brands can only book inside slots you actually staff. (Settings → Stores.)\n2. Add your team contacts — the manager, the floor lead, anyone who needs the demo schedule. (Settings → Team.)\n3. Sync your calendar so confirmed demos show up next to everything else on your week. (Settings → Calendar feed.)\n4. Share your booking link with the brands you already work with: ${public_booking_url}\n\nIf you get stuck or want a walkthrough, just hit reply — I read every email myself. We'll be in touch in a few days to check in.\n\nWelcome aboard,\nDavid\nDemohub`;
+  const text = `Hi ${first_name || 'there'},\n\nWelcome to Demohub. Your admin is live and waiting for you here: ${admin_url}\n\nI built this for retailers like you — independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.\n\nFour things to get you set up:\n\n1. Set your hours and demo windows for each store, so brands can only book inside slots you actually staff. (Settings → Locations.)\n2. Add your team contacts — the manager, the floor lead, anyone who needs the demo schedule. (Settings → Team.)\n3. Sync your calendar so confirmed demos show up next to everything else on your week. (Settings → Calendar feed.)\n4. Share your booking link with the brands you already work with: ${public_booking_url}\n\nIf you get stuck or want a walkthrough, just hit reply — I read every email myself. We'll be in touch in a few days to check in.\n\nWelcome aboard,\nDavid\nDemohub`;
   const subject = `Welcome to Demohub, ${first_name || 'there'} — let's get your store set up`;
   return { subject, html: htmlBody, text };
 }
@@ -231,12 +231,17 @@ export default async function handler(req, res) {
     //      button can drop the user straight into their admin (logged in) without
     //      forcing them through an email round-trip.
     let signupToken = null;
+    let signupCode = null;
     try {
+      // Generate a 6-digit code so signup email + fallback can include it
+      const n = Math.floor(Math.random() * 1000000);
+      signupCode = String(n).padStart(6, '0');
       const tokens = await sb(`admin_tokens`, {
         method: 'POST',
         body: JSON.stringify({
           email: billing_email.toLowerCase().trim(),
           retailer_id: retailer.id,
+          code: signupCode,
         }),
       });
       signupToken = Array.isArray(tokens) ? (tokens[0]?.token || null) : null;

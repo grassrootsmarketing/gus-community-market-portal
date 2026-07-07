@@ -44,7 +44,14 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
   return { ok: true, email: session.email, retailer_id: session.retailer_id };
 }
 
-function magicLinkEmail({ retailerName, link }) {
+function generateLoginCode() {
+  // 6-digit numeric code, zero-padded
+  const n = Math.floor(Math.random() * 1000000);
+  return String(n).padStart(6, '0');
+}
+
+function magicLinkEmail({ retailerName, link, code }) {
+  const codeDisplay = code || '';
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
@@ -54,12 +61,17 @@ function magicLinkEmail({ retailerName, link }) {
 </td><td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
-<tr><td style="padding:36px;">
-<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Admin sign in</div>
-<h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;color:#0f2c17;margin:0 0 12px;">Open your ${html(retailerName)} admin</h1>
-<p style="font-size:15px;line-height:1.55;color:#3a3a36;margin:0 0 22px;">Click below to access your Demohub admin hub. Link expires in 24 hours.</p>
-<p style="margin:0 0 22px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;">Sign in &rarr;</a></p>
-<p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:0 0 20px;">If you didn't request this, ignore the email — no action will be taken.</p>
+<tr><td style="padding:44px 36px 20px;text-align:center;">
+<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Sign in to</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;color:#0f2c17;margin:0 0 28px;">${html(retailerName)}</h1>
+<div style="font-size:13px;color:#6b6a64;margin-bottom:10px;">Your login code</div>
+<div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:48px;font-weight:700;color:#0f2c17;letter-spacing:0.12em;line-height:1;padding:20px 0;border-top:1px solid rgba(15,44,23,0.08);border-bottom:1px solid rgba(15,44,23,0.08);margin-bottom:14px;">${codeDisplay}</div>
+<div style="font-size:12px;color:#6b6a64;">This code expires in 20 minutes.</div>
+</td></tr>
+<tr><td style="padding:0 36px 32px;text-align:center;">
+<p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:14px 0 18px;">Or use the direct link below to sign in without entering the code:</p>
+<p style="margin:0 0 20px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;font-size:14px;">Sign in &rarr;</a></p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore this email &mdash; no action will be taken.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
 </table></body></html>`;
@@ -112,9 +124,10 @@ export default async function handler(req, res) {
         const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailer.id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=email,role`);
         const adminRow = Array.isArray(admins) ? admins[0] : null;
         if (adminRow) {
+          const code = generateLoginCode();
           const tokens = await sb(`admin_tokens`, {
             method: 'POST',
-            body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
+            body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
           });
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
@@ -124,7 +137,7 @@ export default async function handler(req, res) {
               await fetch('https://api.resend.com/emails', {
                 method: 'POST',
                 headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Sign in to ${retailer.name} admin`, html: magicLinkEmail({ retailerName: retailer.name, link }) }),
+                body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
               });
             } catch (_) { /* swallow */ }
           }
@@ -150,9 +163,10 @@ export default async function handler(req, res) {
           for (const adminRow of admins) {
             const retailer = adminRow.retailers;
             if (!retailer) continue;
+            const code = generateLoginCode();
             const tokens = await sb(`admin_tokens`, {
               method: 'POST',
-              body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id }),
+              body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id, code }),
             });
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
             if (!token) continue;
@@ -163,7 +177,7 @@ export default async function handler(req, res) {
                 await fetch('https://api.resend.com/emails', {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ from: FROM_ADDRESS, to: normalizedEmail, reply_to: 'david@demohubhq.com', subject: `Sign in to ${retailer.name} admin`, html: magicLinkEmail({ retailerName: retailer.name, link }) }),
+                  body: JSON.stringify({ from: FROM_ADDRESS, to: normalizedEmail, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
                 });
               } catch (_) { /* swallow */ }
             }
@@ -191,6 +205,35 @@ export default async function handler(req, res) {
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
       return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id });
+    }
+
+    // ---- VERIFY-CODE: exchange 6-digit code for session ----
+    if (action === 'verify-code') {
+      const email = String(body?.email || '').trim().toLowerCase();
+      const code = String(body?.code || '').replace(/\D/g, '').trim();
+      if (!email || !code || code.length !== 6) return res.status(400).json({ error: 'Email and 6-digit code required' });
+      // Rate limit code verification per IP (defense against brute force)
+      const rl = await checkRateLimit(req, 'verify-code', 30);
+      if (!rl.allowed) return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
+      const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=id.desc&limit=1`);
+      const trow = Array.isArray(rows) ? rows[0] : null;
+      if (!trow) return res.status(404).json({ error: 'Invalid code' });
+      if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Code expired' });
+      await sb(`admin_tokens?token=eq.${encodeURIComponent(trow.token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+      const sessions = await sb(`admin_sessions`, {
+        method: 'POST',
+        body: JSON.stringify({ email: trow.email, retailer_id: trow.retailer_id }),
+      });
+      const session = Array.isArray(sessions) ? sessions[0] : null;
+      // For redirect after code verify: look up retailer slug so caller can navigate
+      let retailerSlug = null;
+      if (trow.retailer_id) {
+        try {
+          const rt = await sb(`retailers?id=eq.${encodeURIComponent(trow.retailer_id)}&select=slug`);
+          retailerSlug = Array.isArray(rt) && rt[0]?.slug || null;
+        } catch(_){}
+      }
+      return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id, retailer_slug: retailerSlug });
     }
 
     // ---- DATA: verify session is still valid + return retailer info ----
@@ -278,9 +321,10 @@ export default async function handler(req, res) {
         const retailers = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=name,slug`);
         const retailer = Array.isArray(retailers) ? retailers[0] : null;
         if (retailer && RESEND_API_KEY) {
+          const code = generateLoginCode();
           const tokens = await sb(`admin_tokens`, {
             method: 'POST',
-            body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id }),
+            body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id, code }),
           });
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
@@ -292,8 +336,8 @@ export default async function handler(req, res) {
               from: FROM_ADDRESS,
               to: normalizedEmail,
               reply_to: 'david@demohubhq.com',
-              subject: `You've been invited to ${retailer.name}'s Demohub admin`,
-              html: magicLinkEmail({ retailerName: retailer.name, link }),
+              subject: `You've been invited to ${retailer.name}'s Demohub admin (code: ${code})`,
+              html: magicLinkEmail({ retailerName: retailer.name, link, code }),
             }),
           });
         }
