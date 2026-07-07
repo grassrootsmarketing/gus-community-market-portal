@@ -849,19 +849,21 @@
                                 <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
                             </div>
                         </div>
-                        <div style="padding: 18px 24px 4px;">
-                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                                <label class="form-label" for="availabilityVenueSelect" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Location</label>
+                        <div id="availabilityPickerBlock">
+                            <div style="padding: 18px 24px 4px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                                    <label class="form-label" for="availabilityVenueSelect" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Location</label>
+                                </div>
+                                <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
                             </div>
-                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
-                        </div>
-                        <div style="padding: 14px 24px 12px;">
-                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
+                            <div style="padding: 14px 24px 12px;">
+                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                                    <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
+                                </div>
+                                <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
+                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
+                                <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                             </div>
-                            <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
-                            <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
-                            <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                         </div>
                         <div class="settings-card-body" id="availabilityEditorBody"></div>
                     </div>
@@ -922,15 +924,7 @@
                             <div id="notificationStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:8px; min-height:1em;"></div>
                         </div>
                     </div>
-                    <div class="settings-card">
-                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Cancellation policy<span id="cancelPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="policyEditBtn" onclick="togglePolicyEdit()">Edit</button></div>
-                        <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown to brands on the public booking page before they submit, and included in confirmation emails.</div>
-                            <textarea id="cancellationPolicy" rows="5" readonly style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.12); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; color:var(--ink-900); background:#f9f7f2;">Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.</textarea>
-                            <div id="policyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
-                        </div>
-                    </div>
-                    <div class="settings-card">
+<div class="settings-card">
                         <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout.</div>
@@ -2052,8 +2046,12 @@ END:VEVENT
             if (!body) return;
             const v = getSelectedVenue();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
+            const pickerBlock = document.getElementById('availabilityPickerBlock');
+            const noVenues = !(window.state.venues) || window.state.venues.length === 0;
+            // Hide the location picker + max-per-slot rows entirely when there are no venues
+            // to configure - avoids the empty <select> rendering as a phantom black bar in some browsers.
+            if (pickerBlock) pickerBlock.style.display = noVenues ? 'none' : '';
             if (!v) {
-                const noVenues = !(window.state.venues) || window.state.venues.length === 0;
                 if (noVenues) {
                     body.innerHTML = `
                         <div style="padding:32px 24px; text-align:center; background:#f9f7f2; border-radius:10px; margin:8px 0;">

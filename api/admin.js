@@ -30,6 +30,8 @@ const RETAILER_PATCH_WHITELIST = new Set([
   'name',
   'logo_url',
   'website',
+  'auto_confirm_bookings',
+  'cancellation_mode',
   'description',
   'monthly_summary_enabled',
   'branding',
