@@ -59,20 +59,21 @@ async function uniqueSlug(base) {
 
 function defaultAvailability() {
   // Default shifts: 11:00-14:00 (lunch/early afternoon) and 15:00-18:00 (afternoon/evening).
-  // Retailers can adjust per-store in admin after signup.
+  // ALL 7 days open by default - demo events are almost always 3 hours long. Retailer
+  // toggles days off in admin as needed.
   const twoShifts = [
-    { open: "11:00", close: "14:00", preferred: false },
-    { open: "15:00", close: "18:00", preferred: false },
+    { open: "11:00", close: "14:00" },
+    { open: "15:00", close: "18:00" },
   ];
   return {
     schedule: {
-      "0": null,                    // Sunday closed by default
-      "1": null,                    // Monday closed
-      "2": null,                    // Tuesday closed
-      "3": null,                    // Wednesday closed
-      "4": null,                    // Thursday closed
-      "5": twoShifts,               // Friday: both shifts
-      "6": twoShifts,               // Saturday: both shifts
+      "0": twoShifts,   // Sunday
+      "1": twoShifts,   // Monday
+      "2": twoShifts,   // Tuesday
+      "3": twoShifts,   // Wednesday
+      "4": twoShifts,   // Thursday
+      "5": twoShifts,   // Friday
+      "6": twoShifts,   // Saturday
     },
     blackouts: [],
   };
@@ -182,6 +183,9 @@ export default async function handler(req, res) {
           name: retailer_name,
           billing_email: normalizedEmail,
           branding: { contact_name: contact_name || '' },
+          // Default to automatic approvals + 14-day refund per David
+          auto_confirm_bookings: true,
+          cancellation_mode: '14_day_refund',
         }),
       });
     } catch (createErr) {
