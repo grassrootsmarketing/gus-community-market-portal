@@ -843,18 +843,24 @@
                 <a id="settingsSection"></a><div class="settings-grid">
                     <div class="settings-card" id="availabilityCard">
                         <div class="settings-card-header">
-                            <h3>Store Availability</h3>
+                            <h3>Location availability</h3>
                             <div style="display:flex; gap:8px;">
-                                <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this store's schedule + capacity to every store">Apply to all stores</button>
+                                <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this location's schedule + capacity to every location">Apply to all</button>
                                 <button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="availabilitySaveBtn" onclick="saveAvailability()">Save</button>
                             </div>
                         </div>
-                        <div style="padding: 4px 24px 12px;">
-                            <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Store</label>
-                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; margin-bottom:14px;"></select>
-                            <label class="form-label" style="display:block; margin-bottom:6px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.08em; color: var(--ink-500);">Max demos per time slot</label>
-                            <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem;">
-                            <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this store.</div>
+                        <div style="padding: 18px 24px 4px;">
+                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                                <label class="form-label" for="availabilityVenueSelect" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Location</label>
+                            </div>
+                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
+                        </div>
+                        <div style="padding: 14px 24px 12px;">
+                            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
+                            </div>
+                            <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
+                            <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
                             <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                         </div>
                         <div class="settings-card-body" id="availabilityEditorBody"></div>
