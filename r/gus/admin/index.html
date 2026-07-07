@@ -3353,12 +3353,59 @@ END:VEVENT
             return true;
         }
         document.addEventListener('change', (e) => {
-            if (e.target && e.target.id === 'storeCsvFile') handleStoreCsvFile(e.target.files[0]);
+            if (e.target && e.target.id === 'storeCsvFile') {
+                console.log('[bulk-upload] change event fired on storeCsvFile, files:', e.target.files);
+                handleStoreCsvFile(e.target.files[0]).catch(err => {
+                    console.error('[bulk-upload] handleStoreCsvFile threw uncaught:', err);
+                    const previewBody = document.getElementById('storeBulkPreviewBody');
+                    if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>Unexpected error:</strong> ' + escapeHtml(err.message || String(err)) + ' - check browser console for details.</td></tr>';
+                });
+            }
+        });
+        // Also wire directly on the input element in case the document-level listener isn't catching it
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                const fi = document.getElementById('storeCsvFile');
+                if (fi && !fi.dataset.wired) {
+                    fi.dataset.wired = '1';
+                    fi.addEventListener('change', (e) => {
+                        console.log('[bulk-upload] direct listener fired');
+                        handleStoreCsvFile(e.target.files[0]).catch(err => {
+                            console.error('[bulk-upload] direct handler threw:', err);
+                        });
+                    });
+                }
+            }, 500);
         });
         async function handleStoreCsvFile(file) {
-            if (!file) return;
-            const text = await file.text();
-            const rows = parseCsv(text);
+            console.log('[bulk-upload] handleStoreCsvFile called with:', file);
+            if (!file) {
+                console.warn('[bulk-upload] no file passed');
+                return;
+            }
+            const previewBox = document.getElementById('storeBulkPreview');
+            const previewBody = document.getElementById('storeBulkPreviewBody');
+            // Show immediate feedback
+            if (previewBox) previewBox.style.display = 'block';
+            if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--ink-500); font-size:0.88rem;">Reading ' + (file.name || 'file') + '&hellip;</td></tr>';
+            let text;
+            try {
+                text = await file.text();
+                console.log('[bulk-upload] file read, length:', text.length);
+            } catch (e) {
+                console.error('[bulk-upload] file.text() failed:', e);
+                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>Could not read file:</strong> ' + escapeHtml(e.message || String(e)) + '</td></tr>';
+                return;
+            }
+            let rows;
+            try {
+                rows = parseCsv(text);
+                console.log('[bulk-upload] parseCsv result:', rows.length, 'rows');
+            } catch (e) {
+                console.error('[bulk-upload] parseCsv threw:', e);
+                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>CSV parse error:</strong> ' + escapeHtml(e.message || String(e)) + '</td></tr>';
+                return;
+            }
             if (rows.length < 2) {
                 document.getElementById('storeBulkPreview').style.display = 'block';
                 document.getElementById('storeBulkPreviewBody').innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;">CSV is empty or missing a header row.</td></tr>';
@@ -3439,10 +3486,15 @@ END:VEVENT
             btn.textContent = `Import ${validCount} store${validCount === 1 ? '' : 's'}`;
         }
         async function importStoreCsv() {
+            console.log('[bulk-upload] importStoreCsv called');
             const btn = document.getElementById('storeBulkImportBtn');
             const resultBox = document.getElementById('storeBulkResult');
             const validRows = (_bulkParsedRows || []).filter(r => r.name);
-            if (validRows.length === 0) return;
+            console.log('[bulk-upload] valid rows to import:', validRows.length, validRows);
+            if (validRows.length === 0) {
+                console.warn('[bulk-upload] no valid rows to import - _bulkParsedRows is:', _bulkParsedRows);
+                return;
+            }
             btn.disabled = true;
             btn.textContent = `Importing 0 of ${validRows.length}…`;
             resultBox.style.display = 'none';
