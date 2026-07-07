@@ -1,234 +1,233 @@
-// /api/stripe-webhook — Listens for Stripe checkout.session.completed.
-// On success, flips the booking to status=paid+confirmed and creates the demo row.
+// /api/stripe-webhook — receives events from Stripe and updates our DB.
 //
-// IMPORTANT: This endpoint should NOT have body parsing — Stripe needs the raw body
-// for signature verification. In Vercel, set config below to disable JSON parser.
+// Events handled:
+//   account.updated              → flips retailers.stripe_charges_enabled / _payouts_enabled
+//                                  when Plaid or micro-deposit verification completes.
+//   payment_intent.succeeded     → marks the associated booking as paid.
+//   payment_intent.payment_failed → marks the booking as payment-failed.
+//   charge.refunded              → marks the booking as refunded.
 //
-// Env required:
-//   STRIPE_SECRET_KEY
-//   STRIPE_WEBHOOK_SECRET  (whsec_... — from `stripe listen` or the dashboard webhook setting)
-//   SUPABASE_SERVICE_KEY
+// Env vars required:
+//   STRIPE_WEBHOOK_SECRET (whsec_...)   — from Stripe Dashboard → Developers → Webhooks
+//   SUPABASE_SERVICE_KEY                — bypasses RLS for DB writes
+//
+// Important: Vercel serverless needs the raw body for signature verification, so we
+// disable the built-in body parser and read the stream manually.
+
+import { createHmac, timingSafeEqual } from 'crypto';
 
 export const config = { api: { bodyParser: false } };
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
+// Tolerate up to 5 minutes of clock skew — Stripe's default is 5 min.
+const TOLERANCE_SECONDS = 300;
 
+// -----------------------------------------------------------------------------
+// Signature verification (Stripe's algorithm, no SDK required)
+// -----------------------------------------------------------------------------
+function parseSignatureHeader(header) {
+  const parts = {};
+  for (const seg of (header || '').split(',')) {
+    const idx = seg.indexOf('=');
+    if (idx < 0) continue;
+    const k = seg.slice(0, idx).trim();
+    const v = seg.slice(idx + 1).trim();
+    if (k === 't') parts.t = v;
+    else if (k === 'v1') (parts.v1 = parts.v1 || []).push(v);
+  }
+  return parts;
+}
+
+function verifySignature(rawBody, sigHeader, secret) {
+  if (!sigHeader || !secret) return null;
+  const parsed = parseSignatureHeader(sigHeader);
+  if (!parsed.t || !parsed.v1 || parsed.v1.length === 0) return null;
+  const timestamp = parseInt(parsed.t, 10);
+  if (!Number.isFinite(timestamp)) return null;
+  // Reject if outside tolerance window (prevents replay attacks)
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > TOLERANCE_SECONDS) return null;
+
+  const signedPayload = `${parsed.t}.${rawBody}`;
+  const expected = createHmac('sha256', secret).update(signedPayload).digest('hex');
+  const expectedBuf = Buffer.from(expected, 'hex');
+  for (const candidate of parsed.v1) {
+    const candBuf = Buffer.from(candidate, 'hex');
+    if (candBuf.length === expectedBuf.length && timingSafeEqual(candBuf, expectedBuf)) {
+      // Signature valid — parse the body as JSON now
+      try { return JSON.parse(rawBody); } catch (_) { return null; }
+    }
+  }
+  return null;
+}
+
+// -----------------------------------------------------------------------------
+// Raw body reader
+// -----------------------------------------------------------------------------
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+// -----------------------------------------------------------------------------
+// Supabase REST helper (uses service key, bypasses RLS)
+// -----------------------------------------------------------------------------
 async function sb(path, opts = {}) {
-  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+    ...opts,
+    headers: {
+      apikey: SERVICE_KEY,
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      'Content-Type': 'application/json',
+      Prefer: 'return=representation',
+      ...(opts.headers || {}),
+    },
+  });
   const text = await r.text();
-  let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
-  if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
+  let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+  if (!r.ok) throw new Error(json?.message || text || `sb HTTP ${r.status}`);
   return json;
 }
 
-// Read raw body for signature verification
-async function getRawBody(req) {
-  const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
-  return Buffer.concat(chunks);
+// -----------------------------------------------------------------------------
+// Event handlers
+// -----------------------------------------------------------------------------
+
+// account.updated: Stripe tells us a connected account's status changed
+// (Plaid verified, micro-deposits confirmed, charges/payouts enabled, requirements added, etc.)
+async function handleAccountUpdated(event) {
+  const account = event.data.object;
+  const accountId = account.id;
+  if (!accountId) return;
+
+  // Find the retailer that owns this connected account
+  const rows = await sb(`retailers?stripe_account_id=eq.${encodeURIComponent(accountId)}&select=id`);
+  if (!rows || rows.length === 0) {
+    console.warn(`account.updated: no retailer found for stripe_account_id=${accountId}`);
+    return;
+  }
+  const retailerId = rows[0].id;
+
+  const charges = !!account.charges_enabled;
+  const payouts = !!account.payouts_enabled;
+  const status = charges && payouts
+    ? 'active'
+    : (account.requirements?.disabled_reason ? 'restricted' : 'pending');
+
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      stripe_charges_enabled: charges,
+      stripe_payouts_enabled: payouts,
+      stripe_account_status: status,
+    }),
+  });
+  console.log(`account.updated: retailer ${retailerId} charges=${charges} payouts=${payouts} status=${status}`);
 }
 
-// Verify Stripe signature header (no node SDK; do it by hand with WebCrypto)
-async function verifyStripeSignature(payload, header, secret) {
-  if (!header || !secret) return false;
-  const parts = Object.fromEntries(header.split(',').map(s => s.trim().split('=')));
-  const t = parts.t, v1 = parts.v1;
-  if (!t || !v1) return false;
-  const signedPayload = `${t}.${payload.toString('utf8')}`;
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = await crypto.subtle.sign('HMAC', key, enc.encode(signedPayload));
-  const expected = Array.from(new Uint8Array(mac)).map(b => b.toString(16).padStart(2, '0')).join('');
-  // constant-time compare
-  if (expected.length !== v1.length) return false;
-  let diff = 0; for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ v1.charCodeAt(i);
-  return diff === 0;
+// payment_intent.succeeded: brand's card charged successfully
+async function handlePaymentIntentSucceeded(event) {
+  const pi = event.data.object;
+  const bookingId = pi.metadata?.booking_id;
+  if (!bookingId) {
+    console.warn('payment_intent.succeeded without booking_id metadata', pi.id);
+    return;
+  }
+  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      payment_status: 'paid',
+      payment_intent_id: pi.id,
+      paid_at: new Date().toISOString(),
+      amount_paid: pi.amount_received || pi.amount,
+    }),
+  });
+  console.log(`payment_intent.succeeded: booking ${bookingId} marked paid`);
 }
 
+async function handlePaymentIntentFailed(event) {
+  const pi = event.data.object;
+  const bookingId = pi.metadata?.booking_id;
+  if (!bookingId) return;
+  const err = pi.last_payment_error?.message || 'payment failed';
+  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      payment_status: 'failed',
+      payment_intent_id: pi.id,
+      payment_error: err,
+    }),
+  });
+  console.log(`payment_intent.payment_failed: booking ${bookingId} — ${err}`);
+}
+
+// charge.refunded: cancellation refund completed
+async function handleChargeRefunded(event) {
+  const charge = event.data.object;
+  const bookingId = charge.metadata?.booking_id;
+  if (!bookingId) return;
+  const refunded = charge.amount_refunded || 0;
+  const fully = refunded >= (charge.amount || 0);
+  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      payment_status: fully ? 'refunded' : 'partial_refund',
+      refunded_at: new Date().toISOString(),
+      amount_refunded: refunded,
+    }),
+  });
+  console.log(`charge.refunded: booking ${bookingId} refunded=${refunded} fully=${fully}`);
+}
+
+// -----------------------------------------------------------------------------
+// Handler entrypoint
+// -----------------------------------------------------------------------------
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).end('Method not allowed');
-  if (!STRIPE_WEBHOOK_SECRET) return res.status(500).end('STRIPE_WEBHOOK_SECRET not configured');
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  if (!WEBHOOK_SECRET) {
+    console.error('STRIPE_WEBHOOK_SECRET not configured');
+    return res.status(500).json({ error: 'webhook secret not configured' });
+  }
+  if (!SERVICE_KEY) {
+    console.error('SUPABASE_SERVICE_KEY not configured');
+    return res.status(500).json({ error: 'db key not configured' });
+  }
 
-  const buf = await getRawBody(req);
+  const rawBody = await readRawBody(req);
   const sig = req.headers['stripe-signature'];
-  const ok = await verifyStripeSignature(buf, sig, STRIPE_WEBHOOK_SECRET);
-  if (!ok) return res.status(400).end('Invalid signature');
-
-  let event;
-  try { event = JSON.parse(buf.toString('utf8')); } catch(_) { return res.status(400).end('Bad JSON'); }
+  const event = verifySignature(rawBody, sig, WEBHOOK_SECRET);
+  if (!event) {
+    console.warn('webhook signature invalid or expired');
+    return res.status(400).json({ error: 'signature invalid' });
+  }
 
   try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const bookingId = session.metadata?.booking_id;
-      if (bookingId) {
-        // Mark booking confirmed + create the demo row
-        const bookings = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=*`);
-        const booking = Array.isArray(bookings) ? bookings[0] : null;
-        if (booking && booking.status === 'pending') {
-          await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: 'confirmed' }),
-          });
-          const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=demo_fee`);
-          const fee = Array.isArray(venues) && venues[0] ? Number(venues[0].demo_fee) : 30;
-          await sb(`demos`, {
-            method: 'POST',
-            body: JSON.stringify({
-              retailer_id: booking.retailer_id,
-              venue_id: booking.venue_id,
-              company_name: booking.brand_name || 'Unknown',
-              contact_name: booking.contact_name || null,
-              product: booking.product || null,
-              demo_date: booking.demo_date,
-              demo_time: booking.demo_time,
-              duration_hours: 3,
-              status: 'confirmed',
-              demo_fee: fee,
-              notes: 'Paid via Stripe: ' + session.id,
-            }),
-          });
-        }
-      }
+    switch (event.type) {
+      case 'account.updated':
+        await handleAccountUpdated(event); break;
+      case 'payment_intent.succeeded':
+        await handlePaymentIntentSucceeded(event); break;
+      case 'payment_intent.payment_failed':
+        await handlePaymentIntentFailed(event); break;
+      case 'charge.refunded':
+        await handleChargeRefunded(event); break;
+      default:
+        // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
+        console.log(`ignored event: ${event.type}`);
     }
-
-    // ===== Subscription lifecycle events (Stripe Phase 1) =====
-    // checkout.session.completed for a subscription -> we record customer/sub IDs.
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      if (session.mode === 'subscription' && session.subscription) {
-        const retailerId = session.metadata?.retailer_id || session.subscription_data?.metadata?.retailer_id;
-        if (retailerId) {
-          // Fetch the subscription to know tier + period + status
-          const subRes = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(session.subscription)}?expand[]=items.data.price.product`, {
-            headers: { Authorization: `Basic ${Buffer.from(STRIPE_SECRET_KEY + ':').toString('base64')}` },
-          });
-          const sub = await subRes.json();
-          if (subRes.ok) {
-            const item = sub.items?.data?.[0];
-            const tier = item?.price?.product?.metadata?.tier || session.metadata?.tier || null;
-            const interval = item?.price?.recurring?.interval || session.metadata?.interval || null;
-            const patch = {
-              stripe_customer_id: sub.customer,
-              stripe_subscription_id: sub.id,
-              billing_tier: tier,
-              billing_status: sub.status,
-              billing_period_interval: interval,
-              billing_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-            };
-            await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-          }
-        }
-      }
-    }
-
-    // Subscription updated (tier change, status change, period rollover)
-    if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
-      const sub = event.data.object;
-      const retailerId = sub.metadata?.retailer_id;
-      if (retailerId) {
-        // Re-fetch with expanded product to read tier metadata reliably
-        const subRes = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(sub.id)}?expand[]=items.data.price.product`, {
-          headers: { Authorization: `Basic ${Buffer.from(STRIPE_SECRET_KEY + ':').toString('base64')}` },
-        });
-        const subFull = await subRes.json();
-        const item = subFull.items?.data?.[0];
-        const tier = item?.price?.product?.metadata?.tier || null;
-        const interval = item?.price?.recurring?.interval || null;
-        const patch = {
-          stripe_subscription_id: sub.id,
-          stripe_customer_id: sub.customer,
-          billing_tier: tier,
-          billing_status: sub.status,
-          billing_period_interval: interval,
-          billing_period_end: sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null,
-        };
-        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-      }
-    }
-
-    // Subscription deleted (canceled and period ended)
-    if (event.type === 'customer.subscription.deleted') {
-      const sub = event.data.object;
-      const retailerId = sub.metadata?.retailer_id;
-      if (retailerId) {
-        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            stripe_subscription_id: null,
-            billing_tier: null,
-            billing_status: 'canceled',
-            billing_period_end: null,
-            billing_period_interval: null,
-          }),
-        });
-      }
-    }
-
-    // Invoice payment failed — mark past_due so admin can see and act
-    if (event.type === 'invoice.payment_failed') {
-      const inv = event.data.object;
-      if (inv.customer) {
-        const arr = await sb(`retailers?stripe_customer_id=eq.${encodeURIComponent(inv.customer)}&select=id`);
-        const r = Array.isArray(arr) ? arr[0] : null;
-        if (r) {
-          await sb(`retailers?id=eq.${encodeURIComponent(r.id)}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ billing_status: 'past_due' }),
-          });
-        }
-      }
-    }
-
-    // Connect account updated — sync charges_enabled / payouts_enabled
-    if (event.type === 'account.updated') {
-      const acct = event.data.object;
-      const retailerId = acct.metadata?.retailer_id;
-      if (retailerId) {
-        const charges = !!acct.charges_enabled;
-        const payouts = !!acct.payouts_enabled;
-        const status = charges && payouts ? 'active' : (acct.requirements?.disabled_reason ? 'restricted' : 'pending');
-        await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
-          method: 'PATCH',
-          body: JSON.stringify({
-            stripe_charges_enabled: charges,
-            stripe_payouts_enabled: payouts,
-            stripe_account_status: status,
-          }),
-        });
-      }
-    }
-
-    // Invoice paid — clear past_due if it was set
-    if (event.type === 'invoice.paid' || event.type === 'invoice.payment_succeeded') {
-      const inv = event.data.object;
-      if (inv.customer && inv.subscription) {
-        const arr = await sb(`retailers?stripe_customer_id=eq.${encodeURIComponent(inv.customer)}&select=id,billing_status`);
-        const r = Array.isArray(arr) ? arr[0] : null;
-        if (r && r.billing_status === 'past_due') {
-          await sb(`retailers?id=eq.${encodeURIComponent(r.id)}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ billing_status: 'active' }),
-          });
-        }
-      }
-    }
-
-    // Mark this event as processed (idempotency record)
-    try {
-      if (event.id) {
-        await sb('stripe_events_processed', {
-          method: 'POST',
-          body: JSON.stringify({ event_id: event.id, event_type: event.type }),
-        });
-      }
-    } catch (_) { /* best-effort */ }
-    return res.status(200).end('ok');
+    return res.status(200).json({ received: true });
   } catch (e) {
-    return res.status(500).end(String(e?.message || e));
+    // Return 500 so Stripe will retry — but log so we can diagnose
+    console.error(`webhook handler error for ${event.type}:`, e.message);
+    return res.status(500).json({ error: e.message });
   }
 }
