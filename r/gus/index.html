@@ -644,10 +644,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <div style="height:140px; border-radius:10px 10px 0 0; overflow:hidden; position:relative;">
                         ${retailerAvatarHtml(retailer, 140)}
                     </div>
-                    <h3>${rNameEsc}</h3>
+                    <h3>${nameEsc}</h3>
                     <div class="location-card-location">
                         <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                        ${addrEsc || nameEsc}
+                        ${addrEsc || 'Address on request'}
                     </div>
                     <div class="location-card-footer">
                         <div class="location-card-price">$${fee} <span>/ demo</span></div>
@@ -672,10 +672,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     <div style="height:80px; border-radius:10px 10px 0 0; overflow:hidden;">
                         ${retailerAvatarHtml(retailer, 80)}
                     </div>
-                    <h3 style="font-size:1rem; margin:14px 18px 4px;">${rEsc}</h3>
+                    <h3 style="font-size:1rem; margin:14px 18px 4px;">${nameEsc}</h3>
                     <div class="location-card-location" style="padding:0 18px 4px; font-size:0.82rem;">
                         <svg viewBox="0 0 24 24" width="14" height="14"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                        ${addrEsc || nameEsc}
+                        ${addrEsc || 'Address on request'}
                     </div>
                     <div class="location-card-footer" style="padding:10px 18px 14px;">
                         <div class="location-card-price" style="font-size:0.95rem;">$${fee}<span style="font-size:0.8rem;"> / demo</span></div>
