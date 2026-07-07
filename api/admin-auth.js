@@ -232,7 +232,7 @@ export default async function handler(req, res) {
       // Rate limit code verification per IP (defense against brute force)
       const rl = await checkRateLimit(req, 'verify-code', 30);
       if (!rl.allowed) return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
-      const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=id.desc&limit=1`);
+      const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
       const trow = Array.isArray(rows) ? rows[0] : null;
       if (!trow) return res.status(404).json({ error: 'Invalid code' });
       if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Code expired' });
