@@ -236,14 +236,27 @@ export default async function handler(req, res) {
       // Generate a 6-digit code so signup email + fallback can include it
       const n = Math.floor(Math.random() * 1000000);
       signupCode = String(n).padStart(6, '0');
-      const tokens = await sb(`admin_tokens`, {
-        method: 'POST',
-        body: JSON.stringify({
-          email: billing_email.toLowerCase().trim(),
-          retailer_id: retailer.id,
-          code: signupCode,
-        }),
-      });
+      let tokens;
+      try {
+        tokens = await sb(`admin_tokens`, {
+          method: 'POST',
+          body: JSON.stringify({
+            email: billing_email.toLowerCase().trim(),
+            retailer_id: retailer.id,
+            code: signupCode,
+          }),
+        });
+      } catch (_e) {
+        // Fallback: DB may not have `code` column yet (migration not run). Retry without.
+        signupCode = null;
+        tokens = await sb(`admin_tokens`, {
+          method: 'POST',
+          body: JSON.stringify({
+            email: billing_email.toLowerCase().trim(),
+            retailer_id: retailer.id,
+          }),
+        });
+      }
       signupToken = Array.isArray(tokens) ? (tokens[0]?.token || null) : null;
     } catch (e) { console.warn('signup admin_tokens insert failed:', e?.message || e); }
 

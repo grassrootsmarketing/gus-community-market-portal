@@ -125,10 +125,19 @@ export default async function handler(req, res) {
         const adminRow = Array.isArray(admins) ? admins[0] : null;
         if (adminRow) {
           const code = generateLoginCode();
-          const tokens = await sb(`admin_tokens`, {
-            method: 'POST',
-            body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
-          });
+          let tokens;
+          try {
+            tokens = await sb(`admin_tokens`, {
+              method: 'POST',
+              body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
+            });
+          } catch (_e) {
+            // Fallback: DB may not have `code` column yet (migration not run). Retry without.
+            tokens = await sb(`admin_tokens`, {
+              method: 'POST',
+              body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
+            });
+          }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
           const link = `${origin}/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`;
@@ -164,10 +173,18 @@ export default async function handler(req, res) {
             const retailer = adminRow.retailers;
             if (!retailer) continue;
             const code = generateLoginCode();
-            const tokens = await sb(`admin_tokens`, {
-              method: 'POST',
-              body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id, code }),
-            });
+            let tokens;
+            try {
+              tokens = await sb(`admin_tokens`, {
+                method: 'POST',
+                body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id, code }),
+              });
+            } catch (_e) {
+              tokens = await sb(`admin_tokens`, {
+                method: 'POST',
+                body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id }),
+              });
+            }
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
             if (!token) continue;
             const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
@@ -322,10 +339,18 @@ export default async function handler(req, res) {
         const retailer = Array.isArray(retailers) ? retailers[0] : null;
         if (retailer && RESEND_API_KEY) {
           const code = generateLoginCode();
-          const tokens = await sb(`admin_tokens`, {
-            method: 'POST',
-            body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id, code }),
-          });
+          let tokens;
+          try {
+            tokens = await sb(`admin_tokens`, {
+              method: 'POST',
+              body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id, code }),
+            });
+          } catch (_e) {
+            tokens = await sb(`admin_tokens`, {
+              method: 'POST',
+              body: JSON.stringify({ email: normalizedEmail, retailer_id: v.retailer_id }),
+            });
+          }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
           const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
