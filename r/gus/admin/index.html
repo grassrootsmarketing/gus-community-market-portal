@@ -651,7 +651,7 @@
                         <li data-step="hours" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
                             <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Set your store hours</strong> — <span style="color:var(--ink-500);">so brands only book slots you staff.</span></span>
-                            <a href="#storesSection" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Set hours →</a>
+                            <a href="#availabilityCard" onclick="setTimeout(()=>{document.getElementById('availabilityCard')?.scrollIntoView({behavior:'smooth',block:'start'});},100);" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap;">Set hours →</a>
                         </li>
                         <li data-step="team" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
@@ -876,7 +876,7 @@
                                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                                     <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
                                 </div>
-                                <input type="number" id="availabilityMaxPerSlot" min="1" max="20" step="1" value="1" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
+                                <select id="availabilityMaxPerSlot" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="12">12</option><option value="15">15</option><option value="20">20</option></select>
                                 <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
                                 <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                             </div>
@@ -2320,7 +2320,7 @@ END:VEVENT
                     </label>
                     <span class="availability-day-name" style="padding-top:6px;">${DAY_NAMES[d]}</span>
                     <div class="availability-times" id="availTimes-${d}" style="flex:1;">
-                        ${isOpen ? renderDayWindowsHtml(d, windows) : `<div style="display:flex; align-items:center; gap:10px; padding-top:6px;"><span style="color:var(--ink-500);">Closed</span><button type="button" onclick="applyStandardShifts(${d})" style="background:none; border:1px solid rgba(15,44,23,0.12); color:var(--forest-700); font-size:0.78rem; font-weight:600; padding:4px 10px; border-radius:6px; cursor:pointer;">Quick set: 11–2 + 3–6</button></div>`}
+                        ${isOpen ? renderDayWindowsHtml(d, windows) : renderClosedDayHtml(d)}
                     </div>
                 </div>`;
             }
@@ -2411,7 +2411,7 @@ END:VEVENT
             const current = readDayWindowsFromDom(day);
             current.splice(idx, 1);
             const cell = document.getElementById('availTimes-' + day);
-            if (cell) cell.innerHTML = current.length > 0 ? renderDayWindowsHtml(day, current) : '<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>';
+            if (cell) cell.innerHTML = current.length > 0 ? renderDayWindowsHtml(day, current) : renderClosedDayHtml(day);
         }
 
         function onAvailabilityToggle(day) {
@@ -2427,8 +2427,15 @@ END:VEVENT
                 const windows = prevWindows.length > 0 ? prevWindows : [{ open: '10:00', close: '18:00' }];
                 cell.innerHTML = renderDayWindowsHtml(day, windows);
             } else {
-                cell.innerHTML = '<span style="color:var(--ink-500); padding-top:6px; display:inline-block;">Closed</span>';
+                cell.innerHTML = renderClosedDayHtml(day);
             }
+        }
+
+        // Renders the "Closed + Quick set chip" HTML for a day.
+        // Used both in initial render and after toggle-off, so the quick-set chip
+        // is consistently visible on every closed day (Tue/Wed no-chip bug fix).
+        function renderClosedDayHtml(day) {
+            return `<div style="display:flex; align-items:center; gap:10px; padding-top:6px;"><span style="color:var(--ink-500);">Closed</span><button type="button" onclick="applyStandardShifts(${day})" style="background:none; border:1px solid rgba(15,44,23,0.12); color:var(--forest-700); font-size:0.78rem; font-weight:600; padding:4px 10px; border-radius:6px; cursor:pointer;">Quick set: 11–2 + 3–6</button></div>`;
         }
 
         function buildScheduleFromDom() {
