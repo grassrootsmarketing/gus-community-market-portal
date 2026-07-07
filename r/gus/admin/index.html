@@ -999,7 +999,7 @@
                                 <label class="form-label">Default Demo Fee</label>
                                 <div style="position:relative; display:flex; align-items:center;">
                                     <span aria-hidden="true" style="position:absolute; left:14px; font-weight:600; color:var(--ink-700); pointer-events:none; z-index:1;">$</span>
-                                    <input type="number" step="0.01" min="0" max="9999" inputmode="decimal" class="form-input" id="settingDemoFee" value="30.00" disabled style="padding-left:26px; width:100%;">
+                                    <input type="number" step="1" min="0" max="9999" inputmode="numeric" class="form-input" id="settingDemoFee" value="30" disabled style="padding-left:26px; width:100%;">
                                 </div>
                             </div>
                             <div class="form-group">
@@ -2627,7 +2627,7 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            if (fee) fee.value = Number(s.demo_fee || 30).toFixed(2);
+            if (fee) fee.value = String(Math.round(Number(s.demo_fee || 30)));
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
             // Load booking preferences from retailer row (not settings row)
@@ -4168,18 +4168,56 @@ END:VEVENT
             window.location.href = url;
         }
         async function openGoogleAddByUrl(btn) {
-            // Copy URL first, then open Google Calendar's "Add by URL" settings page
-            const ok = await _copyIcalToClipboard();
-            _showCalToast(ok
-                ? 'URL copied. Paste it into the "URL of calendar" field on the next screen.'
-                : 'Copy the URL manually, then paste it into the "URL of calendar" field.');
+            const url = getIcalFeedUrl();
+            let copied = false;
+            try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
+            // Show a clear 3-step guide before opening Google Calendar
+            const stepHtml = `
+                <div style="background:#f4f8f0; border:1.5px solid var(--forest-200,#c8d4c1); border-radius:10px; padding:14px 16px; margin-bottom:14px;">
+                    <div style="font-size:0.75rem; font-weight:700; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Your calendar URL${copied ? ' (copied ✓)' : ''}</div>
+                    <div style="font-family:'SF Mono',Consolas,monospace; font-size:0.78rem; color:var(--forest-900); word-break:break-all; user-select:all; padding:6px 0;">${url.replace(/</g,'&lt;')}</div>
+                </div>
+                <div style="background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; padding:14px 16px; margin-bottom:6px;">
+                    <div style="font-size:0.82rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">On the next screen:</div>
+                    <ol style="padding-left:20px; margin:0; font-size:0.9rem; color:var(--ink-700); line-height:1.7;">
+                        <li>Find the field labeled <strong>"URL of calendar"</strong></li>
+                        <li><strong>Paste</strong> the URL (${copied ? 'already on your clipboard' : 'copy it from above first'})</li>
+                        <li>Click the blue <strong>Add calendar</strong> button</li>
+                    </ol>
+                </div>
+            `;
+            await DhModal.alert({
+                title: 'Add to Google Calendar',
+                message: '',
+                extraHTML: stepHtml,
+                ok: 'Open Google Calendar &rarr;',
+            });
             window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank');
         }
         async function openOutlookAddByUrl(btn) {
-            const ok = await _copyIcalToClipboard();
-            _showCalToast(ok
-                ? 'URL copied. Outlook: Add calendar → Subscribe from web → paste URL.'
-                : 'Copy the URL manually, then Outlook: Add calendar → Subscribe from web → paste.');
+            const url = getIcalFeedUrl();
+            let copied = false;
+            try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
+            const stepHtml = `
+                <div style="background:#f4f8f0; border:1.5px solid var(--forest-200,#c8d4c1); border-radius:10px; padding:14px 16px; margin-bottom:14px;">
+                    <div style="font-size:0.75rem; font-weight:700; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:6px;">Your calendar URL${copied ? ' (copied ✓)' : ''}</div>
+                    <div style="font-family:'SF Mono',Consolas,monospace; font-size:0.78rem; color:var(--forest-900); word-break:break-all; user-select:all; padding:6px 0;">${url.replace(/</g,'&lt;')}</div>
+                </div>
+                <div style="background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; padding:14px 16px; margin-bottom:6px;">
+                    <div style="font-size:0.82rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">On the next screen:</div>
+                    <ol style="padding-left:20px; margin:0; font-size:0.9rem; color:var(--ink-700); line-height:1.7;">
+                        <li>Paste the URL in the <strong>"Link to the calendar"</strong> field</li>
+                        <li>Give it a name (e.g. "Demohub bookings")</li>
+                        <li>Click <strong>Import</strong></li>
+                    </ol>
+                </div>
+            `;
+            await DhModal.alert({
+                title: 'Add to Outlook Calendar',
+                message: '',
+                extraHTML: stepHtml,
+                ok: 'Open Outlook &rarr;',
+            });
             window.open('https://outlook.live.com/calendar/0/addfromweb', '_blank');
         }
         // Populate the readonly URL field when the settings view renders
