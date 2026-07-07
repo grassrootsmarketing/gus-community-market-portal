@@ -3678,7 +3678,6 @@ END:VEVENT
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'team-list', session_id: AdminAuth.getSession() }),
-        setTimeout(_applyViewerGate, 200);
                 });
                 const j = await r.json();
                 if (j.error) throw new Error(j.error);
