@@ -54,6 +54,12 @@ const MIGRATIONS = [
             ADD COLUMN IF NOT EXISTS auto_confirm_bookings BOOLEAN NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS cancellation_mode TEXT NOT NULL DEFAULT '14_day_refund';`,
   },
+  {
+    name: '006_policy_docs_storage_bucket',
+    sql: `INSERT INTO storage.buckets (id, name, public)
+          VALUES ('policy-docs', 'policy-docs', true)
+          ON CONFLICT (id) DO NOTHING;`,
+  },
 ];
 
 // ==============================================================

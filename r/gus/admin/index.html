@@ -2811,6 +2811,89 @@ END:VEVENT
         // ===== Settings edit toggle =====
         function loadSettings() { applySettingsToInputs(); }
 
+
+        // ===== Demo policy PDF upload =====
+        async function uploadDemoPolicyPdf(inputEl) {
+            const file = inputEl.files && inputEl.files[0];
+            if (!file) return;
+            const status = document.getElementById('demoPolicyStatus');
+            if (status) status.textContent = 'Uploading ' + file.name + '…';
+            const reader = new FileReader();
+            reader.onload = async () => {
+                try {
+                    const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
+                    const r = await fetch('/api/admin-auth', {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({
+                            action: 'upload-demo-policy',
+                            session_id: sessionId,
+                            file: reader.result,
+                            filename: file.name,
+                        }),
+                    });
+                    const j = await r.json();
+                    if (!r.ok) throw new Error(j.error || 'Upload failed');
+                    if (window.state.retailer) {
+                        window.state.retailer.demo_policy_url = j.demo_policy_url;
+                        window.state.retailer.demo_policy_filename = j.demo_policy_filename;
+                    }
+                    renderDemoPolicyPdfState();
+                    if (status) status.textContent = 'Uploaded ' + file.name + ' — brands will see this instead of the text.';
+                } catch (e) {
+                    if (status) status.textContent = 'Upload failed: ' + (e.message || e);
+                }
+                inputEl.value = '';
+            };
+            reader.readAsDataURL(file);
+        }
+        async function removeDemoPolicyPdf() {
+            if (!confirm('Remove the uploaded policy PDF? Brands will see the text policy instead.')) return;
+            const status = document.getElementById('demoPolicyStatus');
+            try {
+                const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'remove-demo-policy', session_id: sessionId }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || 'Remove failed');
+                if (window.state.retailer) {
+                    window.state.retailer.demo_policy_url = null;
+                    window.state.retailer.demo_policy_filename = null;
+                }
+                renderDemoPolicyPdfState();
+                if (status) status.textContent = 'Policy PDF removed. Text policy is now active.';
+            } catch (e) {
+                if (status) status.textContent = 'Remove failed: ' + (e.message || e);
+            }
+        }
+        // Show the PDF card if URL present, hide the textarea in that case.
+        function renderDemoPolicyPdfState() {
+            const pdfCard = document.getElementById('demoPolicyPdfCard');
+            const textBlock = document.getElementById('demoPolicyTextBlock');
+            const uploadLabel = document.getElementById('demoPolicyUploadLabel');
+            const fileNameEl = document.getElementById('demoPolicyFileName');
+            const viewLink = document.getElementById('demoPolicyPdfViewLink');
+            const url = window.state.retailer && window.state.retailer.demo_policy_url;
+            const filename = (window.state.retailer && window.state.retailer.demo_policy_filename) || 'demo-policy.pdf';
+            if (url) {
+                if (pdfCard) pdfCard.style.display = 'flex';
+                if (textBlock) textBlock.style.display = 'none';
+                if (fileNameEl) fileNameEl.textContent = filename;
+                if (viewLink) viewLink.href = url;
+                if (uploadLabel) uploadLabel.textContent = 'Replace PDF';
+            } else {
+                if (pdfCard) pdfCard.style.display = 'none';
+                if (textBlock) textBlock.style.display = '';
+                if (uploadLabel) uploadLabel.textContent = 'Upload PDF instead';
+            }
+        }
+        // Wire on load — after data hydrates
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(renderDemoPolicyPdfState, 800);
+            setTimeout(renderDemoPolicyPdfState, 2000);
+        });
+
         // ===== Demo policy =====
         let demoPolicyEditing = false;
         const DEMO_POLICY_DEFAULT = `Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.`;

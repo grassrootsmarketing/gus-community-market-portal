@@ -445,6 +445,48 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, logo_url: publicUrl });
     }
 
+    // ---- UPLOAD-DEMO-POLICY (PDF) ----
+    if (action === 'upload-demo-policy') {
+      const { session_id, file, filename } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const m = String(file || '').match(/^data:(application\/pdf|image\/(?:png|jpeg));base64,(.+)$/);
+      if (!m) return res.status(400).json({ error: 'Invalid file — must be a PDF, PNG, or JPEG data URL' });
+      const mime = m[1];
+      const ext = mime === 'application/pdf' ? 'pdf' : (mime === 'image/png' ? 'png' : 'jpg');
+      const bytes = Buffer.from(m[2], 'base64');
+      if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large — max 5MB' });
+      const safeName = (filename || 'demo-policy').replace(/[^a-z0-9._-]/gi, '_').slice(0, 60);
+      const path = `retailers/${v.retailer_id}/demo-policy-${Date.now()}.${ext}`;
+      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/policy-docs/${path}?upsert=true`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        body: bytes,
+      });
+      if (!uploadResp.ok) {
+        const t = await uploadResp.text();
+        return res.status(500).json({ error: 'Upload failed: ' + t });
+      }
+      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/policy-docs/${path}`;
+      await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ demo_policy_url: publicUrl, demo_policy_filename: safeName }),
+      });
+      return res.status(200).json({ ok: true, demo_policy_url: publicUrl, demo_policy_filename: safeName });
+    }
+
+    // ---- REMOVE-DEMO-POLICY ----
+    if (action === 'remove-demo-policy') {
+      const { session_id } = body || {};
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ demo_policy_url: null, demo_policy_filename: null }),
+      });
+      return res.status(200).json({ ok: true });
+    }
+
     // ---- REMOVE-RETAILER-AVATAR ----
     if (action === 'remove-retailer-avatar') {
       const { session_id } = body || {};
