@@ -152,7 +152,7 @@ export default async function handler(req, res) {
     }
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email`, {
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const retailers = await retailerResp.json();
@@ -342,6 +342,9 @@ export default async function handler(req, res) {
         Prefer: 'return=representation',
       },
       body: JSON.stringify({
+        // Auto-confirm if the retailer opted in - skips the manual pending step,
+        // brand gets a confirmation email immediately.
+        // (Manual retailers keep the pending flow so they can vet each request.)
         retailer_id: RETAILER_ID,
         venue_id: venueRow ? venueRow.id : null,
         brand_name,
@@ -352,7 +355,7 @@ export default async function handler(req, res) {
         demo_date,
         demo_time,
         notes: notes || null,
-        status: 'pending',
+        status: (retailer.auto_confirm_bookings ? 'confirmed' : 'pending'),
         brand_id: brandId,
       }),
     });

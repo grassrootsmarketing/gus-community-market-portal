@@ -48,6 +48,12 @@ const MIGRATIONS = [
             ADD COLUMN IF NOT EXISTS cancellation_policy_url_snapshot TEXT,
             ADD COLUMN IF NOT EXISTS demo_policy_url_snapshot TEXT;`,
   },
+  {
+    name: '005_retailers_booking_preferences',
+    sql: `ALTER TABLE retailers
+            ADD COLUMN IF NOT EXISTS auto_confirm_bookings BOOLEAN NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS cancellation_mode TEXT NOT NULL DEFAULT '14_day_refund';`,
+  },
 ];
 
 // ==============================================================
