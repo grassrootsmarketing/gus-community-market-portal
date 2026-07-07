@@ -101,7 +101,12 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
     <a href="#" class="recognized-notyou" id="recognizedNotYou">Not you? Sign in with a different account</a>
     <div class="recognized-check" id="recognizedCheck">
         <strong>Check your inbox.</strong>
-        <p>We sent a fresh sign-in link to <span id="recognizedSentTo"></span>. The link expires in 24 hours.</p>
+        <p>We sent a login code to <span id="recognizedSentTo"></span>. Enter the 6-digit code below to sign in.</p>
+        <div style="margin-top:14px;">
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="recognizedCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
+            <button type="button" id="recognizedCodeBtn" onclick="verifyRecognizedCode()" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
+            <div class="error" id="recognizedCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
+        </div>
     </div>
 </div>
 <div id="signinGridWrap"><div class="signin-grid">
