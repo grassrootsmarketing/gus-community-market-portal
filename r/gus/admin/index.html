@@ -1246,6 +1246,107 @@
         let cart = [];
         const PRICE_PER_DEMO = 30;
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+        // ===== DhModal — branded prompt/confirm/alert/toast to replace native dialogs =====
+        window.DhModal = (function() {
+            let hostEl = null, styleInjected = false;
+            const style = `
+                .dhm-backdrop{position:fixed;inset:0;background:rgba(20,30,20,0.42);z-index:9999;display:flex;align-items:center;justify-content:center;animation:dhmFade .12s ease-out;}
+                .dhm-card{background:#fff;border-radius:14px;box-shadow:0 24px 60px rgba(20,30,20,.22);max-width:440px;width:calc(100% - 32px);padding:24px 24px 20px;font-family:inherit;animation:dhmPop .16s cubic-bezier(.2,.9,.3,1.1);}
+                .dhm-card h4{margin:0 0 8px;font-family:'Plus Jakarta Sans','Inter',sans-serif;font-weight:600;font-size:1.15rem;color:var(--forest-900,#1f4a26);letter-spacing:-.01em;}
+                .dhm-card p{margin:0 0 16px;font-size:.92rem;line-height:1.55;color:var(--ink-700,#3d3a2f);white-space:pre-wrap;}
+                .dhm-input{width:100%;padding:10px 14px;border:1.5px solid var(--forest-200,#c8d4c1);border-radius:8px;font-size:.95rem;font-family:inherit;color:var(--ink-900,#1f2a1c);background:#fdfcf7;outline:none;box-sizing:border-box;transition:border-color .12s;}
+                .dhm-input:focus{border-color:var(--forest-600,#2a5b32);background:#fff;}
+                .dhm-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;}
+                .dhm-btn{padding:8px 18px;border-radius:8px;font-size:.9rem;font-weight:600;font-family:inherit;cursor:pointer;border:1.5px solid transparent;transition:all .12s;}
+                .dhm-btn-primary{background:var(--forest-900,#1f4a26);color:#fff;border-color:var(--forest-900,#1f4a26);}
+                .dhm-btn-primary:hover{background:var(--forest-700,#2a5b32);border-color:var(--forest-700,#2a5b32);}
+                .dhm-btn-danger{background:#c14a2f;color:#fff;border-color:#c14a2f;}
+                .dhm-btn-danger:hover{background:#a63e26;border-color:#a63e26;}
+                .dhm-btn-secondary{background:#fff;color:var(--ink-700,#3d3a2f);border-color:var(--forest-200,#c8d4c1);}
+                .dhm-btn-secondary:hover{background:#f9f7f2;}
+                .dhm-copy{width:100%;padding:10px 14px;border:1.5px solid var(--forest-200,#c8d4c1);border-radius:8px;font-size:.85rem;font-family:'SF Mono',Consolas,monospace;color:var(--forest-900,#1f4a26);background:#f9f7f2;word-break:break-all;user-select:all;cursor:text;}
+                .dhm-toast-host{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:10001;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;}
+                .dhm-toast{background:var(--forest-900,#1f4a26);color:#fff;padding:11px 18px;border-radius:99px;font-size:.88rem;font-weight:600;box-shadow:0 8px 24px rgba(20,30,20,.28);animation:dhmToastIn .2s cubic-bezier(.2,.9,.3,1.1);pointer-events:auto;max-width:min(90vw,520px);text-align:center;line-height:1.4;}
+                .dhm-toast.dhm-t-error{background:#c14a2f;}
+                .dhm-toast.dhm-t-warn{background:#c17d1a;}
+                .dhm-toast.dhm-t-info{background:var(--forest-900,#1f4a26);}
+                .dhm-toast.dhm-t-success{background:#2a5b32;}
+                .dhm-toast-out{animation:dhmToastOut .2s ease-in forwards;}
+                @keyframes dhmFade{from{opacity:0;}to{opacity:1;}}
+                @keyframes dhmPop{from{opacity:0;transform:scale(.94) translateY(6px);}to{opacity:1;transform:none;}}
+                @keyframes dhmToastIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+                @keyframes dhmToastOut{to{opacity:0;transform:translateY(6px);}}
+            `;
+            function ensureStyle(){
+                if (styleInjected) return;
+                const s = document.createElement('style'); s.textContent = style; document.head.appendChild(s);
+                styleInjected = true;
+            }
+            function makeBackdrop() {
+                ensureStyle();
+                const bd = document.createElement('div'); bd.className = 'dhm-backdrop';
+                document.body.appendChild(bd);
+                return bd;
+            }
+            function focusFirst(card) {
+                const f = card.querySelector('input,textarea,button.dhm-btn-primary,button.dhm-btn-danger');
+                if (f) setTimeout(() => f.focus(), 40);
+            }
+            function open({title, message, defaultValue, inputType, ok, cancel, danger, kind, extraHTML}) {
+                return new Promise(resolve => {
+                    const bd = makeBackdrop();
+                    const card = document.createElement('div'); card.className = 'dhm-card';
+                    const showInput = kind === 'prompt';
+                    const showCancel = kind !== 'alert';
+                    card.innerHTML = `
+                        ${title ? `<h4>${title}</h4>` : ''}
+                        ${message ? `<p>${message}</p>` : ''}
+                        ${showInput ? `<input class="dhm-input" type="${inputType||'text'}" value="${(defaultValue||'').toString().replace(/"/g,'&quot;')}" />` : ''}
+                        ${extraHTML || ''}
+                        <div class="dhm-actions">
+                            ${showCancel ? `<button type="button" class="dhm-btn dhm-btn-secondary" data-act="cancel">${cancel||'Cancel'}</button>` : ''}
+                            <button type="button" class="dhm-btn ${danger?'dhm-btn-danger':'dhm-btn-primary'}" data-act="ok">${ok||'OK'}</button>
+                        </div>
+                    `;
+                    bd.appendChild(card);
+                    const input = card.querySelector('input.dhm-input');
+                    function close(val){ bd.remove(); document.removeEventListener('keydown', esc); resolve(val); }
+                    function esc(e){
+                        if (e.key === 'Escape') close(kind === 'prompt' ? null : false);
+                        else if (e.key === 'Enter' && document.activeElement !== card.querySelector('textarea')) {
+                            const v = kind === 'prompt' ? (input ? input.value : '') : true;
+                            close(v);
+                        }
+                    }
+                    document.addEventListener('keydown', esc);
+                    card.querySelector('[data-act="ok"]').onclick = () => close(kind === 'prompt' ? (input ? input.value : '') : true);
+                    const cancelBtn = card.querySelector('[data-act="cancel"]');
+                    if (cancelBtn) cancelBtn.onclick = () => close(kind === 'prompt' ? null : false);
+                    bd.addEventListener('click', e => { if (e.target === bd) close(kind === 'prompt' ? null : false); });
+                    focusFirst(card);
+                    if (input && kind === 'prompt') { input.select(); }
+                });
+            }
+            function alert(opts){ if (typeof opts === 'string') opts = {message: opts}; return open({...opts, kind:'alert', ok: opts.ok || 'OK'}); }
+            function confirm(opts){ if (typeof opts === 'string') opts = {message: opts}; return open({...opts, kind:'confirm', ok: opts.ok || 'Confirm'}); }
+            function prompt(opts){ if (typeof opts === 'string') opts = {message: opts}; return open({...opts, kind:'prompt', ok: opts.ok || 'OK'}); }
+            function toast(message, type){
+                ensureStyle();
+                if (!hostEl) { hostEl = document.createElement('div'); hostEl.className = 'dhm-toast-host'; document.body.appendChild(hostEl); }
+                const t = document.createElement('div'); t.className = 'dhm-toast dhm-t-' + (type||'info');
+                t.textContent = message; hostEl.appendChild(t);
+                setTimeout(() => { t.classList.add('dhm-toast-out'); setTimeout(() => t.remove(), 200); }, type === 'error' ? 4000 : 2600);
+            }
+            async function copyableUrl({title, message, url}) {
+                const extra = `<div class="dhm-copy" onclick="this.focus();document.getSelection().selectAllChildren(this);">${(url||'').replace(/</g,'&lt;')}</div>`;
+                return await open({title: title||'Copy this URL', message, extraHTML: extra, kind:'alert', ok:'Done'});
+            }
+            return { alert, confirm, prompt, toast, copyableUrl };
+        })();
+        // Alias `toast` if not already defined for optional use elsewhere
+        if (typeof window.toast === 'undefined') window.toast = (msg, type) => DhModal.toast(msg, type);
+
         
         // ===== AdminAuth — per-retailer magic-link gate =====
         const AdminAuth = (() => {
@@ -1444,7 +1545,7 @@
         
         function addToCart() {
             if (!selectedDate || !selectedTime) {
-                alert('Please select a date and time first');
+                DhModal.toast('Please select a date and time first', 'info');
                 return;
             }
             
@@ -1452,7 +1553,7 @@
             const dateStr = selectedDate.toISOString().split('T')[0];
             const existsOnDay = cart.find(item => item.dateStr === dateStr && item.location === currentLocation);
             if (existsOnDay) {
-                alert('You can only book one slot per location per day. This location already has a booking on ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                DhModal.toast('You can only book one slot per location per day. This location already has a booking on ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), 'info');
                 return;
             }
             
@@ -1678,7 +1779,7 @@ END:VEVENT
             const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${dates}&location=${location}&details=${details}`;
             
             if (cart.length > 1) {
-                alert('Google Calendar will open for your first booking. For multiple bookings, use "Download Calendar File" to add all events at once.');
+                DhModal.toast('Google Calendar will open for your first booking. For multiple bookings, use "Download Calendar File" to add all events at once.', 'info');
             }
             
             window.open(googleUrl, '_blank');
@@ -1706,7 +1807,7 @@ END:VEVENT
             const outlookUrl = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${startDate}T${startTime}&enddt=${startDate}T${endTime}&location=${location}&body=${details}`;
             
             if (cart.length > 1) {
-                alert('Outlook Calendar will open for your first booking. For multiple bookings, use "Download Calendar File" to add all events at once.');
+                DhModal.toast('Outlook Calendar will open for your first booking. For multiple bookings, use "Download Calendar File" to add all events at once.', 'info');
             }
             
             window.open(outlookUrl, '_blank');
@@ -1877,9 +1978,9 @@ END:VEVENT
             fileInput.addEventListener('change', async (e) => {
                 const file = e.target.files && e.target.files[0];
                 if (!file) return;
-                if (file.size > 2 * 1024 * 1024) { alert('Image too large — max 2MB'); e.target.value = ''; return; }
+                if (file.size > 2 * 1024 * 1024) { DhModal.toast('Image too large — max 2MB', 'error'); e.target.value = ''; return; }
                 const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
-                if (!sessionId) { alert('Sign in again to upload a logo.'); return; }
+                if (!sessionId) { DhModal.toast('Sign in again to upload a logo.', 'info'); return; }
                 const reader = new FileReader();
                 reader.onload = async () => {
                     try {
@@ -1891,7 +1992,7 @@ END:VEVENT
                         if (!r.ok) throw new Error(j.error || 'Upload failed');
                         renderRetailerLogo(j.logo_url);
                     } catch (err) {
-                        alert('Could not upload logo: ' + err.message);
+                        DhModal.toast('Could not upload logo: ' + err.message, 'error');
                     } finally {
                         e.target.value = '';
                     }
@@ -2017,7 +2118,7 @@ END:VEVENT
                 btn.style.background = '#2a5b32';
                 setTimeout(() => { btn.textContent = orig; btn.style.background = '#ed682f'; }, 1800);
             } catch (e) {
-                window.prompt('Copy this URL:', url);
+                DhModal.copyableUrl({message:'Copy the link below to share your booking page:', url});
             }
         };
 
@@ -2070,20 +2171,20 @@ END:VEVENT
         }
 
         async function confirmBooking(id) {
-            if (!confirm('Confirm this booking? The brand will get a confirmation email and a demo will be created.')) return;
+            if (!(await DhModal.confirm({title:'Confirm this booking?', message:'The brand will get a confirmation email and a demo will be created.', ok:'Confirm booking'}))) return;
             const row = document.querySelector(`tr[data-booking-id="${id}"]`);
             if (row) row.style.opacity = '0.5';
             try {
                 await bookingAction(id, 'confirm');
                 await refreshAll();
             } catch (e) {
-                alert('Could not confirm: ' + e.message);
+                DhModal.toast('Could not confirm: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
             }
         }
 
         async function declineBooking(id) {
-            const reason = prompt('Decline reason (optional, shown to the brand):', '');
+            const reason = await DhModal.prompt({title:'Decline booking', message:'Reason (optional, shown to the brand):', defaultValue:'', ok:'Decline'});
             if (reason === null) return; // user cancelled
             const row = document.querySelector(`tr[data-booking-id="${id}"]`);
             if (row) row.style.opacity = '0.5';
@@ -2091,7 +2192,7 @@ END:VEVENT
                 await bookingAction(id, 'decline', reason || '');
                 await refreshAll();
             } catch (e) {
-                alert('Could not decline: ' + e.message);
+                DhModal.toast('Could not decline: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
             }
         }
@@ -2346,7 +2447,7 @@ END:VEVENT
             if (!v) { if (status) status.textContent = 'No store selected.'; return; }
             const otherVenues = (window.state.venues || []).filter(x => x.id !== v.id);
             if (otherVenues.length === 0) { if (status) status.textContent = 'No other stores to apply to.'; return; }
-            if (!confirm(`Copy ${v.name}'s hours + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule.`)) return;
+            if (!(await DhModal.confirm({title:'Copy schedule to all stores?', message:`Copy ${v.name}'s hours + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule.`, ok:'Apply to all'}))) return;
             const schedule = buildScheduleFromDom();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
             const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
@@ -2505,17 +2606,17 @@ END:VEVENT
             if (typeof toast === 'function') {
                 toast(fail === 0 ? `${ok} location${ok===1?'':'s'} ${actionLabel}` : `${ok} updated, ${fail} failed`, fail === 0 ? 'success' : 'warn');
             } else {
-                alert(fail === 0 ? `${ok} location${ok===1?'':'s'} ${actionLabel}` : `${ok} updated, ${fail} failed`);
+                DhModal.toast(fail === 0 ? `${ok} location${ok===1?'':'s'} ${actionLabel}` : `${ok} updated, ${fail} failed`, 'error');
             }
         }
         function bulkStoresSetActive(on) {
             _bulkStoresPatch({ active: !!on }, on ? 'set to Active' : 'paused');
         }
-        function bulkStoresSetFee() {
-            const s = prompt('Set demo fee ($) for all selected locations:', '30');
-            if (s === null) return;
+        async function bulkStoresSetFee() {
+            const s = await DhModal.prompt({title:'Set demo fee', message:'New fee (USD) for all selected locations:', defaultValue:'30', inputType:'number', ok:'Apply'});
+            if (s == null || s === '') return;
             const fee = parseFloat(s);
-            if (!Number.isFinite(fee) || fee < 0) { alert('Invalid fee. Enter a number like 30 or 45.'); return; }
+            if (!Number.isFinite(fee) || fee < 0) { DhModal.toast('Invalid fee. Enter a number like 30 or 45.', 'error'); return; }
             _bulkStoresPatch({ demo_fee: fee }, `set to $${fee.toFixed(0)}`);
         }
         async function bulkStoresDelete() {
@@ -2524,7 +2625,7 @@ END:VEVENT
             const venues = window.state.venues || [];
             const names = ids.map(id => (venues.find(v => v.id === id) || {}).name).filter(Boolean);
             const preview = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length-3} more` : '');
-            if (!confirm(`Delete ${ids.length} location${ids.length===1?'':'s'}?\n\n${preview}\n\nThis can't be undone.`)) return;
+            if (!(await DhModal.confirm({title:`Delete ${ids.length} location${ids.length===1?'':'s'}?`, message:`${preview}\n\nThis can't be undone.`, ok:'Delete', danger:true}))) return;
             const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
             const results = await Promise.allSettled(ids.map(id =>
                 fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}&session_id=${encodeURIComponent(sessionId)}`, {
@@ -2540,7 +2641,7 @@ END:VEVENT
             if (typeof toast === 'function') {
                 toast(fail === 0 ? `Deleted ${ok} location${ok===1?'':'s'}` : `${ok} deleted, ${fail} failed`, fail === 0 ? 'success' : 'warn');
             } else {
-                alert(fail === 0 ? `Deleted ${ok} location${ok===1?'':'s'}` : `${ok} deleted, ${fail} failed`);
+                DhModal.toast(fail === 0 ? `Deleted ${ok} location${ok===1?'':'s'}` : `${ok} deleted, ${fail} failed`, 'error');
             }
         }
 
@@ -2688,7 +2789,7 @@ END:VEVENT
             if (!editingStoreId) return;
             const v = (window.state.venues || []).find(x => x.id === editingStoreId);
             if (!v) return;
-            if (!confirm(`Delete "${v.name}"? Any demos already at this store will keep working, but new bookings at this location will be disabled.`)) return;
+            if (!(await DhModal.confirm({title:`Delete "${v.name}"?`, message:'Any demos already at this store will keep working, but new bookings at this location will be disabled.', ok:'Delete', danger:true}))) return;
             const errBox = document.getElementById('storeModalError');
             try {
                 await adminDelete('venues', editingStoreId);
@@ -2882,13 +2983,13 @@ END:VEVENT
         }
 
         async function saveContact() {
-            if (!RETAILER_ID) { alert('Loading, try again in a moment'); return; }
+            if (!RETAILER_ID) { DhModal.toast('Loading, try again in a moment', 'info'); return; }
             const type = document.getElementById('contactType').value;
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return;
             const id = document.getElementById('contactId').value;
             const name = document.getElementById('contactName').value.trim();
-            if (!name) { alert('Name is required.'); return; }
+            if (!name) { DhModal.toast('Name is required.', 'error'); return; }
             const payload = {
                 retailer_id: RETAILER_ID,
                 name: name,
@@ -2901,17 +3002,17 @@ END:VEVENT
             try {
                 if (id) await adminUpdate(cfg.table, id, payload);
                 else    await adminInsert(cfg.table, payload);
-            } catch (e) { alert('Save failed: ' + e.message); return; }
+            } catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); return; }
             closeContactModal();
             await refreshAll();
         }
 
         async function deleteContact(type, id) {
-            if (!confirm('Delete this contact?')) return;
+            if (!(await DhModal.confirm({title:'Delete this contact?', ok:'Delete', danger:true}))) return;
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return;
             try { await adminDelete(cfg.table, id); }
-            catch (e) { alert('Delete failed: ' + e.message); return; }
+            catch (e) { DhModal.toast('Delete failed: ' + e.message, 'error'); return; }
             await refreshAll();
         }
 
@@ -3108,7 +3209,7 @@ END:VEVENT
             reader.readAsDataURL(file);
         }
         async function removeDemoPolicyPdf() {
-            if (!confirm('Remove the uploaded policy PDF? Brands will see the text policy instead.')) return;
+            if (!(await DhModal.confirm({title:'Remove policy PDF?', message:'Brands will see the text policy instead.', ok:'Remove', danger:true}))) return;
             const status = document.getElementById('demoPolicyStatus');
             try {
                 const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
@@ -3528,10 +3629,10 @@ END:VEVENT
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');
                 loadTeam();
-            } catch (e) { alert('Could not change role: ' + e.message); loadTeam(); }
+            } catch (e) { DhModal.toast('Could not change role: ' + e.message, 'error'); loadTeam(); }
         }
         async function removeTeamMember(id, email) {
-            if (!confirm(`Remove ${email} from the team? They will lose admin access immediately.`)) return;
+            if (!(await DhModal.confirm({title:'Remove team member?', message:`${email} will lose admin access immediately.`, ok:'Remove', danger:true}))) return;
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -3540,7 +3641,7 @@ END:VEVENT
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');
                 loadTeam();
-            } catch (e) { alert('Could not remove: ' + e.message); }
+            } catch (e) { DhModal.toast('Could not remove: ' + e.message, 'error'); }
         }
 
         // ===== Bulk CSV store upload =====
@@ -3879,7 +3980,7 @@ END:VEVENT
                 if (ok) { btn.style.background = '#1f4a26'; btn.style.borderColor = '#1f4a26'; }
                 setTimeout(() => { btn.textContent = orig; btn.style.background = ''; btn.style.borderColor = ''; }, 1800);
             }
-            if (!ok) prompt('Copy this URL:', getIcalFeedUrl());
+            if (!ok) DhModal.copyableUrl({message:'Copy the calendar-feed URL below:', url:getIcalFeedUrl()});
         }
         function addToAppleCal() {
             // Apple Calendar handles webcal:// — Safari/macOS Calendar intercept it as Subscribe
@@ -4103,7 +4204,7 @@ END:VEVENT
         }
 
         async function saveCompliance() {
-            if (!RETAILER_ID) { alert('Loading, try again'); return; }
+            if (!RETAILER_ID) { DhModal.toast('Loading, try again', 'info'); return; }
             const id = document.getElementById('complianceId').value;
             const payload = {
                 retailer_id: RETAILER_ID,
@@ -4118,15 +4219,15 @@ END:VEVENT
             try {
                 if (id) await adminUpdate('compliance_records', id, payload);
                 else    await adminInsert('compliance_records', payload);
-            } catch (e) { alert('Save failed: ' + e.message); return; }
+            } catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); return; }
             closeComplianceModal();
             await refreshAll();
         }
 
         async function deleteCompliance(id) {
-            if (!confirm('Delete this compliance record?')) return;
+            if (!(await DhModal.confirm({title:'Delete compliance record?', ok:'Delete', danger:true}))) return;
             try { await adminDelete('compliance_records', id); }
-            catch (e) { alert('Delete failed: ' + e.message); return; }
+            catch (e) { DhModal.toast('Delete failed: ' + e.message, 'error'); return; }
             await refreshAll();
         }
 
@@ -4266,7 +4367,7 @@ END:VEVENT
 
         function openStatement() {
             const sel = document.getElementById('billingMonthSelect');
-            if (!sel || !sel.value) { alert('Select a month first'); return; }
+            if (!sel || !sel.value) { DhModal.toast('Select a month first', 'info'); return; }
             const ym = sel.value;
             const [yy, mm] = ym.split('-').map(Number);
             const demos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt.getMonth() === (mm - 1); }).sort((a,b) => a.date.localeCompare(b.date));
@@ -4324,7 +4425,7 @@ END:VEVENT
                 + '</body></html>';
 
             const win = window.open('', '_blank');
-            if (!win) { alert('Statement window was blocked — allow pop-ups for this site.'); return; }
+            if (!win) { DhModal.toast('Statement window was blocked — allow pop-ups for this site.', 'error'); return; }
             win.document.open();
             win.document.write(html);
             win.document.close();
@@ -4404,7 +4505,7 @@ END:VEVENT
                             advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
                         });
                         await refreshAll();
-                    } catch (e) { alert('Save failed: ' + e.message); return; }
+                    } catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); return; }
                 }
                 inputs.forEach(i => i.disabled = true);
                 btn.textContent = 'Edit';
@@ -4462,7 +4563,7 @@ END:VEVENT
             const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
-            else alert('Failed to open billing portal: ' + (d.error || 'unknown'));
+            else DhModal.toast('Failed to open billing portal: ' + (d.error || 'unknown'), 'error');
         }
 
         function openUpgradeModal() {
@@ -4487,7 +4588,7 @@ END:VEVENT
                 if (d.url) { window.location.href = d.url; return; }
                 throw new Error(d.error || 'Failed');
             } catch (e) {
-                alert('Could not start checkout: ' + (e.message || e));
+                DhModal.toast('Could not start checkout: ' + (e.message || e), 'error');
                 if (btn) { btn.disabled = false; btn.textContent = 'Subscribe'; }
             }
         }
@@ -4623,7 +4724,7 @@ END:VEVENT
                 if (d.url) { window.location.href = d.url; return; }
                 throw new Error(d.error || 'Failed');
             } catch (e) {
-                alert('Could not start onboarding: ' + (e.message || e));
+                DhModal.toast('Could not start onboarding: ' + (e.message || e), 'error');
                 if (btn) { btn.disabled = false; btn.textContent = 'Connect bank for payouts →'; }
             }
         }
@@ -4632,7 +4733,7 @@ END:VEVENT
             const r = await fetch('/api/stripe?action=connect-dashboard&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
-            else alert('Failed to open dashboard: ' + (d.error || 'unknown'));
+            else DhModal.toast('Failed to open dashboard: ' + (d.error || 'unknown'), 'error');
         }
 
         // Hook renderPayouts into the settings-load chain (alongside renderBilling)
