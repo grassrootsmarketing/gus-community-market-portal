@@ -405,13 +405,19 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(401).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role !== 'owner') return res.status(403).json({ error: 'Only owners can remove team members' });
+      if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
+        return res.status(403).json({ error: 'Only owners and admins can remove team members' });
+      }
 
       const target = await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}&select=*`);
       const targetRow = Array.isArray(target) ? target[0] : null;
       if (!targetRow) return res.status(404).json({ error: 'Member not found' });
       if (targetRow.retailer_id !== v.retailer_id) return res.status(403).json({ error: 'Wrong retailer' });
       if (targetRow.role === 'owner') return res.status(400).json({ error: 'Cannot remove the owner' });
+      // Self-safety: admins can't remove themselves (avoids accidental self-lockout)
+      if ((targetRow.email || '').toLowerCase() === (v.email || '').toLowerCase()) {
+        return res.status(400).json({ error: 'You can\'t remove yourself. Ask another owner or admin to remove you.' });
+      }
 
       await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}`, { method: 'DELETE' });
       // Also revoke any active sessions for this email
@@ -428,12 +434,18 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(401).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role !== 'owner') return res.status(403).json({ error: 'Only owners can change roles' });
+      if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
+        return res.status(403).json({ error: 'Only owners and admins can change roles' });
+      }
 
       const target = await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}&select=*`);
       const targetRow = Array.isArray(target) ? target[0] : null;
       if (!targetRow || targetRow.retailer_id !== v.retailer_id) return res.status(404).json({ error: 'Member not found' });
       if (targetRow.role === 'owner') return res.status(400).json({ error: 'Cannot change owner role' });
+      // Self-safety: admins can't demote themselves
+      if ((targetRow.email || '').toLowerCase() === (v.email || '').toLowerCase()) {
+        return res.status(400).json({ error: 'You can\'t change your own role. Ask another owner or admin to change it.' });
+      }
       // Cap check: promoting viewer -> admin must respect 10-admin limit
       if (role === 'admin' && targetRow.role !== 'admin') {
         const ADMIN_CAP = 999;

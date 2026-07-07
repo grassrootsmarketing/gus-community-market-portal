@@ -3110,7 +3110,10 @@ END:VEVENT
                     const pendingPill = isPending
                         ? '<span style="background:#fff3ed; color:#a14e2a; padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;" title="They have not accepted the invite yet. They will become active once they click their magic link.">Pending</span>'
                         : '';
-                    const actions = iAmOwner && !isOwner
+                    // Owner OR admin can manage teammates. Never manage yourself. Never manage the owner (except owner can manage others).
+                    const iAmAdmin = myRow && (myRow.role === 'admin');
+                    const canManage = (iAmOwner || iAmAdmin) && !isOwner && !isMe;
+                    const actions = canManage
                         ? `<div style="display:flex; gap:6px;">
                              <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.82rem; padding:6px 28px 6px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; background:white; font-family:inherit; font-weight:600; color:var(--forest-800); appearance:none; -webkit-appearance:none; -moz-appearance:none; background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%230f2c17' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1 1 5 5 9 1'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 10px center; cursor:pointer;">
                                <option value="admin"${a.role === 'admin' ? ' selected' : ''}>Admin</option>
