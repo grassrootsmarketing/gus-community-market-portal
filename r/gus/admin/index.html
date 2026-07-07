@@ -3497,12 +3497,18 @@ END:VEVENT
         }
         document.addEventListener('change', (e) => {
             if (e.target && e.target.id === 'storeCsvFile') {
-                console.log('[bulk-upload] change event fired on storeCsvFile, files:', e.target.files);
-                handleStoreCsvFile(e.target.files[0]).catch(err => {
-                    console.error('[bulk-upload] handleStoreCsvFile threw uncaught:', err);
-                    const previewBody = document.getElementById('storeBulkPreviewBody');
-                    if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>Unexpected error:</strong> ' + escapeHtml(err.message || String(err)) + ' - check browser console for details.</td></tr>';
-                });
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                console.log('[bulk-upload] file selected:', file.name, file.size, 'bytes');
+                // Server-side parse — bypasses client-side file API entirely.
+                // Show filename immediately, enable the Import button.
+                const previewBox = document.getElementById('storeBulkPreview');
+                const previewBody = document.getElementById('storeBulkPreviewBody');
+                const btn = document.getElementById('storeBulkImportBtn');
+                if (previewBox) previewBox.style.display = 'block';
+                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--forest-700); font-size:0.9rem;"><strong>' + escapeHtml(file.name) + '</strong> (' + file.size + ' bytes) selected. Click <strong>Import stores</strong> to parse + insert on the server.</td></tr>';
+                if (btn) { btn.disabled = false; btn.textContent = 'Import ' + escapeHtml(file.name); }
+                window._bulkSelectedFile = file;
             }
         });
         // Also wire directly on the input element in case the document-level listener isn't catching it
@@ -3647,15 +3653,51 @@ END:VEVENT
             console.log('[bulk-upload] importStoreCsv called');
             const btn = document.getElementById('storeBulkImportBtn');
             const resultBox = document.getElementById('storeBulkResult');
-            const validRows = (_bulkParsedRows || []).filter(r => r.name);
-            console.log('[bulk-upload] valid rows to import:', validRows.length, validRows);
-            if (validRows.length === 0) {
-                console.warn('[bulk-upload] no valid rows to import - _bulkParsedRows is:', _bulkParsedRows);
+            const file = window._bulkSelectedFile;
+            if (!file) {
+                console.warn('[bulk-upload] no file selected');
                 return;
             }
             btn.disabled = true;
-            btn.textContent = `Importing 0 of ${validRows.length}…`;
+            btn.textContent = 'Uploading...';
             resultBox.style.display = 'none';
+            // Server-side flow — POST the file as multipart/form-data
+            try {
+                const sid = AdminAuth.getSession();
+                const fd = new FormData();
+                fd.append('csv', file, file.name);
+                const r = await fetch('/api/venues-bulk-import?session_id=' + encodeURIComponent(sid), {
+                    method: 'POST',
+                    body: fd,
+                });
+                const j = await r.json();
+                console.log('[bulk-upload] server response:', j);
+                if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
+                resultBox.style.display = 'block';
+                if ((j.insert_errors || []).length === 0 && (j.parse_errors || []).length === 0) {
+                    resultBox.style.background = 'var(--forest-100)';
+                    resultBox.style.color = 'var(--forest-700)';
+                    resultBox.innerHTML = '<strong>Imported ' + j.imported + ' location' + (j.imported === 1 ? '' : 's') + '.</strong> Closing in a moment...';
+                    setTimeout(() => { closeStoreBulkUpload(); refreshAll(); }, 1500);
+                } else {
+                    resultBox.style.background = '#fdebe5';
+                    resultBox.style.color = 'var(--clay-700)';
+                    const allErrs = [...(j.parse_errors || []), ...(j.insert_errors || [])];
+                    resultBox.innerHTML = '<strong>Imported ' + j.imported + ' of ' + j.total + '.</strong> ' + allErrs.length + ' issue' + (allErrs.length === 1 ? '' : 's') + ':<br><span style="font-size:0.85rem;">' + allErrs.slice(0, 5).map(escapeHtml).join('<br>') + (allErrs.length > 5 ? '<br>...and ' + (allErrs.length - 5) + ' more' : '') + '</span>';
+                    btn.disabled = false;
+                    btn.textContent = 'Retry';
+                    if (j.imported > 0) setTimeout(() => refreshAll(), 500);
+                }
+            } catch (e) {
+                console.error('[bulk-upload] server upload failed:', e);
+                resultBox.style.display = 'block';
+                resultBox.style.background = '#fdebe5';
+                resultBox.style.color = 'var(--clay-700)';
+                resultBox.innerHTML = '<strong>Upload failed:</strong> ' + escapeHtml(e.message || String(e));
+                btn.disabled = false;
+                btn.textContent = 'Retry';
+            }
+            return; // skip old client-side flow
 
             let successCount = 0;
             const failures = [];
