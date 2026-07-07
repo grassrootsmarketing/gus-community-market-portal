@@ -159,13 +159,13 @@ export default async function handler(req, res) {
       // venues are immediately bookable. Retailer can toggle days off in the admin.
       availability: {
         schedule: {
-          '0': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '1': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '2': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '3': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '4': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '5': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-          '6': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+          '0': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '1': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '2': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '3': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '4': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '5': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+          '6': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
         },
         blackouts: [],
       },

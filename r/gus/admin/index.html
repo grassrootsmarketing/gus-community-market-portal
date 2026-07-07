@@ -865,7 +865,7 @@
                             <h3>Location availability</h3>
                             <div style="display:flex; gap:8px;">
                                 <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this location's schedule + capacity to every location">Apply to all</button>
-                                <span id="availabilityAutoSaveStatus" style="font-size:0.82rem; color:var(--ink-500); font-weight:500; padding: 8px 4px;">All changes save automatically.</span>
+                                <span id="availabilityAutoSaveStatus" style="font-size:0.78rem; color:var(--ink-500); font-weight:500; padding: 8px 4px; font-style:italic;">Auto-saves</span>
                             </div>
                         </div>
                         <div id="availabilityPickerBlock">
@@ -877,10 +877,10 @@
                             </div>
                             <div style="padding: 14px 24px 12px;">
                                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                                    <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Max demos per time slot</label>
+                                    <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot<span title="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
                                 </div>
                                 <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
-                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">How many brands can book the same slot at this location.</div>
+                                
                                 <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                             </div>
                         </div>
@@ -2293,13 +2293,13 @@ END:VEVENT
             // so the retailer sees the sensible default instead of a blank calendar. They can toggle days off
             // or edit windows as needed; the schedule persists only on Save.
             const DEFAULT_STANDARD_SCHEDULE = {
-                '0': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '1': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '2': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '3': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '4': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '5': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
-                '6': [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }],
+                '0': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '1': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '2': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '3': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '4': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '5': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
+                '6': [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }],
             };
             const savedSchedule = (v.availability && v.availability.schedule) || {};
             // Detect "no availability set" = no schedule OR schedule with zero non-empty days
@@ -2369,8 +2369,7 @@ END:VEVENT
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="open" value="${open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
                 <span style="color:var(--ink-500);">–</span>
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="close" value="${close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
-                <button type="button" onclick="togglePreferredShift(${day}, ${idx}, this)" data-preferred="${preferred ? '1' : '0'}" class="${preferred ? 'preferred-active' : ''}" aria-pressed="${preferred ? 'true' : 'false'}" aria-label="Preferred shift" title="${preferred ? 'Preferred shift (highlighted in your dashboard)' : 'Mark as preferred shift'}" style="background:none; border:none; color:var(--clay-600); cursor:pointer; font-size:1.15rem; line-height:1; padding:0 4px;">${preferred ? '★' : '☆'}</button>
-                ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" aria-label="Remove window" style="background:none; border:none; color:var(--ink-300); cursor:pointer; font-size:1.1rem; line-height:1; padding:0 4px;">&times;</button>` : ''}
+                ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" aria-label="Remove shift" title="Remove shift" style="background:none; border:none; color:var(--ink-500); cursor:pointer; font-size:1.25rem; line-height:1; padding:0 6px;">&times;</button>` : ''}
             </div>`;
         }
 
@@ -2407,6 +2406,43 @@ END:VEVENT
         }
 
         // Quick-set helper: apply the standard 11–2 + 3–6 shift pair to a day
+
+        // Convert a 12-hour "11:00 AM" style time to 24-hour "HH:MM" for <input type="time">.
+        // Accepts already-24hr strings unchanged.
+        function _to24Hour(t) {
+            if (!t) return '00:00';
+            const s = String(t).trim();
+            const m = s.match(/^(\d{1,2}):?(\d{0,2})\s*(AM|PM)?$/i);
+            if (!m) return s.length >= 4 ? s.slice(0,5) : '00:00';
+            let hh = parseInt(m[1], 10);
+            const mm = parseInt(m[2] || '0', 10);
+            const ampm = (m[3] || '').toUpperCase();
+            if (ampm === 'PM' && hh < 12) hh += 12;
+            if (ampm === 'AM' && hh === 12) hh = 0;
+            return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+        }
+
+        // Apply a time window to ALL 7 days. If the day already has this window, no-op.
+        // If day is closed, open it. If day has other windows, add this as an additional shift.
+        function applyPresetWindowAllDays(open, close) {
+            const open24 = _to24Hour(open);
+            const close24 = _to24Hour(close);
+            for (let d = 0; d < 7; d++) {
+                const toggle = document.querySelector(`[data-day-toggle="${d}"]`);
+                const cell = document.getElementById('availTimes-' + d);
+                if (!cell) continue;
+                // Enable the day toggle if closed
+                if (toggle && !toggle.checked) toggle.checked = true;
+                const current = readDayWindowsFromDom(d);
+                // Dedupe: skip if this exact window is already there
+                const already = current.some(w => w.open === open24 && w.close === close24);
+                if (!already) current.push({ open: open24, close: close24 });
+                // Cap at 3 shifts per day (existing addWindow limit)
+                cell.innerHTML = renderDayWindowsHtml(d, current.slice(0, 3));
+            }
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
+        }
+
         function applyStandardShifts(day) {
             const v = getSelectedVenue();
             if (!v) return;
@@ -2503,12 +2539,12 @@ END:VEVENT
                 const idx = window.state.venues.findIndex(x => x.id === v.id);
                 if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
                 if (status) {
-                    status.textContent = 'Saved ✓ · All changes save automatically.';
+                    status.textContent = 'Saved ✓';
                     status.style.color = 'var(--forest-700)';
                     // Fade back to neutral after 2s
                     clearTimeout(status._resetTimer);
                     status._resetTimer = setTimeout(() => {
-                        status.textContent = 'All changes save automatically.';
+                        status.textContent = 'Auto-saves';
                         status.style.color = 'var(--ink-500)';
                     }, 2000);
                 }
@@ -2874,7 +2910,7 @@ END:VEVENT
                     // New venue seeded with the standard 11-2 + 3-6 windows on all 7 days by default.
                     // Retailer can toggle days off in the Location Availability card.
                     const _defaultSched = {};
-                    for (let _d = 0; _d < 7; _d++) _defaultSched[String(_d)] = [{ open: '11:00 AM', close: '2:00 PM' }, { open: '3:00 PM', close: '6:00 PM' }];
+                    for (let _d = 0; _d < 7; _d++) _defaultSched[String(_d)] = [{ open: '11:00', close: '14:00' }, { open: '15:00', close: '18:00' }];
                     const created = await adminInsert('venues', {
                         name,
                         address: address || null,
