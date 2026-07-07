@@ -549,8 +549,8 @@
                 <a href="#calendarSection" class="subnav-link" data-section="calendarSection">Calendar</a>
                 <a href="#demosSection" class="subnav-link" data-section="demosSection">Demos</a>
                 <a href="#brandsSection" class="subnav-link" data-section="brandsSection">Brands</a>
-                <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#complianceSection" class="subnav-link" data-section="complianceSection">Compliance</a>
+                <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
@@ -581,8 +581,8 @@
             <a href="#calendarSection" class="mobile-nav-item" data-section="calendarSection" onclick="mobileNavGo(event, 'calendarSection', 'Calendar')">Calendar</a>
             <a href="#demosSection" class="mobile-nav-item" data-section="demosSection" onclick="mobileNavGo(event, 'demosSection', 'Demos')">Demos</a>
             <a href="#brandsSection" class="mobile-nav-item" data-section="brandsSection" onclick="mobileNavGo(event, 'brandsSection', 'Brands')">Brands</a>
-            <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#complianceSection" class="mobile-nav-item" data-section="complianceSection" onclick="mobileNavGo(event, 'complianceSection', 'Compliance')">Compliance</a>
+            <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
             <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
         </nav>
@@ -775,7 +775,7 @@
                         <tbody id="internalContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your team members will appear here once you add them. Click <b>+ Add Team Contact</b> above to get started.</td></tr></tbody>
                     </table>
                 </div>
-                <div class="table-card" id="brandsSection" style="margin-bottom: 32px;">
+                <div class="table-card" id="brandsSection" style="margin-bottom: 16px;">
                     <div class="table-toolbar">
                         <h3 class="table-title">Brand Contacts<button type="button" class="section-info" aria-label="What is this section?" title="Brand contacts appear here as brands book demos through your link. You can also add them manually." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                         <div class="toolbar-controls">
@@ -792,6 +792,24 @@
                         <tbody id="brandContactsTableBody"><tr class="empty-placeholder"><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Brand contacts will appear here as brands book demos through your booking link. You can also add them manually with <b>+ Add Brand Contact</b>.</td></tr></tbody>
                     </table>
                 </div>
+                <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
+                    <div class="table-toolbar">
+                        <h3 class="table-title">Compliance Records<button type="button" class="section-info" aria-label="What is this section?" title="Insurance certificates (COIs) and other compliance documents. Uploaded by brands or added here manually." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
+                        <div class="toolbar-controls">
+                            <select class="sort-select" id="complianceSort" onchange="renderCompliance()">
+                                <option value="expires_at">Sort by Expiry</option>
+                                <option value="brand">Sort by Brand</option>
+                                <option value="doc_type">Sort by Type</option>
+                            </select>
+                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openComplianceModal()">+ Add Record</button>
+                        </div>
+                    </div>
+                    <table>
+                        <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="complianceTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Insurance certificates (COIs) and other compliance documents will appear here once uploaded by brands or added manually with <b>+ Add Record</b>.</td></tr></tbody>
+                    </table>
+                </div>
+
                 <!-- Stores editor -->
                 <div class="table-card" id="storesSection" data-name="stores" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
@@ -822,23 +840,7 @@
                     </table>
                 </div>
 
-                <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
-                    <div class="table-toolbar">
-                        <h3 class="table-title">Compliance Records<button type="button" class="section-info" aria-label="What is this section?" title="Insurance certificates (COIs) and other compliance documents. Uploaded by brands or added here manually." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
-                        <div class="toolbar-controls">
-                            <select class="sort-select" id="complianceSort" onchange="renderCompliance()">
-                                <option value="expires_at">Sort by Expiry</option>
-                                <option value="brand">Sort by Brand</option>
-                                <option value="doc_type">Sort by Type</option>
-                            </select>
-                            <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openComplianceModal()">+ Add Record</button>
-                        </div>
-                    </div>
-                    <table>
-                        <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="complianceTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Insurance certificates (COIs) and other compliance documents will appear here once uploaded by brands or added manually with <b>+ Add Record</b>.</td></tr></tbody>
-                    </table>
-                </div>
+
                 <div class="billing-card">
                     <div class="billing-head">
                         <div class="billing-title">Billing & Statements</div>
