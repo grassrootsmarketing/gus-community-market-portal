@@ -538,7 +538,49 @@ export default async function handler(req, res) {
     // ============================================================
     // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
     // ============================================================
-    if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
+    // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
+    if (action === 'owner-verification-queue') {
+      const { session_id, status } = body || {};
+      const owner = await verifyOwnerSessionV2(session_id);
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
+      try {
+        const rows = await sb(`retailers?verification_status=eq.${wantedStatus}&select=id,slug,name,billing_email,website,verification_status,verified_at,verified_by,verification_notes,created_at,branding&order=created_at.desc`);
+        return res.status(200).json({ ok: true, retailers: rows || [], status: wantedStatus });
+      } catch (e) {
+        return res.status(500).json({ error: 'Query failed: ' + (e?.message || e) });
+      }
+    }
+
+    // ---- OWNER-VERIFY-RETAILER: approve / reject / suspend / reset ----
+    if (action === 'owner-verify-retailer') {
+      const { session_id, retailer_id, new_status, notes } = body || {};
+      const owner = await verifyOwnerSessionV2(session_id);
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
+      if (!['pending', 'approved', 'rejected', 'suspended'].includes(new_status)) {
+        return res.status(400).json({ error: 'new_status must be pending, approved, rejected, or suspended' });
+      }
+      const patch = {
+        verification_status: new_status,
+        verification_notes: notes || null,
+      };
+      if (new_status === 'approved') {
+        patch.verified_at = new Date().toISOString();
+        patch.verified_by = owner.email;
+      } else if (new_status === 'pending') {
+        patch.verified_at = null;
+        patch.verified_by = null;
+      }
+      try {
+        await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        return res.status(200).json({ ok: true, retailer_id, new_status });
+      } catch (e) {
+        return res.status(500).json({ error: 'Update failed: ' + (e?.message || e) });
+      }
+    }
+
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
       return await handleOwnerAction(action, req, res, body);
     }
 

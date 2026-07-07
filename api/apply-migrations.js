@@ -60,6 +60,15 @@ const MIGRATIONS = [
           VALUES ('policy-docs', 'policy-docs', true)
           ON CONFLICT (id) DO NOTHING;`,
   },
+  {
+    name: '007_retailer_verification',
+    sql: `ALTER TABLE retailers
+            ADD COLUMN IF NOT EXISTS verification_status TEXT NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS verified_at TIMESTAMPTZ,
+            ADD COLUMN IF NOT EXISTS verified_by TEXT,
+            ADD COLUMN IF NOT EXISTS verification_notes TEXT;
+          COMMENT ON COLUMN retailers.verification_status IS 'pending | approved | rejected | suspended';`,
+  },
 ];
 
 // ==============================================================

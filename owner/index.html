@@ -173,6 +173,19 @@ function renderGate(msg) {
       <div id="migrationsList" style="font-family:'SF Mono',Menlo,Consolas,monospace; font-size:0.85rem; line-height:1.8;">Loading&hellip;</div>
       <div id="migrationsResult" style="margin-top:12px; font-size:0.85rem;"></div>
     </div>
+    <div class="card" id="verificationQueueCard" style="border-left: 4px solid #1f4a26;">
+      <h2 style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <span>Retailer verification queue</span>
+        <div style="display:flex; gap:6px; align-items:center; font-size:0.78rem; font-weight:normal;">
+          <button onclick="loadVerificationQueue('pending')" id="vqTab-pending" class="vq-tab" style="background:#0f2c17; color:white; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Pending</button>
+          <button onclick="loadVerificationQueue('approved')" id="vqTab-approved" class="vq-tab" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Approved</button>
+          <button onclick="loadVerificationQueue('rejected')" id="vqTab-rejected" class="vq-tab" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Rejected</button>
+          <button onclick="loadVerificationQueue('suspended')" id="vqTab-suspended" class="vq-tab" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Suspended</button>
+        </div>
+      </h2>
+      <div id="verificationQueueList" style="margin-top:14px;">Loading&hellip;</div>
+    </div>
+    
     
     <div class="gate">
       <div class="eyebrow">Owner sign in</div>

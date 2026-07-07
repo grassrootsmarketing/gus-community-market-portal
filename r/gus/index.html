@@ -1375,6 +1375,18 @@ function renderLocationGridTight(venues, retailerName, demoFee) {
                 landingLogo.innerHTML = `<img src="${data.retailer.logo_url}" alt="${(data.retailer.name || '').replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;">`;
             }
             // Also update the landing page title to the retailer's name (was generic 'Demo Scheduling Portal')
+            // Show verified badge if retailer is approved
+            const landingH1Wrap = landingH1 && landingH1.parentElement;
+            if (landingH1Wrap && data.retailer && data.retailer.verification_status === 'approved') {
+                let badge = document.getElementById('landingVerifiedBadge');
+                if (!badge) {
+                    badge = document.createElement('div');
+                    badge.id = 'landingVerifiedBadge';
+                    badge.style.cssText = 'display:inline-flex; align-items:center; gap:6px; background:#e3edd6; color:#1f4a26; padding:5px 12px; border-radius:99px; font-size:0.78rem; font-weight:700; letter-spacing:0.04em; margin: 4px auto 12px; text-transform:uppercase;';
+                    badge.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> Verified retailer';
+                    if (landingH1.parentElement) landingH1.parentElement.insertBefore(badge, landingH1);
+                }
+            }
             const landingH1 = document.querySelector('.landing h1');
             if (landingH1 && data.retailer && data.retailer.name) landingH1.textContent = data.retailer.name;
             const landingSub = document.querySelector('.landing > .landing-content > p');
