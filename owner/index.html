@@ -165,7 +165,15 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
 // ----- Magic-link gate -----
 function renderGate(msg) {
   topnav.style.display = 'none';
-  main.innerHTML = `
+  main.innerHTML = `<div class="card" id="migrationsCard" style="border-left: 4px solid #ed682f;">
+      <h2 style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <span>Database migrations</span>
+        <button id="runMigrationsBtn" onclick="runPendingMigrations()" style="background:#0f2c17; color:white; border:none; border-radius:8px; padding:8px 16px; font-size:0.85rem; font-weight:600; cursor:pointer; font-family:inherit;">Apply pending &rarr;</button>
+      </h2>
+      <div id="migrationsList" style="font-family:'SF Mono',Menlo,Consolas,monospace; font-size:0.85rem; line-height:1.8;">Loading&hellip;</div>
+      <div id="migrationsResult" style="margin-top:12px; font-size:0.85rem;"></div>
+    </div>
+    
     <div class="gate">
       <div class="eyebrow">Owner sign in</div>
       <h1>Open the owner panel</h1>
@@ -679,6 +687,68 @@ document.addEventListener('submit', async (e) => {
     if (notice) { notice.textContent = 'Network error. Try again.'; notice.style.display = 'block'; }
   }
 });
+
+
+// ===== Migration runner =====
+async function loadMigrationsStatus() {
+  const list = document.getElementById('migrationsList');
+  if (!list) return;
+  const t = localStorage.getItem(SESSION_KEY) || '';
+  try {
+    const r = await fetch('/api/apply-migrations?session_id=' + encodeURIComponent(t), { method: 'GET' });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Failed to load');
+    if (j.configured === false) {
+      list.innerHTML = '<div style="color:#a14e2a; font-family:inherit;">POSTGRES_URL env var not configured on Vercel. Add it to unlock one-click migrations.</div>' +
+                       '<div style="font-family:inherit; margin-top:8px; font-size:0.8rem; color:#6b6a64;">Get the value from Supabase &rarr; Settings &rarr; Database &rarr; Connection pooling (session mode) then add to Vercel &rarr; Environment Variables as POSTGRES_URL.</div>';
+      return;
+    }
+    if (!Array.isArray(j.migrations)) throw new Error('Unexpected response');
+    const rows = j.migrations.map(m => {
+      const icon = m.applied ? '&check;' : '&#9711;';
+      const color = m.applied ? '#1f4a26' : '#a14e2a';
+      const status = m.applied ? 'applied' : 'pending';
+      const when = m.applied_at ? ' <span style="color:#6b6a64;">(' + new Date(m.applied_at).toLocaleDateString() + ')</span>' : '';
+      return '<div><span style="color:' + color + '; display:inline-block; width:20px;">' + icon + '</span>' + m.name + ' <span style="color:' + color + '; font-size:0.75rem;">[' + status + ']</span>' + when + '</div>';
+    }).join('');
+    list.innerHTML = rows;
+  } catch (e) {
+    list.innerHTML = '<div style="color:#c93030;">Could not load: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+async function runPendingMigrations() {
+  const btn = document.getElementById('runMigrationsBtn');
+  const result = document.getElementById('migrationsResult');
+  const t = localStorage.getItem(SESSION_KEY) || '';
+  if (!confirm('Run all pending database migrations?\n\nThis will apply schema changes to your production database. Each migration is wrapped in a transaction and rolls back on failure. Continue?')) return;
+  btn.disabled = true; btn.textContent = 'Applying…';
+  result.innerHTML = '';
+  try {
+    const r = await fetch('/api/apply-migrations?session_id=' + encodeURIComponent(t), {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({}),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Migration failed');
+    const items = (j.results || []).map(x => {
+      const color = x.status === 'applied' ? '#1f4a26' : x.status === 'failed' ? '#c93030' : '#6b6a64';
+      return '<div style="color:' + color + ';">' + x.name + ': ' + x.status + (x.error ? ' &mdash; ' + escapeHtml(x.error) : '') + '</div>';
+    }).join('');
+    result.innerHTML = '<div style="background:#f4f8f0; border-radius:8px; padding:12px 14px; font-family:\'SF Mono\',Menlo,monospace; font-size:0.8rem;">' + items + '</div>';
+    await loadMigrationsStatus();
+  } catch (e) {
+    result.innerHTML = '<div style="background:#fdebe5; color:#c93030; border-radius:8px; padding:12px 14px; font-family:inherit;">Failed: ' + escapeHtml(e.message) + '</div>';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Apply pending →';
+  }
+}
+// Load status when owner panel loads
+window.addEventListener('DOMContentLoaded', () => {
+  setTimeout(loadMigrationsStatus, 800);
+});
+
 </script>
 </body>
 </html>

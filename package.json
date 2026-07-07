@@ -1,0 +1,8 @@
+{
+  "name": "demohub",
+  "version": "1.0.0",
+  "description": "Demohub multi-tenant demo scheduling platform",
+  "dependencies": {
+    "pg": "^8.11.3"
+  }
+}
