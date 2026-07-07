@@ -307,6 +307,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       // (it embeds a one-shot token); after that it falls back to the bare URL which routes
       // through /signin so the user can request a fresh magic link.
       try {
+        // Also update the recognized-card memory used by /signin. Otherwise a fresh
+        // signup with a +alias email won't override a previously-remembered base email.
+        try {
+          const name = (payload && payload.contact_name) || '';
+          localStorage.setItem('demohub_signin_last_v1', JSON.stringify({
+            email: (payload.billing_email || '').toLowerCase(),
+            role: 'retailer',
+            name: name,
+          }));
+        } catch(_){}
         localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
           slug, adminUrl, adminUrlAuto, publicUrl, savedAt: Date.now(),
           tier: initialTier || null,
