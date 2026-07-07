@@ -3511,21 +3511,7 @@ END:VEVENT
                 window._bulkSelectedFile = file;
             }
         });
-        // Also wire directly on the input element in case the document-level listener isn't catching it
-        document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                const fi = document.getElementById('storeCsvFile');
-                if (fi && !fi.dataset.wired) {
-                    fi.dataset.wired = '1';
-                    fi.addEventListener('change', (e) => {
-                        console.log('[bulk-upload] direct listener fired');
-                        handleStoreCsvFile(e.target.files[0]).catch(err => {
-                            console.error('[bulk-upload] direct handler threw:', err);
-                        });
-                    });
-                }
-            }, 500);
-        });
+        // (direct-listener backup removed — server-side flow is the only path now)
         // Read a File as text using FileReader (more compatible than await file.text()
         // which can hang in some browser environments). 8-second timeout as a safety net.
         function readFileAsText(file) {
