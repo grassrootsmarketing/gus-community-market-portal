@@ -1161,14 +1161,34 @@
                     const params = new URLSearchParams(location.search);
                     const token = params.get('token');
                     if (token) {
+                        let verifiedOk = false;
                         try {
                             const j = await this.api({ action: 'verify', token });
                             if (j.session_id) {
                                 this.setSession(j.session_id);
+                                verifiedOk = true;
+                                // Wipe the signup success card cache — the retailer has landed in admin,
+                                // so back-navigating to /signup shouldn't resurrect the success screen.
+                                try { localStorage.removeItem('demohub_signup_success_v1'); } catch(_){}
                                 history.replaceState({}, '', location.pathname);
                             }
-                        } catch (e) {
-                            // fall through to login UI
+                        } catch (_) { /* verify threw */ }
+                        // Defense-in-depth: if a ?token= was present but verify didn't succeed
+                        // (409 already-used, 410 expired, 404 not-found, network fail), destroy
+                        // any pre-existing session and force the login gate. Never let a stale
+                        // localStorage session sneak past a failed token exchange.
+                        if (!verifiedOk) {
+                            this.clearSession();
+                            history.replaceState({}, '', location.pathname);
+                            loading.style.display = 'none';
+                            login.style.display = 'block';
+                            // Surface a small notice above the login form
+                            const err = document.getElementById('adminAuthErr');
+                            if (err) {
+                                err.textContent = 'Your sign-in link has already been used or expired. Enter your email below for a fresh link.';
+                                err.style.display = 'block';
+                            }
+                            return false;
                         }
                     }
 

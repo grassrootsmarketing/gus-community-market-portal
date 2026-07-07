@@ -194,7 +194,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     const goto = adminUrlAuto || adminUrl;
     if (adminLink)  { adminLink.href = adminUrl;  adminLink.textContent = adminUrl; }
     if (publicLink) { publicLink.href = publicUrl; publicLink.textContent = publicUrl; }
-    if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = goto; };
+    if (openAdminBtn) openAdminBtn.onclick = () => {
+      // Wipe cache + replaceState so back button doesn't resurrect the signup success card
+      try { localStorage.removeItem('demohub_signup_success_v1'); } catch(_){}
+      try { history.replaceState({}, '', '/'); } catch(_){}
+      window.location.href = goto;
+    };
     formCard.style.display = 'none';
     if (successCard) successCard.style.display = 'block';
   }
