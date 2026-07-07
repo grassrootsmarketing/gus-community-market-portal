@@ -1026,21 +1026,23 @@
                             </div>
                         </div>
                     </div>
+                    <div class="settings-card" id="payoutsCard">
+                        <div class="settings-card-header"><h3>Bank &amp; payouts</h3></div>
+                        <div class="settings-card-body" id="payoutsCardBody">
+                            <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:12px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
+                            <div style="background:#f9f7f2;border-radius:10px;padding:14px 16px;margin-bottom:14px;">
+                                <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); margin-bottom:6px;">Two ways to verify</div>
+                                <div style="font-size:0.8rem; color:var(--ink-500); line-height:1.5;"><strong style="color:var(--forest-800);">Instant (via Plaid)</strong> - log into your bank inside Stripe, verified in 30 seconds. Or <strong style="color:var(--forest-800);">Manual (micro-deposits)</strong> - enter routing + account, confirm 1-2 business days later.</div>
+                            </div>
+                            <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:11px 22px;font-size:0.95rem;">Connect bank for payouts &rarr;</button>
+                        </div>
+                    </div>
                     <div class="settings-card" id="billingCard">
                         <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
                             <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">
                                 <div style="margin-bottom:8px;">You're on the free plan.</div>
                                 <div style="font-size:0.78rem;color:var(--ink-500);">Add a payment method to unlock paid demos and team seats.</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="settings-card" id="payoutsCard">
-                        <div class="settings-card-header"><h3>Bank &amp; payouts</h3></div>
-                        <div class="settings-card-body" id="payoutsCardBody">
-                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">
-                                <div style="margin-bottom:8px;">No payout bank connected yet.</div>
-                                <div style="font-size:0.78rem;color:var(--ink-500);">Add bank details to receive demo payments from brands.</div>
                             </div>
                         </div>
                     </div>
@@ -4769,6 +4771,14 @@ END:VEVENT
             if (d.url) window.location.href = d.url;
             else DhModal.toast('Failed to open dashboard: ' + (d.error || 'unknown'), 'error');
         }
+
+
+        // Force renderPayouts to fire on DOMContentLoaded + retry after data hydrates
+        // (loadSettings might not fire depending on route; this guarantees the card refreshes).
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => { if (typeof renderPayouts === 'function') renderPayouts(); }, 1200);
+            setTimeout(() => { if (typeof renderPayouts === 'function') renderPayouts(); }, 3000);
+        });
 
         // Hook renderPayouts into the settings-load chain (alongside renderBilling)
         if (typeof loadSettings === 'function') {
