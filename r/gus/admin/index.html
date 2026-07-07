@@ -4277,6 +4277,43 @@ END:VEVENT
             if (adminVisible && window.startTour) window.startTour(false);
           } catch(_){}
         }, 3000);
+        
+        // Auto-open a modal or section based on ?open= query param.
+        // Used by external links (e.g., 'Add your first location' from public preview) to
+        // land the retailer directly on the action they need without extra clicks.
+        document.addEventListener('DOMContentLoaded', function() {
+            const applyOpen = function() {
+                try {
+                    const params = new URLSearchParams(location.search);
+                    const open = params.get('open');
+                    if (!open) return false;
+                    if (open === 'add-location' && typeof window.openStoreModal === 'function') {
+                        window.openStoreModal();
+                    } else if (open === 'bulk-upload' && typeof window.openStoreBulkUpload === 'function') {
+                        window.openStoreBulkUpload();
+                    } else if (open === 'locations') {
+                        const el = document.getElementById('storesSection');
+                        const scroller = document.querySelector('.main-scroll');
+                        if (el && scroller) {
+                            const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 20;
+                            scroller.scrollTo({ top: top, behavior: 'smooth' });
+                        }
+                    } else {
+                        return false;
+                    }
+                    // Strip the query param so refresh doesn't re-trigger
+                    try { history.replaceState({}, '', location.pathname); } catch(_){}
+                    return true;
+                } catch (e) { return false; }
+            };
+            // Try several times — modal open functions may not be defined until after admin data loads
+            let tries = 0;
+            const t = setInterval(function() {
+                tries++;
+                if (applyOpen() || tries > 20) clearInterval(t);
+            }, 400);
+        });
+
         window.replayTour = function() {
           localStorage.removeItem('demohub_tour_complete_' + RETAILER_SLUG);
           startTour(true);
