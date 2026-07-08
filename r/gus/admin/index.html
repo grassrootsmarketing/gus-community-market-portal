@@ -493,6 +493,31 @@
         /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
         label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
         button, .btn { cursor: pointer; }
+        /* ===== Mobile housekeeping: tighten Location Availability + settings cards ===== */
+        @media (max-width: 700px) {
+            #availabilityCard { padding: 14px 14px; }
+            #availabilityCard .settings-card-header { flex-wrap: wrap; gap: 8px; }
+            #availabilityCard .settings-card-header h3 { font-size: 1.05rem; }
+            #availabilityAutoSaveStatus { font-size: 0.7rem !important; padding: 4px 2px !important; }
+            #availabilityApplyAllBtn { padding: 6px 10px !important; font-size: 0.78rem !important; }
+            #availabilityPickerBlock { padding: 10px 4px !important; }
+            .availability-day { padding: 8px 4px !important; gap: 8px !important; }
+            .availability-day .availability-day-name { font-size: 0.88rem !important; min-width: 62px !important; }
+            .availability-day input[type="time"] { padding: 4px 4px !important; font-size: 0.8rem !important; min-width: 78px; }
+            .window-row { flex-wrap: wrap !important; gap: 4px !important; }
+            .window-row input[type="time"] { flex: 0 0 78px; }
+            #availabilityEditorBody > div:first-child { padding: 8px 0 12px !important; }
+            #availabilityEditorBody > div:first-child > div:nth-child(2) { flex-wrap: wrap !important; gap: 6px !important; }
+            #welcomeBanner { padding: 14px 16px !important; }
+            #welcomeBanner ol li { padding: 6px 6px !important; }
+            #welcomeBanner ol li span[style*="flex:1"] { font-size: 0.82rem !important; line-height: 1.35; }
+            #welcomeBanner ol li a, #welcomeBanner ol li button { font-size: 0.75rem !important; }
+            #demoFeeSplit { grid-template-columns: 1fr !important; }
+            #demoFeeSplit > div { display: flex !important; justify-content: space-between; align-items: center; padding: 8px 12px !important; text-align: left !important; }
+            #demoFeeSplit > div > div:first-child { margin-bottom: 0 !important; }
+            .settings-card { padding: 16px 16px !important; }
+        }
+
 </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
