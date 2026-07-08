@@ -663,13 +663,10 @@
                 </div>
 
                 <!-- Compact onboarding checklist: auto-completes as user finishes each step -->
-                <div id="welcomeBanner" style="display:none; background: white; border: 1px solid var(--sand-200); border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px;">
-                        <div>
-                            <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--clay-700); font-weight: 800;">Get started</div>
-                            <div style="font-size: 1.05rem; font-weight: 700; color: var(--forest-900); margin-top: 2px;">Finish setting up · <span id="onboardingProgress">0 of 5</span></div>
-                        </div>
-                        <button onclick="dismissWelcome()" title="Dismiss" style="background: transparent; border: none; color: var(--ink-500); cursor: pointer; padding: 4px 8px; font-size: 18px; line-height: 1;" aria-label="Dismiss">&times;</button>
+                <div id="welcomeBanner" style="display:block; background: white; border: 1px solid var(--sand-200); border-radius: 12px; padding: 18px 22px; margin-bottom: 24px; box-shadow: var(--shadow-sm);">
+                    <div style="margin-bottom:12px;">
+                        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--clay-700); font-weight: 800;">Get started</div>
+                        <div style="font-size: 1.05rem; font-weight: 700; color: var(--forest-900); margin-top: 2px;">Finish setting up · <span id="onboardingProgress">0 of 5</span></div>
                     </div>
                     <div style="height: 4px; background: var(--sand-100); border-radius: 999px; overflow: hidden; margin-bottom: 14px;">
                         <div id="onboardingProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #ed682f, #d85a30); transition: width 0.3s;"></div>
@@ -2347,21 +2344,102 @@ END:VEVENT
         }
 
         // ===== First-login welcome banner =====
-        function dismissWelcome() {
-            localStorage.setItem('demohub_welcome_dismissed_' + RETAILER_SLUG, '1');
-            const b = document.getElementById('welcomeBanner');
-            if (b) b.style.display = 'none';
+        // Kept as a no-op for backward compat with anything calling it externally.
+        function dismissWelcome() { /* checklist is now non-dismissible per David */ }
+
+        // Compute completion status for each onboarding step by inspecting state.
+        function _onboardingStepStatus() {
+            const s = window.state || {};
+            const venues = s.venues || [];
+            const retailer = s.retailer || {};
+            const internal = s.internalContacts || [];
+
+            // 1) hours: any venue has at least one open day with windows
+            const hoursDone = venues.some(v => {
+                const sched = (v.availability && v.availability.schedule) || {};
+                return Object.keys(sched).some(k => {
+                    const arr = sched[k];
+                    if (Array.isArray(arr) && arr.length > 0) return true;
+                    if (arr && typeof arr === 'object' && arr.open && arr.close) return true;
+                    return false;
+                });
+            });
+
+            // 2) team: at least 1 internal contact added (or team roster > 1 - owner counts as self)
+            const team = window._teamAdmins || [];
+            const teamDone = internal.length > 0 || team.length > 1;
+
+            // 3) policies: retailer has a demo_policy OR uploaded demo_policy_url (not just default)
+            const DEFAULT_POLICY = 'Arrive 15 minutes before your slot to set up.';
+            const dp = (retailer.demo_policy || '').trim();
+            const policiesDone = !!(retailer.demo_policy_url) || (dp && !dp.startsWith(DEFAULT_POLICY));
+
+            // 4) bank: stripe charges enabled
+            const bankDone = !!retailer.stripe_charges_enabled;
+
+            // 5) link: user has copied the booking link at least once
+            const linkDone = localStorage.getItem('demohub_link_copied_' + (window.RETAILER_SLUG || '')) === '1';
+
+            return { hours: hoursDone, team: teamDone, policies: policiesDone, bank: bankDone, link: linkDone };
         }
-        function renderWelcomeBanner() {
+
+        function refreshOnboardingChecklist() {
             const banner = document.getElementById('welcomeBanner');
             if (!banner) return;
-            const dismissed = localStorage.getItem('demohub_welcome_dismissed_' + RETAILER_SLUG) === '1';
-            const noDemos = !window.state.demos || window.state.demos.length === 0;
-            if (dismissed || !noDemos) { banner.style.display = 'none'; return; }
-            banner.style.display = 'block';
-            const linkText = document.getElementById('welcomeBookingLinkText');
-            if (linkText) linkText.textContent = location.origin + '/r/' + RETAILER_SLUG;
+            const status = _onboardingStepStatus();
+            const stepKeys = ['hours','team','policies','bank','link'];
+            let doneCount = 0;
+            stepKeys.forEach(k => {
+                const li = banner.querySelector(`li[data-step="${k}"]`);
+                if (!li) return;
+                const check = li.querySelector('.ocl-check');
+                const label = li.querySelector('span:nth-child(2)');
+                if (status[k]) {
+                    doneCount++;
+                    if (check) {
+                        check.style.background = 'var(--forest-700, #2a5b32)';
+                        check.style.borderColor = 'var(--forest-700, #2a5b32)';
+                        check.innerHTML = '<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+                    }
+                    if (label) label.style.textDecoration = 'line-through';
+                    if (label) label.style.opacity = '0.55';
+                    li.style.background = '#f4f8f0';
+                } else {
+                    if (check) {
+                        check.style.background = 'white';
+                        check.style.borderColor = 'var(--sand-300)';
+                        check.innerHTML = '';
+                    }
+                    if (label) { label.style.textDecoration = ''; label.style.opacity = ''; }
+                    li.style.background = '';
+                }
+            });
+            const progress = document.getElementById('onboardingProgress');
+            if (progress) progress.textContent = doneCount + ' of 5';
+            const progressBar = document.getElementById('onboardingProgressBar');
+            if (progressBar) progressBar.style.width = (doneCount * 20) + '%';
+
+            // Hide only when 100% complete (no more nagging)
+            if (doneCount === 5) {
+                banner.style.display = 'none';
+            } else {
+                banner.style.display = 'block';
+            }
         }
+        // Expose globally so copyScheduleLinkHeader + other places can trigger a refresh
+        window.refreshOnboardingChecklist = refreshOnboardingChecklist;
+
+        function renderWelcomeBanner() {
+            // Legacy entry point; delegate to refreshOnboardingChecklist.
+            refreshOnboardingChecklist();
+        }
+
+        // Auto-refresh on load + periodic when data hydrates
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(refreshOnboardingChecklist, 800);
+            setTimeout(refreshOnboardingChecklist, 2500);
+            setTimeout(refreshOnboardingChecklist, 5000);
+        });
         window.copyScheduleLinkHeader = async function(btn) {
             const url = location.origin + '/r/' + (window.RETAILER_SLUG || '');
             try {
