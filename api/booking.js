@@ -396,6 +396,73 @@ export default async function handler(req, res) {
       }
     }
 
+
+    // ===== Wave 8: Notify assigned store staff (internal_contacts) =====
+    // Only fires for staff with notification_prefs.on_scheduled=true AND venue_ids empty (all stores)
+    // OR venue_ids contains the booked venue. Idempotent-ish: booking has bookings.id which is unique.
+    // Best-effort — doesn't block booking success.
+    try {
+      const RESEND_KEY = process.env.RESEND_API_KEY;
+      if (RESEND_KEY && bookingId) {
+        // Fetch staff whose prefs include on_scheduled and either no venue restriction or this venue
+        const bookedVenueId = venue?.id || null;
+        const staffUrl = `${SUPABASE_URL}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
+        const staffResp = await fetch(staffUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+        if (staffResp.ok) {
+          const allStaff = await staffResp.json();
+          const targetStaff = (allStaff || []).filter(s => {
+            const prefs = s.notification_prefs || {};
+            if (!prefs.on_scheduled) return false;
+            const scopes = Array.isArray(s.venue_ids) ? s.venue_ids : [];
+            if (scopes.length === 0) return true; // no venue restriction = notify for all
+            if (bookedVenueId && scopes.includes(bookedVenueId)) return true;
+            return false;
+          }).filter(s => s.email);
+
+          if (targetStaff.length > 0) {
+            const staffSubj = `New demo scheduled: ${brand_name || 'a brand'} on ${dateLabel}`;
+            const staffHtml = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<div style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</div>
+</td></tr>
+<tr><td style="padding:32px 36px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">New demo scheduled</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo just landed on your calendar.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Make sure you've got enough product on hand — <strong>${html(brand_name || 'the brand')}</strong> is coming to demo <strong>${html(product || 'their product')}</strong>.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(product || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${dateLabel}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(demo_time || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(venue?.name || '—')}</td></tr>
+</table>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong> added you to their team with new-demo alerts on.</p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${retailer_slug}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
+</table></body></html>`;
+            // Fire one email per staff member (Resend handles up to 100/sec)
+            await Promise.allSettled(targetStaff.map(s => fetch('https://api.resend.com/emails', {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                from: FROM_ADDRESS,
+                to: s.email,
+                reply_to: 'david@demohubhq.com',
+                subject: staffSubj,
+                html: staffHtml,
+              }),
+            })));
+            console.log(`staff-notify: sent to ${targetStaff.length} staff for booking ${bookingId}`);
+          }
+        }
+      }
+    } catch (staffErr) {
+      console.warn('staff-notify error (non-blocking):', staffErr?.message || staffErr);
+    }
+
+
     return res.status(200).json({ success: true, booking_id: bookingId, email_sent: emailOk, email_error: emailErr });
   } catch (e) {
     await logError(req, 500, e?.message || e, e?.stack);

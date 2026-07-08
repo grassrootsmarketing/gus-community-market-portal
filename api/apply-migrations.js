@@ -69,6 +69,15 @@ const MIGRATIONS = [
             ADD COLUMN IF NOT EXISTS verification_notes TEXT;
           COMMENT ON COLUMN retailers.verification_status IS 'pending | approved | rejected | suspended';`,
   },
+  {
+    name: '008_internal_contacts_notification_prefs',
+    sql: `ALTER TABLE internal_contacts
+            ADD COLUMN IF NOT EXISTS notification_prefs JSONB NOT NULL DEFAULT '{"on_scheduled": true, "days_before": [], "custom_days": null, "sms_enabled": false}'::jsonb,
+            ADD COLUMN IF NOT EXISTS venue_ids UUID[] NOT NULL DEFAULT '{}'::uuid[];
+          CREATE INDEX IF NOT EXISTS idx_internal_contacts_venue_ids ON internal_contacts USING GIN (venue_ids);
+          COMMENT ON COLUMN internal_contacts.notification_prefs IS 'JSON: {on_scheduled: bool, days_before: [3,1], custom_days: int|null, sms_enabled: bool}';
+          COMMENT ON COLUMN internal_contacts.venue_ids IS 'Empty array = notified for ALL locations. Non-empty = only for those specific venues.';`,
+  },
 ];
 
 // ==============================================================
