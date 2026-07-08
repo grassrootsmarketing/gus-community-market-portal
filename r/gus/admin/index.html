@@ -210,7 +210,7 @@
         .settings-card-header h3 { font-size: 1rem; color: var(--forest-800); }
         .settings-card-body { padding: 24px; }
         
-        .availability-day { display: flex; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--sand-200); }
+        .availability-day { display: flex; align-items: center; gap: 14px; padding: 8px 4px; border-bottom: 1px solid var(--sand-200); }
         .availability-day:last-child { border-bottom: none; }
         .toggle { position: relative; width: 44px; height: 24px; flex-shrink: 0; }
         .toggle input { opacity: 0; width: 0; height: 0; }
@@ -915,23 +915,20 @@
                                 <span id="availabilityAutoSaveStatus" style="font-size:0.78rem; color:var(--ink-500); font-weight:500; padding: 8px 4px; font-style:italic;">Auto-saves</span>
                             </div>
                         </div>
-                        <div id="availabilityPickerBlock">
-                            <div style="padding: 18px 24px 4px;">
-                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                                    <label class="form-label" for="availabilityVenueSelect" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none;">Location</label>
+                        <div id="availabilityPickerBlock" style="padding: 16px 20px 4px;">
+                            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:16px; align-items:end;">
+                                <div>
+                                    <label class="form-label" for="availabilityVenueSelect" style="display:block; margin:0 0 6px; font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Location</label>
+                                    <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
                                 </div>
-                                <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
-                            </div>
-                            <div style="padding: 14px 24px 12px;">
-                                <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-                                    <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); text-decoration:none; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot<span title="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <div>
+                                    <label class="form-label" for="availabilityMaxPerSlot" style="display:block; margin:0 0 6px; font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Max per slot <span data-tooltip="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help; text-transform:none;">?</span></label>
+                                    <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
                                 </div>
-                                <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
-                                
-                                <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
                             </div>
+                            <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
                         </div>
-                        <div class="settings-card-body" id="availabilityEditorBody"></div>
+                        <div class="settings-card-body" id="availabilityEditorBody" style="padding-top:4px;"></div>
                     </div>
                     <div id="policySetupCallout" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ed682f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;" aria-hidden="true">
@@ -2683,7 +2680,7 @@ END:VEVENT
             // Woodlands, Whole Foods playbooks). Retailer can also use Custom below for granular
             // per-day editing.
             let html = `
-                <div style="padding:14px 4px 18px; margin-bottom:6px; border-bottom:1px solid var(--sand-200);">
+                <div style="padding:12px 4px 14px; margin-bottom:4px; border-bottom:1px solid var(--sand-200);">
                     <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:10px;">Quick set for all days</div>
                     <div style="display:flex; gap:8px; flex-wrap:wrap;">
                         <button type="button" onclick="applyPresetWindowAllDays('11:00 AM','2:00 PM')" style="background:white; border:1.5px solid var(--sand-300); border-radius:999px; padding:8px 16px; font-size:0.85rem; font-weight:600; color:var(--forest-800); font-family:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition: all 0.15s;" onmouseover="this.style.borderColor='var(--forest-500)'; this.style.background='#f4f8f0';" onmouseout="this.style.borderColor='var(--sand-300)'; this.style.background='white';">
@@ -2705,12 +2702,12 @@ END:VEVENT
                 const windows = normalizeDayWindows(schedule[String(d)]);
                 const isOpen = windows.length > 0;
                 html += `
-                <div class="availability-day" data-day="${d}" style="align-items:flex-start;">
-                    <label class="toggle" style="margin-top:6px;">
+                <div class="availability-day" data-day="${d}">
+                    <label class="toggle">
                         <input type="checkbox" data-day-toggle="${d}" ${isOpen ? 'checked' : ''} onchange="onAvailabilityToggle(${d})">
                         <span class="toggle-slider"></span>
                     </label>
-                    <span class="availability-day-name" style="padding-top:6px;">${DAY_NAMES[d]}</span>
+                    <span class="availability-day-name">${DAY_NAMES[d]}</span>
                     <div class="availability-times" id="availTimes-${d}" style="flex:1;">
                         ${isOpen ? renderDayWindowsHtml(d, windows) : renderClosedDayHtml(d)}
                     </div>
@@ -2734,7 +2731,7 @@ END:VEVENT
         }
 
         function renderWindowRow(day, idx, open, close, deletable, preferred) {
-            return `<div class="window-row" data-window-idx="${idx}" style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+            return `<div class="window-row" data-window-idx="${idx}" style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="open" value="${open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
                 <span style="color:var(--ink-500);">–</span>
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="close" value="${close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
