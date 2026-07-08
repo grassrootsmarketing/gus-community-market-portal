@@ -1018,10 +1018,31 @@
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div class="form-group">
-                                <label class="form-label">Default Demo Fee</label>
-                                <div style="position:relative; display:flex; align-items:center;">
-                                    <span aria-hidden="true" style="position:absolute; left:14px; font-weight:600; color:var(--ink-700); pointer-events:none; z-index:1;">$</span>
-                                    <input type="number" step="1" min="0" max="9999" inputmode="numeric" class="form-input" id="settingDemoFee" value="30" disabled style="padding-left:26px; width:100%;">
+                                <label class="form-label" style="display:flex; align-items:center; gap:6px;">Default Demo Fee<span title="What brands pay per demo at your stores. Demohub keeps a $5 booking fee per demo — you keep the rest." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+
+                                <!-- Slider + numeric mirror + live cut preview -->
+                                <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px;">
+                                    <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;">
+                                        <div style="position:relative; display:flex; align-items:center;">
+                                            <span aria-hidden="true" style="position:absolute; left:12px; font-weight:600; color:var(--ink-700); pointer-events:none; z-index:1;">$</span>
+                                            <input type="number" step="1" min="5" max="50" inputmode="numeric" class="form-input" id="settingDemoFee" value="30" disabled style="padding-left:22px; width:90px; font-weight:700; text-align:center;" oninput="onDemoFeeInput(this)">
+                                        </div>
+                                        <input type="range" min="5" max="50" step="1" value="30" id="settingDemoFeeSlider" disabled style="flex:1; accent-color:var(--forest-700); cursor:pointer;" oninput="onDemoFeeSlider(this)">
+                                    </div>
+                                    <div id="demoFeeSplit" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:0.82rem;">
+                                        <div style="text-align:center; padding:8px 6px; background:white; border-radius:8px; border:1px solid var(--sand-200);">
+                                            <div style="font-size:0.7rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Brand pays</div>
+                                            <div id="feeBrandPays" style="font-weight:700; color:var(--forest-900); font-size:1rem;">$30</div>
+                                        </div>
+                                        <div style="text-align:center; padding:8px 6px; background:#fff3ed; border-radius:8px; border:1px solid #ffdac2;">
+                                            <div style="font-size:0.7rem; color:#a14e2a; text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Demohub fee</div>
+                                            <div id="feePlatform" style="font-weight:700; color:#a14e2a; font-size:1rem;">$5</div>
+                                        </div>
+                                        <div style="text-align:center; padding:8px 6px; background:#f4f8f0; border-radius:8px; border:1px solid var(--forest-200, #c8d4c1);">
+                                            <div style="font-size:0.7rem; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">You keep</div>
+                                            <div id="feeRetailerKeeps" style="font-weight:700; color:var(--forest-800); font-size:1rem;">$25</div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                             <div class="form-group">
@@ -2943,7 +2964,11 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            if (fee) fee.value = String(Math.round(Number(s.demo_fee || 30)));
+            const feeVal = Math.max(5, Math.min(50, Math.round(Number(s.demo_fee || 30))));
+            if (fee) fee.value = String(feeVal);
+            const feeSlider = document.getElementById('settingDemoFeeSlider');
+            if (feeSlider) feeSlider.value = String(feeVal);
+            _updateDemoFeeSplit(feeVal);
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
             // Load booking preferences from retailer row (not settings row)
@@ -5099,7 +5124,8 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            const inputs = [fee, dur, adv].filter(Boolean);
+            const feeSlider2 = document.getElementById('settingDemoFeeSlider');
+            const inputs = [fee, feeSlider2, dur, adv].filter(Boolean);
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
                 if (window.state.settings && window.state.settings.id) {
@@ -5296,9 +5322,8 @@ END:VEVENT
                 }
                 if (d.charges_enabled && d.payouts_enabled) {
                     // Show masked bank info if Stripe returned it (external_account)
-                    const bankLine = d.bank_last4
-                        ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Bank account ending in <strong style="color:var(--forest-900); font-family:monospace;">••••${d.bank_last4}</strong>${d.bank_name ? ' (' + d.bank_name + ')' : ''}</div>`
-                        : '';
+                    // Per David: don't surface bank last-4 or bank name; only show 'Bank connected'.
+                    const bankLine = '';
                     body.innerHTML = `
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
                             <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
