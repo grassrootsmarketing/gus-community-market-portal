@@ -912,19 +912,17 @@
                             <h3>Location availability</h3>
                             <div style="display:flex; gap:8px;">
                                 <button class="btn btn-secondary" style="padding: 8px 12px; font-size: 0.8rem;" id="availabilityApplyAllBtn" onclick="applyScheduleToAllStores()" title="Copy this location's schedule + capacity to every location">Apply to all</button>
-                                <span id="availabilityAutoSaveStatus" style="font-size:0.78rem; color:var(--ink-500); font-weight:500; padding: 8px 4px; font-style:italic;">Auto-saves</span>
+                                <span id="availabilityAutoSaveStatus" style="font-size:0.78rem; color:var(--ink-500); font-weight:500; padding: 8px 4px; display:inline-flex; align-items:center; gap:6px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><circle cx="12" cy="12" r="10"/></svg>Autosave on</span>
                             </div>
                         </div>
                         <div id="availabilityPickerBlock" style="padding: 16px 20px 4px;">
-                            <div style="display:grid; grid-template-columns: 2fr 1fr; gap:16px; align-items:end;">
-                                <div>
-                                    <label class="form-label" for="availabilityVenueSelect" style="display:block; margin:0 0 6px; font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Location</label>
-                                    <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
-                                </div>
-                                <div>
-                                    <label class="form-label" for="availabilityMaxPerSlot" style="display:block; margin:0 0 6px; font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Max per slot <span data-tooltip="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help; text-transform:none;">?</span></label>
-                                    <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:100%; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 10px center; appearance:none; -webkit-appearance:none; padding-right:32px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
-                                </div>
+                            <label class="form-label" for="availabilityVenueSelect" style="display:block; margin:0 0 6px; font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Location</label>
+                            <select id="availabilityVenueSelect" onchange="renderAvailabilityEditor()" class="sort-select" style="width:100%; caret-color:transparent; text-decoration:none;"></select>
+
+                            <!-- Max per slot: property of the location, sits below the picker -->
+                            <div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:8px 12px; background:#f9f7f2; border-radius:8px;">
+                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); flex:1; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot <span data-tooltip="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:130px; padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 8px center; appearance:none; -webkit-appearance:none; padding-right:26px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
                             </div>
                             <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
                         </div>
@@ -2689,11 +2687,7 @@ END:VEVENT
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             3 PM &ndash; 6 PM
                         </button>
-                        <button type="button" onclick="openCustomAvailabilityHelp()" style="background:transparent; border:1.5px solid transparent; border-radius:999px; padding:8px 14px; font-size:0.85rem; font-weight:600; color:var(--ink-500); font-family:inherit; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:color 0.15s;" onmouseover="this.style.color='var(--forest-700)';" onmouseout="this.style.color='var(--ink-500)';">
-                            Custom &rarr; use the per-day editor below
-                        </button>
                     </div>
-                    <div style="font-size:0.75rem; color:var(--ink-500); margin-top:10px;">Chips add the window to every day. Toggle individual days off in the editor below.</div>
                 </div>`;
 
             for (let d = 0; d < 7; d++) {
@@ -2723,7 +2717,13 @@ END:VEVENT
             });
             html += '</div>';
             if (windows.length < 3) {
-                html += `<button type="button" onclick="addWindow(${day})" style="margin-top:6px; background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add shift</button>`;
+                html += `<div style="display:flex; align-items:center; gap:12px; margin-top:6px;">
+                <button type="button" onclick="addWindow(${day})" style="background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add shift</button>
+                <button type="button" onclick="openCopyToDaysPopover(${day}, this)" data-tooltip="Copy this day's hours to other days" style="background:none; border:none; color:var(--ink-500); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:500; display:inline-flex; align-items:center; gap:4px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
+                    Copy to&hellip;
+                </button>
+            </div>`;
             }
             return html;
         }
@@ -2733,7 +2733,7 @@ END:VEVENT
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="open" value="${open}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
                 <span style="color:var(--ink-500);">–</span>
                 <input type="time" data-day="${day}" data-idx="${idx}" data-field="close" value="${close}" style="border:1px solid rgba(15,44,23,0.15); border-radius:6px; padding:4px 8px; font-size:0.85rem;">
-                ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" aria-label="Remove shift" title="Remove shift" style="background:none; border:none; color:var(--ink-500); cursor:pointer; font-size:1.25rem; line-height:1; padding:0 6px;">&times;</button>` : ''}
+                ${deletable ? `<button type="button" onclick="removeWindow(${day}, ${idx})" data-tooltip="Remove this shift" aria-label="Remove shift" style="background:none; border:1.5px solid transparent; color:var(--ink-500); cursor:pointer; font-size:1.2rem; line-height:1; width:32px; height:32px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; padding:0; transition:all 0.12s;" onmouseover="this.style.background='#fdebe5'; this.style.color='var(--clay-700)';" onmouseout="this.style.background='none'; this.style.color='var(--ink-500)';">&times;</button>` : ''}
             </div>`;
         }
 
@@ -2886,9 +2886,93 @@ END:VEVENT
         let _autoSaveTimer = null;
         function scheduleAutoSave() {
             const status = document.getElementById('availabilityAutoSaveStatus');
-            if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-500)'; }
+            if (status) { status.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--clay-600)" stroke-width="3"><circle cx="12" cy="12" r="6"/></svg> Saving…`; status.style.color = 'var(--clay-600)'; }
             if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
             _autoSaveTimer = setTimeout(() => { saveAvailability(); }, 600);
+        }
+
+
+        // Fable #1: copy-to-days per-row popover. Sets other days' schedules equal to source day.
+        const DAY_LABELS_SHORT = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+        function openCopyToDaysPopover(sourceDay, anchorEl) {
+            // Kill any existing popover
+            document.querySelectorAll('.dh-copy-popover').forEach(p => p.remove());
+
+            const pop = document.createElement('div');
+            pop.className = 'dh-copy-popover';
+            pop.style.cssText = 'position:absolute; z-index:10500; background:white; border:1px solid var(--sand-200); border-radius:10px; box-shadow:0 12px 32px rgba(15,44,23,0.15); padding:12px; min-width:220px; font-family:inherit;';
+            pop.innerHTML = `
+                <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:10px;">Copy ${DAY_LABELS_SHORT[sourceDay]}'s hours to&hellip;</div>
+                <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:10px;">
+                    ${[0,1,2,3,4,5,6].filter(d => d !== sourceDay).map(d => `
+                        <label style="display:flex; align-items:center; gap:8px; font-size:0.88rem; color:var(--ink-700); cursor:pointer; padding:4px 6px; border-radius:6px;" onmouseover="this.style.background='var(--sand-100)'" onmouseout="this.style.background='none'">
+                            <input type="checkbox" class="_ctd-day" data-day="${d}" style="accent-color:var(--forest-700);">
+                            ${DAY_LABELS_SHORT[d]}
+                        </label>
+                    `).join('')}
+                </div>
+                <div style="display:flex; gap:6px; padding-top:8px; border-top:1px solid var(--sand-200);">
+                    <button type="button" onclick="_ctdSelectPreset('weekdays', ${sourceDay})" style="background:none; border:1px solid var(--sand-300); color:var(--forest-700); padding:4px 8px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-family:inherit;">Weekdays</button>
+                    <button type="button" onclick="_ctdSelectPreset('weekends', ${sourceDay})" style="background:none; border:1px solid var(--sand-300); color:var(--forest-700); padding:4px 8px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-family:inherit;">Weekends</button>
+                    <button type="button" onclick="_ctdSelectPreset('all', ${sourceDay})" style="background:none; border:1px solid var(--sand-300); color:var(--forest-700); padding:4px 8px; border-radius:6px; font-size:0.75rem; cursor:pointer; font-family:inherit;">All others</button>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:12px;">
+                    <button type="button" onclick="_ctdCancel()" style="flex:1; background:none; border:1px solid var(--sand-300); color:var(--ink-500); padding:8px; border-radius:6px; font-size:0.88rem; cursor:pointer; font-family:inherit; font-weight:600;">Cancel</button>
+                    <button type="button" onclick="_ctdApply(${sourceDay})" style="flex:1; background:var(--forest-900); border:1px solid var(--forest-900); color:white; padding:8px; border-radius:6px; font-size:0.88rem; cursor:pointer; font-family:inherit; font-weight:700;">Copy</button>
+                </div>
+            `;
+
+            document.body.appendChild(pop);
+            // Position near the button
+            const rect = anchorEl.getBoundingClientRect();
+            let top = rect.bottom + window.scrollY + 4;
+            let left = rect.left + window.scrollX - 40;
+            const w = pop.offsetWidth;
+            if (left + w > window.innerWidth - 8) left = window.innerWidth - w - 12;
+            pop.style.top = top + 'px';
+            pop.style.left = Math.max(8, left) + 'px';
+
+            // Outside click closes
+            setTimeout(() => document.addEventListener('click', _ctdOutsideClick), 0);
+        }
+        function _ctdSelectPreset(preset, sourceDay) {
+            document.querySelectorAll('.dh-copy-popover ._ctd-day').forEach(cb => {
+                const d = parseInt(cb.dataset.day, 10);
+                let match = false;
+                if (preset === 'weekdays') match = (d >= 1 && d <= 5);
+                else if (preset === 'weekends') match = (d === 0 || d === 6);
+                else if (preset === 'all') match = true;
+                cb.checked = match;
+            });
+        }
+        function _ctdCancel() {
+            document.querySelectorAll('.dh-copy-popover').forEach(p => p.remove());
+            document.removeEventListener('click', _ctdOutsideClick);
+        }
+        function _ctdOutsideClick(e) {
+            if (e.target.closest('.dh-copy-popover')) return;
+            if (e.target.closest('[onclick*="openCopyToDaysPopover"]')) return;
+            _ctdCancel();
+        }
+        function _ctdApply(sourceDay) {
+            const targets = Array.from(document.querySelectorAll('.dh-copy-popover ._ctd-day:checked')).map(cb => parseInt(cb.dataset.day, 10));
+            if (targets.length === 0) { _ctdCancel(); return; }
+            // Read source day's current windows from DOM
+            const sourceWindows = readDayWindowsFromDom(sourceDay);
+            // For each target: enable toggle + render windows same as source
+            targets.forEach(d => {
+                const toggle = document.querySelector(`[data-day-toggle="${d}"]`);
+                const cell = document.getElementById('availTimes-' + d);
+                if (!toggle || !cell) return;
+                toggle.checked = true;
+                cell.innerHTML = renderDayWindowsHtml(d, sourceWindows);
+            });
+            _ctdCancel();
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
+            // Toast confirming
+            if (window.DhModal && DhModal.toast) {
+                DhModal.toast(`Copied ${DAY_LABELS_SHORT[sourceDay]}'s hours to ${targets.map(d => DAY_LABELS_SHORT[d]).join(', ')}`, 'success');
+            }
         }
 
         async function saveAvailability() {
@@ -2897,6 +2981,32 @@ END:VEVENT
             const status = document.getElementById('availabilityAutoSaveStatus');
             if (!v) { if (status) status.textContent = 'Pick a store first.'; return; }
             const schedule = buildScheduleFromDom();
+            // Validation (Fable #7-5): reject end-before-start; dedupe overlapping shifts
+            const validationErrors = [];
+            const DAY_NAMES_FULL = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            for (let d = 0; d < 7; d++) {
+                const arr = schedule[String(d)];
+                if (!Array.isArray(arr) || arr.length === 0) continue;
+                // Dedupe by open/close string
+                const seen = new Set();
+                const cleaned = [];
+                for (const w of arr) {
+                    if (!w || !w.open || !w.close) continue;
+                    if (w.close <= w.open) {
+                        validationErrors.push(`${DAY_NAMES_FULL[d]}: end time (${w.close}) must be after start time (${w.open})`);
+                        continue;
+                    }
+                    const key = w.open + '-' + w.close;
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    cleaned.push(w);
+                }
+                schedule[String(d)] = cleaned.length > 0 ? cleaned : null;
+            }
+            if (validationErrors.length > 0) {
+                if (status) { status.textContent = validationErrors[0]; status.style.color = 'var(--clay-700)'; }
+                return;
+            }
             const maxInput = document.getElementById('availabilityMaxPerSlot');
             // 0 = No limit. Persist as null so booking logic can treat it as unlimited.
             const raw = parseInt(maxInput?.value || '1', 10);
@@ -2908,14 +3018,18 @@ END:VEVENT
                 const idx = window.state.venues.findIndex(x => x.id === v.id);
                 if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
                 if (status) {
-                    status.textContent = 'Saved ✓';
+                    // Persistent trust indicator — shows time of last successful save
+                    const now = new Date();
+                    const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                    status.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="var(--forest-700)" stroke="var(--forest-700)"><circle cx="12" cy="12" r="6"/></svg> Saved just now`;
                     status.style.color = 'var(--forest-700)';
-                    // Fade back to neutral after 2s
+                    status._lastSaved = now;
+                    // After 30 seconds, downgrade to 'Saved at 3:14 PM'
                     clearTimeout(status._resetTimer);
                     status._resetTimer = setTimeout(() => {
-                        status.textContent = 'Auto-saves';
+                        status.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="var(--forest-700)" stroke="var(--forest-700)"><circle cx="12" cy="12" r="6"/></svg> Saved at ${timeStr}`;
                         status.style.color = 'var(--ink-500)';
-                    }, 2000);
+                    }, 30000);
                 }
                 if (legacyStatus) legacyStatus.textContent = '';
             } catch (e) {
