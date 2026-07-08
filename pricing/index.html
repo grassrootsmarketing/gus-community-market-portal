@@ -5,9 +5,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pricing · Demohub</title>
-<meta name="description" content="Simple pricing. Pay only for what you book. Plans from $49/mo, 14-day free trial, $1 per $10 of demo fee, round down.">
+<meta name="description" content="Simple pricing. Solo tier is free forever. Pro is $29.99/mo for unlimited stores. Brands pay a small $5 booking fee per demo. No credit card required to start.">
 <meta property="og:title" content="Pricing, Demohub">
-<meta property="og:description" content="Simple pricing. Plans from $49/mo. Try any plan free for 14 days. $1 per $10 of demo fee, round down to nearest $10. Charge nothing, owe nothing.">
+<meta property="og:description" content="Solo tier is free forever. Pro is $29.99/mo for unlimited stores. Brands pay a $5 booking fee per demo. Start free, no credit card required.">
 <meta property="og:image" content="https://demohubhq.com/og-pricing.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://demohubhq.com/pricing">
@@ -52,7 +52,7 @@ a { color:inherit; text-decoration:none; }
 
 /* Pricing grid */
 .pricing { padding:48px 0 80px; }
-.tier-grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:20px; }
+.tier-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:24px; max-width:900px; margin: 0 auto; }
 .tier { background:white; border:1px solid rgba(15,44,23,0.1); border-radius:20px; padding:32px 28px 28px; display:flex; flex-direction:column; position:relative; }
 .tier.popular { border-color:var(--clay-bright); box-shadow:0 12px 40px rgba(237,104,47,0.12); }
 .tier .pop-pill { position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:var(--clay-bright); color:white; font-size:0.7rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; padding:5px 14px; border-radius:99px; white-space:nowrap; }
@@ -226,16 +226,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 <section class="hero">
   <div class="container">
     <div class="eyebrow">Pricing</div>
-    <h1>Simple pricing. <span class="accent">Pay only for what you book.</span></h1>
-    <p class="lede">A flat monthly subscription, plus a small fee per confirmed demo. No long-term contracts, no per-seat charges, no usage caps that surprise you on Friday afternoon.</p>
-    <div class="tagline">$1 per $10 of demo fee, round down to the nearest $10. Charge nothing, owe nothing.</div>
+    <h1>Free to start. <span class="accent">Simple to scale.</span></h1>
+    <p class="lede">Get your first location online in minutes. When you outgrow it, one flat plan unlocks everything &mdash; no per-seat charges, no usage caps, no surprise bills.</p>
+    <div class="tagline">Retailers pay nothing to start. Brands pay a small $5 booking fee per demo. That's how we keep the lights on.</div>
   </div>
 </section>
 
 <section class="pricing">
   <div class="container">
     <div class="trial-callout">
-      <div class="pill"><strong>Try any plan free for 14 days.</strong> No credit card required.</div>
+      <div class="pill"><strong>Solo tier is free.</strong> Pro is $29.99/mo. No credit card required to start.</div>
     </div>
 
     <div class="bill-toggle" id="billToggle">
@@ -245,70 +245,41 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </div>
 
     <div class="tier-grid">
-      <!-- Solo -->
+      <!-- Solo (FREE) -->
       <div class="tier">
-        <div class="tier-name">Solo · 1 location</div>
-        <div class="tier-price"><span data-monthly="$49" data-annual="$40">$49</span><span class="unit">/mo</span></div>
-        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
+        <div class="tier-name">Solo</div>
+        <div class="tier-price"><span>Free</span><span class="unit">forever</span></div>
+        <div class="tier-fee">Brands pay a <strong>$5 booking fee</strong> per demo. You pay nothing.</div>
         <ul>
-          <li><strong>Unlimited</strong> demos per month</li>
+          <li><strong>1</strong> store location</li>
           <li><strong>2</strong> admin users</li>
           <li>Public booking page</li>
-          <li>Compliance dashboard</li>
+          <li>Auto-confirm or manual approval</li>
+          <li>Compliance dashboard + COI tracking</li>
           <li>Brand contact CRM</li>
-          <li>COI tracking &amp; expiration alerts</li>
           <li>Stripe Connect: brands pay you direct</li>
+          <li>Community support</li>
         </ul>
-        <a href="/signup?tier=solo" class="btn btn-secondary">Start free trial</a>
+        <a href="/signup?tier=solo" class="btn btn-secondary">Start free</a>
       </div>
 
-      <!-- Starter -->
-      <div class="tier">
-        <div class="tier-name">Starter · up to 3 locations</div>
-        <div class="tier-price"><span data-monthly="$99" data-annual="$82">$99</span><span class="unit">/mo</span></div>
-        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
-        <ul>
-          <li>Everything in Solo</li>
-          <li><strong>5</strong> admin users</li>
-          <li>Multi-location calendar</li>
-          <li>Per-location hours + policies</li>
-          <li>Monthly statements</li>
-          <li>Stripe Connect: brands pay you direct</li>
-        </ul>
-        <a href="/signup?tier=starter" class="btn btn-secondary">Start free trial</a>
-      </div>
-
-      <!-- Growth (popular) -->
+      <!-- Pro (was Growth) -->
       <div class="tier popular">
         <div class="pop-pill">Most popular</div>
-        <div class="tier-name">Growth · up to 10 locations</div>
-        <div class="tier-price"><span data-monthly="$199" data-annual="$166">$199</span><span class="unit">/mo</span></div>
-        <div class="tier-fee"><strong>+ $1 per $10 of demo fee</strong> · round down to nearest $10</div>
+        <div class="tier-name">Pro</div>
+        <div class="tier-price"><span data-monthly="$29.99" data-annual="$24.99">$29.99</span><span class="unit">/mo</span></div>
+        <div class="tier-fee">Brands still pay a <strong>$5 booking fee</strong>. Split-free multi-store.</div>
         <ul>
-          <li>Everything in Starter</li>
-          <li><strong>Unlimited</strong> admin users</li>
+          <li>Everything in Solo</li>
+          <li><strong>Unlimited</strong> store locations</li>
+          <li><strong>Unlimited</strong> admin users + viewers</li>
+          <li>Per-location hours + policies</li>
           <li>Custom branding on booking pages</li>
-          <li>Stripe Connect: brands pay you direct</li>
-          <li>Advanced analytics + exports</li>
+          <li>Multi-location calendar + statements</li>
+          <li>Staff notification system</li>
           <li>Priority email support</li>
         </ul>
-        <a href="/signup?tier=growth" class="btn btn-primary">Start free trial</a>
-      </div>
-
-      <!-- Enterprise -->
-      <div class="tier">
-        <div class="tier-name">Enterprise · 11+ locations</div>
-        <div class="tier-price custom">Custom</div>
-        <div class="tier-fee"><strong>+ negotiated rate</strong></div>
-        <ul>
-          <li>Everything in Growth</li>
-          <li>Dedicated customer success</li>
-          <li>API access + integrations</li>
-          <li>SLA + uptime guarantee</li>
-          <li>SSO, security review, MSA</li>
-          <li>White-label branding</li>
-        </ul>
-        <a href="mailto:david@demohubhq.com?subject=Demohub%20Enterprise%20inquiry" class="btn btn-secondary">Talk to us</a>
+        <a href="/signup?tier=pro" class="btn btn-primary">Start Pro</a>
       </div>
     </div>
   </div>
@@ -429,7 +400,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </details>
     <details>
       <summary>Annual vs. monthly, what's the difference?</summary>
-      <p>Annual saves you 17%, that's about two months free. Solo is $480/yr (vs. $588 monthly), Starter is $984/yr (vs. $1,188 monthly), Growth is $1,992/yr (vs. $2,388 monthly). Per-demo fees are billed monthly either way.</p>
+      <p>Annual saves you 17% on Pro, that's about two months free ($299.88/yr vs. $359.88 monthly). Solo tier is free either way. Brand $5 booking fees are handled by Stripe at the time of each demo.</p>
     </details>
   </div>
 </section>
