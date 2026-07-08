@@ -981,19 +981,6 @@
                             <div id="bookingPrefsStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
                         </div>
                     </div>
-                    <div class="settings-card">
-                        <div class="settings-card-header" style="display:flex; align-items:center; justify-content:space-between;">
-                            <h3>Monthly overview email</h3>
-                            <label class="toggle" title="Toggle monthly overview email">
-                                <input type="checkbox" id="settingMonthlySummary" checked onchange="saveNotificationPrefs()">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="settings-card-body" style="padding-top:14px;">
-                            <div style="font-size:0.82rem; color:var(--ink-500); line-height:1.55;">Sent on the 1st of each month with demos completed, fees collected, pending bookings, COIs expiring, and new brand contacts.</div>
-                            <div id="notificationStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:8px; min-height:1em;"></div>
-                        </div>
-                    </div>
 <div class="settings-card">
                         <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
@@ -1085,6 +1072,17 @@
                                 <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">How far ahead a brand must book. Prevents last-minute demos.</div>
                             </div>
                             <div class="form-group">
+                                <label class="form-label" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+                                    <span style="display:inline-flex; align-items:center; gap:6px;">Monthly overview email<span data-tooltip="Sent on the 1st of each month with demos completed, fees collected, pending bookings, COIs expiring, and new brand contacts." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></span>
+                                    <label class="toggle" style="flex-shrink:0;">
+                                        <input type="checkbox" id="settingMonthlySummary" checked onchange="saveNotificationPrefs()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </label>
+                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Recap of the past month's activity, delivered on the 1st.</div>
+                                <div id="notificationStatus" style="font-size:0.72rem; color:var(--ink-500); margin-top:4px; min-height:1em;"></div>
+                            </div>
+                                                        <div class="form-group">
                                 <label class="form-label">Calendar feed</label>
                                 <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically.</div>
                                 <div style="display:flex; gap:6px; margin-bottom:10px;">
