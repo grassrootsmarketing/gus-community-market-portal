@@ -2958,6 +2958,41 @@ END:VEVENT
             }
         }
 
+
+        // Sync slider and numeric input for Default Demo Fee, update split preview.
+        const _PLATFORM_FEE = 5;
+        function _updateDemoFeeSplit(brandPays) {
+            const p = Math.max(5, Math.min(50, Math.round(Number(brandPays) || 0)));
+            const platformFee = Math.min(p, _PLATFORM_FEE);
+            const retailerKeeps = Math.max(0, p - platformFee);
+            const brandEl = document.getElementById('feeBrandPays');
+            const platEl = document.getElementById('feePlatform');
+            const keepEl = document.getElementById('feeRetailerKeeps');
+            if (brandEl) brandEl.textContent = '$' + p;
+            if (platEl) platEl.textContent = '$' + platformFee;
+            if (keepEl) keepEl.textContent = '$' + retailerKeeps;
+        }
+        function onDemoFeeSlider(el) {
+            const v = Math.max(5, Math.min(50, parseInt(el.value, 10) || 30));
+            const input = document.getElementById('settingDemoFee');
+            if (input) input.value = String(v);
+            _updateDemoFeeSplit(v);
+        }
+        function onDemoFeeInput(el) {
+            let v = parseInt(el.value, 10);
+            if (isNaN(v)) v = 30;
+            v = Math.max(5, Math.min(50, v));
+            const slider = document.getElementById('settingDemoFeeSlider');
+            if (slider) slider.value = String(v);
+            _updateDemoFeeSplit(v);
+        }
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                const input = document.getElementById('settingDemoFee');
+                if (input) _updateDemoFeeSplit(input.value);
+            }, 500);
+        });
+
         function applySettingsToInputs() {
             if (!window.state.settings) return;
             const s = window.state.settings;
