@@ -548,7 +548,24 @@
             <div class="header-nav">
                 <button id="hdrCopyLinkBtn" onclick="copyScheduleLinkHeader(this)" title="Copy your booking link to share with brands" style="display:inline-flex; align-items:center; gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Copy schedule link</button>
                 <button onclick="window.open('/r/' + (window.RETAILER_SLUG || ''), '_blank')">Preview booking page</button>
-                <button class="active">Admin</button>
+                <div id="acctMenuWrap" style="position:relative;">
+                    <button id="acctMenuBtn" onclick="toggleAcctMenu(event)" class="active" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+                        <span id="acctMenuInitials" style="width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.18); color:#fbf7f0; display:inline-flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700;">·</span>
+                        <span>Account</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div id="acctMenu" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:white; border-radius:10px; box-shadow:0 8px 24px rgba(15,44,23,0.15); min-width:220px; padding:6px; z-index:100; border:1px solid var(--sand-200);">
+                        <div id="acctMenuEmail" style="padding:10px 12px 4px; font-size:0.75rem; color:var(--ink-500); border-bottom:1px solid var(--sand-100); margin-bottom:4px; word-break:break-all;">Signed in as <span id="acctEmailValue" style="color:var(--forest-800); font-weight:600;">…</span></div>
+                        <button type="button" onclick="acctSwitchAccount()" style="width:100%; text-align:left; background:none; border:none; padding:9px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.88rem; color:var(--ink-700); font-weight:500; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='var(--sand-100)'" onmouseout="this.style.background='none'">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m22 11-3-3m0 0-3 3m3-3v12"/></svg>
+                            Switch account
+                        </button>
+                        <button type="button" onclick="acctLogout()" style="width:100%; text-align:left; background:none; border:none; padding:9px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.88rem; color:var(--clay-700); font-weight:600; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='#fdebe5'" onmouseout="this.style.background='none'">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                            Log out
+                        </button>
+                    </div>
+                </div>
             </div>
         </header>
         <div class="section-subnav" id="adminSubnav">
@@ -1361,6 +1378,54 @@
                 if (e.target.closest('[data-tooltip]')) hide();
             });
         })();
+
+
+        // ===== Account menu (top-right dropdown) =====
+        function toggleAcctMenu(e) {
+            if (e) e.stopPropagation();
+            const menu = document.getElementById('acctMenu');
+            if (!menu) return;
+            menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
+            if (menu.style.display === 'block') {
+                // Populate email + initials
+                const email = (window.AdminAuth?.getEmail?.() || localStorage.getItem('demohub_admin_email_' + (window.RETAILER_SLUG||'')) || '');
+                const emailSpan = document.getElementById('acctEmailValue');
+                if (emailSpan) emailSpan.textContent = email || 'unknown';
+                const initEl = document.getElementById('acctMenuInitials');
+                if (initEl) {
+                    const first = (email || '?').charAt(0).toUpperCase();
+                    initEl.textContent = first;
+                }
+            }
+        }
+        // Close on outside click
+        document.addEventListener('click', (e) => {
+            const menu = document.getElementById('acctMenu');
+            const wrap = document.getElementById('acctMenuWrap');
+            if (menu && wrap && !wrap.contains(e.target)) menu.style.display = 'none';
+        });
+        async function acctLogout() {
+            const slug = window.RETAILER_SLUG || '';
+            const sessionId = localStorage.getItem('demohub_admin_session_' + slug);
+            // Best-effort server invalidation
+            try {
+                await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'logout', session_id: sessionId }),
+                });
+            } catch(_) {}
+            // Clear local session
+            localStorage.removeItem('demohub_admin_session_' + slug);
+            localStorage.removeItem('demohub_admin_email_' + slug);
+            // Redirect
+            window.location.href = '/signin?from=logout';
+        }
+        function acctSwitchAccount() {
+            // Keep the remembered profile so /signin shows the recognized card
+            const slug = window.RETAILER_SLUG || '';
+            localStorage.removeItem('demohub_admin_session_' + slug);
+            window.location.href = '/signin';
+        }
 
         // ===== DhModal — branded prompt/confirm/alert/toast to replace native dialogs =====
         window.DhModal = (function() {
