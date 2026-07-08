@@ -155,6 +155,28 @@ export default async function handler(req, res) {
     }
     // Force the retailer_id to the session's, so callers can't omit/swap it
     body.retailer_id = session.retailer_id;
+    // ===== Tier enforcement: venues =====
+    if (table === 'venues') {
+      try {
+        const { limit, tier } = await getVenueLimitForRetailer(session.retailer_id);
+        if (limit > 0) {
+          const existing = await countExistingVenues(session.retailer_id);
+          if (existing >= limit) {
+            return send(res, 402, {
+              error: 'plan_limit_reached',
+              message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. Upgrade to add more.`,
+              tier,
+              limit,
+              existing,
+              upgrade_url: '/pricing',
+            });
+          }
+        }
+      } catch (e) {
+        // Non-blocking: if the check fails, log and continue rather than deadlock create
+        console.warn('venue tier check failed:', e?.message || e);
+      }
+    }
     // For new compliance_records rows, reset COI warn timestamps so the cron will pick them up cleanly
     if (table === 'compliance_records') {
       body.coi_warn_30_sent_at = null;

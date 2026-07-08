@@ -1,3 +1,6 @@
+
+// Tier limit enforcement — mirrors /api/admin
+const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
 // /api/venues-bulk-import — POST FormData with a CSV file + session_id.
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
@@ -144,6 +147,25 @@ export default async function handler(req, res) {
   if (!columnMap.includes('name')) {
     return jsonResp(res, 400, { error: 'No "name" column found. Rename your first column to "name" (or "location", "store name").' });
   }
+
+  // ===== Tier enforcement: cap total venues after this import =====
+  try {
+    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=billing_tier`);
+    const tier = (rArr && rArr[0] && rArr[0].billing_tier) || 'solo';
+    const limit = TIER_LOCATION_LIMITS[tier] || 0;
+    if (limit > 0) {
+      const existingArr = await sb(`venues?retailer_id=eq.${encodeURIComponent(session.retailer_id)}&select=id`);
+      const existingCount = Array.isArray(existingArr) ? existingArr.length : 0;
+      const proposedTotal = existingCount + (rows.length - 1); // rows[0] is header
+      if (proposedTotal > limit) {
+        return jsonResp(res, 402, {
+          error: 'plan_limit_reached',
+          message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. This import would create ${proposedTotal}. Upgrade to import more.`,
+          tier, limit, existing: existingCount, upgrade_url: '/pricing',
+        });
+      }
+    }
+  } catch (e) { console.warn('bulk-import tier check:', e?.message || e); }
 
   // Parse each data row into a venue payload
   const parsedRows = [];
