@@ -59,7 +59,7 @@ h1 em { font-style: italic; color: var(--clay-700); font-weight: 300; }
 .terms { font-size: 0.78rem; color: var(--ink-500); text-align: center; margin-top: 16px; }
 .terms a { color: var(--ink-500); }
 
-/* Success card — clean tight layout */
+/* Success card , clean tight layout */
 .card.success { padding: 36px 32px 32px; max-width: 460px; margin: 0 auto; }
 .success h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.7rem; font-weight: 800; color: var(--forest-900); letter-spacing: -0.025em; margin-bottom: 8px; }
 .success > p { color: var(--ink-700); font-size: 0.95rem; line-height: 1.5; max-width: 340px; margin: 0 auto 22px; }
@@ -148,7 +148,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
           </div>
           <span class="stepper-unit" id="storeUnit">store</span>
         </div>
-        <div class="hint">You can set your demo fee + per-store details after sign-up.</div>
+        <div class="hint" id="storeCountHint">You can set your demo fee + per-store details after sign-up.</div>
+        <div id="storeCountProNote" style="display:none; margin-top:8px; padding:10px 12px; background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; font-size:0.85rem; color:#a14e2a; line-height:1.5;">
+          2+ stores runs on Pro, $29.99/mo after a 14-day free trial. Your first store is free either way.
+        </div>
       </div>
       <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
     </form>
@@ -211,18 +214,18 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem('demohub_signup_success_v1') || 'null'); } catch(_){}
-      // Prefer URL slug — if the URL says slug, build from it
+      // Prefer URL slug , if the URL says slug, build from it
       if (urlSlug) {
         const adminUrl  = 'https://demohubhq.com/r/' + urlSlug + '/admin';
         const publicUrl = 'https://demohubhq.com/r/' + urlSlug;
-        // No fresh token in URL-only path — button routes through /signin
+        // No fresh token in URL-only path , button routes through /signin
         renderSuccess({ slug: urlSlug, adminUrl, adminUrlAuto: null, publicUrl });
         return;
       }
       // Do NOT auto-restore from localStorage on a bare /signup URL.
-      // Previously we did — but that surprised users who wanted to sign up again
+      // Previously we did , but that surprised users who wanted to sign up again
       // (their last success card kept resurrecting even after typing /signup fresh).
-      // Now the only restore path is when the URL explicitly has ?slug=X — meaning
+      // Now the only restore path is when the URL explicitly has ?slug=X , meaning
       // the user is intentionally coming back to a specific success page.
       // localStorage kept for backwards compatibility with success card refresh in-flow,
       // but no auto-write to URL / auto-render on cold start.
@@ -231,24 +234,27 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
   const params = new URLSearchParams(location.search);
   const tier = (params.get('tier') || '').toLowerCase();
-  const validTiers = new Set(['solo','starter','growth','enterprise']);
+  const validTiers = new Set(['solo','pro']);
   const initialTier = validTiers.has(tier) ? tier : null;
   if (initialTier) {
-    if (initialTier === 'solo')       storeCount.value = 1;
-    else if (initialTier === 'starter') storeCount.value = 2;
-    else if (initialTier === 'growth')  storeCount.value = 5;
-    else if (initialTier === 'enterprise') storeCount.value = 12;
-    if (storeUnit) storeUnit.textContent = storeCount.value === '1' ? 'store' : 'stores';
+    if (initialTier === 'solo')      storeCount.value = 1;
+    else if (initialTier === 'pro')  storeCount.value = 2;
+    setStores(storeCount.value);
   }
 
   function setStores(n) {
     n = Math.max(1, Math.min(999, parseInt(n, 10) || 1));
     storeCount.value = n;
     if (storeUnit) storeUnit.textContent = n === 1 ? 'store' : 'stores';
+    // P4a: show Pro-tier note when > 1
+    const proNote = document.getElementById('storeCountProNote');
+    if (proNote) proNote.style.display = n > 1 ? 'block' : 'none';
   }
   if (storeMinus) storeMinus.addEventListener('click', () => setStores(parseInt(storeCount.value, 10) - 1));
   if (storePlus)  storePlus.addEventListener('click',  () => setStores(parseInt(storeCount.value, 10) + 1));
   if (storeCount) storeCount.addEventListener('input', () => setStores(storeCount.value));
+  // Initial paint: sync Pro note with current stepper value
+  setStores(storeCount.value);
 
   function showError(msg) {
     if (!errorBox) return;
@@ -340,7 +346,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </script>
 
 <script>
-// PWA: register service worker (conservative — only caches static assets, never HTML/API)
+// PWA: register service worker (conservative , only caches static assets, never HTML/API)
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));

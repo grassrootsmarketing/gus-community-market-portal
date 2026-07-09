@@ -15,7 +15,7 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://demohubhq.com';
 
-const VALID_TIERS = new Set(['solo', 'starter', 'growth', 'enterprise']);
+const VALID_TIERS = new Set(['solo', 'pro']);
 const VALID_INTERVALS = new Set(['month', 'year']);
 
 // ----- helpers -----

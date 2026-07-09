@@ -5,9 +5,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pricing · Demohub</title>
-<meta name="description" content="Simple pricing. Solo tier is free forever. Pro is $29.99/mo for unlimited stores. Brands pay a small $5 booking fee per demo. No credit card required to start.">
+<meta name="description" content="Solo is free forever. Pro comes with a 14-day free trial ($29.99/mo). Brands pay a $5 booking fee per confirmed demo.">
 <meta property="og:title" content="Pricing, Demohub">
-<meta property="og:description" content="Solo tier is free forever. Pro is $29.99/mo for unlimited stores. Brands pay a $5 booking fee per demo. Start free, no credit card required.">
+<meta property="og:description" content="Solo is free forever. Pro comes with a 14-day free trial. Brands pay a $5 booking fee per confirmed demo.">
 <meta property="og:image" content="https://demohubhq.com/og-pricing.png">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://demohubhq.com/pricing">
@@ -227,7 +227,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="container">
     <div class="eyebrow">Pricing</div>
     <h1>Free to start. <span class="accent">Simple to scale.</span></h1>
-    <p class="lede">Get your first location online in minutes. When you outgrow it, one flat plan unlocks everything &mdash; no per-seat charges, no usage caps, no surprise bills.</p>
+    <p class="lede">Get your first location online in minutes. When you outgrow it, one flat plan unlocks everything , no per-seat charges, no usage caps, no surprise bills.</p>
     <div class="tagline">Retailers pay nothing to start. Brands pay a small $5 booking fee per demo. That's how we keep the lights on.</div>
   </div>
 </section>
@@ -285,75 +285,74 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   </div>
 </section>
 
+<section style="padding:32px 0 0;">
+  <div class="container">
+    <div style="background:#f4f8f0; border-left:4px solid var(--forest-700, #2a5b32); border-radius:10px; padding:18px 22px; font-size:0.98rem; color:var(--forest-800); line-height:1.6; max-width:820px; margin:0 auto;">
+      <strong>Gus's Community Market</strong> runs demos across 5 San Francisco locations on Demohub. <em style="color:var(--ink-500); font-weight:500;">[Founder quote placeholder , leave blank until we get one from Gus, do not fabricate.]</em>
+    </div>
+  </div>
+</section>
+
 <section class="math">
   <div class="container">
-    <h2>How the per-demo fee works.</h2>
-    <p class="sub">Take the demo fee you charge the brand. Round down to the nearest $10. That's how many dollars you owe Demohub. Simple.</p>
+    <h2>Who pays what.</h2>
+    <p class="sub">Three roles, three simple rules. Nothing to invoice, nothing to chase.</p>
     <div class="math-grid">
       <div class="math-card">
-        <div class="demo">Demo fee</div>
-        <div class="demo-val">$30</div>
-        <div class="arrow">↓</div>
-        <div class="you-pay">You owe</div>
-        <div class="you-pay-val">$3</div>
+        <div class="demo">Retailer on Solo</div>
+        <div class="demo-val">$0</div>
+        <div class="arrow">·</div>
+        <div class="you-pay">Free forever</div>
+        <div class="you-pay-val" style="font-size:0.9rem;">1 store, 2 admins</div>
       </div>
       <div class="math-card">
-        <div class="demo">Demo fee</div>
-        <div class="demo-val">$25</div>
-        <div class="arrow">↓</div>
-        <div class="you-pay">You owe</div>
-        <div class="you-pay-val">$2</div>
-      </div>
-      <div class="math-card">
-        <div class="demo">Demo fee</div>
-        <div class="demo-val">$50</div>
-        <div class="arrow">↓</div>
-        <div class="you-pay">You owe</div>
-        <div class="you-pay-val">$5</div>
+        <div class="demo">Retailer on Pro</div>
+        <div class="demo-val">$29.99</div>
+        <div class="arrow">·</div>
+        <div class="you-pay">Per month</div>
+        <div class="you-pay-val" style="font-size:0.9rem;">Unlimited stores</div>
       </div>
       <div class="math-card free">
-        <div class="demo">Free demo</div>
-        <div class="demo-val">$0</div>
-        <div class="arrow">↓</div>
-        <div class="you-pay">You owe</div>
-        <div class="you-pay-val">$0</div>
+        <div class="demo">Brand</div>
+        <div class="demo-val">$5</div>
+        <div class="arrow">·</div>
+        <div class="you-pay">Per confirmed booking</div>
+        <div class="you-pay-val" style="font-size:0.9rem;">Plus your demo fee</div>
       </div>
     </div>
-    <p class="math-note"><strong>Charge nothing, owe nothing.</strong> Demos under $10 are free for us to host. Only billed on confirmed demos.</p>
+    <p class="math-note">The $5 fee is added at booking and handled by Stripe. Nothing for you to invoice, nothing to chase.</p>
   </div>
 </section>
 
 <section class="compare">
   <div class="container">
-    <h2>Compare every plan.</h2>
-    <p class="sub">All the details, side by side.</p>
+    <h2>Compare Solo and Pro.</h2>
+    <p class="sub">Everything you get on each plan, side by side.</p>
     <div class="compare-wrap">
       <table>
         <thead>
           <tr>
             <th>Feature</th>
             <th>Solo</th>
-            <th>Starter</th>
-            <th class="popular-col">Growth</th>
-            <th>Enterprise</th>
+            <th class="popular-col">Pro</th>
           </tr>
         </thead>
         <tbody>
-          <tr><td>Locations</td><td class="val">1</td><td class="val">3</td><td class="val">10</td><td class="val">11+</td></tr>
-          <tr><td>Demos per month</td><td class="val">Unlimited</td><td class="val">Unlimited</td><td class="val">Unlimited</td><td class="val">Unlimited</td></tr>
-          <tr><td>Admin users</td><td class="val">2</td><td class="val">5</td><td class="val">Unlimited</td><td class="val">Unlimited</td></tr>
-          <tr><td>Public booking page</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Compliance dashboard</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Brand CRM</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Multi-location calendar</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Monthly statements</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Custom branding</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Stripe Connect</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>Advanced analytics</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td><td class="yes">✓</td></tr>
-          <tr><td>API access</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
-          <tr><td>Dedicated CSM</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
-          <tr><td>SLA + uptime</td><td class="no">·</td><td class="no">·</td><td class="no">·</td><td class="yes">✓</td></tr>
-          <tr><td>Per-demo fee</td><td class="val">$1 / $10</td><td class="val">$1 / $10</td><td class="val">$1 / $10</td><td class="val">Negotiated</td></tr>
+          <tr><td>Retailer monthly cost</td><td class="val">Free forever</td><td class="val">$29.99/mo</td></tr>
+          <tr><td>Locations</td><td class="val">1</td><td class="val">Unlimited</td></tr>
+          <tr><td>Admin users</td><td class="val">2</td><td class="val">Unlimited</td></tr>
+          <tr><td>Viewer accounts (staff)</td><td class="val">2</td><td class="val">Unlimited</td></tr>
+          <tr><td>Public booking page</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Auto-confirm or manual approval</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Compliance dashboard + COI tracking</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Brand contact CRM</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Stripe Connect payouts</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Multi-location calendar + statements</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Per-location hours + policies</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Custom branding on booking pages</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Staff notification system</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Priority email support</td><td class="no">·</td><td class="yes">✓</td></tr>
+          <tr><td>Brand booking fee</td><td class="val">$5 (paid by brand)</td><td class="val">$5 (paid by brand)</td></tr>
         </tbody>
       </table>
     </div>
@@ -365,11 +364,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="founders-card">
       <div class="inner">
         <div class="founders-eyebrow">Founders' deal · limited</div>
-        <h2>First 50 retailers get 50% off the first year.</h2>
-        <p>We're building Demohub with the first 50 retailers, your feedback shapes the roadmap. Lock in half off Starter or Growth for 12 months. Talk to us before the slots fill.</p>
+        <h2>First 50 retailers get 50% off Pro for a year.</h2>
+        <p>We're building Demohub with the first 50 retailers. Your feedback shapes the roadmap. Half off Pro for 12 months, that's $14.99/mo instead of $29.99. Use code <strong style="color:var(--forest-900);">FOUNDERS50</strong> at checkout, or book a walkthrough first.</p>
       </div>
-      <div class="founders-cta">
-        <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" class="btn">Claim your spot →</a>
+      <div class="founders-cta" style="display:flex; flex-direction:column; gap:8px;">
+        <a href="/signup?tier=pro&promo=FOUNDERS50" class="btn">Start Pro with FOUNDERS50 →</a>
+        <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" style="color:var(--cream-100); text-decoration:underline; font-size:0.88rem; text-align:center;">Book a walkthrough first</a>
       </div>
     </div>
   </div>
@@ -384,15 +384,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </details>
     <details>
       <summary>What if I don't charge brands a demo fee?</summary>
-      <p>You owe Demohub nothing. The per-demo fee is calculated from what you charge the brand, if the demo fee is under $10, it rounds down to $0. Charge nothing, owe nothing.</p>
+      <p>You owe Demohub nothing either way. The retailer never pays a per-demo fee, only the Pro subscription if you're on that tier. The $5 booking fee is paid by the brand at checkout, on top of whatever demo fee you set, including $0.</p>
     </details>
     <details>
       <summary>Do brands pay anything?</summary>
-      <p>No. Demohub is free forever for brands. They get a profile, a dashboard, and one-click booking at every Demohub retailer at no cost. Retailers pay for the platform.</p>
+      <p>Yes. Brands pay a flat $5 booking fee per confirmed demo, plus whatever demo fee the retailer charges. No subscription, no account cost. They get a profile, a dashboard, and one-click booking at every Demohub retailer.</p>
     </details>
     <details>
       <summary>Is there a free trial?</summary>
-      <p>Yes, every paid plan starts with a 14-day free trial. No credit card required to start. You'll get a reminder before the trial ends, and you can switch plans, downgrade, or cancel any time.</p>
+      <p>Solo is free forever. Pro comes with a 14-day free trial. You'll get a reminder before the Pro trial ends, and you can switch plans, downgrade, or cancel any time.</p>
     </details>
     <details>
       <summary>Can I switch plans?</summary>
@@ -406,9 +406,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </section>
 
 <section class="cta-band">
-  <h2>Try Demohub free for 14 days.</h2>
-  <p>Any plan, full features, no credit card. Cancel anytime.</p>
-  <a href="/signup" class="btn">Start free trial →</a>
+  <h2>Solo is free forever. Pro comes with a 14-day free trial.</h2>
+  <p>Start on Solo with no card. Upgrade to Pro whenever you outgrow one location.</p>
+  <a href="/signup" class="btn">Start free →</a>
   <div class="meta">Or <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" style="color:var(--forest-200); text-decoration:underline;">book a 20-minute walkthrough</a></div>
 </section>
 
