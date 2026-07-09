@@ -147,9 +147,9 @@ async function loadStatus() {
     }
     row('Database (Supabase)', checks.db?.ok, checks.db?.ok ? `${checks.db.ms}ms` : 'unreachable', checks.db?.error || 'Read-only ping');
     const cronOk = checks.cron?.ok;
-    const cronVal = checks.cron?.hours_since != null ? `last run ${checks.cron.hours_since}h ago` : (cronOk ? '—' : 'never');
+    const cronVal = checks.cron?.hours_since != null ? `last run ${checks.cron.hours_since}h ago` : (cronOk ? ',' : 'never');
     row('Daily cron (welcome + COI warnings)', cronOk, cronVal, checks.cron?.outcome ? `outcome: ${checks.cron.outcome}` : 'Expected to run every 24h');
-    row('API errors (last 24h)', checks.errors.last_24h < 10, `${checks.errors.last_24h} 5xx`, checks.errors.last_24h < 10 ? 'Within normal range' : 'Elevated — review server log');
+    row('API errors (last 24h)', checks.errors.last_24h < 10, `${checks.errors.last_24h} 5xx`, checks.errors.last_24h < 10 ? 'Within normal range' : 'Elevated , review server log');
     checksEl.innerHTML = rows.join('');
     checkedAtEl.textContent = new Date(j.checked_at).toLocaleString();
   } catch (e) {

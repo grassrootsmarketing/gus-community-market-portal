@@ -83,54 +83,55 @@
 <main>
   <div class="eyebrow">Frequently asked questions</div>
   <h1>Quick <em>answers</em></h1>
-  <p class="lede">Everything you need to know about running demos through Demohub — for retailers and brands. Can't find your answer? <a href="mailto:david@demohubhq.com">Email us</a>.</p>
+  <p class="lede">Everything you need to know about running demos through Demohub , for retailers and brands. Can't find your answer? <a href="mailto:david@demohubhq.com">Email us</a>.</p>
 
   <div class="section-title">For retailers</div>
 
   <details>
     <summary>How does Demohub make money?</summary>
     <div class="answer">
-      <p>We charge retailers a flat monthly subscription based on how many stores you run — Solo ($49/mo), Starter ($99/mo), Growth ($199/mo), or Enterprise ($399/mo). Pricing is per-retailer, not per-demo, so the more demos you run, the better the deal.</p>
-      <p>You also collect a per-demo fee from each brand (you set the amount in Settings). We charge a small Demohub platform fee on top of Stripe's processing fee — the rest goes straight to your bank.</p>
+      <p>Solo is free forever. Pro is $29.99/mo (or $24.99/mo billed annually) for unlimited stores.</p>
+      <p>We make money from a flat $5 booking fee paid by the brand on each confirmed demo, collected automatically by Stripe at booking. Retailers keep 100% of whatever demo fee they set. The $5 sits on top, paid by the brand.</p>
     </div>
   </details>
 
   <details>
     <summary>When do I get paid for demos?</summary>
     <div class="answer">
-      <p>Once you've connected your bank in Settings → Bank &amp; payouts (uses Stripe Express), demo payments land in your account within 2 business days of each demo, minus Stripe + Demohub fees.</p>
-      <p>Brands are charged when they book — funds are held until 24 hours after the demo, then released. If a demo is cancelled inside your cancellation policy window, the brand is refunded automatically.</p>
+      <p>Once you've connected your bank in Settings, Bank &amp; payouts (uses Stripe Express), brands are charged at booking and the demo fee is routed to your Stripe Express account.</p>
+      <p>Payouts run on your Stripe payout schedule and are visible in the Stripe Express dashboard.</p>
     </div>
   </details>
 
   <details>
     <summary>Can I require a Certificate of Insurance (COI) from every brand?</summary>
     <div class="answer">
-      <p>Yes — and it's required by default. Brands can't request a booking at your store without an uploaded, unexpired COI.</p>
-      <p>You get an automatic warning 90 days before any brand's COI expires, and so do they (30, 14, and 3 days out). The verified brand badge on the booking page only appears once a brand has a current COI on file.</p>
+      <p>Yes. You upload each brand's COI to your compliance dashboard. When a COI is nearing expiry, both you and the brand get automatic email reminders 30, 14, and 3 days out.</p>
     </div>
   </details>
 
   <details>
     <summary>What if a brand cancels last minute?</summary>
     <div class="answer">
-      <p>You set your own cancellation policy in Settings → Cancellation policy. The default is: full refund 7+ days out, 50% refund 3–7 days out, no refund inside 72 hours.</p>
-      <p>Brands see this policy at booking time, agree to it before payment, and refunds run automatically through Stripe.</p>
+      <p>Your cancellation policy is set in Settings, Booking preferences. Two modes:</p>
+      <p><strong>14-day refund window</strong> (default): brands can cancel and receive a full refund up to 14 days before the booking. Inside 14 days, non-refundable.</p>
+      <p><strong>Non-refundable</strong>: all bookings are final. No refunds for cancellations.</p>
+      <p>Brands see your chosen policy at the point of booking and agree to it before payment. Refunds are processed through Stripe per your stated policy.</p>
     </div>
   </details>
 
   <details>
     <summary>How do I add my team?</summary>
     <div class="answer">
-      <p>Settings → Team → Invite. They get a magic-link email — no password required. Owners and admins can manage everything; viewers can see the calendar and demo list but can't book or change settings.</p>
-      <p>You can have up to 10 owners/admins per retailer, and unlimited viewers.</p>
+      <p>Admin, Team, Invite. They get a magic-link email, no password required. Admins can manage everything; viewers can see the demo calendar but can't book or change settings.</p>
+      <p>Solo tier includes 2 admin users. Pro tier includes unlimited admins and viewers.</p>
     </div>
   </details>
 
   <details>
     <summary>Can I sync demos to Google Calendar / Apple Calendar / Outlook?</summary>
     <div class="answer">
-      <p>Yes — Settings → Calendar feed has a personal <code>.ics</code> URL you can subscribe to from any calendar app. New bookings appear automatically; cancellations remove themselves. One-time setup, no ongoing sync needed.</p>
+      <p>Yes , Settings → Calendar feed has a personal <code>.ics</code> URL you can subscribe to from any calendar app. New bookings appear automatically; cancellations remove themselves. One-time setup, no ongoing sync needed.</p>
     </div>
   </details>
 
@@ -139,23 +140,22 @@
   <details>
     <summary>How do I book a demo at a retailer?</summary>
     <div class="answer">
-      <p>Visit the retailer's public booking page (the link they shared with you) and pick a date, store, and time slot. You'll need a brand account with a current COI uploaded — Demohub blocks bookings without one.</p>
-      <p>You pay the demo fee at booking. Funds aren't released to the retailer until 24 hours after the demo, so you're protected if anything goes sideways.</p>
+      <p>Visit the retailer's public booking page (the link they shared with you) and pick a date, store, and time slot. You'll enter your contact info and agree to the retailer's demo policy before submitting.</p>
+      <p>You pay the retailer's demo fee plus a $5 Demohub booking fee at booking through Stripe. Refunds follow whatever cancellation policy the retailer has set.</p>
     </div>
   </details>
 
   <details>
     <summary>What does the verified brand badge mean?</summary>
     <div class="answer">
-      <p>The green checkmark on the booking page means: (1) your COI is uploaded and current, (2) you've completed at least one demo through Demohub, and (3) you're in good standing (no cancellation history outside policy).</p>
-      <p>Retailers can choose to only accept verified brands. Most do.</p>
+      <p>Verification is applied by Demohub after we review the brand's uploaded Certificate of Insurance and confirm it's current. The badge disappears the moment the COI lapses.</p>
     </div>
   </details>
 
   <details>
     <summary>How do I upload my Certificate of Insurance?</summary>
     <div class="answer">
-      <p>Brand portal → Profile → Insurance. PDF only, up to 10 MB. We extract the expiration date automatically (you can override it if we get it wrong). You'll get renewal reminders 30, 14, and 3 days before expiry.</p>
+      <p>Brand portal, Profile, Insurance. PDF only, up to 10 MB. You'll enter the expiration date when you upload. Both you and any retailer with your COI on file get renewal reminders 30, 14, and 3 days before expiry.</p>
     </div>
   </details>
 
@@ -164,8 +164,8 @@
   <details>
     <summary>Is Demohub secure? Where's my data stored?</summary>
     <div class="answer">
-      <p>Data lives in Supabase (Postgres) hosted in US-East. All connections are TLS 1.3. Magic-link tokens are single-use and expire in 24 hours. Sessions are stored client-side in localStorage and expire after 30 days of inactivity.</p>
-      <p>Payment data is handled entirely by Stripe (PCI Level 1) — we never see or store card numbers, bank accounts, or routing numbers.</p>
+      <p>Data lives in Supabase (Postgres) hosted in US-East. All connections are TLS 1.3. Magic-link sign-in tokens are single-use and expire in 24 hours. Sessions expire 30 days after sign-in.</p>
+      <p>Payment data is handled entirely by Stripe (PCI DSS Level 1). We never see or store card numbers, bank accounts, or routing numbers.</p>
     </div>
   </details>
 
@@ -179,13 +179,13 @@
   <details>
     <summary>Can I export my data?</summary>
     <div class="answer">
-      <p>Yes — admin → Demos → Export gives you CSV of all demos. Admin → Settings → Export account gives you a full JSON dump of stores, team, bookings, settings, and policies. Email us if you need anything else; we'll send within 48 hours.</p>
+      <p>Email david@demohubhq.com and we'll send your data within 48 hours: stores, team, bookings, settings, policies, and compliance records. Self-serve exports are on the roadmap.</p>
     </div>
   </details>
 
   <div class="cta-card">
     <h3>Still stuck?</h3>
-    <p>Email david@demohubhq.com and you'll get a reply same-day (usually within an hour during business hours, Pacific time). For a walkthrough, grab 30 minutes on the calendar.</p>
+    <p>Email david@demohubhq.com and you'll get a reply same-day (usually within an hour during business hours, Pacific time). For a walkthrough, book a 30-minute walkthrough.</p>
     <a class="btn" href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener">Book a walkthrough →</a>
   </div>
 </main>
