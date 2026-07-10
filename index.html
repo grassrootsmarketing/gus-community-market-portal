@@ -714,6 +714,201 @@
         /* Remove the redundant hero-topbar (nav lives up top now) */
         .hero-topbar { display: none !important; }
 
+        /* ============ P7: mockup CSS (product visuals for homepage) ============ */
+        /* Universal chip anatomy: brand + time + store + left status border */
+        .p7-chip {
+            display: block;
+            background: white;
+            border-left: 3px solid var(--forest-600);
+            border-radius: 6px;
+            padding: 6px 8px;
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            box-shadow: 0 1px 2px rgba(15, 44, 23, 0.05);
+            font-size: 10px;
+            line-height: 1.35;
+            color: var(--forest-900);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .p7-chip.pending { border-left-color: var(--clay-600); }
+        .p7-chip.pending .p7-chip-brand { color: var(--clay-700); }
+        .p7-chip-brand { font-weight: 700; font-size: 10.5px; margin-bottom: 1px; }
+        .p7-chip-meta { font-size: 9px; color: var(--ink-500); font-weight: 500; }
+
+        /* Visual 1: Week calendar in hero dash */
+        .p7-week {
+            padding: 20px 22px 24px;
+            background: white;
+        }
+        .p7-week-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+        .p7-week-title { font-size: 1.3rem; font-weight: 600; color: var(--forest-900); }
+        .p7-week-dates { font-size: 0.78rem; color: var(--ink-500); font-weight: 500; margin-top: 2px; }
+        .p7-pending-pill {
+            font-size: 0.72rem; font-weight: 700;
+            padding: 4px 10px; border-radius: 99px;
+            background: #ffe6d1; color: var(--clay-700);
+        }
+        .p7-week-grid {
+            display: grid; grid-template-columns: repeat(7, 1fr);
+            gap: 6px; min-height: 220px;
+        }
+        .p7-week-col {
+            display: flex; flex-direction: column;
+            background: var(--cream-100);
+            border-radius: 8px;
+            padding: 8px 6px 10px;
+            min-width: 0;
+        }
+        .p7-week-col.today { background: var(--forest-50); }
+        .p7-week-col-lbl {
+            font-size: 0.62rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 0.06em;
+            color: var(--ink-500);
+            display: flex; justify-content: space-between; align-items: baseline;
+            margin-bottom: 6px;
+            padding: 0 2px;
+        }
+        .p7-week-col-lbl b { font-size: 0.75rem; color: var(--forest-900); font-weight: 700; }
+        .p7-week-col.today .p7-week-col-lbl b { color: var(--clay-700); }
+        .p7-week-col-chips { display: flex; flex-direction: column; gap: 4px; }
+        .p7-mobile-day { display: none; }
+        @media (max-width: 640px) {
+            .p7-week-grid { display: none; }
+            .p7-mobile-day { display: block; padding: 16px 4px 4px; }
+            .p7-mobile-day .p7-mobile-day-lbl { font-size: 0.75rem; font-weight: 700; color: var(--forest-900); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+            .p7-mobile-day .p7-chip { font-size: 12px; padding: 10px 12px; margin-bottom: 6px; }
+            .p7-mobile-day .p7-chip-brand { font-size: 13px; }
+            .p7-mobile-day .p7-chip-meta { font-size: 11px; }
+        }
+
+        /* Pillar mocks , replace SVG block with HTML mocks so text/data is readable */
+        .p7-pillar-mock {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: calc(100% - 40px);
+            max-width: 300px;
+            background: white;
+            border-radius: 10px;
+            padding: 14px;
+            box-shadow: 0 8px 20px rgba(15,44,23,0.15);
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            box-sizing: border-box;
+        }
+
+        /* Visual 2: Booking vignette */
+        .p7-book-title { font-size: 0.72rem; color: var(--ink-500); font-weight: 600; margin-bottom: 4px; }
+        .p7-book-retailer { font-size: 0.92rem; color: var(--forest-900); font-weight: 700; margin-bottom: 10px; }
+        .p7-book-label { font-size: 0.62rem; color: var(--ink-500); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin-bottom: 4px; }
+        .p7-book-select { background: var(--cream-100); border-radius: 6px; padding: 6px 10px; font-size: 0.8rem; font-weight: 600; color: var(--forest-900); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .p7-book-select::after { content: ''; width: 6px; height: 6px; border-right: 1.5px solid var(--ink-500); border-bottom: 1.5px solid var(--ink-500); transform: rotate(45deg); }
+        .p7-book-slots { display: flex; gap: 5px; margin-bottom: 10px; }
+        .p7-book-slot { flex: 1; text-align: center; padding: 5px 4px; border-radius: 5px; font-size: 0.7rem; font-weight: 600; background: white; border: 1px solid var(--sand-300, #d5c9a8); color: var(--forest-800); }
+        .p7-book-slot.selected { background: var(--forest-800); color: white; border-color: var(--forest-800); }
+        .p7-book-check-row { display: flex; align-items: center; gap: 6px; font-size: 0.72rem; color: var(--forest-800); margin-bottom: 3px; font-weight: 500; }
+        .p7-book-check-row::before {
+            content: '';
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            background: var(--forest-600);
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'><polyline points='20 6 9 17 4 12'/></svg>") center/70% no-repeat;
+            -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'><polyline points='20 6 9 17 4 12'/></svg>") center/70% no-repeat;
+        }
+
+        /* Visual 3: COI status list */
+        .p7-coi-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--cream-200); }
+        .p7-coi-row:last-child { border-bottom: none; }
+        .p7-coi-brand { font-size: 0.78rem; font-weight: 700; color: var(--forest-900); }
+        .p7-coi-status { font-size: 0.65rem; color: var(--ink-500); margin-top: 1px; font-weight: 500; }
+        .p7-coi-chip { font-size: 0.62rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+        .p7-coi-chip.ok { background: var(--forest-100); color: var(--forest-700); }
+        .p7-coi-chip.warn { background: #ffe6d1; color: var(--clay-700); }
+
+        /* Visual 4: Revenue bar chart (HTML/CSS + inline SVG) */
+        .p7-rev-title { font-size: 0.72rem; color: var(--ink-500); font-weight: 600; margin-bottom: 2px; }
+        .p7-rev-sub { font-size: 0.6rem; color: var(--clay-700); font-weight: 700; margin-bottom: 10px; }
+        .p7-rev-list { display: flex; flex-direction: column; gap: 6px; }
+        .p7-rev-row { display: grid; grid-template-columns: 62px 1fr 44px; align-items: center; gap: 8px; font-size: 0.68rem; }
+        .p7-rev-lbl { color: var(--forest-900); font-weight: 600; }
+        .p7-rev-bar { height: 8px; background: var(--cream-200); border-radius: 4px; overflow: hidden; }
+        .p7-rev-bar-fill { height: 100%; background: linear-gradient(90deg, var(--forest-600), var(--forest-500)); border-radius: 4px; }
+        .p7-rev-val { color: var(--forest-900); font-weight: 700; text-align: right; font-size: 0.68rem; }
+
+        /* Visual 8: Team list */
+        .p7-team-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--cream-200); }
+        .p7-team-row:last-child { border-bottom: none; }
+        .p7-team-avatar { width: 22px; height: 22px; border-radius: 50%; background: var(--forest-700); color: white; font-size: 0.6rem; font-weight: 800; display: grid; place-items: center; flex-shrink: 0; }
+        .p7-team-info { flex: 1; min-width: 0; }
+        .p7-team-name { font-size: 0.75rem; font-weight: 700; color: var(--forest-900); }
+        .p7-team-line { font-size: 0.62rem; color: var(--ink-500); font-weight: 500; }
+        .p7-team-tag { display: inline-block; font-size: 0.55rem; padding: 1px 5px; margin-right: 3px; background: var(--forest-50); color: var(--forest-700); border-radius: 3px; font-weight: 700; }
+        .p7-team-chip { font-size: 0.6rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }
+        .p7-team-chip.owner { background: var(--forest-100); color: var(--forest-700); }
+        .p7-team-chip.viewer { background: var(--cream-200); color: var(--ink-500); }
+
+        /* Feature-visual (how-it-works) styling for Harvest Lane locations table + month picker + run dashboard */
+        .p7-loc-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+        .p7-loc-table thead th { text-align: left; padding: 10px 12px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-500); background: var(--forest-50); border-bottom: 1px solid var(--cream-200); }
+        .p7-loc-table thead th:first-child { border-radius: 8px 0 0 0; }
+        .p7-loc-table thead th:last-child { border-radius: 0 8px 0 0; }
+        .p7-loc-table tbody tr { border-bottom: 1px solid var(--cream-100); transition: background 0.12s; }
+        .p7-loc-table tbody tr:hover { background: var(--forest-50); }
+        .p7-loc-table tbody tr.selected { background: var(--forest-50); }
+        .p7-loc-table tbody tr:last-child { border-bottom: none; }
+        .p7-loc-table td { padding: 12px; color: var(--ink-900); vertical-align: middle; }
+        .p7-loc-table .cb { width: 14px; height: 14px; border-radius: 3px; border: 1.5px solid var(--sand-300, #d5c9a8); display: inline-block; vertical-align: middle; }
+        .p7-loc-table .cb.checked { background: var(--forest-700); border-color: var(--forest-700); position: relative; }
+        .p7-loc-table .cb.checked::after { content: ''; position: absolute; inset: 2px; background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='4' stroke-linecap='round'><polyline points='20 6 9 17 4 12'/></svg>") center/contain no-repeat; }
+        .p7-loc-active { display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; color: var(--forest-700); }
+        .p7-loc-active::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--forest-500); }
+        .p7-loc-fee { font-weight: 700; color: var(--forest-900); }
+
+        /* Visual 6: Public month picker */
+        .p7-cal-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; font-weight: 700; color: var(--forest-900); margin-bottom: 12px; padding: 0 6px; }
+        .p7-cal-dow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 6px; }
+        .p7-cal-dow div { font-size: 0.62rem; text-align: center; color: var(--ink-500); font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 0; }
+        .p7-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .p7-cal-cell {
+            aspect-ratio: 1; border-radius: 6px;
+            font-size: 0.72rem; color: var(--ink-700);
+            display: grid; place-items: center; position: relative;
+            background: var(--cream-100);
+            font-weight: 600;
+        }
+        .p7-cal-cell.muted { background: transparent; color: var(--ink-300); font-weight: 500; }
+        .p7-cal-cell.avail { background: var(--forest-50); color: var(--forest-800); }
+        .p7-cal-cell.avail::after { content: ''; position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); width: 5px; height: 5px; border-radius: 50%; background: var(--forest-500); }
+        .p7-cal-cell.selected {
+            box-shadow: inset 0 0 0 2px var(--forest-800);
+            background: var(--forest-100);
+            color: var(--forest-900);
+            font-weight: 700;
+        }
+        .p7-cal-slots { display: flex; gap: 6px; margin-top: 14px; }
+        .p7-cal-slot { flex: 1; text-align: center; padding: 8px 6px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; background: white; border: 1.5px solid var(--forest-600); color: var(--forest-800); }
+        .p7-cal-slot.dim { border-color: var(--sand-300, #d5c9a8); color: var(--ink-700); }
+        .p7-cal-slot small { display: block; font-size: 0.58rem; color: var(--clay-700); margin-top: 2px; font-weight: 700; }
+        .p7-cal-foot { text-align: center; font-size: 0.62rem; color: var(--ink-500); margin-top: 14px; font-weight: 500; }
+
+        /* Visual 7: Run dashboard vignette */
+        .p7-run-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 18px; }
+        .p7-run-tile { background: var(--forest-50); border-radius: 8px; padding: 10px 12px; }
+        .p7-run-tile-num { font-size: 1.4rem; font-weight: 600; color: var(--forest-900); line-height: 1; }
+        .p7-run-tile-lbl { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-500); margin-top: 4px; font-weight: 700; }
+        .p7-run-label { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-500); font-weight: 700; margin-bottom: 8px; }
+        .p7-run-list { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
+        .p7-run-list .p7-chip { font-size: 11px; padding: 8px 10px; }
+        .p7-run-list .p7-chip-brand { font-size: 12px; }
+        .p7-run-list .p7-chip-meta { font-size: 10px; }
+        .p7-run-statement { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--cream-100); border-radius: 8px; font-size: 0.78rem; }
+        .p7-run-statement-title { font-weight: 700; color: var(--forest-900); }
+        .p7-run-statement-btn { font-size: 0.72rem; font-weight: 700; padding: 5px 12px; border-radius: 6px; background: white; color: var(--forest-800); border: 1px solid var(--forest-300); }
+
+        /* 2x2 platform grid for the 4th (Team) pillar card */
+        @media (min-width: 1000px) {
+            .pillars-grid.four-card { grid-template-columns: repeat(2, 1fr); }
+        }
+
 </style>
 <!-- PostHog -->
 <script>
@@ -796,16 +991,72 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <div class="dot-mac" style="background:#ed6a5e;"></div>
                     <div class="dot-mac" style="background:#f4bf4f;"></div>
                     <div class="dot-mac" style="background:#61c454;"></div>
-                    <div class="dash-url">demohubhq.com/r/gus-market/admin</div>
+                    <div class="dash-url">demohubhq.com/r/harvest-lane/admin</div>
                 </div>
-                <div class="dash-body">
-                    <div class="dash-header">
+                <div class="dash-body p7-week" aria-hidden="true">
+                    <div class="p7-week-head">
                         <div>
-                            <div class="dash-greeting">This week</div>
-                            <div class="dash-date">Feb 16 – Feb 22, 2026</div>
+                            <div class="p7-week-title">This week</div>
+                            <div class="p7-week-dates">Feb 16, Feb 22, 2026</div>
+                        </div>
+                        <div class="p7-pending-pill">3 pending</div>
+                    </div>
+                    <div class="p7-week-grid">
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Mon</span><b>16</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip"><div class="p7-chip-brand">Cedar &amp; Sage Kombucha</div><div class="p7-chip-meta">11a, Elm St.</div></div>
+                            </div>
+                        </div>
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Tue</span><b>17</b></div>
+                            <div class="p7-week-col-chips"></div>
+                        </div>
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Wed</span><b>18</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip"><div class="p7-chip-brand">Sundial Coffee Co.</div><div class="p7-chip-meta">10a, Depot Dist.</div></div>
+                                <div class="p7-chip pending"><div class="p7-chip-brand">Bluebell Creamery</div><div class="p7-chip-meta">3p, Riverside</div></div>
+                            </div>
+                        </div>
+                        <div class="p7-week-col today">
+                            <div class="p7-week-col-lbl"><span>Thu</span><b>19</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip"><div class="p7-chip-brand">Peak Provisions</div><div class="p7-chip-meta">11a, Old Mill</div></div>
+                                <div class="p7-chip"><div class="p7-chip-brand">Marigold Snacks</div><div class="p7-chip-meta">3p, Parkside</div></div>
+                            </div>
+                        </div>
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Fri</span><b>20</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip"><div class="p7-chip-brand">Cedar &amp; Sage</div><div class="p7-chip-meta">11a, Depot Dist.</div></div>
+                                <div class="p7-chip pending"><div class="p7-chip-brand">Golden Hour Granola</div><div class="p7-chip-meta">3p, Riverside</div></div>
+                            </div>
+                        </div>
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Sat</span><b>21</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip"><div class="p7-chip-brand">North Fork Hot Sauce</div><div class="p7-chip-meta">10a, Elm St.</div></div>
+                                <div class="p7-chip"><div class="p7-chip-brand">Bluebell Creamery</div><div class="p7-chip-meta">11a, Riverside</div></div>
+                                <div class="p7-chip"><div class="p7-chip-brand">Peak Provisions</div><div class="p7-chip-meta">3p, Old Mill</div></div>
+                            </div>
+                        </div>
+                        <div class="p7-week-col">
+                            <div class="p7-week-col-lbl"><span>Sun</span><b>22</b></div>
+                            <div class="p7-week-col-chips">
+                                <div class="p7-chip pending"><div class="p7-chip-brand">Marigold Snacks</div><div class="p7-chip-meta">12p, Parkside</div></div>
+                                <div class="p7-chip"><div class="p7-chip-brand">Golden Hour</div><div class="p7-chip-meta">1p, Depot Dist.</div></div>
+                            </div>
                         </div>
                     </div>
-        </div>
+                    <div class="p7-mobile-day">
+                        <div class="p7-mobile-day-lbl">Sat, Feb 21</div>
+                        <div class="p7-chip"><div class="p7-chip-brand">North Fork Hot Sauce</div><div class="p7-chip-meta">10a to 1p, Elm Street</div></div>
+                        <div class="p7-chip"><div class="p7-chip-brand">Bluebell Creamery</div><div class="p7-chip-meta">11a to 2p, Riverside</div></div>
+                        <div class="p7-chip"><div class="p7-chip-brand">Peak Provisions Jerky</div><div class="p7-chip-meta">3p to 6p, Old Mill</div></div>
+                        <div class="p7-chip pending"><div class="p7-chip-brand">Marigold Snacks</div><div class="p7-chip-meta">12p to 3p, Parkside</div></div>
+                    </div>
+                </div>
     </div>
 </section>
 
@@ -838,7 +1089,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div style="max-width:820px; margin:0 auto; text-align:center;">
             <div style="font-size:0.72rem; font-weight:700; color:var(--clay-700, #a14e2a); text-transform:uppercase; letter-spacing:0.14em; margin-bottom:14px;">Running on Demohub</div>
             <div style="font-size:1.15rem; color:var(--forest-800, #1f4a26); line-height:1.6; font-weight:500;"><strong>Gus's Community Market</strong> runs demos across 5 San Francisco locations on Demohub.</div>
-            <div style="font-size:0.85rem; color:var(--ink-500); margin-top:10px; font-style:italic;">[Founder quote placeholder, do not fabricate. Update once we receive a sentence from Gus.]</div>
+            <!-- FOUNDER QUOTE PLACEHOLDER, do not fabricate. Update once we receive a sentence from Gus. -->
         </div>
     </div>
 </section>
@@ -849,47 +1100,22 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <h2 class="section-title">Built around <em>how independent retailers actually work.</em></h2>
         <p class="section-lead">Not a CRM. Not a scheduling app. A purpose-built operations layer for retailers who care about brand discovery and shopper experience.</p>
 
-        <div class="pillars-grid">
+        <div class="pillars-grid four-card">
             <article class="pillar">
                 <div class="pillar-visual">
-                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
-                        <defs><pattern id="grid1" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(15,44,23,0.06)" stroke-width="1"/></pattern></defs>
-                        <rect width="400" height="200" fill="url(#grid1)"/>
-                    </svg>
-                    <div class="pillar-mock">
-                        <svg viewBox="0 0 280 132" xmlns="http://www.w3.org/2000/svg">
-                            <rect width="280" height="132" rx="10" fill="white"/>
-                            <rect x="14" y="13" width="96" height="7" rx="3.5" fill="#0f2c17"/>
-                            <rect x="14" y="24" width="56" height="5" rx="2.5" fill="#0f2c17" opacity="0.3"/>
-                            <rect x="200" y="11" width="66" height="20" rx="10" fill="#e3edd6"/>
-                            <circle cx="213" cy="21" r="3" fill="#2a5b32"/>
-                            <rect x="221" y="18" width="38" height="6" rx="3" fill="#2a5b32"/>
-                            <g transform="translate(14, 40)" fill="#0f2c17" opacity="0.4" font-family="Inter, sans-serif" font-size="7" font-weight="600">
-                                <text x="16" y="0" text-anchor="middle">M</text>
-                                <text x="52" y="0" text-anchor="middle">T</text>
-                                <text x="88" y="0" text-anchor="middle">W</text>
-                                <text x="124" y="0" text-anchor="middle">T</text>
-                                <text x="160" y="0" text-anchor="middle">F</text>
-                                <text x="196" y="0" text-anchor="middle">S</text>
-                                <text x="232" y="0" text-anchor="middle">S</text>
-                            </g>
-                            <g transform="translate(14, 48)">
-                                <rect x="0" y="0" width="32" height="20" rx="3" fill="#f4f7ef"/>
-                                <rect x="36" y="0" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="52" cy="10" r="3" fill="#ed682f"/>
-                                <rect x="72" y="0" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="88" cy="10" r="3" fill="#ed682f"/>
-                                <rect x="108" y="0" width="32" height="20" rx="3" fill="#f4f7ef"/>
-                                <rect x="144" y="0" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="160" cy="10" r="3" fill="#ed682f"/>
-                                <rect x="180" y="0" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="196" cy="10" r="3" fill="#ed682f"/>
-                                <rect x="216" y="0" width="32" height="20" rx="3" fill="#f4f7ef"/>
-                                <rect x="0" y="26" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="16" cy="36" r="3" fill="#ed682f"/>
-                                <rect x="36" y="26" width="32" height="20" rx="3" fill="#f4f7ef"/>
-                                <rect x="72" y="26" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="88" cy="36" r="3" fill="#ed682f"/>
-                                <rect x="108" y="26" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="124" cy="36" r="3" fill="#ed682f"/>
-                                <rect x="144" y="26" width="32" height="20" rx="3" fill="#f4f7ef"/>
-                                <rect x="180" y="26" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="196" cy="36" r="3" fill="#ed682f"/>
-                                <rect x="216" y="26" width="32" height="20" rx="3" fill="#1f4a26"/><circle cx="232" cy="36" r="3" fill="#ed682f"/>
-                            </g>
-                        </svg>
+                    <div class="p7-pillar-mock" aria-hidden="true">
+                        <div class="p7-book-title">Book a demo at</div>
+                        <div class="p7-book-retailer">Harvest Lane Market</div>
+                        <div class="p7-book-label">Location</div>
+                        <div class="p7-book-select">Riverside</div>
+                        <div class="p7-book-label">Sat, Feb 21</div>
+                        <div class="p7-book-slots">
+                            <div class="p7-book-slot selected">11:00a</div>
+                            <div class="p7-book-slot">1:00p</div>
+                            <div class="p7-book-slot">4:00p</div>
+                        </div>
+                        <div class="p7-book-check-row">Demo agreement signed</div>
+                        <div class="p7-book-check-row">Paid, $35 + $5 booking fee</div>
                     </div>
                 </div>
                 <div class="pillar-content">
@@ -900,45 +1126,30 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
             <article class="pillar">
                 <div class="pillar-visual warm">
-                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
-                        <defs><pattern id="grid2" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(161,78,42,0.08)" stroke-width="1"/></pattern></defs>
-                        <rect width="400" height="200" fill="url(#grid2)"/>
-                    </svg>
-                    <div class="pillar-mock">
-                        <svg viewBox="0 0 280 132" xmlns="http://www.w3.org/2000/svg">
-                            <rect width="280" height="132" rx="10" fill="white"/>
-                            <rect x="14" y="13" width="78" height="7" rx="3.5" fill="#0f2c17"/>
-                            <rect x="14" y="24" width="48" height="5" rx="2.5" fill="#0f2c17" opacity="0.3"/>
-                            <rect x="216" y="11" width="50" height="20" rx="10" fill="#f7e4d4"/>
-                            <rect x="226" y="18" width="30" height="6" rx="3" fill="#a14e2a"/>
-                            <g transform="translate(14, 44)">
-                                <circle cx="11" cy="11" r="11" fill="#1f4a26"/>
-                                <text x="11" y="14" font-family="Inter, sans-serif" font-size="9" font-weight="700" fill="white" text-anchor="middle">A</text>
-                                <rect x="28" y="6" width="92" height="6" rx="3" fill="#0f2c17"/>
-                                <rect x="28" y="15" width="56" height="4" rx="2" fill="#0f2c17" opacity="0.35"/>
-                                <rect x="208" y="6" width="48" height="18" rx="9" fill="#e3edd6"/>
-                                <path d="M218 15 l3 3 6-6" stroke="#2a5b32" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                <rect x="232" y="12" width="20" height="6" rx="3" fill="#2a5b32"/>
-                            </g>
-                            <g transform="translate(14, 72)">
-                                <circle cx="11" cy="11" r="11" fill="#ed682f"/>
-                                <text x="11" y="14" font-family="Inter, sans-serif" font-size="9" font-weight="700" fill="white" text-anchor="middle">M</text>
-                                <rect x="28" y="6" width="82" height="6" rx="3" fill="#0f2c17"/>
-                                <rect x="28" y="15" width="62" height="4" rx="2" fill="#0f2c17" opacity="0.35"/>
-                                <rect x="200" y="6" width="56" height="18" rx="9" fill="#f7e4d4"/>
-                                <path d="M213 11 v6 M213 19 v0.5" stroke="#a14e2a" stroke-width="1.8" stroke-linecap="round"/>
-                                <rect x="222" y="12" width="28" height="6" rx="3" fill="#a14e2a"/>
-                            </g>
-                            <g transform="translate(14, 100)">
-                                <circle cx="11" cy="11" r="11" fill="#1f4a26"/>
-                                <text x="11" y="14" font-family="Inter, sans-serif" font-size="9" font-weight="700" fill="white" text-anchor="middle">O</text>
-                                <rect x="28" y="6" width="70" height="6" rx="3" fill="#0f2c17"/>
-                                <rect x="28" y="15" width="44" height="4" rx="2" fill="#0f2c17" opacity="0.35"/>
-                                <rect x="208" y="6" width="48" height="18" rx="9" fill="#e3edd6"/>
-                                <path d="M218 15 l3 3 6-6" stroke="#2a5b32" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-                                <rect x="232" y="12" width="20" height="6" rx="3" fill="#2a5b32"/>
-                            </g>
-                        </svg>
+                    <div class="p7-pillar-mock" aria-hidden="true">
+                        <div class="p7-book-title">Compliance</div>
+                        <div class="p7-book-retailer" style="margin-bottom:12px;">3 brands, this week</div>
+                        <div class="p7-coi-row">
+                            <div>
+                                <div class="p7-coi-brand">Bluebell Creamery</div>
+                                <div class="p7-coi-status">COI current, verified</div>
+                            </div>
+                            <div class="p7-coi-chip ok">Ok</div>
+                        </div>
+                        <div class="p7-coi-row">
+                            <div>
+                                <div class="p7-coi-brand">Peak Provisions Jerky</div>
+                                <div class="p7-coi-status">COI expires in 14 days</div>
+                            </div>
+                            <div class="p7-coi-chip warn">14d</div>
+                        </div>
+                        <div class="p7-coi-row">
+                            <div>
+                                <div class="p7-coi-brand">Marigold Snacks</div>
+                                <div class="p7-coi-status">Agreement signed Feb 12</div>
+                            </div>
+                            <div class="p7-coi-chip ok">Ok</div>
+                        </div>
                     </div>
                 </div>
                 <div class="pillar-content">
@@ -949,37 +1160,78 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
             <article class="pillar">
                 <div class="pillar-visual sand">
-                    <svg class="bg" viewBox="0 0 400 200" preserveAspectRatio="none">
-                        <defs><pattern id="grid3" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(15,44,23,0.06)" stroke-width="1"/></pattern></defs>
-                        <rect width="400" height="200" fill="url(#grid3)"/>
-                    </svg>
-                    <div class="pillar-mock">
-                        <svg viewBox="0 0 280 132" xmlns="http://www.w3.org/2000/svg">
-                            <rect width="280" height="132" rx="10" fill="white"/>
-                            <rect x="14" y="13" width="100" height="7" rx="3.5" fill="#0f2c17"/>
-                            <rect x="14" y="24" width="64" height="5" rx="2.5" fill="#0f2c17" opacity="0.3"/>
-                            <text x="266" y="22" font-family="Inter, sans-serif" font-size="8" font-weight="700" fill="#a14e2a" text-anchor="end" letter-spacing="0.5">&#9650; 23%</text>
-                            <line x1="14" y1="50" x2="266" y2="50" stroke="#0f2c17" stroke-width="0.5" opacity="0.06"/>
-                            <line x1="14" y1="74" x2="266" y2="74" stroke="#0f2c17" stroke-width="0.5" opacity="0.06"/>
-                            <line x1="14" y1="98" x2="266" y2="98" stroke="#0f2c17" stroke-width="0.5" opacity="0.06"/>
-                            <g transform="translate(14, 110)">
-                                <rect x="0" y="-28" width="42" height="28" rx="3" fill="#1f4a26"/>
-                                <text x="21" y="12" font-family="Inter, sans-serif" font-size="7" fill="#0f2c17" opacity="0.6" text-anchor="middle">Mission</text>
-                                <rect x="50" y="-40" width="42" height="40" rx="3" fill="#2a5b32"/>
-                                <text x="71" y="12" font-family="Inter, sans-serif" font-size="7" fill="#0f2c17" opacity="0.6" text-anchor="middle">Haight</text>
-                                <rect x="100" y="-52" width="42" height="52" rx="3" fill="#ed682f"/>
-                                <text x="121" y="12" font-family="Inter, sans-serif" font-size="7" fill="#0f2c17" opacity="0.6" text-anchor="middle">Noriega</text>
-                                <rect x="150" y="-32" width="42" height="32" rx="3" fill="#1f4a26"/>
-                                <text x="171" y="12" font-family="Inter, sans-serif" font-size="7" fill="#0f2c17" opacity="0.6" text-anchor="middle">Bay</text>
-                                <rect x="200" y="-22" width="42" height="22" rx="3" fill="#1f4a26"/>
-                                <text x="221" y="12" font-family="Inter, sans-serif" font-size="7" fill="#0f2c17" opacity="0.6" text-anchor="middle">Canyon</text>
-                            </g>
-                        </svg>
+                    <div class="p7-pillar-mock" aria-hidden="true">
+                        <div class="p7-rev-title">Revenue by store, this quarter</div>
+                        <div class="p7-rev-sub">&#9650; 18% vs last quarter</div>
+                        <div class="p7-rev-list">
+                            <div class="p7-rev-row">
+                                <div class="p7-rev-lbl">Elm St.</div>
+                                <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:100%;"></div></div>
+                                <div class="p7-rev-val">$2,840</div>
+                            </div>
+                            <div class="p7-rev-row">
+                                <div class="p7-rev-lbl">Riverside</div>
+                                <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:85%;"></div></div>
+                                <div class="p7-rev-val">$2,415</div>
+                            </div>
+                            <div class="p7-rev-row">
+                                <div class="p7-rev-lbl">Depot Dist.</div>
+                                <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:70%;"></div></div>
+                                <div class="p7-rev-val">$1,980</div>
+                            </div>
+                            <div class="p7-rev-row">
+                                <div class="p7-rev-lbl">Old Mill</div>
+                                <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:58%;"></div></div>
+                                <div class="p7-rev-val">$1,650</div>
+                            </div>
+                            <div class="p7-rev-row">
+                                <div class="p7-rev-lbl">Parkside</div>
+                                <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:46%;"></div></div>
+                                <div class="p7-rev-val">$1,320</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="pillar-content">
                     <h3>Numbers that move things</h3>
                     <p>Revenue per store. Top brands. Seasonal trends. Real metrics, no manual exports. Make next quarter's plan in twenty minutes.</p>
+                </div>
+            </article>
+
+            <article class="pillar">
+                <div class="pillar-visual">
+                    <div class="p7-pillar-mock" aria-hidden="true">
+                        <div class="p7-book-title">Team</div>
+                        <div class="p7-book-retailer" style="margin-bottom:10px;">3 people</div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar">DW</div>
+                            <div class="p7-team-info">
+                                <div class="p7-team-name">Dana Whitfield</div>
+                                <div class="p7-team-line">Emails on every booking</div>
+                            </div>
+                            <div class="p7-team-chip owner">Owner</div>
+                        </div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar" style="background:var(--forest-500);">ML</div>
+                            <div class="p7-team-info">
+                                <div class="p7-team-name">Marcus Lee</div>
+                                <div class="p7-team-line"><span class="p7-team-tag">Riverside</span><span class="p7-team-tag">Depot Dist.</span></div>
+                            </div>
+                            <div class="p7-team-chip owner" style="background:var(--forest-50);">Admin</div>
+                        </div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar" style="background:var(--ink-300);">PN</div>
+                            <div class="p7-team-info">
+                                <div class="p7-team-name">Priya Nair</div>
+                                <div class="p7-team-line">Views the calendar</div>
+                            </div>
+                            <div class="p7-team-chip viewer">Viewer</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="pillar-content">
+                    <h3>Your whole team, in the loop</h3>
+                    <p>Staff know when demos are booked at their store so product gets ordered, nobody gets surprised on a Saturday morning. Scope alerts per person, per location.</p>
                 </div>
             </article>
         </div>
@@ -1002,16 +1254,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <li>Set up brand templates and compliance requirements</li>
                 </ul>
             </div>
-            <div class="feature-visual">
-                <table class="vis-table">
-                    <thead><tr><th>Store</th><th>Days</th><th>Hours</th><th>Fee</th></tr></thead>
+            <div class="feature-visual" aria-hidden="true">
+                <table class="p7-loc-table">
+                    <thead><tr><th style="width:22px;"></th><th>Store</th><th>Days</th><th>Hours</th><th>Fee</th><th>Status</th></tr></thead>
                     <tbody>
-                        <tr><td>Mission Bay</td><td>M–F</td><td>11a–6p</td><td>$30</td></tr>
-                        <tr><td>Mission</td><td>M–F</td><td>11a–6p</td><td>$30</td></tr>
-                        <tr><td>Haight St.</td><td>T–Sat</td><td>10a–7p</td><td>$35</td></tr>
-                        <tr><td>Noriega</td><td>W–Sun</td><td>10a–6p</td><td>$30</td></tr>
-                        <tr><td>Canyon</td><td>M–F</td><td>12p–7p</td><td>$30</td></tr>
-                        <tr><td>Outerlands</td><td>Th–Sun</td><td>11a–7p</td><td>$30</td></tr>
+                        <tr class="selected"><td><span class="cb checked"></span></td><td>Elm Street</td><td>M to Sat</td><td>10a, 7p</td><td class="p7-loc-fee">$35</td><td><span class="p7-loc-active">Active</span></td></tr>
+                        <tr><td><span class="cb"></span></td><td>Riverside</td><td>M to F</td><td>11a, 6p</td><td class="p7-loc-fee">$30</td><td><span class="p7-loc-active">Active</span></td></tr>
+                        <tr><td><span class="cb"></span></td><td>Old Mill</td><td>W to Sun</td><td>10a, 6p</td><td class="p7-loc-fee">$30</td><td><span class="p7-loc-active">Active</span></td></tr>
+                        <tr><td><span class="cb"></span></td><td>Parkside</td><td>Th to Sun</td><td>11a, 7p</td><td class="p7-loc-fee">$40</td><td><span class="p7-loc-active">Active</span></td></tr>
+                        <tr><td><span class="cb"></span></td><td>Depot District</td><td>M to Sat</td><td>10a, 7p</td><td class="p7-loc-fee">$35</td><td><span class="p7-loc-active">Active</span></td></tr>
                     </tbody>
                 </table>
             </div>
@@ -1028,31 +1279,56 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <li>Compliance checks happen at booking, not after</li>
                 </ul>
             </div>
-            <div class="feature-visual">
-                <div style="font-size: 0.85rem; color: var(--ink-500); margin-bottom: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">February 2026</div>
-                <div class="vis-cal">
-                    <div class="vis-cal-cell">1</div>
-                    <div class="vis-cal-cell">2</div>
-                    <div class="vis-cal-cell has-event">3</div>
-                    <div class="vis-cal-cell">4</div>
-                    <div class="vis-cal-cell has-event">5</div>
-                    <div class="vis-cal-cell">6</div>
-                    <div class="vis-cal-cell">7</div>
-                    <div class="vis-cal-cell has-event">8</div>
-                    <div class="vis-cal-cell">9</div>
-                    <div class="vis-cal-cell has-many">10</div>
-                    <div class="vis-cal-cell">11</div>
-                    <div class="vis-cal-cell has-event">12</div>
-                    <div class="vis-cal-cell">13</div>
-                    <div class="vis-cal-cell">14</div>
-                    <div class="vis-cal-cell">15</div>
-                    <div class="vis-cal-cell has-event">16</div>
-                    <div class="vis-cal-cell">17</div>
-                    <div class="vis-cal-cell has-event">18</div>
-                    <div class="vis-cal-cell">19</div>
-                    <div class="vis-cal-cell has-many">20</div>
-                    <div class="vis-cal-cell">21</div>
+            <div class="feature-visual" aria-hidden="true">
+                <div class="p7-cal-header">
+                    <span>February 2026</span>
+                    <span style="font-size:0.75rem; color:var(--ink-500); font-weight:600;">Harvest Lane, Riverside</span>
                 </div>
+                <div class="p7-cal-dow">
+                    <div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div><div>S</div>
+                </div>
+                <div class="p7-cal-grid">
+                    <div class="p7-cal-cell muted">26</div>
+                    <div class="p7-cal-cell muted">27</div>
+                    <div class="p7-cal-cell muted">28</div>
+                    <div class="p7-cal-cell muted">29</div>
+                    <div class="p7-cal-cell muted">30</div>
+                    <div class="p7-cal-cell muted">31</div>
+                    <div class="p7-cal-cell muted">1</div>
+                    <div class="p7-cal-cell muted">2</div>
+                    <div class="p7-cal-cell muted">3</div>
+                    <div class="p7-cal-cell muted">4</div>
+                    <div class="p7-cal-cell muted">5</div>
+                    <div class="p7-cal-cell muted">6</div>
+                    <div class="p7-cal-cell muted">7</div>
+                    <div class="p7-cal-cell muted">8</div>
+                    <div class="p7-cal-cell muted">9</div>
+                    <div class="p7-cal-cell avail">10</div>
+                    <div class="p7-cal-cell avail">11</div>
+                    <div class="p7-cal-cell">12</div>
+                    <div class="p7-cal-cell avail">13</div>
+                    <div class="p7-cal-cell avail">14</div>
+                    <div class="p7-cal-cell avail">15</div>
+                    <div class="p7-cal-cell">16</div>
+                    <div class="p7-cal-cell avail">17</div>
+                    <div class="p7-cal-cell avail">18</div>
+                    <div class="p7-cal-cell avail">19</div>
+                    <div class="p7-cal-cell avail">20</div>
+                    <div class="p7-cal-cell selected">21</div>
+                    <div class="p7-cal-cell avail">22</div>
+                    <div class="p7-cal-cell">23</div>
+                    <div class="p7-cal-cell avail">24</div>
+                    <div class="p7-cal-cell avail">25</div>
+                    <div class="p7-cal-cell">26</div>
+                    <div class="p7-cal-cell avail">27</div>
+                    <div class="p7-cal-cell avail">28</div>
+                </div>
+                <div class="p7-cal-slots">
+                    <div class="p7-cal-slot">11:00a</div>
+                    <div class="p7-cal-slot">1:00p<small>1 left</small></div>
+                    <div class="p7-cal-slot dim">4:00p</div>
+                </div>
+                <div class="p7-cal-foot">Powered by Demohub</div>
             </div>
         </div>
 
@@ -1067,14 +1343,24 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <li>Downloadable statements for accounting</li>
                 </ul>
             </div>
-            <div class="feature-visual">
-                <div style="font-size: 0.85rem; color: var(--ink-500); margin-bottom: 18px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em;">Revenue by store · This quarter</div>
-                <div class="vis-chart">
-                    <div class="vis-bar" data-target-height="55" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1);"><div class="vis-bar-lbl">Mission Bay</div></div>
-                    <div class="vis-bar" data-target-height="78" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.08s;"><div class="vis-bar-lbl">Mission</div></div>
-                    <div class="vis-bar" data-target-height="92" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.16s;"><div class="vis-bar-lbl">Haight</div></div>
-                    <div class="vis-bar" data-target-height="64" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.24s;"><div class="vis-bar-lbl">Noriega</div></div>
-                    <div class="vis-bar" data-target-height="41" style="height: 0%; transition: height 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.32s;"><div class="vis-bar-lbl">Canyon</div></div>
+            <div class="feature-visual" aria-hidden="true">
+                <div class="p7-run-stats">
+                    <div class="p7-run-tile"><div class="p7-run-tile-num">14</div><div class="p7-run-tile-lbl">Demos this week</div></div>
+                    <div class="p7-run-tile"><div class="p7-run-tile-num">2</div><div class="p7-run-tile-lbl">Pending approval</div></div>
+                    <div class="p7-run-tile"><div class="p7-run-tile-num">1</div><div class="p7-run-tile-lbl">COI expiring</div></div>
+                </div>
+                <div class="p7-run-label">Next up</div>
+                <div class="p7-run-list">
+                    <div class="p7-chip"><div class="p7-chip-brand">Peak Provisions Jerky</div><div class="p7-chip-meta">Thu 11a, Old Mill</div></div>
+                    <div class="p7-chip"><div class="p7-chip-brand">Marigold Snacks</div><div class="p7-chip-meta">Thu 3p, Parkside</div></div>
+                    <div class="p7-chip pending"><div class="p7-chip-brand">Golden Hour Granola</div><div class="p7-chip-meta">Fri 3p, Riverside</div></div>
+                </div>
+                <div class="p7-run-statement">
+                    <div>
+                        <div class="p7-run-statement-title">January statement</div>
+                        <div style="font-size:0.68rem; color:var(--ink-500); margin-top:2px;">57 demos, $2,145 total</div>
+                    </div>
+                    <div class="p7-run-statement-btn">Download PDF</div>
                 </div>
             </div>
         </div>
