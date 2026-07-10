@@ -1407,6 +1407,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 }
             }
             // Also update the landing page title to the retailer's name (was generic 'Demo Scheduling Portal')
+            const landingH1 = document.querySelector('.landing h1');
             // Show verified badge if retailer is approved
             const landingH1Wrap = landingH1 && landingH1.parentElement;
             if (landingH1Wrap && data.retailer && data.retailer.verification_status === 'approved') {
@@ -1419,7 +1420,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     if (landingH1.parentElement) landingH1.parentElement.insertBefore(badge, landingH1);
                 }
             }
-            const landingH1 = document.querySelector('.landing h1');
             if (landingH1 && data.retailer && data.retailer.name) landingH1.textContent = 'Book a demo at ' + data.retailer.name;
             const landingSub = document.querySelector('.landing > .landing-content > p');
             if (landingSub && data.retailer && data.retailer.name) landingSub.textContent = 'Pick a location to schedule your demo';

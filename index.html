@@ -1295,6 +1295,20 @@
         .no-js .hero-product-play { display: none; }
         .no-js .hero-product { cursor: default !important; }
 
+        /* Smoke-test finding: at <480px, feature-visual + p7-loc-table overflow the container by ~78px.
+           Fix by reducing internal padding and letting the table cell content compress. */
+        @media (max-width: 480px) {
+            .feature-visual { padding: 16px; min-height: auto; }
+            .p7-loc-table { font-size: 0.78rem; }
+            .p7-loc-table thead th, .p7-loc-table td { padding: 8px 6px; }
+            .p7-loc-table .cb { display: none; } /* checkbox column hidden on very narrow to save space */
+            .p7-loc-table thead th:first-child { width: 0; padding: 8px 0; }
+            .p7-run-stats { grid-template-columns: 1fr 1fr; }
+            .p7-run-tile-num { font-size: 1.2rem; }
+            /* .container should never overflow */
+            .container { padding-left: 16px; padding-right: 16px; }
+        }
+
 </style>
 <!-- PostHog -->
 <script>
