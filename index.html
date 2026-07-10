@@ -1193,6 +1193,39 @@
             to { transform: scaleX(1); }
         }
 
+        /* Tour prev/next arrows floating over the stage */
+        .tour-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 40px; height: 40px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(15, 44, 23, 0.12);
+            color: var(--forest-900);
+            display: grid; place-items: center;
+            cursor: pointer;
+            padding: 0;
+            box-shadow: 0 4px 12px rgba(15, 44, 23, 0.15);
+            transition: transform 0.15s, background 0.15s;
+            z-index: 5;
+        }
+        .tour-arrow:hover {
+            background: white;
+            transform: translateY(-50%) scale(1.08);
+        }
+        .tour-arrow:active { transform: translateY(-50%) scale(0.94); }
+        .tour-arrow.prev { left: 12px; }
+        .tour-arrow.next { right: 12px; }
+        .tour-arrow svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+        /* Make the stage relative so absolute arrows anchor inside it */
+        .tour-stage { position: relative; }
+        @media (max-width: 640px) {
+            .tour-arrow { width: 34px; height: 34px; }
+            .tour-arrow.prev { left: 6px; }
+            .tour-arrow.next { right: 6px; }
+        }
+
 </style>
 <!-- PostHog -->
 <script>
@@ -1905,6 +1938,12 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         </div>
         <div class="tour-body">
             <div class="tour-stage" id="tourStage" aria-hidden="true">
+                <button type="button" class="tour-arrow prev" onclick="tourPrev()" aria-label="Previous scene">
+                    <svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <button type="button" class="tour-arrow next" onclick="tourNext()" aria-label="Next scene">
+                    <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
                 <div class="tour-scene active" data-scene="0">
                     <div class="tour-scene-inner" style="max-width:440px;">
                         <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
@@ -2087,7 +2126,14 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         stopAuto(); setScene(i);
         setTimeout(startAuto, 6000);
     };
-    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeTour(); });
+    window.tourPrev = function() { window.goTourScene((idx - 1 + 5) % 5); };
+    window.tourNext = function() { window.goTourScene((idx + 1) % 5); };
+    document.addEventListener('keydown', function(e) {
+        if (!document.getElementById('tourOverlay').classList.contains('open')) return;
+        if (e.key === 'Escape') closeTour();
+        else if (e.key === 'ArrowLeft') window.tourPrev();
+        else if (e.key === 'ArrowRight') window.tourNext();
+    });
 })();
 </script>
 
