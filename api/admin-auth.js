@@ -308,7 +308,7 @@ export default async function handler(req, res) {
       const { session_id } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
-      const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,name,email)&order=signed_at.desc`);
+      const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,company_name,email)&order=signed_at.desc`);
       return res.status(200).json({ ok: true, agreements: rows || [] });
     }
 
