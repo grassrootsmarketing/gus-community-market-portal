@@ -331,7 +331,7 @@ if (_urlTab === 'signup' || window.location.pathname === '/brand/signup') {
 </script>
 
 <script>
-// PWA: register service worker (conservative — only caches static assets, never HTML/API)
+// PWA: register service worker (conservative, only caches static assets, never HTML/API)
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(err => console.warn('SW register failed', err));
