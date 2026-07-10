@@ -30,6 +30,10 @@
     {
       "path": "/api/brand-account?action=cron",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/seed-demo?reset=true",
+      "schedule": "0 3 * * *"
     }
   ],
   "headers": [
