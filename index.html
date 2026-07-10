@@ -909,6 +909,242 @@
             .pillars-grid.four-card { grid-template-columns: repeat(2, 1fr); }
         }
 
+        /* See a demo pill (mirrors PageMint's View Demo affordance) */
+        .nav-demo {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 99px;
+            background: transparent;
+            border: 1.5px solid var(--forest-900);
+            color: var(--forest-900);
+            font-weight: 600;
+            font-size: 0.92rem;
+            transition: background 0.15s, color 0.15s;
+        }
+        .nav-demo::before {
+            content: '';
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--clay-bright);
+            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M8 5v14l11-7z'/></svg>") center/70% no-repeat;
+            -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M8 5v14l11-7z'/></svg>") center/70% no-repeat;
+            flex-shrink: 0;
+        }
+        .nav-demo:hover { background: var(--forest-900); color: white; }
+        /* Over-hero variant: glass pill w/ cream text, orange play dot stays vivid */
+        .site-header.over-hero .nav-demo {
+            background: rgba(255, 255, 255, 0.16);
+            border-color: rgba(255, 255, 255, 0.24);
+            color: #fdf9ee;
+            backdrop-filter: blur(6px);
+        }
+        .site-header.over-hero .nav-demo:hover {
+            background: rgba(255, 255, 255, 0.28);
+        }
+
+        /* ============ Product tour modal ============ */
+        .tour-overlay {
+            position: fixed; inset: 0;
+            background: rgba(10, 30, 16, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            display: none;
+            align-items: center; justify-content: center;
+            padding: 40px 24px;
+            opacity: 0;
+            transition: opacity 0.24s ease-out;
+        }
+        .tour-overlay.open {
+            display: flex;
+            opacity: 1;
+        }
+        .tour-frame {
+            width: min(920px, 100%);
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0,0,0,0.4);
+            display: flex;
+            flex-direction: column;
+            max-height: min(94vh, 680px);
+            transform: translateY(12px) scale(0.98);
+            transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .tour-overlay.open .tour-frame { transform: none; }
+        .tour-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 20px;
+            background: var(--forest-900);
+            color: white;
+            flex-shrink: 0;
+        }
+        .tour-topbar-title {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 0.88rem; font-weight: 700;
+            color: #fdf9ee;
+        }
+        .tour-topbar-title::before {
+            content: ''; width: 8px; height: 8px; border-radius: 50%;
+            background: var(--clay-bright);
+            animation: tour-pulse 1.8s ease-in-out infinite;
+        }
+        @keyframes tour-pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.3); }
+        }
+        .tour-close {
+            width: 30px; height: 30px; border-radius: 50%;
+            background: rgba(255,255,255,0.14);
+            border: none; color: white;
+            cursor: pointer;
+            display: grid; place-items: center;
+            font-size: 16px;
+        }
+        .tour-close:hover { background: rgba(255,255,255,0.24); }
+        .tour-body {
+            position: relative;
+            flex: 1;
+            background: var(--cream-50);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .tour-stage {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 28px;
+            min-height: 320px;
+            background: var(--cream-50);
+        }
+        .tour-scene {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            animation: tour-fade-in 0.28s ease-out;
+        }
+        .tour-scene.active { display: flex; }
+        @keyframes tour-fade-in {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: none; }
+        }
+        .tour-scene-inner {
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(15,44,23,0.15);
+            padding: 18px;
+            max-width: 520px;
+            width: 100%;
+            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+        }
+        /* Compact the calendar inside the tour scene */
+        .tour-scene .p7-cal-grid { gap: 3px; }
+        .tour-scene .p7-cal-cell { font-size: 0.66rem; }
+        .tour-scene .p7-cal-slots { margin-top: 8px; }
+        .tour-scene .p7-cal-slot { padding: 6px 4px; font-size: 0.68rem; }
+        .tour-caption {
+            padding: 16px 24px 20px;
+            border-top: 1px solid var(--cream-200);
+            background: white;
+            flex-shrink: 0;
+        }
+        .tour-caption-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--forest-900);
+            margin-bottom: 4px;
+        }
+        .tour-caption-sub {
+            font-size: 0.85rem;
+            color: var(--ink-500);
+        }
+        .tour-controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 24px 18px;
+            background: white;
+            flex-shrink: 0;
+        }
+        .tour-dots {
+            display: flex; gap: 8px; align-items: center;
+        }
+        .tour-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--cream-200);
+            border: none;
+            cursor: pointer;
+            padding: 0;
+            transition: all 0.2s;
+        }
+        .tour-dot.active { background: var(--forest-700); width: 22px; border-radius: 4px; }
+        .tour-dot:hover { background: var(--forest-400); }
+        .tour-cta-row {
+            display: flex; gap: 8px; align-items: center;
+        }
+        .tour-cta-primary {
+            padding: 8px 18px;
+            background: var(--forest-900);
+            color: white;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 0.88rem;
+        }
+        .tour-cta-primary:hover { background: var(--forest-700); }
+        .tour-cta-secondary {
+            padding: 8px 12px;
+            color: var(--ink-700);
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        .tour-cta-secondary:hover { color: var(--forest-800); }
+
+        /* Reuse the pillar-mock look inside scenes, but larger and left-aligned */
+        .tour-scene .p7-pillar-mock {
+            position: static;
+            transform: none;
+            max-width: 100%;
+            width: 100%;
+            padding: 18px;
+        }
+
+        /* Scene-specific: tour week grid (mini version) */
+        .tour-week {
+            display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+            padding-top: 8px;
+        }
+        .tour-week-col {
+            background: var(--cream-100);
+            border-radius: 6px;
+            padding: 6px 4px;
+            min-height: 90px;
+        }
+        .tour-week-col.new { background: #ffe6d1; }
+        .tour-week-col.today { background: var(--forest-50); }
+        .tour-week-col-lbl {
+            font-size: 0.58rem; font-weight: 700; text-transform: uppercase;
+            color: var(--ink-500); text-align: center; margin-bottom: 4px;
+        }
+        .tour-week-col-lbl b { display: block; font-size: 0.7rem; color: var(--forest-900); margin-top: 2px; }
+        .tour-week-col-chips { display: flex; flex-direction: column; gap: 3px; }
+        .tour-week-col .p7-chip { font-size: 8px; padding: 4px 6px; }
+        .tour-week-col .p7-chip-brand { font-size: 8.5px; }
+        .tour-week-col .p7-chip-meta { font-size: 7px; }
+
+        @media (max-width: 640px) {
+            .tour-frame { max-height: 100vh; border-radius: 0; }
+            .tour-stage { min-height: 300px; padding: 16px; }
+            .tour-scene { inset: 16px; }
+            .tour-controls { flex-direction: column; gap: 10px; }
+        }
+
 </style>
 <!-- PostHog -->
 <script>
@@ -955,6 +1191,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             <a href="#for-who">Who it's for</a>
             <a href="/pricing">Pricing</a>
             <a href="/brand/signin">For brands</a>
+            <button type="button" class="nav-demo" onclick="openTour()">See a demo</button>
             <a href="/signin" class="nav-cta">Sign in</a>
         </nav>
     </div>
@@ -1600,6 +1837,202 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
   });
 }
 </script>
+
+
+<!-- Product tour modal (opens from 'See a demo' pill) -->
+<div class="tour-overlay" id="tourOverlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="if(event.target===this)closeTour()">
+    <div class="tour-frame">
+        <div class="tour-topbar">
+            <div class="tour-topbar-title">Demohub product tour</div>
+            <button type="button" class="tour-close" onclick="closeTour()" aria-label="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+            </button>
+        </div>
+        <div class="tour-body">
+            <div class="tour-stage" id="tourStage" aria-hidden="true">
+                <div class="tour-scene active" data-scene="0">
+                    <div class="tour-scene-inner" style="max-width:440px;">
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+                            <div style="width:32px; height:32px; border-radius:50%; background:var(--forest-100); display:grid; place-items:center;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1f4a26" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                            </div>
+                            <div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; text-transform:uppercase; letter-spacing:0.06em;">Demo booked</div>
+                                <div style="font-size:1.1rem; color:var(--forest-900); font-weight:700; line-height:1.2;">Bluebell Creamery</div>
+                            </div>
+                        </div>
+                        <div style="background:var(--cream-100); border-radius:10px; padding:12px 14px; margin-bottom:12px;">
+                            <div style="display:flex; justify-content:space-between; padding:5px 0;">
+                                <div style="font-size:0.7rem; color:var(--ink-500); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Store</div>
+                                <div style="font-size:0.85rem; font-weight:700; color:var(--forest-900);">Riverside</div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; padding:5px 0; border-top:1px solid var(--cream-200);">
+                                <div style="font-size:0.7rem; color:var(--ink-500); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Date</div>
+                                <div style="font-size:0.85rem; font-weight:700; color:var(--forest-900);">Sat, Feb 21</div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; padding:5px 0; border-top:1px solid var(--cream-200);">
+                                <div style="font-size:0.7rem; color:var(--ink-500); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Time</div>
+                                <div style="font-size:0.85rem; font-weight:700; color:var(--forest-900);">1:00 PM to 4:00 PM</div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; padding:5px 0; border-top:1px solid var(--cream-200);">
+                                <div style="font-size:0.7rem; color:var(--ink-500); font-weight:600; text-transform:uppercase; letter-spacing:0.05em;">Product</div>
+                                <div style="font-size:0.85rem; font-weight:700; color:var(--forest-900);">Vanilla bean gelato</div>
+                            </div>
+                        </div>
+                        <div style="background:var(--forest-50); border-radius:10px; padding:10px 14px; display:flex; justify-content:space-between; align-items:center;">
+                            <div>
+                                <div style="font-size:0.68rem; color:var(--forest-700); font-weight:700; text-transform:uppercase; letter-spacing:0.05em;">Paid via Stripe</div>
+                                <div style="font-size:0.9rem; font-weight:700; color:var(--forest-900); margin-top:2px;">$30 demo + $5 booking fee</div>
+                            </div>
+                            <div style="font-size:1.2rem; font-weight:700; color:var(--forest-800);">$35</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tour-scene" data-scene="1">
+                    <div class="tour-scene-inner">
+                        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;">
+                            <div style="font-size:1rem; font-weight:600; color:var(--forest-900);">This week</div>
+                            <div style="font-size:0.7rem; font-weight:700; padding:3px 8px; border-radius:99px; background:#ffe6d1; color:var(--clay-700);">Booking, +1</div>
+                        </div>
+                        <div class="tour-week">
+                            <div class="tour-week-col"><div class="tour-week-col-lbl">Mon<b>16</b></div><div class="tour-week-col-chips"><div class="p7-chip"><div class="p7-chip-brand">Cedar &amp; Sage</div><div class="p7-chip-meta">11a, Elm St.</div></div></div></div>
+                            <div class="tour-week-col"><div class="tour-week-col-lbl">Tue<b>17</b></div></div>
+                            <div class="tour-week-col"><div class="tour-week-col-lbl">Wed<b>18</b></div><div class="tour-week-col-chips"><div class="p7-chip"><div class="p7-chip-brand">Sundial</div><div class="p7-chip-meta">10a</div></div></div></div>
+                            <div class="tour-week-col today"><div class="tour-week-col-lbl">Thu<b>19</b></div><div class="tour-week-col-chips"><div class="p7-chip"><div class="p7-chip-brand">Peak Prov.</div><div class="p7-chip-meta">11a</div></div><div class="p7-chip"><div class="p7-chip-brand">Marigold</div><div class="p7-chip-meta">3p</div></div></div></div>
+                            <div class="tour-week-col"><div class="tour-week-col-lbl">Fri<b>20</b></div><div class="tour-week-col-chips"><div class="p7-chip"><div class="p7-chip-brand">Cedar &amp; Sage</div><div class="p7-chip-meta">11a</div></div></div></div>
+                            <div class="tour-week-col new"><div class="tour-week-col-lbl">Sat<b>21</b></div><div class="tour-week-col-chips"><div class="p7-chip pending"><div class="p7-chip-brand">Bluebell</div><div class="p7-chip-meta">1p, Riverside</div></div></div></div>
+                            <div class="tour-week-col"><div class="tour-week-col-lbl">Sun<b>22</b></div></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tour-scene" data-scene="2">
+                    <div class="tour-scene-inner">
+                        <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; margin-bottom:4px;">Compliance</div>
+                        <div style="font-size:1rem; color:var(--forest-900); font-weight:700; margin-bottom:14px;">4 brands, current</div>
+                        <div class="p7-coi-row">
+                            <div><div class="p7-coi-brand">Bluebell Creamery</div><div class="p7-coi-status">COI current, verified</div></div>
+                            <div class="p7-coi-chip ok">Ok</div>
+                        </div>
+                        <div class="p7-coi-row">
+                            <div><div class="p7-coi-brand">Peak Provisions Jerky</div><div class="p7-coi-status">COI expires in 14 days, reminder sent</div></div>
+                            <div class="p7-coi-chip warn">14d</div>
+                        </div>
+                        <div class="p7-coi-row">
+                            <div><div class="p7-coi-brand">Cedar &amp; Sage Kombucha</div><div class="p7-coi-status">Agreement signed Feb 10</div></div>
+                            <div class="p7-coi-chip ok">Ok</div>
+                        </div>
+                        <div class="p7-coi-row">
+                            <div><div class="p7-coi-brand">Marigold Snacks</div><div class="p7-coi-status">Agreement signed Feb 12</div></div>
+                            <div class="p7-coi-chip ok">Ok</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tour-scene" data-scene="3">
+                    <div class="tour-scene-inner">
+                        <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; margin-bottom:2px;">Revenue by store, this quarter</div>
+                        <div style="font-size:0.68rem; color:var(--clay-700); font-weight:700; margin-bottom:14px;">&#9650; 18% vs last quarter</div>
+                        <div class="p7-rev-list">
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Elm St.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:100%;"></div></div><div class="p7-rev-val">$2,840</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Riverside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:85%;"></div></div><div class="p7-rev-val">$2,415</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Depot Dist.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:70%;"></div></div><div class="p7-rev-val">$1,980</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Old Mill</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:58%;"></div></div><div class="p7-rev-val">$1,650</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Parkside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:46%;"></div></div><div class="p7-rev-val">$1,320</div></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tour-scene" data-scene="4">
+                    <div class="tour-scene-inner">
+                        <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; margin-bottom:4px;">Team</div>
+                        <div style="font-size:1rem; color:var(--forest-900); font-weight:700; margin-bottom:12px;">3 people</div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar">DW</div>
+                            <div class="p7-team-info"><div class="p7-team-name">Dana Whitfield</div><div class="p7-team-line">Emails on every booking</div></div>
+                            <div class="p7-team-chip owner">Owner</div>
+                        </div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar" style="background:var(--forest-500);">ML</div>
+                            <div class="p7-team-info"><div class="p7-team-name">Marcus Lee</div><div class="p7-team-line"><span class="p7-team-tag">Riverside</span><span class="p7-team-tag">Depot Dist.</span></div></div>
+                            <div class="p7-team-chip owner" style="background:var(--forest-50);">Admin</div>
+                        </div>
+                        <div class="p7-team-row">
+                            <div class="p7-team-avatar" style="background:var(--ink-300);">PN</div>
+                            <div class="p7-team-info"><div class="p7-team-name">Priya Nair</div><div class="p7-team-line">Views the calendar</div></div>
+                            <div class="p7-team-chip viewer">Viewer</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="tour-caption">
+                <div class="tour-caption-title" id="tourCaptionTitle">Brands book on your Demohub page</div>
+                <div class="tour-caption-sub" id="tourCaptionSub">Share one URL with every brand you work with. They pick a store, pick a time, pay upfront.</div>
+            </div>
+            <div class="tour-controls">
+                <div class="tour-dots" role="tablist">
+                    <button type="button" class="tour-dot active" data-idx="0" onclick="goTourScene(0)" aria-label="Scene 1"></button>
+                    <button type="button" class="tour-dot" data-idx="1" onclick="goTourScene(1)" aria-label="Scene 2"></button>
+                    <button type="button" class="tour-dot" data-idx="2" onclick="goTourScene(2)" aria-label="Scene 3"></button>
+                    <button type="button" class="tour-dot" data-idx="3" onclick="goTourScene(3)" aria-label="Scene 4"></button>
+                    <button type="button" class="tour-dot" data-idx="4" onclick="goTourScene(4)" aria-label="Scene 5"></button>
+                </div>
+                <div class="tour-cta-row">
+                    <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" class="tour-cta-secondary">Book a walkthrough</a>
+                    <a href="/signup" class="tour-cta-primary">Start free</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const CAPTIONS = [
+        { title: "Brands book on your Demohub page", sub: "Share one URL with every brand you work with. They pick a store, pick a time, pay upfront." },
+        { title: "New bookings show up on your calendar", sub: "Auto confirm or approve manually. Every store, every week, in one grid." },
+        { title: "Compliance is tracked automatically", sub: "COI status per brand, expiration reminders, agreement receipts. No spreadsheets." },
+        { title: "See what each store is earning", sub: "Revenue by store, by month, by quarter. Real numbers, no manual exports." },
+        { title: "Your whole team, in the loop", sub: "Scope alerts per person and per location. Staff know what is coming without asking." },
+    ];
+    const SCENE_MS = 4200;
+    let idx = 0, timer = null;
+    function setScene(i) {
+        idx = i;
+        document.querySelectorAll('#tourStage .tour-scene').forEach(s => s.classList.remove('active'));
+        const target = document.querySelector('#tourStage .tour-scene[data-scene="'+i+'"]');
+        if (target) target.classList.add('active');
+        document.querySelectorAll('.tour-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+        const cap = CAPTIONS[i] || CAPTIONS[0];
+        const t = document.getElementById('tourCaptionTitle'), s = document.getElementById('tourCaptionSub');
+        if (t) t.textContent = cap.title;
+        if (s) s.textContent = cap.sub;
+    }
+    function tick() { setScene((idx + 1) % 5); }
+    function startAuto() { stopAuto(); timer = setInterval(tick, SCENE_MS); }
+    function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
+    window.openTour = function() {
+        const el = document.getElementById('tourOverlay');
+        if (!el) return;
+        el.classList.add('open');
+        el.setAttribute('aria-hidden', 'false');
+        setScene(0);
+        startAuto();
+        document.body.style.overflow = 'hidden';
+    };
+    window.closeTour = function() {
+        const el = document.getElementById('tourOverlay');
+        if (!el) return;
+        el.classList.remove('open');
+        el.setAttribute('aria-hidden', 'true');
+        stopAuto();
+        document.body.style.overflow = '';
+    };
+    window.goTourScene = function(i) {
+        stopAuto(); setScene(i);
+        setTimeout(startAuto, 6000);
+    };
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeTour(); });
+})();
+</script>
+
 </body>
 </html>
 
