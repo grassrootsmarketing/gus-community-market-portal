@@ -78,6 +78,13 @@ const MIGRATIONS = [
           COMMENT ON COLUMN internal_contacts.notification_prefs IS 'JSON: {on_scheduled: bool, days_before: [3,1], custom_days: int|null, sms_enabled: bool}';
           COMMENT ON COLUMN internal_contacts.venue_ids IS 'Empty array = notified for ALL locations. Non-empty = only for those specific venues.';`,
   },
+  {
+    name: '009_retailers_is_demo_flag',
+    sql: `ALTER TABLE retailers
+            ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT FALSE;
+          CREATE INDEX IF NOT EXISTS idx_retailers_is_demo ON retailers (is_demo) WHERE is_demo = TRUE;
+          COMMENT ON COLUMN retailers.is_demo IS 'Phase C: marks the read-only live demo tenant. Writes blocked in /api/admin, outbound side effects suppressed.';`,
+  },
 ];
 
 // ==============================================================
