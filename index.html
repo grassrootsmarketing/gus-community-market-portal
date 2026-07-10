@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="no-js"><script>document.documentElement.classList.replace("no-js","js")</script>
 <head>
 <!-- build 2026-06-25T08:26:42.977567Z -->
     <meta charset="UTF-8">
@@ -203,18 +203,7 @@
             padding: 0 8px;
             margin-bottom: 40px;
         }
-        .hero-topbar .view-demo {
-            padding: 10px 20px;
-            border-radius: 12px;
-            background: rgba(255, 255, 255, 0.14);
-            border: 1px solid rgba(255, 255, 255, 0.22);
-            color: white;
-            font-weight: 600;
-            font-size: 0.92rem;
-            backdrop-filter: blur(8px);
-            transition: background 0.18s;
-        }
-        .hero-topbar .view-demo:hover { background: rgba(255, 255, 255, 0.22); }
+
         .hero-topbar .hamburger {
             width: 44px; height: 44px;
             border-radius: 50%;
@@ -910,7 +899,7 @@
         }
 
         /* See a demo pill (mirrors PageMint's View Demo affordance) */
-        .nav-demo {
+        .nav-tour {
             display: inline-flex;
             align-items: center;
             gap: 6px;
@@ -923,7 +912,7 @@
             font-size: 0.92rem;
             transition: background 0.15s, color 0.15s;
         }
-        .nav-demo::before {
+        .nav-tour::before {
             content: '';
             width: 14px; height: 14px; border-radius: 50%;
             background: var(--clay-bright);
@@ -931,15 +920,15 @@
             -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M8 5v14l11-7z'/></svg>") center/70% no-repeat;
             flex-shrink: 0;
         }
-        .nav-demo:hover { background: var(--forest-900); color: white; }
+        .nav-tour:hover { background: var(--forest-900); color: white; }
         /* Over-hero variant: glass pill w/ cream text, orange play dot stays vivid */
-        .site-header.over-hero .nav-demo {
+        .site-header.over-hero .nav-tour {
             background: rgba(255, 255, 255, 0.16);
             border-color: rgba(255, 255, 255, 0.24);
             color: #fdf9ee;
             backdrop-filter: blur(6px);
         }
-        .site-header.over-hero .nav-demo:hover {
+        .site-header.over-hero .nav-tour:hover {
             background: rgba(255, 255, 255, 0.28);
         }
 
@@ -1226,6 +1215,83 @@
             .tour-arrow.next { right: 6px; }
         }
 
+        /* Hero secondary 'Take the tour' CTA - ghost/outline over painterly bg */
+        .hero-tour-cta {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 14px 24px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1.5px solid rgba(253, 249, 238, 0.4);
+            color: #fdf9ee;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 1rem;
+            cursor: pointer;
+            backdrop-filter: blur(6px);
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .hero-tour-cta:hover {
+            background: rgba(255, 255, 255, 0.18);
+            border-color: rgba(253, 249, 238, 0.7);
+        }
+        .hero-tour-cta svg { width: 16px; height: 16px; }
+
+        /* B7: mid-page tour trigger band */
+        .tour-band {
+            background: var(--cream-50);
+            border-top: 1px solid var(--cream-200);
+            border-bottom: 1px solid var(--cream-200);
+            padding: 0;
+        }
+        .tour-band .container { max-width: 900px; }
+        .tour-band-cta {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 9px 18px;
+            border-radius: 99px;
+            background: var(--forest-900);
+            color: #fdf9ee;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.92rem;
+            border: none;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .tour-band-cta:hover { background: var(--forest-700); }
+        .tour-band-cta svg { width: 12px; height: 12px; }
+
+        /* B8 mobile: tighten tour triggers */
+        @media (max-width: 640px) {
+            .hero-product-play { top: 8px; right: 8px; padding: 6px 12px 6px 10px; font-size: 0.72rem; }
+            .hero-tour-cta { padding: 12px 18px; font-size: 0.92rem; }
+            .tour-band .container { flex-direction: column; gap: 10px; padding: 18px 20px; }
+            /* Tour modal: full-height on mobile, arrows shrink */
+            .tour-topbar-title { font-size: 0.82rem; }
+            #tourCounter { display: block; margin-left: 0 !important; margin-top: 2px; font-size: 0.68rem !important; }
+        }
+
+        /* Hero product mockup click affordance */
+        .hero-product-play {
+            position: absolute; top: 14px; right: 14px;
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 14px 8px 12px;
+            background: rgba(15, 44, 23, 0.94);
+            color: #fdf9ee;
+            border: none;
+            border-radius: 99px;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-weight: 700;
+            font-size: 0.8rem;
+            cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+            z-index: 10;
+            transition: transform 0.15s, background 0.15s;
+        }
+        .hero-product-play:hover { background: var(--forest-900); transform: translateY(-1px); }
+        .hero-product-play svg { width: 12px; height: 12px; flex-shrink: 0; }
+        .no-js .hero-product-play { display: none; }
+        .no-js .hero-product { cursor: default !important; }
+
 </style>
 <!-- PostHog -->
 <script>
@@ -1272,7 +1338,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             <a href="#for-who">Who it's for</a>
             <a href="/pricing">Pricing</a>
             <a href="/brand/signin">For brands</a>
-            <button type="button" class="nav-demo" onclick="openTour()">See a demo</button>
+            <button type="button" class="nav-tour" onclick="openTour('nav')" aria-label="Take the product tour">Take the tour</button>
             <a href="/signin" class="nav-cta">Sign in</a>
         </nav>
     </div>
@@ -1284,7 +1350,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     
     <div class="container">
         <div class="hero-topbar">
-            <a href="#platform" class="view-demo">View demo</a>
+            
             <button type="button" class="hamburger" aria-label="Menu">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/></svg>
             </button>
@@ -1295,15 +1361,25 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <span class="hero-punch">One&nbsp;place.</span>
             </h1>
             <p class="hero-sub">Independent retailers use Demohub to schedule brand demos, track compliance, and run every store from a single dashboard, without the spreadsheet nightmare.</p>
-            <a href="/signup" class="hero-single-cta">
-                Start free
-                <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="7 5 19 5 19 17"/></svg>
-            </a>
+            <div style="display:inline-flex; gap:12px; align-items:center; flex-wrap:wrap; justify-content:center;">
+                <a href="/signup" class="hero-single-cta">
+                    Start free
+                    <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="7 5 19 5 19 17"/></svg>
+                </a>
+                <button type="button" class="hero-tour-cta" onclick="openTour('hero_cta')" aria-label="Take the product tour">
+                    <svg viewBox="0 0 24 24" fill="rgba(253,249,238,0.95)" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+                    Take the tour
+                </button>
+            </div>
             <div class="hero-meta-under">
                 <strong>Solo is free forever.</strong> Pro comes with a 14-day free trial.
             </div>
         </div>
-        <div class="hero-product">
+        <div class="hero-product" onclick="if(!event.target.closest('.hero-product-play'))openTour('hero_mockup')" style="cursor:pointer;">
+                <button type="button" class="hero-product-play" onclick="openTour('hero_mockup')" aria-label="Take the product tour">
+                    <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+                    <span>Take the tour</span>
+                </button>
             <div class="dash-frame">
                 <div class="dash-titlebar">
                     <div class="dot-mac" style="background:#ed6a5e;"></div>
@@ -1485,27 +1561,27 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                             <div class="p7-rev-row">
                                 <div class="p7-rev-lbl">Elm St.</div>
                                 <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:100%;"></div></div>
-                                <div class="p7-rev-val">$2,840</div>
+                                <div class="p7-rev-val">$1,900</div>
                             </div>
                             <div class="p7-rev-row">
                                 <div class="p7-rev-lbl">Riverside</div>
                                 <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:85%;"></div></div>
-                                <div class="p7-rev-val">$2,415</div>
+                                <div class="p7-rev-val">$1,615</div>
                             </div>
                             <div class="p7-rev-row">
                                 <div class="p7-rev-lbl">Depot Dist.</div>
                                 <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:70%;"></div></div>
-                                <div class="p7-rev-val">$1,980</div>
+                                <div class="p7-rev-val">$1,330</div>
                             </div>
                             <div class="p7-rev-row">
                                 <div class="p7-rev-lbl">Old Mill</div>
                                 <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:58%;"></div></div>
-                                <div class="p7-rev-val">$1,650</div>
+                                <div class="p7-rev-val">$1,120</div>
                             </div>
                             <div class="p7-rev-row">
                                 <div class="p7-rev-lbl">Parkside</div>
                                 <div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:46%;"></div></div>
-                                <div class="p7-rev-val">$1,320</div>
+                                <div class="p7-rev-val">$895</div>
                             </div>
                         </div>
                     </div>
@@ -1664,7 +1740,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             <div class="feature-visual" aria-hidden="true">
                 <div class="p7-run-stats">
                     <div class="p7-run-tile"><div class="p7-run-tile-num">14</div><div class="p7-run-tile-lbl">Demos this week</div></div>
-                    <div class="p7-run-tile"><div class="p7-run-tile-num">2</div><div class="p7-run-tile-lbl">Pending approval</div></div>
+                    <div class="p7-run-tile"><div class="p7-run-tile-num">3</div><div class="p7-run-tile-lbl">Pending approval</div></div>
                     <div class="p7-run-tile"><div class="p7-run-tile-num">1</div><div class="p7-run-tile-lbl">COI expiring</div></div>
                 </div>
                 <div class="p7-run-label">Next up</div>
@@ -1682,6 +1758,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 </div>
             </div>
         </div>
+    </div>
+</section>
+
+<section class="tour-band" aria-label="Take the tour">
+    <div class="container" style="display:flex; align-items:center; justify-content:center; gap:16px; flex-wrap:wrap; padding:22px 24px; text-align:center;">
+        <span style="font-size:1rem; color:var(--forest-800); font-weight:500;">Rather see it than read it?</span>
+        <button type="button" class="tour-band-cta" onclick="openTour('mid_band')" aria-label="Take the product tour">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+            Take the tour
+        </button>
     </div>
 </section>
 
@@ -1920,11 +2006,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
 </script>
 
 
-<!-- Product tour modal (opens from 'See a demo' pill) -->
+<!-- Product tour modal (opens from 'Take the tour' triggers: nav / hero_cta / hero_mockup) -->
 <div class="tour-overlay" id="tourOverlay" role="dialog" aria-modal="true" aria-hidden="true" onclick="if(event.target===this)closeTour()">
     <div class="tour-frame">
         <div class="tour-topbar">
-            <div class="tour-topbar-title">Demohub product tour</div>
+            <div class="tour-topbar-title">Demohub product tour<span id="tourCounter" style="margin-left:12px; opacity:0.7; font-weight:600; font-size:0.78rem;">1 of 6</span></div>
             <button type="button" class="tour-close" onclick="closeTour()" aria-label="Close">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
             </button>
@@ -2003,7 +2089,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                 <div class="tour-scene" data-scene="2">
                     <div class="tour-scene-inner">
                         <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; margin-bottom:4px;">Compliance</div>
-                        <div style="font-size:1rem; color:var(--forest-900); font-weight:700; margin-bottom:14px;">4 brands, current</div>
+                        <div style="font-size:1rem; color:var(--forest-900); font-weight:700; margin-bottom:14px;">4 brands on file</div>
                         <div class="p7-coi-row">
                             <div><div class="p7-coi-brand">Bluebell Creamery</div><div class="p7-coi-status">COI current, verified</div></div>
                             <div class="p7-coi-chip ok">Ok</div>
@@ -2027,11 +2113,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                         <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600; margin-bottom:2px;">Revenue by store, this quarter</div>
                         <div style="font-size:0.68rem; color:var(--clay-700); font-weight:700; margin-bottom:14px;">&#9650; 18% vs last quarter</div>
                         <div class="p7-rev-list">
-                            <div class="p7-rev-row"><div class="p7-rev-lbl">Elm St.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:100%;"></div></div><div class="p7-rev-val">$2,840</div></div>
-                            <div class="p7-rev-row"><div class="p7-rev-lbl">Riverside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:85%;"></div></div><div class="p7-rev-val">$2,415</div></div>
-                            <div class="p7-rev-row"><div class="p7-rev-lbl">Depot Dist.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:70%;"></div></div><div class="p7-rev-val">$1,980</div></div>
-                            <div class="p7-rev-row"><div class="p7-rev-lbl">Old Mill</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:58%;"></div></div><div class="p7-rev-val">$1,650</div></div>
-                            <div class="p7-rev-row"><div class="p7-rev-lbl">Parkside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:46%;"></div></div><div class="p7-rev-val">$1,320</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Elm St.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:100%;"></div></div><div class="p7-rev-val">$1,900</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Riverside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:85%;"></div></div><div class="p7-rev-val">$1,615</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Depot Dist.</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:70%;"></div></div><div class="p7-rev-val">$1,330</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Old Mill</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:58%;"></div></div><div class="p7-rev-val">$1,120</div></div>
+                            <div class="p7-rev-row"><div class="p7-rev-lbl">Parkside</div><div class="p7-rev-bar"><div class="p7-rev-bar-fill" style="width:46%;"></div></div><div class="p7-rev-val">$895</div></div>
                         </div>
                     </div>
                 </div>
@@ -2067,7 +2153,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                         <div style="font-size:1rem; color:var(--ink-700); line-height:1.55; margin-bottom:24px;">
                             <strong style="color:var(--forest-900);">Solo is free forever.</strong> Pro comes with a 14-day free trial. Most retailers are set up in an afternoon.
                         </div>
-                        <a href="/signup" class="hero-single-cta" style="padding:14px 30px; font-size:1rem;">
+                        <a href="/signup?ref=tour" class="hero-single-cta" style="padding:14px 30px; font-size:1rem;">
                             Start free
                             <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="7 5 19 5 19 17"/></svg>
                         </a>
@@ -2104,7 +2190,11 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
     const SCENE_MS = 4200;
     let idx = 0, timer = null;
     function setScene(i) {
+        const prev = idx;
         idx = i;
+        // Update counter
+        const counter = document.getElementById('tourCounter');
+        if (counter) counter.textContent = (i + 1) + ' of 6';
         document.querySelectorAll('#tourStage .tour-scene').forEach(s => s.classList.remove('active'));
         const target = document.querySelector('#tourStage .tour-scene[data-scene="'+i+'"]');
         if (target) target.classList.add('active');
@@ -2123,26 +2213,61 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         const t = document.getElementById('tourCaptionTitle'), s = document.getElementById('tourCaptionSub');
         if (t) t.textContent = cap.title;
         if (s) s.textContent = cap.sub;
+        _ph('tour_step_viewed', { step: i + 1 });
     }
     function tick() { if (idx >= 5) { stopAuto(); return; } setScene(idx + 1); }
     function startAuto() { stopAuto(); timer = setInterval(tick, SCENE_MS); }
     function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
-    window.openTour = function() {
+    let lastFocused = null;
+    let openTrigger = null;
+    function focusables(container) {
+        return Array.from(container.querySelectorAll('button, a[href], [tabindex]:not([tabindex="-1"])'))
+            .filter(el => !el.hasAttribute('disabled') && el.offsetWidth > 0);
+    }
+    function trapFocus(e) {
+        const el = document.getElementById('tourOverlay');
+        if (!el || !el.classList.contains('open')) return;
+        if (e.key !== 'Tab') return;
+        const foc = focusables(el);
+        if (foc.length === 0) return;
+        const first = foc[0], last = foc[foc.length - 1];
+        if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+        else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+    }
+    function _ph(name, props) {
+        try { if (window.posthog && !window.__qa && posthog.capture) posthog.capture(name, props || {}); } catch(_){}
+    }
+    window.openTour = function(trigger) {
         const el = document.getElementById('tourOverlay');
         if (!el) return;
+        openTrigger = trigger || 'unknown';
+        lastFocused = document.activeElement;
         el.classList.add('open');
         el.setAttribute('aria-hidden', 'false');
         setScene(0);
         startAuto();
         document.body.style.overflow = 'hidden';
+        // Focus the close button so keyboard users land inside
+        const closeBtn = el.querySelector('.tour-close');
+        if (closeBtn) closeBtn.focus();
+        document.addEventListener('keydown', trapFocus);
+        _ph('tour_opened', { trigger: openTrigger });
     };
     window.closeTour = function() {
         const el = document.getElementById('tourOverlay');
         if (!el) return;
+        // PostHog: completed vs closed_early
+        if (idx >= 5) _ph('tour_completed', {});
+        else _ph('tour_closed_early', { last_step: idx + 1 });
         el.classList.remove('open');
         el.setAttribute('aria-hidden', 'true');
         stopAuto();
         document.body.style.overflow = '';
+        document.removeEventListener('keydown', trapFocus);
+        // Return focus to the trigger
+        try { if (lastFocused && lastFocused.focus) lastFocused.focus(); } catch(_){}
+        // Dismissal memory (only used to suppress future NUDGES, not to block reopen)
+        try { localStorage.setItem('demohub_tour_seen_v1', '1'); } catch(_){}
     };
     window.goTourScene = function(i) {
         stopAuto(); setScene(i);
