@@ -1145,6 +1145,54 @@
             .tour-controls { flex-direction: column; gap: 10px; }
         }
 
+        /* Instagram Stories-style progress segments at top of tour */
+        .tour-progress {
+            display: flex;
+            gap: 4px;
+            padding: 10px 20px 6px;
+            background: var(--forest-900);
+            flex-shrink: 0;
+        }
+        .tour-progress-seg {
+            flex: 1;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.24);
+            border-radius: 2px;
+            overflow: hidden;
+            cursor: pointer;
+            position: relative;
+            border: none;
+            padding: 0;
+            transition: transform 0.15s;
+        }
+        .tour-progress-seg:hover { transform: scaleY(1.6); }
+        .tour-progress-seg-fill {
+            display: block;
+            height: 100%;
+            width: 0%;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 2px;
+            transform-origin: left;
+        }
+        /* Active segment: animate the fill left to right over SCENE_MS (4.2s).
+           Duration set via CSS custom property from JS. */
+        .tour-progress-seg.active .tour-progress-seg-fill {
+            width: 100%;
+            transform: scaleX(0);
+            animation: tour-seg-fill var(--seg-duration, 4200ms) linear forwards;
+        }
+        .tour-progress-seg.paused .tour-progress-seg-fill {
+            animation-play-state: paused;
+        }
+        .tour-progress-seg.done .tour-progress-seg-fill {
+            width: 100%;
+            transform: none;
+        }
+        @keyframes tour-seg-fill {
+            from { transform: scaleX(0); }
+            to { transform: scaleX(1); }
+        }
+
 </style>
 <!-- PostHog -->
 <script>
@@ -1848,6 +1896,13 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
             </button>
         </div>
+        <div class="tour-progress" aria-hidden="true">
+            <button type="button" class="tour-progress-seg" data-seg="0" onclick="goTourScene(0)" aria-label="Scene 1"><span class="tour-progress-seg-fill"></span></button>
+            <button type="button" class="tour-progress-seg" data-seg="1" onclick="goTourScene(1)" aria-label="Scene 2"><span class="tour-progress-seg-fill"></span></button>
+            <button type="button" class="tour-progress-seg" data-seg="2" onclick="goTourScene(2)" aria-label="Scene 3"><span class="tour-progress-seg-fill"></span></button>
+            <button type="button" class="tour-progress-seg" data-seg="3" onclick="goTourScene(3)" aria-label="Scene 4"><span class="tour-progress-seg-fill"></span></button>
+            <button type="button" class="tour-progress-seg" data-seg="4" onclick="goTourScene(4)" aria-label="Scene 5"><span class="tour-progress-seg-fill"></span></button>
+        </div>
         <div class="tour-body">
             <div class="tour-stage" id="tourStage" aria-hidden="true">
                 <div class="tour-scene active" data-scene="0">
@@ -1966,14 +2021,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                 <div class="tour-caption-title" id="tourCaptionTitle">Brands book on your Demohub page</div>
                 <div class="tour-caption-sub" id="tourCaptionSub">Share one URL with every brand you work with. They pick a store, pick a time, pay upfront.</div>
             </div>
-            <div class="tour-controls">
-                <div class="tour-dots" role="tablist">
-                    <button type="button" class="tour-dot active" data-idx="0" onclick="goTourScene(0)" aria-label="Scene 1"></button>
-                    <button type="button" class="tour-dot" data-idx="1" onclick="goTourScene(1)" aria-label="Scene 2"></button>
-                    <button type="button" class="tour-dot" data-idx="2" onclick="goTourScene(2)" aria-label="Scene 3"></button>
-                    <button type="button" class="tour-dot" data-idx="3" onclick="goTourScene(3)" aria-label="Scene 4"></button>
-                    <button type="button" class="tour-dot" data-idx="4" onclick="goTourScene(4)" aria-label="Scene 5"></button>
-                </div>
+            <div class="tour-controls" style="justify-content:flex-end;">
                 <div class="tour-cta-row">
                     <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" class="tour-cta-secondary">Book a walkthrough</a>
                     <a href="/signup" class="tour-cta-primary">Start free</a>
@@ -1999,7 +2047,17 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         document.querySelectorAll('#tourStage .tour-scene').forEach(s => s.classList.remove('active'));
         const target = document.querySelector('#tourStage .tour-scene[data-scene="'+i+'"]');
         if (target) target.classList.add('active');
-        document.querySelectorAll('.tour-dot').forEach((d, k) => d.classList.toggle('active', k === i));
+        // Instagram-style progress segments: done < i, active = i, empty > i
+        document.querySelectorAll('.tour-progress-seg').forEach((seg, k) => {
+            seg.classList.remove('active', 'done');
+            if (k < i) seg.classList.add('done');
+            else if (k === i) {
+                // Force reflow so the CSS animation restarts cleanly
+                void seg.offsetWidth;
+                seg.style.setProperty('--seg-duration', SCENE_MS + 'ms');
+                seg.classList.add('active');
+            }
+        });
         const cap = CAPTIONS[i] || CAPTIONS[0];
         const t = document.getElementById('tourCaptionTitle'), s = document.getElementById('tourCaptionSub');
         if (t) t.textContent = cap.title;
