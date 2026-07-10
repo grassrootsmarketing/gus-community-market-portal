@@ -5,6 +5,7 @@
 //            respecting the retailer's cancellation_mode (refundable | non_refundable).
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
+// build-bust: 2026-07-09-phase-b
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
