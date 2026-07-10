@@ -288,10 +288,23 @@
             box-shadow: 0 32px 80px rgba(15, 44, 23, 0.35), 0 8px 20px rgba(15, 44, 23, 0.15);
         }
         @media (max-width: 900px) {
-            .hero { min-height: auto; padding: 24px 0 60px; }
-            .hero-topbar { margin-bottom: 24px; }
-            .hero h1 { font-size: clamp(2.4rem, 9vw, 3.8rem); }
-            .hero-product { margin-top: 40px; }
+            .hero { min-height: auto; padding: 108px 0 60px; }
+            .hero-topbar { margin-bottom: 20px; }
+            .hero h1 { font-size: clamp(2.2rem, 9vw, 3.6rem); line-height: 1.05; }
+            .hero-product { margin-top: 36px; }
+        }
+        /* Small phone tightening — nav compacts, URL bar shrinks */
+        @media (max-width: 480px) {
+            .hero { padding-top: 96px; }
+            .site-header { padding: 14px 0; }
+            .site-header .brand { font-size: 1.05rem; }
+            .site-header .brand-mark { width: 28px; height: 28px; }
+            .site-header .nav-tour { display: none !important; }
+            .site-header .nav-links { gap: 10px; }
+            .nav-cta { padding: 7px 14px; font-size: 0.86rem; }
+            .hero h1 { font-size: clamp(2rem, 10vw, 3rem); }
+            .dash-url { max-width: 150px; font-size: 0.66rem; padding: 4px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .p7-week-title { font-size: 0.9rem; }
         }
         /* ====== Hero visual: dashboard mockup (kept for the product mock below) ====== */
         .dash-frame {
