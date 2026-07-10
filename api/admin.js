@@ -66,6 +66,19 @@ async function verifySession(session_id) {
   } catch (_) { return null; }
 }
 
+// Phase C: check if the retailer for this session is the read-only demo tenant.
+// Cached for the lifetime of a single request via a Map keyed on retailer_id.
+const _demoCache = new Map();
+async function isDemoTenantRetailer(retailerId) {
+  if (_demoCache.has(retailerId)) return _demoCache.get(retailerId);
+  try {
+    const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=is_demo,slug`);
+    const flag = Array.isArray(rows) && rows[0] && (rows[0].is_demo === true || rows[0].slug === 'harvest-lane-demo');
+    _demoCache.set(retailerId, !!flag);
+    return !!flag;
+  } catch (_) { return false; }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -80,6 +93,17 @@ export default async function handler(req, res) {
   // === Session check ===
   const session = await verifySession(session_id);
   if (!session) return send(res, 401, { error: 'Invalid or missing admin session' });
+
+  // Phase C: block writes on the demo tenant. Reads (GET action=data) still allowed.
+  if (['POST', 'PATCH', 'DELETE', 'PUT'].includes(req.method)) {
+    if (await isDemoTenantRetailer(session.retailer_id)) {
+      return send(res, 403, {
+        error: 'demo_read_only',
+        message: 'This is the live Demohub demo. Writes are disabled here, sign up at demohubhq.com/signup to try it for real.',
+        is_demo: true,
+      });
+    }
+  }
 
   // === Privacy Phase 0: read-all action ===
   // Replaces direct anon SELECTs from the retailer admin page. Returns every
