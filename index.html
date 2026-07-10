@@ -242,24 +242,12 @@
         .hero h1 .hero-punch {
             font-style: italic;
             font-weight: 400;
-            color: #fdf9ee;
+            color: #f28855;
             position: relative;
             display: inline-block;
-            padding: 0.05em 0.35em 0.1em;
-            margin: 0 0.05em;
         }
         /* Hand-drawn circle around the punch word */
-        .hero h1 .hero-punch::after {
-            content: "";
-            position: absolute;
-            left: -10%; right: -10%; top: -4%; bottom: -12%;
-            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 130' fill='none' preserveAspectRatio='none'><path d='M 210 22 C 165 8 90 10 46 32 C 8 52 6 84 40 100 C 84 122 178 122 232 108 C 268 96 288 74 282 52 C 274 30 240 20 202 22 C 178 24 158 28 148 34' stroke='%23ed682f' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none' opacity='0.92' transform='rotate(-2 150 65)'/></svg>");
-            background-repeat: no-repeat;
-            background-size: 100% 100%;
-            pointer-events: none;
-            z-index: -1;
-            transform: rotate(-1.5deg);
-        }
+        .hero h1 .hero-punch::after { display: none; }
         .hero-sub {
             font-family: 'Plus Jakarta Sans', sans-serif;
             font-size: clamp(1.05rem, 1.6vw, 1.3rem);
