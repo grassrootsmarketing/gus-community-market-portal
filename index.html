@@ -1935,6 +1935,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
             <button type="button" class="tour-progress-seg" data-seg="2" onclick="goTourScene(2)" aria-label="Scene 3"><span class="tour-progress-seg-fill"></span></button>
             <button type="button" class="tour-progress-seg" data-seg="3" onclick="goTourScene(3)" aria-label="Scene 4"><span class="tour-progress-seg-fill"></span></button>
             <button type="button" class="tour-progress-seg" data-seg="4" onclick="goTourScene(4)" aria-label="Scene 5"><span class="tour-progress-seg-fill"></span></button>
+            <button type="button" class="tour-progress-seg" data-seg="5" onclick="goTourScene(5)" aria-label="Scene 6"><span class="tour-progress-seg-fill"></span></button>
         </div>
         <div class="tour-body">
             <div class="tour-stage" id="tourStage" aria-hidden="true">
@@ -2055,6 +2056,26 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                         </div>
                     </div>
                 </div>
+                <!-- Scene 6: Final Start free CTA -->
+                <div class="tour-scene" data-scene="5">
+                    <div class="tour-scene-inner" style="max-width:520px; padding:40px 32px; text-align:center; background:linear-gradient(180deg, var(--forest-50) 0%, var(--cream-50) 100%);">
+                        <div style="width:56px; height:56px; margin:0 auto 20px; border-radius:50%; background:var(--forest-100); display:grid; place-items:center;">
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700, #2a5b32)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        </div>
+                        <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:8px;">You've seen the tour</div>
+                        <div style="font-family:'Instrument Serif', Georgia, serif; font-size:2.6rem; line-height:1.1; color:var(--forest-900); margin-bottom:12px;">Ready to start?</div>
+                        <div style="font-size:1rem; color:var(--ink-700); line-height:1.55; margin-bottom:24px;">
+                            <strong style="color:var(--forest-900);">Solo is free forever.</strong> Pro comes with a 14-day free trial. Most retailers are set up in an afternoon.
+                        </div>
+                        <a href="/signup" class="hero-single-cta" style="padding:14px 30px; font-size:1rem;">
+                            Start free
+                            <svg viewBox="0 0 24 24"><line x1="5" y1="19" x2="19" y2="5"/><polyline points="7 5 19 5 19 17"/></svg>
+                        </a>
+                        <div style="margin-top:16px; font-size:0.85rem; color:var(--ink-500);">
+                            or <a href="https://calendly.com/david-demohubhq/30min" target="_blank" rel="noopener" style="color:var(--forest-700); text-decoration:underline; font-weight:600;">book a walkthrough</a>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="tour-caption">
                 <div class="tour-caption-title" id="tourCaptionTitle">Brands book on your Demohub page</div>
@@ -2078,6 +2099,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         { title: "Compliance is tracked automatically", sub: "COI status per brand, expiration reminders, agreement receipts. No spreadsheets." },
         { title: "See what each store is earning", sub: "Revenue by store, by month, by quarter. Real numbers, no manual exports." },
         { title: "Your whole team, in the loop", sub: "Scope alerts per person and per location. Staff know what is coming without asking." },
+        { title: "Ready to start?", sub: "Solo is free forever. Pro comes with a 14-day free trial. Set up in an afternoon." },
     ];
     const SCENE_MS = 4200;
     let idx = 0, timer = null;
@@ -2102,7 +2124,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         if (t) t.textContent = cap.title;
         if (s) s.textContent = cap.sub;
     }
-    function tick() { setScene((idx + 1) % 5); }
+    function tick() { if (idx >= 5) { stopAuto(); return; } setScene(idx + 1); }
     function startAuto() { stopAuto(); timer = setInterval(tick, SCENE_MS); }
     function stopAuto() { if (timer) { clearInterval(timer); timer = null; } }
     window.openTour = function() {
@@ -2126,8 +2148,8 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
         stopAuto(); setScene(i);
         setTimeout(startAuto, 6000);
     };
-    window.tourPrev = function() { window.goTourScene((idx - 1 + 5) % 5); };
-    window.tourNext = function() { window.goTourScene((idx + 1) % 5); };
+    window.tourPrev = function() { window.goTourScene((idx - 1 + 6) % 6); };
+    window.tourNext = function() { window.goTourScene((idx + 1) % 6); };
     document.addEventListener('keydown', function(e) {
         if (!document.getElementById('tourOverlay').classList.contains('open')) return;
         if (e.key === 'Escape') closeTour();

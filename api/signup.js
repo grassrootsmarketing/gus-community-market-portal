@@ -306,6 +306,49 @@ export default async function handler(req, res) {
       } catch (_) { emailOk = false; }
     }
 
+    // ===== David-notification: ping david@demohubhq.com on every new retailer signup =====
+    // Best-effort. Failure never blocks signup response.
+    if (RESEND_API_KEY) {
+      try {
+        const tierLabel = (store_count > 1) ? 'Pro (multi-store)' : 'Solo (single-store)';
+        const subj = `New Demohub signup: ${retailer_name}`;
+        const bodyHtml = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:white;border-radius:14px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:20px 28px;background:#0f2c17;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#ed682f;">New signup</div>
+<div style="font-size:20px;font-weight:800;color:#fbf7f0;margin-top:4px;">${retailer_name.replace(/[<>]/g,'')}</div>
+</td></tr>
+<tr><td style="padding:24px 28px;">
+<table cellpadding="0" cellspacing="0" style="width:100%;font-size:14px;">
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;">Contact</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;">${(contact_name||'').replace(/[<>]/g,'') || '(not provided)'}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Email</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${normalizedEmail.replace(/[<>]/g,'')}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Stores</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${store_count || 1}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Tier</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${tierLabel}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Demo fee</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${demo_fee ? '$' + demo_fee : '(default)'}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Signed up</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} PT</td></tr>
+</table>
+<div style="margin-top:22px;padding-top:16px;border-top:1px solid #ede3d0;font-size:13px;">
+<a href="${adminUrl}" style="color:#2a5b32;font-weight:700;text-decoration:none;">Open their admin &rarr;</a>
+<br><a href="${publicUrl}" style="color:#6b6a64;text-decoration:none;">View their public booking page</a>
+<br><a href="${base}/owner" style="color:#6b6a64;text-decoration:none;">Owner panel (verification queue)</a>
+</div>
+</td></tr>
+</table>
+</body></html>`;
+        await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: FROM_ADDRESS,
+            to: 'david@demohubhq.com',
+            reply_to: normalizedEmail,
+            subject: subj,
+            html: bodyHtml,
+          }),
+        });
+      } catch (e) { console.warn('signup ping failed (non-blocking):', e?.message || e); }
+    }
+
     const adminUrlWithToken = signupToken
       ? `${adminUrl}?token=${encodeURIComponent(signupToken)}`
       : adminUrl;
