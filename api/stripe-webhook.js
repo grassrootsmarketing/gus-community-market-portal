@@ -131,58 +131,75 @@ async function handleAccountUpdated(event) {
   console.log(`account.updated: retailer ${retailerId} charges=${charges} payouts=${payouts} status=${status}`);
 }
 
-// payment_intent.succeeded: brand's card charged successfully
+// Extract booking id(s) from Stripe metadata.
+// Supports both single (booking_id) and multi-booking (booking_ids: CSV) shapes.
+function bookingIdsFrom(metadata) {
+  if (!metadata) return [];
+  if (metadata.booking_ids) {
+    return String(metadata.booking_ids).split(',').map(s => s.trim()).filter(Boolean);
+  }
+  if (metadata.booking_id) return [String(metadata.booking_id).trim()].filter(Boolean);
+  return [];
+}
+
+// payment_intent.succeeded: brand's card charged successfully. Updates every booking in the batch.
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
-  const bookingId = pi.metadata?.booking_id;
-  if (!bookingId) {
-    console.warn('payment_intent.succeeded without booking_id metadata', pi.id);
+  const bookingIds = bookingIdsFrom(pi.metadata);
+  if (bookingIds.length === 0) {
+    console.warn('payment_intent.succeeded without booking_id(s) metadata', pi.id);
     return;
   }
-  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+  const paidAt = new Date().toISOString();
+  const amount = pi.amount_received || pi.amount || 0;
+  // Split the amount across bookings for audit trail — Stripe already knows the true split.
+  const perBooking = bookingIds.length > 0 ? Math.floor(amount / bookingIds.length) : 0;
+  await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
     method: 'PATCH',
     body: JSON.stringify({
       payment_status: 'paid',
       payment_intent_id: pi.id,
-      paid_at: new Date().toISOString(),
-      amount_paid: pi.amount_received || pi.amount,
+      paid_at: paidAt,
+      amount_paid: perBooking,
     }),
-  });
-  console.log(`payment_intent.succeeded: booking ${bookingId} marked paid`);
+  }).catch(e => console.warn(`booking ${bookingId} paid PATCH failed:`, e?.message || e))));
+  console.log(`payment_intent.succeeded: marked ${bookingIds.length} booking(s) paid`);
 }
 
 async function handlePaymentIntentFailed(event) {
   const pi = event.data.object;
-  const bookingId = pi.metadata?.booking_id;
-  if (!bookingId) return;
+  const bookingIds = bookingIdsFrom(pi.metadata);
+  if (bookingIds.length === 0) return;
   const err = pi.last_payment_error?.message || 'payment failed';
-  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+  await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
     method: 'PATCH',
     body: JSON.stringify({
       payment_status: 'failed',
       payment_intent_id: pi.id,
       payment_error: err,
     }),
-  });
-  console.log(`payment_intent.payment_failed: booking ${bookingId} — ${err}`);
+  }).catch(e => console.warn(`booking ${bookingId} failed PATCH failed:`, e?.message || e))));
+  console.log(`payment_intent.payment_failed: ${bookingIds.length} booking(s), ${err}`);
 }
 
-// charge.refunded: cancellation refund completed
+// charge.refunded: cancellation refund completed. Applies to all bookings in the batch.
 async function handleChargeRefunded(event) {
   const charge = event.data.object;
-  const bookingId = charge.metadata?.booking_id;
-  if (!bookingId) return;
+  const bookingIds = bookingIdsFrom(charge.metadata);
+  if (bookingIds.length === 0) return;
   const refunded = charge.amount_refunded || 0;
   const fully = refunded >= (charge.amount || 0);
-  await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+  const refundedAt = new Date().toISOString();
+  const perBooking = bookingIds.length > 0 ? Math.floor(refunded / bookingIds.length) : 0;
+  await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
     method: 'PATCH',
     body: JSON.stringify({
       payment_status: fully ? 'refunded' : 'partial_refund',
-      refunded_at: new Date().toISOString(),
-      amount_refunded: refunded,
+      refunded_at: refundedAt,
+      amount_refunded: perBooking,
     }),
-  });
-  console.log(`charge.refunded: booking ${bookingId} refunded=${refunded} fully=${fully}`);
+  }).catch(e => console.warn(`booking ${bookingId} refund PATCH failed:`, e?.message || e))));
+  console.log(`charge.refunded: ${bookingIds.length} booking(s), total=${refunded} fully=${fully}`);
 }
 
 // -----------------------------------------------------------------------------
@@ -195,39 +212,4 @@ export default async function handler(req, res) {
   }
   if (!WEBHOOK_SECRET) {
     console.error('STRIPE_WEBHOOK_SECRET not configured');
-    return res.status(500).json({ error: 'webhook secret not configured' });
-  }
-  if (!SERVICE_KEY) {
-    console.error('SUPABASE_SERVICE_KEY not configured');
-    return res.status(500).json({ error: 'db key not configured' });
-  }
-
-  const rawBody = await readRawBody(req);
-  const sig = req.headers['stripe-signature'];
-  const event = verifySignature(rawBody, sig, WEBHOOK_SECRET);
-  if (!event) {
-    console.warn('webhook signature invalid or expired');
-    return res.status(400).json({ error: 'signature invalid' });
-  }
-
-  try {
-    switch (event.type) {
-      case 'account.updated':
-        await handleAccountUpdated(event); break;
-      case 'payment_intent.succeeded':
-        await handlePaymentIntentSucceeded(event); break;
-      case 'payment_intent.payment_failed':
-        await handlePaymentIntentFailed(event); break;
-      case 'charge.refunded':
-        await handleChargeRefunded(event); break;
-      default:
-        // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
-        console.log(`ignored event: ${event.type}`);
-    }
-    return res.status(200).json({ received: true });
-  } catch (e) {
-    // Return 500 so Stripe will retry — but log so we can diagnose
-    console.error(`webhook handler error for ${event.type}:`, e.message);
-    return res.status(500).json({ error: e.message });
-  }
-}
+    return res.status(500).
