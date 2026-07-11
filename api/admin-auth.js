@@ -331,7 +331,7 @@ export default async function handler(req, res) {
 
     // ---- TEAM-INVITE: add a new admin (owner/admin only) ----
     if (action === 'team-invite') {
-      const { session_id, email, name, role } = body || {};
+      const { session_id, email, name, role, venue_ids } = body || {};
       if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
       if (!['admin', 'viewer'].includes(role || 'admin')) return res.status(400).json({ error: 'Role must be admin or viewer' });
       const v = await verifyAdminSession(session_id);
@@ -357,7 +357,15 @@ export default async function handler(req, res) {
 
       const created = await sb(`retailer_admins`, {
         method: 'POST',
-        body: JSON.stringify({ retailer_id: v.retailer_id, email: normalizedEmail, name: name || null, role: role || 'admin', invited_by_email: v.email }),
+        body: JSON.stringify({
+          retailer_id: v.retailer_id,
+          email: normalizedEmail,
+          name: name || null,
+          role: role || 'admin',
+          invited_by_email: v.email,
+          // Phase D: viewers can be scoped to specific venues. Empty = all.
+          venue_ids: (role === 'viewer' && Array.isArray(venue_ids)) ? venue_ids : [],
+        }),
       });
       // Send invitation email with magic link
       try {
@@ -456,6 +464,35 @@ export default async function handler(req, res) {
       }
       await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
       return res.status(200).json({ ok: true });
+    }
+
+    // ---- TEAM-UPDATE-SCOPE: Phase D — set which venues a viewer can see ----
+    if (action === 'team-update-scope') {
+      const { session_id, admin_id, venue_ids } = body || {};
+      if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
+      if (!Array.isArray(venue_ids)) return res.status(400).json({ error: 'venue_ids must be an array' });
+      if (venue_ids.some(id => !isUuid(id))) return res.status(400).json({ error: 'All venue_ids must be UUIDs' });
+      const v = await verifyAdminSession(session_id);
+      if (!v.ok) return res.status(401).json({ error: v.error });
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const myRow = Array.isArray(me) ? me[0] : null;
+      if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
+        return res.status(403).json({ error: 'Only owners and admins can change scope' });
+      }
+      const target = await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}&select=*`);
+      const targetRow = Array.isArray(target) ? target[0] : null;
+      if (!targetRow || targetRow.retailer_id !== v.retailer_id) return res.status(404).json({ error: 'Member not found' });
+      if (targetRow.role !== 'viewer') return res.status(400).json({ error: 'Scope only applies to viewers' });
+      // Verify each venue_id belongs to this retailer (prevents cross-retailer scope injection)
+      if (venue_ids.length > 0) {
+        const idList = venue_ids.map(id => encodeURIComponent(id)).join(',');
+        const venues = await sb(`venues?id=in.(${idList})&retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id`);
+        if (!Array.isArray(venues) || venues.length !== venue_ids.length) {
+          return res.status(400).json({ error: 'One or more venues do not belong to this retailer' });
+        }
+      }
+      await sb(`retailer_admins?id=eq.${encodeURIComponent(admin_id)}`, { method: 'PATCH', body: JSON.stringify({ venue_ids }) });
+      return res.status(200).json({ ok: true, venue_ids });
     }
 
     // ---- UPLOAD-RETAILER-AVATAR: retailer admin uploads/replaces their store logo ----
