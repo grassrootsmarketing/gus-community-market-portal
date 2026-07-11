@@ -396,6 +396,22 @@
             .billing-summary { grid-template-columns: 1fr !important; }
             /* Buttons & inputs slightly smaller */
             .btn { padding: 8px 14px; font-size: 0.85rem; }
+            /* --- Mobile audit fixes --- */
+            /* 1. Header top-row congestion: hide Copy schedule link + Preview booking page at phone widths.
+               Account button remains. The functions are reachable via the Menu drawer + get-started checklist. */
+            .header-nav #hdrCopyLinkBtn,
+            .header-nav > button:not(#acctMenuBtn):not([id^="acct"]) { display: none !important; }
+            /* 2. Calendar prev/next arrows: bump from 28px to 40px tap target */
+            .big-cal-nav button { width: 40px !important; height: 40px !important; font-size: 1.15rem !important; }
+            /* 3. Get-started "Copy link →" button: make it a real tappable pill (was 14px tall) */
+            .ocl-check ~ button[onclick*="copyScheduleLink"],
+            [data-step] button[onclick*="copyScheduleLink"] {
+                padding: 8px 12px !important;
+                font-size: 0.85rem !important;
+                border: 1px solid var(--forest-300) !important;
+                border-radius: 6px !important;
+                min-height: 36px !important;
+            }
         }
 
         /* ===== Demos table filters ===== */
@@ -526,7 +542,6 @@
 <link rel="manifest" href="/manifest.json">
 <meta name="theme-color" content="#0f2c17">
 <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Demohub">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
