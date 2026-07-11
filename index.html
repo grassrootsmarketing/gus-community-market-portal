@@ -163,8 +163,10 @@
             inset: 0;
             z-index: -1;
             background:
+                /* Forest top glow */
                 radial-gradient(ellipse 90% 60% at 20% 15%, rgba(15, 44, 23, 0.85) 0%, rgba(15, 44, 23, 0.65) 40%, transparent 70%),
-                radial-gradient(ellipse 80% 70% at 85% 30%, rgba(237, 104, 47, 0.35) 0%, transparent 55%),
+                /* Orange painterly warmth moved to bottom-right (was top-right) */
+                radial-gradient(ellipse 80% 55% at 78% 88%, rgba(237, 104, 47, 0.35) 0%, transparent 60%),
                 linear-gradient(180deg, #0a1e10 0%, #0f2c17 40%, #1a3d22 62%, #7a5533 85%, #d68856 100%);
         }
         .hero-bg::after {
