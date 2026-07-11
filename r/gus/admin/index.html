@@ -4238,6 +4238,21 @@ END:VEVENT
                         : (a.role === 'viewer'
                             ? '<span style="background:#e8e6e1; color:var(--ink-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Viewer</span>'
                             : '<span style="background:#dceadf; color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;">Admin</span>');
+                    // Phase D: for viewers, show which locations they're scoped to.
+                    // Empty venue_ids = all locations. Non-empty = "Sees N locations".
+                    let scopePill = '';
+                    if (a.role === 'viewer') {
+                        const vids = Array.isArray(a.venue_ids) ? a.venue_ids : [];
+                        const totalVenues = ((window.state && window.state.venues) || []).length;
+                        if (vids.length === 0) {
+                            scopePill = '<span title="Sees all your locations" style="background:var(--forest-50); color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:600; letter-spacing:0.02em;">All locations</span>';
+                        } else {
+                            const names = ((window.state && window.state.venues) || []).filter(v => vids.includes(v.id)).map(v => v.name);
+                            const label = vids.length === 1 ? '1 location' : vids.length + ' locations';
+                            const title = names.join(', ');
+                            scopePill = '<span title="' + escapeHtml(title) + '" style="background:var(--forest-50); color:var(--forest-700); padding:3px 10px; border-radius:99px; font-size:0.72rem; font-weight:600; letter-spacing:0.02em;">' + label + '</span>';
+                        }
+                    }
                     // Pending-invite indicator — shown when the member has never signed in
                     const isPending = (a.has_signed_in === false) && !isOwner;
                     const pendingPill = isPending
@@ -4263,6 +4278,7 @@ END:VEVENT
                         <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                             ${pendingPill}
                             ${rolePill}
+                            ${scopePill}
                         </div>
                         ${actions}
                     </div>`;
@@ -4277,12 +4293,34 @@ END:VEVENT
             return `<div class="team-invite-row" data-row="${id}" style="display:grid; grid-template-columns: 1fr 1.4fr 130px 32px; gap:10px; align-items:center;">
                 <input type="text" class="team-invite-name" placeholder="First last" required style="padding:9px 11px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; font-family:inherit;">
                 <input type="email" class="team-invite-email" placeholder="teammate@yourstore.com" style="padding:9px 11px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; font-family:inherit;">
-                <select class="team-invite-role" style="padding:9px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; font-family:inherit; background:white;">
+                <select class="team-invite-role" onchange="teamInviteRoleChanged(${id})" style="padding:9px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; font-family:inherit; background:white;">
                     <option value="admin">Admin</option>
                     <option value="viewer">Viewer</option>
                 </select>
                 <button type="button" onclick="teamInviteRemoveRow(${id})" title="Remove this row" aria-label="Remove row" style="background:none; border:none; color:var(--ink-500); cursor:pointer; padding:6px; font-size:18px; line-height:1; border-radius:6px;">&times;</button>
+                <div class="team-invite-scope" data-scope-for="${id}" style="grid-column: 1 / -1; display:none; padding: 10px 12px; background: var(--sand-100, #f4f0e6); border-radius: 8px; font-size: 0.85rem;">
+                    <div style="font-weight:600; color:var(--forest-900); margin-bottom:6px;">Which locations can they see?</div>
+                    <div class="team-invite-scope-checks" style="display:flex; flex-wrap:wrap; gap:8px;"></div>
+                    <div style="font-size:0.75rem; color:var(--ink-500); margin-top:6px;">Leave all unchecked to grant access to every location.</div>
+                </div>
             </div>`;
+        }
+        // Phase D: reveal/hide the location scope picker when role toggles to/from viewer
+        function teamInviteRoleChanged(id) {
+            const row = document.querySelector(`.team-invite-row[data-row="${id}"]`);
+            if (!row) return;
+            const role = row.querySelector('.team-invite-role').value;
+            const scope = row.querySelector('.team-invite-scope');
+            const scopeChecks = row.querySelector('.team-invite-scope-checks');
+            if (!scope || !scopeChecks) return;
+            if (role !== 'viewer') { scope.style.display = 'none'; return; }
+            // Populate with venues on first show
+            const venues = (window.state && window.state.venues) || [];
+            if (venues.length <= 1) { scope.style.display = 'none'; return; } // no scoping on single-store accounts
+            if (scopeChecks.children.length === 0) {
+                scopeChecks.innerHTML = venues.map(v => `<label style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; background:white; border:1px solid var(--sand-300); border-radius:99px; cursor:pointer; font-size:0.82rem;"><input type="checkbox" class="team-invite-venue-check" data-venue-id="${v.id}" style="margin:0;">${(v.name||'').replace(/</g,'&lt;')}</label>`).join('');
+            }
+            scope.style.display = 'block';
         }
         function teamInviteAddRow() {
             const rows = document.getElementById('teamInviteRows');
@@ -4341,6 +4379,9 @@ END:VEVENT
                 const email = (r.querySelector('.team-invite-email').value || '').trim().toLowerCase();
                 const name  = (r.querySelector('.team-invite-name').value || '').trim();
                 const role  = r.querySelector('.team-invite-role').value;
+                const venue_ids = role === 'viewer'
+                    ? Array.from(r.querySelectorAll('.team-invite-venue-check:checked')).map(cb => cb.dataset.venueId)
+                    : [];
                 if (!email && !name) continue; // silently skip fully-blank rows
                 if (!name) { badRows.push(`Row ${i+1}: name is required`); continue; }
                 if (!email) { badRows.push(`Row ${i+1}: email is required`); continue; }
@@ -4353,7 +4394,7 @@ END:VEVENT
                     continue;
                 }
                 seen.add(email);
-                invites.push({ email, name, role });
+                invites.push({ email, name, role, venue_ids });
             }
             if (badRows.length) {
                 err.innerHTML = badRows.map(x => '<div>' + x + '</div>').join('');
@@ -4382,6 +4423,7 @@ END:VEVENT
                             action: 'team-invite',
                             session_id: AdminAuth.getSession(),
                             email: inv.email, name: inv.name, role: inv.role,
+                            venue_ids: inv.venue_ids || [],
                         }),
                     });
                     const j = await r.json();
