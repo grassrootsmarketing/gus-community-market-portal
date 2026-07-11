@@ -13,7 +13,9 @@
 <meta property="og:url" content="https://demohubhq.com/pricing">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://demohubhq.com/og-pricing.png">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
   --forest-950:#0a1e10; --forest-900:#0f2c17; --forest-800:#1a3d22; --forest-700:#1f4a26;
@@ -30,25 +32,62 @@ h1,h2,h3,h4 { font-family:'Plus Jakarta Sans', sans-serif; font-weight:400; line
 a { color:inherit; text-decoration:none; }
 .container { max-width:1240px; margin:0 auto; padding:0 32px; }
 
-/* Header */
-.site-header { position:sticky; top:0; z-index:50; background:rgba(255,255,255,0.85); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border-bottom:1px solid rgba(15,44,23,0.12); }
-.site-header .container { display:flex; align-items:center; justify-content:space-between; padding-top:20px; padding-bottom:20px; }
-.brand { display:flex; align-items:center; gap:12px; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.25rem; letter-spacing:-0.04em; color:var(--forest-900);; cursor:pointer; user-select:none; }
-.brand-mark { width:36px; height:36px; }
-.brand-mark svg { width:100%; height:100%; display:block; }
-.nav-links { display:flex; align-items:center; gap:28px; }
-.nav-links a { color:var(--ink-700); font-weight:500; font-size:0.95rem; transition:color 0.2s; }
-.nav-links a:hover { color:var(--forest-700); }
-.nav-cta { background:var(--forest-800); color:var(--cream-50) !important; padding:11px 22px; border-radius:99px; font-weight:600; font-size:0.95rem; }
-.nav-cta:hover { background:var(--forest-900); }
+/* ===== Site-wide painterly theme (matches homepage) ===== */
+/* Wrap header + hero so the header sits over the painterly gradient */
+.page-hero-wrap { position:relative; isolation:isolate; overflow:hidden; }
+.page-hero-wrap::before {
+    content:''; position:absolute; inset:0; z-index:-1;
+    background:
+        radial-gradient(ellipse 90% 60% at 20% 15%, rgba(15,44,23,0.85) 0%, rgba(15,44,23,0.65) 40%, transparent 70%),
+        radial-gradient(ellipse 80% 55% at 78% 88%, rgba(237,104,47,0.35) 0%, transparent 60%),
+        linear-gradient(180deg, #0a1e10 0%, #0f2c17 40%, #1a3d22 62%, #7a5533 85%, #d68856 100%);
+}
+.page-hero-wrap::after {
+    content:''; position:absolute; inset:0; z-index:-1; pointer-events:none;
+    background-image:
+        radial-gradient(circle at 25% 88%, rgba(15,44,23,0.35) 0%, transparent 25%),
+        radial-gradient(circle at 78% 92%, rgba(31,74,38,0.5) 0%, transparent 30%),
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='260' height='260'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.06  0 0 0 0 0.17  0 0 0 0 0.09  0 0 0 0.22 0'/></filter><rect width='260' height='260' filter='url(%23n)' opacity='0.5'/></svg>");
+}
 
-/* Hero */
-.hero { padding:96px 0 64px; text-align:center; }
-.hero .eyebrow { font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.18em; color:var(--clay-700); margin-bottom:24px; }
-.hero h1 { font-size:clamp(2.8rem,5vw,4.4rem); margin-bottom:22px; max-width:880px; margin-left:auto; margin-right:auto; }
-.hero h1 .accent { color:var(--clay-bright); font-style:italic; }
-.hero .lede { font-size:1.18rem; color:var(--ink-700); max-width:660px; margin:0 auto; line-height:1.5; }
-.hero .tagline { display:inline-block; margin-top:28px; padding:12px 22px; background:var(--forest-50); border:1px solid var(--forest-100); border-radius:99px; font-size:0.94rem; color:var(--forest-900); font-weight:500; }
+/* Header */
+.site-header { padding:22px 0; }
+.site-header .container { display:flex; align-items:center; justify-content:space-between; padding-top:0; padding-bottom:0; }
+.brand { display:flex; align-items:center; gap:10px; font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.2rem; letter-spacing:-0.04em; color:#fdf9ee; cursor:pointer; user-select:none; }
+.brand-mark { width:32px; height:32px; }
+.brand-mark svg { width:100%; height:100%; display:block; }
+.nav-links { display:flex; align-items:center; gap:22px; font-size:0.92rem; }
+.nav-links a { color:rgba(253,249,238,0.86); font-weight:500; transition:color 0.2s; }
+.nav-links a:hover { color:#fdf9ee; }
+.nav-cta {
+    display:inline-flex; align-items:center; padding:9px 18px; border-radius:99px;
+    background:rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.24);
+    color:#fdf9ee !important; font-weight:600; font-size:0.9rem; backdrop-filter:blur(6px);
+}
+.nav-cta:hover { background:rgba(255,255,255,0.24); }
+@media (max-width:820px) {
+    .site-header .nav-links a:not(.nav-cta) { display:none; }
+}
+
+/* Hero (compact painterly page hero) */
+.hero { padding:60px 0 96px; text-align:center; }
+.hero .eyebrow { display:inline-block; font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.22em; color:rgba(253,249,238,0.72); padding:6px 14px; border-radius:99px; background:rgba(255,255,255,0.10); border:1px solid rgba(255,255,255,0.14); backdrop-filter:blur(6px); margin-bottom:28px; }
+.hero h1 {
+    font-family:'Instrument Serif', Georgia, serif;
+    font-weight:400; font-style:normal;
+    font-size:clamp(2.8rem, 6vw, 5.2rem);
+    line-height:1.02; letter-spacing:-0.015em;
+    color:#fdf9ee;
+    margin-bottom:20px; max-width:920px; margin-left:auto; margin-right:auto;
+    text-shadow:0 2px 24px rgba(15,44,23,0.35);
+}
+.hero h1 .accent { color:#f28855; font-style:italic; font-weight:400; }
+.hero .lede { font-family:'Plus Jakarta Sans',sans-serif; font-size:clamp(1.02rem,1.5vw,1.2rem); color:rgba(253,249,238,0.9); max-width:640px; margin:0 auto; line-height:1.55; text-shadow:0 1px 8px rgba(15,44,23,0.35); }
+.hero .tagline { display:inline-block; margin-top:26px; padding:10px 20px; background:rgba(255,255,255,0.12); border:1px solid rgba(255,255,255,0.18); border-radius:99px; font-size:0.92rem; color:#fdf9ee; font-weight:500; backdrop-filter:blur(6px); }
+@media (max-width:600px) {
+    .hero { padding:36px 0 60px; }
+    .hero h1 { font-size:clamp(2.2rem, 9vw, 3.4rem); }
+}
 
 /* Pricing grid */
 .pricing { padding:48px 0 80px; }
@@ -205,19 +244,19 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </head>
 <body>
 
+<div class="page-hero-wrap">
 <header class="site-header">
   <div class="container">
     <a href="/" class="brand">
       <div class="brand-mark">
         <svg viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
       </div>
-      Demohub
+      demohub
     </a>
     <nav class="nav-links">
-      <a href="/#platform">Platform</a>
-      <a href="/#how-it-works">How it works</a>
+      <a href="/">For retailers</a>
+      <a href="/brand">For brands</a>
       <a href="/pricing">Pricing</a>
-      <a href="/brand/signin">For brands</a>
       <a href="/signin" class="nav-cta">Sign in</a>
     </nav>
   </div>
@@ -227,10 +266,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="container">
     <div class="eyebrow">Pricing</div>
     <h1>Free to start. <span class="accent">Simple to scale.</span></h1>
-    <p class="lede">Get your first location online in minutes. When you outgrow it, one flat plan unlocks everything , no per-seat charges, no usage caps, no surprise bills.</p>
+    <p class="lede">Get your first location online in minutes. When you outgrow it, one flat plan unlocks everything, no per-seat charges, no usage caps, no surprise bills.</p>
     <div class="tagline">Retailers pay nothing to start. Brands pay a small $5 booking fee per demo. That's how we keep the lights on.</div>
   </div>
 </section>
+</div>
 
 <section class="pricing">
   <div class="container">
