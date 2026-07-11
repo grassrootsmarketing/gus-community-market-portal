@@ -85,6 +85,13 @@ const MIGRATIONS = [
           CREATE INDEX IF NOT EXISTS idx_retailers_is_demo ON retailers (is_demo) WHERE is_demo = TRUE;
           COMMENT ON COLUMN retailers.is_demo IS 'Phase C: marks the read-only live demo tenant. Writes blocked in /api/admin, outbound side effects suppressed.';`,
   },
+  {
+    name: '010_retailer_admins_venue_ids',
+    sql: `ALTER TABLE retailer_admins
+            ADD COLUMN IF NOT EXISTS venue_ids UUID[] NOT NULL DEFAULT '{}'::uuid[];
+          CREATE INDEX IF NOT EXISTS idx_retailer_admins_venue_ids ON retailer_admins USING GIN (venue_ids);
+          COMMENT ON COLUMN retailer_admins.venue_ids IS 'Phase D: for viewer role, restricts calendar to these venues. Empty array = all venues. Owners/admins ignore this (see everything).';`,
+  },
 ];
 
 // ==============================================================
