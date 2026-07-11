@@ -112,6 +112,15 @@ export default async function handler(req, res) {
   if (req.method === 'GET' && req.query?.action === 'data') {
     try {
       const rid = session.retailer_id;
+      // Phase D: check if this session's user is a scoped viewer.
+      let viewerVenueIds = null;
+      try {
+        const meArr = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(rid)}&email=ilike.${encodeURIComponent((session.email || '').toLowerCase())}&select=role,venue_ids`);
+        const me = Array.isArray(meArr) ? meArr[0] : null;
+        if (me && me.role === 'viewer' && Array.isArray(me.venue_ids) && me.venue_ids.length > 0) {
+          viewerVenueIds = me.venue_ids;
+        }
+      } catch (_) {}
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
         sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier`),
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
@@ -122,16 +131,27 @@ export default async function handler(req, res) {
         sb(`compliance_records?retailer_id=eq.${encodeURIComponent(rid)}&select=*`),
         sb(`bookings?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=created_at.desc`),
       ]);
+      // Phase D: if this user is a scoped viewer, filter demos/bookings/venues to their scope.
+      let filteredDemos = demos || [];
+      let filteredBookings = bookings || [];
+      let filteredVenues = venues || [];
+      if (viewerVenueIds && viewerVenueIds.length > 0) {
+        const scopeSet = new Set(viewerVenueIds);
+        filteredDemos = (demos || []).filter(d => scopeSet.has(d.venue_id));
+        filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
+        filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
+      }
       return send(res, 200, {
         ok: true,
         retailer: Array.isArray(retailerArr) ? retailerArr[0] : null,
-        venues: venues || [],
+        venues: filteredVenues,
         brand_contacts: brandContacts || [],
         internal_contacts: internalContacts || [],
-        demos: demos || [],
+        demos: filteredDemos,
         settings: Array.isArray(settingsArr) ? (settingsArr[0] || null) : null,
         compliance: compliance || [],
-        bookings: bookings || [],
+        bookings: filteredBookings,
+        viewer_venue_ids: viewerVenueIds || null,
       });
     } catch (e) {
       return send(res, 500, { error: 'admin-data read failed: ' + (e?.message || e) });
