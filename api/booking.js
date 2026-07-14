@@ -29,6 +29,39 @@ async function svcCall(path, opts = {}) {
   return json;
 }
 
+// -----------------------------------------------------------------------------
+// Rate limiting — fail-closed (denies on DB errors to prevent abuse during blips)
+// -----------------------------------------------------------------------------
+function clientIpForRateLimit(req) {
+  return req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+    || req.socket?.remoteAddress
+    || 'unknown';
+}
+
+async function checkRateLimitStrict(req, bucketKey, maxPerHour) {
+  try {
+    const ip = clientIpForRateLimit(req);
+    const key = bucketKey + ':' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await svcCall(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false, current: row.count };
+    if (row) {
+      await svcCall(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    } else {
+      await svcCall('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    }
+    return { allowed: true, current: (row ? row.count : 0) + 1 };
+  } catch (e) {
+    // Fail-CLOSED: on rate-limiter errors, deny the write so a Supabase blip cannot
+    // become an unbounded spam window. Callers must handle 503 gracefully.
+    console.error('rate limit check failed — denying request:', e?.message || e);
+    return { allowed: false, current: 0, error: 'rate_limit_unavailable' };
+  }
+}
+
 function clientIp(req) {
   const xff = req.headers['x-forwarded-for'];
   if (xff) return String(xff).split(',')[0].trim();
@@ -149,6 +182,24 @@ export default async function handler(req, res) {
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // ---- Rate limit: prevent booking spam against any single retailer or from any single brand email ----
+    const rlSlug = await checkRateLimitStrict(req, 'booking-slug:' + String(retailer_slug).slice(0, 32), 20);
+    if (!rlSlug.allowed) {
+      const isBlip = rlSlug.error === 'rate_limit_unavailable';
+      return res.status(isBlip ? 503 : 429).json({
+        error: isBlip ? 'rate_limit_unavailable' : 'too_many_bookings',
+        message: isBlip ? 'Try again in a moment.' : 'Too many booking attempts. Try again in an hour.',
+      });
+    }
+    const rlEmail = await checkRateLimitStrict(req, 'booking-email:' + String(contact_email).toLowerCase().slice(0, 64), 5);
+    if (!rlEmail.allowed) {
+      const isBlip = rlEmail.error === 'rate_limit_unavailable';
+      return res.status(isBlip ? 503 : 429).json({
+        error: isBlip ? 'rate_limit_unavailable' : 'too_many_bookings',
+        message: isBlip ? 'Try again in a moment.' : 'Too many bookings from this email in the last hour.',
+      });
     }
 
     // Look up retailer by slug, get id, name, and cancellation policy
