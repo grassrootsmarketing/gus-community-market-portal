@@ -352,6 +352,8 @@ export default async function handler(req, res) {
     const adminUrlWithToken = signupToken
       ? `${adminUrl}?token=${encodeURIComponent(signupToken)}`
       : adminUrl;
+    // Multi-store signups: Pro tier required. Signal the UI to redirect to Stripe.
+    const needsBilling = venueCount > 1;
     return res.status(200).json({
       ok: true,
       retailer_id: retailer.id,
@@ -361,6 +363,9 @@ export default async function handler(req, res) {
       session_token: signupToken,
       public_url: publicUrl,
       email_sent: emailOk,
+      needs_billing: needsBilling,
+      tier: needsBilling ? 'pro' : 'solo',
+      store_count: venueCount,
     });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });
