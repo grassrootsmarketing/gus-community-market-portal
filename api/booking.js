@@ -484,12 +484,11 @@ export default async function handler(req, res) {
     if (!RESEND_API_KEY) {
       emailErr = 'RESEND_API_KEY not configured on server';
     } else {
-      const emailResp = await fetch('https://api.resend.com/emails', {
+      // FIRE-AND-FORGET: don't block booking response on Resend latency (~500-800ms).
+      // The booking row is already inserted; email is best-effort delivery to the brand.
+      fetch('https://api.resend.com/emails', {
         method: 'POST',
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           from: FROM_ADDRESS,
           to: contact_email,
@@ -497,8 +496,9 @@ export default async function handler(req, res) {
           subject: `Demo request received — ${RETAILER_NAME}`,
           html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY }),
         }),
-      });
-      emailOk = emailResp.ok;
+      }).then(r => { if (!r.ok) console.warn('confirmation email non-2xx:', r.status); }).catch(e => console.warn('confirmation email failed:', e?.message || e));
+      // Assume success from client's perspective — background failure logged, not user-facing.
+      emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
       if (isNewBrand && RESEND_KEY) {
@@ -510,7 +510,8 @@ export default async function handler(req, res) {
             retailer_name: RETAILER_NAME,
             signin_url: `https://demohubhq.com/brand/signin?email=${encodeURIComponent(String(contact_email).toLowerCase())}`,
           });
-          await fetch('https://api.resend.com/emails', {
+          // Fire-and-forget welcome email; don't block booking response.
+          fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -520,7 +521,7 @@ export default async function handler(req, res) {
               subject: welcomeSubj,
               html: welcomeHtml,
             }),
-          });
+          }).catch(e => console.warn('brand welcome email failed:', e?.message || e));
           console.log(`brand-welcome: sent to ${contact_email} after first booking`);
         } catch (welcomeErr) {
           console.warn('brand welcome email failed (non-blocking):', welcomeErr?.message || welcomeErr);
@@ -578,7 +579,7 @@ export default async function handler(req, res) {
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
 </table></body></html>`;
             // Fire one email per staff member (Resend handles up to 100/sec)
-            await Promise.allSettled(targetStaff.map(s => fetch('https://api.resend.com/emails', {
+            Promise.allSettled(targetStaff.map(s => fetch('https://api.resend.com/emails', {
               method: 'POST',
               headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -588,7 +589,7 @@ export default async function handler(req, res) {
                 subject: staffSubj,
                 html: staffHtml,
               }),
-            })));
+            }))).catch(e => console.warn('staff-notify failed:', e?.message || e));
             console.log(`staff-notify: sent to ${targetStaff.length} staff for booking ${bookingId}`);
           }
         }
