@@ -96,6 +96,89 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
+// Email helpers (best-effort, never block webhook 200)
+// -----------------------------------------------------------------------------
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
+
+function htmlEscape(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+async function fetchBookingContext(bookingId) {
+  try {
+    const rows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=*,venues(name),retailers(name,slug)`);
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch (_) { return null; }
+}
+
+async function sendResendEmail({ to, subject, html }) {
+  if (!RESEND_API_KEY || !to) return { ok: false, reason: 'not_configured_or_no_to' };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: FROM_ADDRESS, to, reply_to: 'david@demohubhq.com', subject, html }),
+    });
+    return { ok: r.ok };
+  } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
+}
+
+function _brandHeaderHTML() {
+  return '<table cellpadding="0" cellspacing="0"><tr>' +
+    '<td style="padding-right:12px;vertical-align:middle;">' +
+      '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>' +
+    '</td>' +
+    '<td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>' +
+  '</tr></table>';
+}
+
+function refundConfirmationEmail({ brandName, retailerName, venueName, demoDate, demoTime, amount }) {
+  const dateLabel = demoDate ? new Date(demoDate + 'T00:00:00Z').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'UTC' }) : '';
+  const amountStr = '$' + (Number(amount || 0) / 100).toFixed(2);
+  return '<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,Roboto,Helvetica,sans-serif;color:#1c1c1a;">' +
+'<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">' +
+'<tr><td style="padding:28px 32px;background:#0f2c17;">' + _brandHeaderHTML() + '</td></tr>' +
+'<tr><td style="padding:36px 36px 28px;">' +
+'<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#2a5b32;margin-bottom:14px;">Refund confirmed</div>' +
+'<h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Your refund is on the way.</h1>' +
+'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">Stripe just processed a <strong>' + amountStr + '</strong> refund for your demo with <strong>' + htmlEscape(retailerName) + '</strong>. It will appear on the card you paid with in 5&ndash;10 business days.</p>' +
+'<table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:20px;">' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">' + htmlEscape(brandName) + '</td></tr>' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Store</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">' + htmlEscape(venueName) + '</td></tr>' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">' + htmlEscape(dateLabel) + '</td></tr>' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Refund amount</td><td style="padding:12px 16px;text-align:right;font-weight:700;color:#2a5b32;font-size:14px;border-top:1px solid #ede3d0;">' + amountStr + '</td></tr>' +
+'</table>' +
+'<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">If the refund does not show up in 10 business days, reply to this email and we will help chase it with Stripe.</p>' +
+'</td></tr>' +
+'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong></td></tr>' +
+'</table></body></html>';
+}
+
+function paymentFailedEmail({ brandName, retailerName, retailerSlug, venueName, demoDate, demoTime, errorMsg }) {
+  const dateLabel = demoDate ? new Date(demoDate + 'T00:00:00Z').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'UTC' }) : '';
+  const retryUrl = 'https://www.demohubhq.com/r/' + encodeURIComponent(retailerSlug || '');
+  return '<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,Roboto,Helvetica,sans-serif;color:#1c1c1a;">' +
+'<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">' +
+'<tr><td style="padding:28px 32px;background:#0f2c17;">' + _brandHeaderHTML() + '</td></tr>' +
+'<tr><td style="padding:36px 36px 28px;">' +
+'<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Payment did not go through</div>' +
+'<h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Your card was declined.</h1>' +
+'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Stripe could not charge your card for the demo at <strong>' + htmlEscape(retailerName) + '</strong>. Your slot is not held yet &mdash; retry with the button below and it will be confirmed once the payment goes through.</p>' +
+(errorMsg ? '<p style="font-size:13px;line-height:1.5;color:#a14e2a;background:#fdebe5;padding:10px 14px;border-radius:8px;margin:0 0 20px;">Stripe said: ' + htmlEscape(errorMsg) + '</p>' : '') +
+'<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">' + htmlEscape(brandName) + '</td></tr>' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Store</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">' + htmlEscape(venueName) + '</td></tr>' +
+'<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">' + htmlEscape(dateLabel) + '</td></tr>' +
+'</table>' +
+'<div style="text-align:center;margin:22px 0 8px;">' +
+'<a href="' + retryUrl + '" style="display:inline-block;background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;font-weight:700;text-decoration:none;font-size:0.95rem;">Retry payment &rarr;</a>' +
+'</div>' +
+'<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:14px 0 0;">If the same card keeps failing, try a different one, or reply to this email and we will help.</p>' +
+'</td></tr>' +
+'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong></td></tr>' +
+'</table></body></html>';
+}
+
+// -----------------------------------------------------------------------------
 // Event handlers
 // -----------------------------------------------------------------------------
 
@@ -179,6 +262,25 @@ async function handlePaymentIntentFailed(event) {
     }),
   }).catch(e => console.warn('booking', bookingId, 'failed PATCH failed:', (e && e.message) || e))));
   console.log(`payment_intent.payment_failed: ${bookingIds.length} booking(s), ${err}`);
+  for (const bookingId of bookingIds) {
+    try {
+      const b = await fetchBookingContext(bookingId);
+      if (b && b.contact_email) {
+        await sendResendEmail({
+          to: b.contact_email,
+          subject: 'Payment failed for your ' + ((b.retailers && b.retailers.name) || 'demo') + ' booking',
+          html: paymentFailedEmail({
+            brandName: b.brand_name || b.contact_name || 'Brand',
+            retailerName: (b.retailers && b.retailers.name) || 'Demohub retailer',
+            retailerSlug: (b.retailers && b.retailers.slug) || '',
+            venueName: (b.venues && b.venues.name) || 'store',
+            demoDate: b.demo_date, demoTime: b.demo_time,
+            errorMsg: err,
+          }),
+        });
+      }
+    } catch (e) { console.warn('failure email skipped:', (e && e.message) || e); }
+  }
 }
 
 // charge.refunded: cancellation refund completed. Applies to all bookings in the batch.
@@ -199,6 +301,24 @@ async function handleChargeRefunded(event) {
     }),
   }).catch(e => console.warn('booking', bookingId, 'refund PATCH failed:', (e && e.message) || e))));
   console.log(`charge.refunded: ${bookingIds.length} booking(s), total=${refunded} fully=${fully}`);
+  for (const bookingId of bookingIds) {
+    try {
+      const b = await fetchBookingContext(bookingId);
+      if (b && b.contact_email) {
+        await sendResendEmail({
+          to: b.contact_email,
+          subject: 'Refund on the way: ' + ((b.retailers && b.retailers.name) || 'your demo'),
+          html: refundConfirmationEmail({
+            brandName: b.brand_name || b.contact_name || 'Brand',
+            retailerName: (b.retailers && b.retailers.name) || 'Demohub retailer',
+            venueName: (b.venues && b.venues.name) || 'store',
+            demoDate: b.demo_date, demoTime: b.demo_time,
+            amount: perBooking,
+          }),
+        });
+      }
+    } catch (e) { console.warn('refund email skipped:', (e && e.message) || e); }
+  }
 }
 
 // -----------------------------------------------------------------------------
