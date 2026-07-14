@@ -6,7 +6,7 @@
 //     ONLY safe public fields (no PII, no contacts, no compliance docs).
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
-const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 async function sb(path, useService = false) {
