@@ -120,6 +120,40 @@ async function logError(req, status, message, stack) {
 }
 
 
+function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url }) {
+  const greetingName = String((contact_name || brand_name || 'there')).split(/\s+/)[0] || 'there';
+  return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">
+<table cellpadding="0" cellspacing="0"><tr>
+<td style="padding-right:12px;vertical-align:middle;">
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+</td>
+<td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
+</tr></table>
+</td></tr>
+<tr><td style="padding:36px 40px 8px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:12px;">Welcome to Demohub</div>
+<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 16px;">Hi ${html(greetingName)} — your Demohub brand account is set up.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">You just booked a demo at <strong style="color:#0f2c17;">${html(retailer_name)}</strong>. That single booking created a Demohub brand account for <strong>${html(brand_name || 'your brand')}</strong> — no signup form needed.</p>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Any time you want to see your demos, upload your Certificate of Insurance, or book at another retailer, sign in with this email address at:</p>
+<p style="margin:0 0 26px;"><a href="${html(signin_url)}" style="background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block;">Sign in to my brand portal &rarr;</a></p>
+<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:16px 20px;border-radius:6px;margin-bottom:24px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin-bottom:8px;">What you can do from your brand portal</div>
+<ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.7;color:#3a3a36;">
+<li>See every upcoming demo, across all retailers you\'ve booked at</li>
+<li>Upload or renew your Certificate of Insurance once, use it everywhere</li>
+<li>Sign the demo conduct agreement once per retailer, not every booking</li>
+<li>Reschedule or cancel demos in one place</li>
+</ul>
+</div>
+<p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link — no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:22px 0 0;">Questions? Reply to this email and we\'ll actually read it.</p>
+</td></tr>
+<tr><td style="padding:20px 40px 28px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>Sent because you just booked a demo through Demohub. You can turn off these onboarding emails from your brand portal.</td></tr>
+</table></body></html>`;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -224,12 +258,31 @@ export default async function handler(req, res) {
     // Auto-link to a brand account if email matches an existing brand
     // (cross-retailer brand profiles — the brand sees this in /brand/dashboard)
     let brandId = null;
+    let isNewBrand = false;  // flipped when we create the brand row on first booking
     try {
       const brandLookup = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`, {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
       });
       const brandRows = await brandLookup.json();
       brandId = Array.isArray(brandRows) && brandRows[0] ? brandRows[0].id : null;
+      // If no existing brand and SERVICE_KEY available, create one so first-time bookers
+      // get a brand account (and a welcome email) even when they don't sign the agreement.
+      if (!brandId && SERVICE_KEY) {
+        try {
+          const created = await svcCall('brands', {
+            method: 'POST',
+            body: JSON.stringify({
+              email: String(contact_email).toLowerCase(),
+              name: brand_name || null,
+              company_name: brand_name || null,
+              contact_name: contact_name || null,
+              phone: contact_phone || null,
+            }),
+          });
+          brandId = Array.isArray(created) ? created[0]?.id : null;
+          if (brandId) isNewBrand = true;
+        } catch (_) { /* fall through */ }
+      }
     } catch (_) { /* non-fatal */ }
 
     // ---- Demo conduct contract: capture or refresh the brand × retailer agreement ----
@@ -254,6 +307,7 @@ export default async function handler(req, res) {
             }),
           });
           brandId = Array.isArray(created) ? created[0]?.id : null;
+          if (brandId) isNewBrand = true;
         }
         if (brandId) {
           const policyHash = await sha256Hex(DEMO_POLICY + '\n---\n' + CURRENT_CANCEL_POLICY + '\n---tos:' + DEMOHUB_TOS_VERSION);
@@ -442,6 +496,33 @@ export default async function handler(req, res) {
         }),
       });
       emailOk = emailResp.ok;
+      // First-booking welcome email: sent alongside the booking confirmation
+      // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
+      if (isNewBrand && RESEND_KEY) {
+        try {
+          const welcomeSubj = `Your Demohub brand account is set up`;
+          const welcomeHtml = brandWelcomeEmail({
+            contact_name,
+            brand_name,
+            retailer_name: RETAILER_NAME,
+            signin_url: `https://demohubhq.com/brand/signin?email=${encodeURIComponent(String(contact_email).toLowerCase())}`,
+          });
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: FROM_ADDRESS,
+              to: contact_email,
+              reply_to: 'david@demohubhq.com',
+              subject: welcomeSubj,
+              html: welcomeHtml,
+            }),
+          });
+          console.log(`brand-welcome: sent to ${contact_email} after first booking`);
+        } catch (welcomeErr) {
+          console.warn('brand welcome email failed (non-blocking):', welcomeErr?.message || welcomeErr);
+        }
+      }
       if (!emailOk) {
         try { const j = await emailResp.json(); emailErr = j.message || JSON.stringify(j); } catch (_) { emailErr = `HTTP ${emailResp.status}`; }
       }
