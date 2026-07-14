@@ -28,6 +28,32 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+function clientIpForRateLimit(req) {
+  return req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+    || req.socket?.remoteAddress
+    || 'unknown';
+}
+
+// Fail-closed rate limit — prevents abuse of the Stripe API path via bulk POSTs.
+async function checkRateLimit(req, maxPerHour) {
+  try {
+    const ip = clientIpForRateLimit(req);
+    const key = 'checkout-session:' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('checkout-session rate limit failed — denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -38,6 +64,15 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+
+  // Rate limit: cap Stripe API hits from any single IP to prevent runaway usage.
+  const rl = await checkRateLimit(req, 60);
+  if (!rl.allowed) {
+    return res.status(rl.error === 'rate_limit_unavailable' ? 503 : 429).json({
+      error: rl.error || 'too_many_requests',
+      message: 'Too many checkout attempts. Try again in a moment.',
+    });
+  }
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -101,7 +136,16 @@ export default async function handler(req, res) {
     let demoTotalCents = 0;
     for (const b of chargeable) {
       const v = venuesById.get(b.venue_id);
-      const feeUsd = Number((v && v.demo_fee) != null ? v.demo_fee : 30);
+      // Explicit null-fee guard — silently defaulting to $30 could charge a brand
+      // more than the retailer intended if the venue is misconfigured.
+      if (!v || v.demo_fee == null || Number(v.demo_fee) < 0) {
+        return res.status(400).json({
+          error: 'venue_missing_fee',
+          message: `Location "${(v && v.name) || 'this location'}" has no demo fee configured. Ask the retailer to set the fee in their admin.`,
+          venue_id: b.venue_id,
+        });
+      }
+      const feeUsd = Number(v.demo_fee);
       const feeCents = Math.max(0, Math.round(feeUsd * 100));
       demoTotalCents += feeCents;
       const label = (v && v.name) ? `Demo at ${v.name}` : 'Demo';
