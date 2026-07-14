@@ -1111,7 +1111,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 html += '</div>';
                 cartContainer.innerHTML = html;
                 checkoutBtn.disabled = false;
-                checkoutBtnText.textContent = 'Pay & Confirm – $' + (cart.length * PRICE_PER_DEMO).toFixed(2);
+                checkoutBtnText.textContent = 'Pay & Confirm – $' + total.toFixed(2);
             }
         }
         
