@@ -156,7 +156,6 @@ export default async function handler(req, res) {
         cancel_url: cancelUrl,
         allow_promotion_codes: true,
         subscription_data: {
-          trial_period_days: 14,
           metadata: { retailer_id: retailer.id, tier, interval },
         },
         metadata: { retailer_id: retailer.id, tier, interval },
