@@ -1127,9 +1127,19 @@
                     <div class="settings-card" id="billingCard">
                         <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
-                            <div style="font-size:0.85rem; color:var(--ink-500); padding:14px 0;">
-                                <div style="margin-bottom:8px;">You're on the free plan.</div>
-                                <div style="font-size:0.78rem;color:var(--ink-500);">Add a payment method to unlock paid demos and team seats.</div>
+                            <div id="planFreeState" style="padding:14px 0;">
+                                <div style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">You're on the Solo plan.</div>
+                                <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:16px; line-height:1.5;">Solo is free forever for a single store. Upgrade to Pro to add locations, invite teammates, and unlock paid demos with Stripe.</div>
+                                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                                    <button type="button" class="btn btn-primary" onclick="subscribeToTier('pro', 'month')" style="padding:10px 20px; font-size:0.95rem; font-weight:700;">Start 14-day Pro trial &rarr;</button>
+                                    <a href="/pricing" style="font-size:0.85rem; color:var(--forest-700); font-weight:600; text-decoration:underline;">See plan details</a>
+                                </div>
+                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px; line-height:1.5;">$29.99/mo after trial. No commitment. Cancel anytime from this page.</div>
+                            </div>
+                            <div id="planPaidState" style="padding:14px 0; display:none;">
+                                <div id="planPaidLabel" style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">Pro plan</div>
+                                <div id="planPaidStatus" style="font-size:0.88rem; color:var(--ink-500); margin-bottom:16px; line-height:1.5;"></div>
+                                <button type="button" class="btn btn-secondary" onclick="openBillingPortal()" style="padding:10px 20px; font-size:0.9rem;">Manage subscription &rarr;</button>
                             </div>
                         </div>
                     </div>
@@ -4225,27 +4235,7 @@ END:VEVENT
                 const iAmOwner = myRow && myRow.role === 'owner';
                 window._teamIsOwner = iAmOwner;
                 const inviteBtn = document.getElementById('teamInviteBtn');
-                // Phase E: Solo tier can't add staff. Show button only for Pro+ or blank/unknown tier.
-                const tier = ((window.state && window.state.settings && window.state.settings.billing_tier)
-                    || (window.state && window.state.retailer && window.state.retailer.billing_tier)
-                    || 'solo').toLowerCase();
-                const canInvite = (iAmOwner || (myRow && myRow.role === 'admin')) && tier !== 'solo' && tier !== 'free';
-                if (inviteBtn) inviteBtn.style.display = canInvite ? '' : 'none';
-                // Solo tier: replace the "No team members yet" empty state with an upgrade nudge
-                const soloNudgeId = 'teamSoloNudge';
-                let soloNudge = document.getElementById(soloNudgeId);
-                const shouldShowNudge = (iAmOwner || (myRow && myRow.role === 'admin')) && (tier === 'solo' || tier === 'free');
-                if (shouldShowNudge) {
-                    if (!soloNudge) {
-                        soloNudge = document.createElement('div');
-                        soloNudge.id = soloNudgeId;
-                        soloNudge.style.cssText = 'margin:12px 0; padding:14px 16px; background:var(--forest-50); border:1px solid var(--forest-100); border-radius:10px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; font-size:0.88rem; color:var(--forest-900);';
-                        soloNudge.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; color:var(--forest-700);"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><div style="flex:1; min-width:200px;"><strong>Add teammates on Pro.</strong> <span style="color:var(--ink-700);">Solo stores are single-admin. Upgrade to invite staff.</span></div><a href="/pricing" style="background:var(--forest-900); color:white; padding:8px 16px; border-radius:8px; font-weight:600; font-size:0.85rem; text-decoration:none; white-space:nowrap;">Upgrade to Pro</a>';
-                        list.parentNode.insertBefore(soloNudge, list);
-                    }
-                } else if (soloNudge) {
-                    soloNudge.remove();
-                }
+                if (inviteBtn) inviteBtn.style.display = (iAmOwner || (myRow && myRow.role === 'admin')) ? '' : 'none';
                 if (admins.length === 0) {
                     list.innerHTML = '<div style="color:var(--ink-500); font-size:0.9rem; padding:12px 0;">No team members yet.</div>';
                     return;
@@ -5455,6 +5445,45 @@ END:VEVENT
             if (m) m.style.display = 'none';
         }
 
+
+        // Open Stripe Customer Portal for managing an existing subscription
+        async function openBillingPortal() {
+            const btn = event?.target;
+            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
+            try {
+                const sessionId = AdminAuth.getSession();
+                const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
+                });
+                const d = await r.json();
+                if (d.url) { window.location.href = d.url; return; }
+                throw new Error(d.error || 'Failed');
+            } catch (e) {
+                DhModal.toast('Could not open portal: ' + (e.message || e), 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Manage subscription →'; }
+            }
+        }
+        // Show free vs paid state based on the retailer's tier
+        function _renderBillingState() {
+            const tier = ((window.state && window.state.settings && window.state.settings.billing_tier)
+                || (window.state && window.state.retailer && window.state.retailer.billing_tier)
+                || 'solo').toLowerCase();
+            const free = document.getElementById('planFreeState');
+            const paid = document.getElementById('planPaidState');
+            if (!free || !paid) return;
+            if (tier === 'pro' || tier === 'starter' || tier === 'growth') {
+                free.style.display = 'none';
+                paid.style.display = '';
+                const label = document.getElementById('planPaidLabel');
+                if (label) label.textContent = tier.charAt(0).toUpperCase() + tier.slice(1) + ' plan';
+                const status = document.getElementById('planPaidStatus');
+                if (status) status.textContent = 'Active. Renews monthly.';
+            } else {
+                free.style.display = '';
+                paid.style.display = 'none';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => setTimeout(_renderBillingState, 1500));
         async function subscribeToTier(tier, interval) {
             const btn = event?.target;
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
