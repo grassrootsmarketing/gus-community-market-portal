@@ -33,7 +33,9 @@
         .landing > .landing-content > p { color: var(--bark-500); font-size: 1.1rem; margin-bottom: 48px; }
         
         .location-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; margin-bottom: 32px; }
-        .location-card { background: white; border-radius: var(--radius-md); padding: 32px; text-align: left; cursor: pointer; transition: all 0.3s; box-shadow: var(--shadow-md); border: 1px solid var(--sand-200); }
+        .location-card { background: white; border-radius: var(--radius-md); padding: 0 0 20px; text-align: left; cursor: pointer; transition: all 0.3s; box-shadow: var(--shadow-md); border: 1px solid var(--sand-200); overflow:hidden; }
+        .location-card > h3, .location-card > .location-card-location, .location-card > .location-card-footer { padding-left: 24px; padding-right: 24px; }
+        .location-card > h3 { margin-top: 18px; }
         .location-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); border-color: var(--forest-300); }
         .location-card-icon { width: 56px; height: 56px; border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 16px; }
         .location-card-icon img { width: 100%; height: 100%; object-fit: cover; }
@@ -589,12 +591,56 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // Returns HTML for a retailer avatar - uses uploaded logo_url if available,
         // falls back to the retailer's initials on a forest gradient. Kills the
         // stock-house-icon look entirely (David: "we want to avoid these stock image headers").
+
+        // Phase G: extract a dominant brand color from the retailer's logo to color the header frames.
+        // Runs once per page load. Falls back to forest gradient if extraction fails (CORS, no logo, etc).
+        function extractLogoGradient(url) {
+            return new Promise(resolve => {
+                if (!url) return resolve(null);
+                try {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    let done = false;
+                    const finish = (val) => { if (done) return; done = true; resolve(val); };
+                    setTimeout(() => finish(null), 4000); // timeout guard
+                    img.onload = () => {
+                        try {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = 40; canvas.height = 40;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, 40, 40);
+                            const data = ctx.getImageData(0, 0, 40, 40).data;
+                            let r=0, g=0, b=0, count=0;
+                            for (let i=0; i<data.length; i+=4) {
+                                const alpha = data[i+3];
+                                if (alpha < 120) continue;                            // skip transparent
+                                const rr=data[i], gg=data[i+1], bb=data[i+2];
+                                if (rr>240 && gg>240 && bb>240) continue;             // skip near-white
+                                if (rr<15 && gg<15 && bb<15) continue;                // skip near-black
+                                r += rr; g += gg; b += bb; count++;
+                            }
+                            if (count === 0) return finish(null);
+                            const avg = { r: Math.round(r/count), g: Math.round(g/count), b: Math.round(b/count) };
+                            // Darken slightly for the gradient stops so text stays readable
+                            const dim = (c, f) => Math.max(0, Math.min(255, Math.round(c * f)));
+                            const light = 'rgb(' + avg.r + ',' + avg.g + ',' + avg.b + ')';
+                            const mid   = 'rgb(' + dim(avg.r,0.75) + ',' + dim(avg.g,0.75) + ',' + dim(avg.b,0.75) + ')';
+                            const dark  = 'rgb(' + dim(avg.r,0.55) + ',' + dim(avg.g,0.55) + ',' + dim(avg.b,0.55) + ')';
+                            finish('linear-gradient(135deg, ' + light + ' 0%, ' + mid + ' 50%, ' + dark + ' 100%)');
+                        } catch (e) { finish(null); }
+                    };
+                    img.onerror = () => finish(null);
+                    img.src = url;
+                } catch (e) { resolve(null); }
+            });
+        }
+
         function retailerAvatarHtml(retailer, size, opts) {
             opts = opts || {};
             const url = retailer && retailer.logo_url;
             const name = (retailer && retailer.name) || 'D';
             const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase().slice(0, 2) || 'D';
-            const bg = opts.bg || 'linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%)';
+            const bg = opts.bg || window._brandGradient || 'linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%)';
             const radius = opts.radius || '10px 10px 0 0';
             const textSize = size >= 100 ? '2.6rem' : size >= 60 ? '1.55rem' : '1.05rem';
             if (url) {
@@ -1467,6 +1513,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Store retailer meta on state so consumers can read it
             window.state.retailer = data.retailer || null;
             window.state.venues = data.venues || [];
+            // Phase G: extract brand color from logo, re-render location grid with it
+            if (data.retailer && data.retailer.logo_url && !window._brandGradient) {
+                extractLogoGradient(data.retailer.logo_url).then(g => {
+                    if (g) {
+                        window._brandGradient = g;
+                        if (typeof renderLocationGrid === 'function') renderLocationGrid(data.retailer);
+                    }
+                }).catch(() => {});
+            }
             // Wave 6 silo fix: rebuild color order from actual venues
             VENUE_COLOR_ORDER = window.state.venues.map(v => v.name);
             // Rebuild the landing-page location grid from this retailer's venues
