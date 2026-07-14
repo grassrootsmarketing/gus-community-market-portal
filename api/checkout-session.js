@@ -136,8 +136,7 @@ export default async function handler(req, res) {
     let demoTotalCents = 0;
     for (const b of chargeable) {
       const v = venuesById.get(b.venue_id);
-      // Explicit null-fee guard — silently defaulting to $30 could charge a brand
-      // more than the retailer intended if the venue is misconfigured.
+      // Explicit null-fee guard — silently defaulting could over-charge a brand.
       if (!v || v.demo_fee == null || Number(v.demo_fee) < 0) {
         return res.status(400).json({
           error: 'venue_missing_fee',
@@ -145,28 +144,24 @@ export default async function handler(req, res) {
           venue_id: b.venue_id,
         });
       }
-      const feeUsd = Number(v.demo_fee);
-      const feeCents = Math.max(0, Math.round(feeUsd * 100));
-      demoTotalCents += feeCents;
+      // Bundle the platform fee into the per-demo price. Brand sees ONE line item
+      // per demo showing the total ($venue fee + $5). Platform still receives its
+      // $5 cut via application_fee_amount below — invisible to the brand's checkout.
+      const venueFeeCents = Math.max(0, Math.round(Number(v.demo_fee) * 100));
+      const bundledCents = venueFeeCents + PLATFORM_FEE_CENTS;
+      demoTotalCents += venueFeeCents;
       const label = (v && v.name) ? `Demo at ${v.name}` : 'Demo';
       const sub = `${b.demo_date || ''} ${b.demo_time || ''}`.trim();
       params[`line_items[${idx}][price_data][currency]`] = 'usd';
-      params[`line_items[${idx}][price_data][unit_amount]`] = feeCents;
+      params[`line_items[${idx}][price_data][unit_amount]`] = bundledCents;
       params[`line_items[${idx}][price_data][product_data][name]`] = label;
       params[`line_items[${idx}][price_data][product_data][description]`] = `${b.brand_name || ''} - ${sub} (${retailer.name || ''})`.trim();
       params[`line_items[${idx}][quantity]`] = 1;
       idx++;
     }
-    // Flat $5 fee per booking, single line
+    // Platform fee total — routed via application_fee_amount, NOT shown as a separate line.
+    // The brand sees clean per-demo pricing; Stripe still splits $5 to platform and $venueFee to retailer.
     const platformFeeCents = PLATFORM_FEE_CENTS * chargeable.length;
-    const feeLabel = chargeable.length === 1
-      ? 'Demohub booking fee'
-      : `Demohub booking fee (${chargeable.length} x $5)`;
-    params[`line_items[${idx}][price_data][currency]`] = 'usd';
-    params[`line_items[${idx}][price_data][unit_amount]`] = platformFeeCents;
-    params[`line_items[${idx}][price_data][product_data][name]`] = feeLabel;
-    params[`line_items[${idx}][price_data][product_data][description]`] = 'Platform booking fee, per demo';
-    params[`line_items[${idx}][quantity]`] = 1;
 
     // Stripe Connect: route the demo_fee to retailer, keep the $5 fee on platform balance
     params['payment_intent_data[application_fee_amount]'] = platformFeeCents;
