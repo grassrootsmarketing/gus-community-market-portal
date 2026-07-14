@@ -637,7 +637,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         function retailerAvatarHtml(retailer, size, opts) {
             opts = opts || {};
-            const url = retailer && retailer.logo_url;
+            let url = retailer && retailer.logo_url;
+            // Treat ui-avatars.com URLs as placeholders — those are auto-generated initials images,
+            // not real uploaded logos. Fall through to our own no-logo treatment.
+            if (url && /^https?:\/\/ui-avatars\.com\//i.test(url)) url = null;
             const name = (retailer && retailer.name) || 'D';
             const initials = (name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase().slice(0, 2)) || 'D';
             const bg = opts.bg || window._brandGradient || 'linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%)';
