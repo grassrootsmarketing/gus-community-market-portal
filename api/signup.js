@@ -44,7 +44,12 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
       await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
     }
     return { allowed: true, current: (row ? row.count : 0) + 1 };
-  } catch (_) { return { allowed: true, current: 0 }; }  // fail-open on rate-limiter errors
+  } catch (e) {
+    // Fail-CLOSED: signup is an unauthenticated write; an unavailable rate-limiter
+    // must not translate into unlimited retailer creation.
+    console.error('signup rate limit check failed — denying request:', e?.message || e);
+    return { allowed: false, current: 0, error: 'rate_limit_unavailable' };
+  }
 }
 
 async function uniqueSlug(base) {
@@ -126,7 +131,10 @@ export default async function handler(req, res) {
 
   // Rate limit: 10 signups per IP per hour (signup is unauthenticated, prevents bulk abuse)
   const rl = await checkRateLimit(req, 'signup', 10);
-  if (!rl.allowed) return res.status(429).json({ error: 'Too many signups from this IP. Try again in an hour.' });
+  if (!rl.allowed) {
+    if (rl.error === 'rate_limit_unavailable') return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Signup service is briefly unavailable. Try again in a moment.' });
+    return res.status(429).json({ error: 'Too many signups from this IP. Try again in an hour.' });
+  }
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -237,8 +245,10 @@ export default async function handler(req, res) {
     let signupToken = null;
     let signupCode = null;
     try {
-      // Generate a 6-digit code so signup email + fallback can include it
-      const n = Math.floor(Math.random() * 1000000);
+      // Generate a 6-digit code so signup email + fallback can include it.
+      // Use crypto.randomInt — Math.random is a predictable PRNG.
+      const { randomInt } = require('crypto');
+      const n = randomInt(0, 1000000);
       signupCode = String(n).padStart(6, '0');
       let tokens;
       try {
