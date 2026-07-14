@@ -1167,6 +1167,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
 
         async function submitContactInfo() {
+            const brandName    = document.getElementById('bookBrandName').value.trim();
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
