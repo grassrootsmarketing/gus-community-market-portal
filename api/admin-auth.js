@@ -26,6 +26,52 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// -----------------------------------------------------------------------------
+// HttpOnly cookie helpers — session_id lives here so XSS can't read it via
+// document.cookie or localStorage. Cookies are same-origin (no Domain=),
+// SameSite=Lax (safe for GETs, blocks cross-site POSTs), Secure (HTTPS only).
+// -----------------------------------------------------------------------------
+const SESSION_COOKIE = 'dh_session';
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function parseCookies(req) {
+  const raw = req.headers && req.headers['cookie'];
+  const out = {};
+  if (!raw) return out;
+  for (const seg of String(raw).split(';')) {
+    const i = seg.indexOf('=');
+    if (i < 0) continue;
+    const k = seg.slice(0, i).trim();
+    const v = seg.slice(i + 1).trim();
+    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
+  }
+  return out;
+}
+
+function setSessionCookie(res, sessionId) {
+  if (!sessionId) return;
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function clearSessionCookie(res) {
+  const cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function getSessionIdFromReq(req, body) {
+  const cookies = parseCookies(req);
+  return cookies[SESSION_COOKIE]
+    || (body && body.session_id)
+    || (req.query && req.query.session_id)
+    || null;
+}
+
+
 // Reusable helper: verify a session_id is valid for a given retailer_id.
 // Exported so /api/admin and /api/booking-action can re-use it.
 export async function verifyAdminSession(session_id, expectedRetailerId) {
@@ -253,6 +299,7 @@ export default async function handler(req, res) {
         body: JSON.stringify({ email: trow.email, retailer_id: trow.retailer_id }),
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
+      if (session?.session_id) setSessionCookie(res, session.session_id);
       return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id });
     }
 
@@ -277,7 +324,6 @@ export default async function handler(req, res) {
         body: JSON.stringify({ email: trow.email, retailer_id: trow.retailer_id }),
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
-      // For redirect after code verify: look up retailer slug so caller can navigate
       let retailerSlug = null;
       if (trow.retailer_id) {
         try {
@@ -285,12 +331,15 @@ export default async function handler(req, res) {
           retailerSlug = Array.isArray(rt) && rt[0]?.slug || null;
         } catch(_){}
       }
+      // Set HttpOnly cookie so subsequent requests don't need body-session_id.
+      if (session?.session_id) setSessionCookie(res, session.session_id);
       return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id, retailer_slug: retailerSlug });
     }
 
     // ---- DATA: verify session is still valid + return retailer info ----
     if (action === 'data') {
-      const { session_id, retailer_slug } = body || {};
+      const { retailer_slug } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       if (!session_id || !retailer_slug) return res.status(400).json({ error: 'session_id and retailer_slug required' });
 
       const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`);
@@ -299,16 +348,37 @@ export default async function handler(req, res) {
 
       const v = await verifyAdminSession(session_id, retailer.id);
       if (!v.ok) return res.status(401).json({ error: v.error });
-      return res.status(200).json({ ok: true, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
+      // Opportunistic cookie set: if the caller authenticated via body but has no cookie yet, upgrade them.
+      const cookies = parseCookies(req);
+      if (!cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
+      return res.status(200).json({ ok: true, session_id, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
     }
 
     // ---- LOGOUT ----
     if (action === 'logout') {
-      const { session_id } = body || {};
-      if (session_id) {
-        try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}`, { method: 'DELETE' }); } catch(_) {}
+      const sid = getSessionIdFromReq(req, body);
+      if (sid) {
+        try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' }); } catch(_) {}
       }
+      clearSessionCookie(res);
       return res.status(200).json({ ok: true });
+    }
+
+    // ---- COOKIE-MIGRATE: exchange a legacy body session_id for an HttpOnly cookie ----
+    // Called by clients on page load if localStorage has a session but no cookie is set.
+    // Validates the session and sets the cookie; client can then delete localStorage.
+    if (action === 'cookie-migrate') {
+      const sid = (body && body.session_id) || null;
+      if (!sid || !isUuid(sid)) return res.status(400).json({ error: 'session_id required' });
+      let sessions = null;
+      try {
+        sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}&select=session_id,email,retailer_id,expires_at`);
+      } catch (_) { return res.status(500).json({ error: 'lookup failed' }); }
+      const s = Array.isArray(sessions) ? sessions[0] : null;
+      if (!s) return res.status(401).json({ error: 'Session not found' });
+      if (new Date(s.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
+      setSessionCookie(res, s.session_id);
+      return res.status(200).json({ ok: true, session_id: s.session_id, email: s.email, retailer_id: s.retailer_id });
     }
 
     // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
