@@ -248,7 +248,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         </div>
         <div class="hint" id="storeCountHint">You can set your demo fee + per-store details after sign-up.</div>
         <div id="storeCountProNote" style="display:none; margin-top:8px; padding:10px 12px; background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; font-size:0.85rem; color:#a14e2a; line-height:1.5;">
-          2+ stores runs on Pro, $29.99/mo after a 14-day free trial. Your first store is free either way.
+          2+ stores runs on Pro, $29.99/mo after a monthly plan. Your first store is free either way.
         </div>
       </div>
       <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
@@ -434,7 +434,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(slug)); } catch(_){}
 
       // Phase E: Multi-store signup needs Pro subscription. Redirect to Stripe Checkout
-      // (14-day free trial). The signup token doubles as an admin session for the subscribe call.
+      // (monthly plan). The signup token doubles as an admin session for the subscribe call.
       if (j.needs_billing && j.session_token) {
         try {
           if (submitBtn) submitBtn.textContent = 'Redirecting to payment…';
