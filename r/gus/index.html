@@ -344,6 +344,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </head>
 <body>
     <div class="view landing active" id="landingView">
+        <div id="brandSignInPill" style="padding:14px 24px 0; text-align:right;">
+            <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:9px 16px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.85rem; cursor:pointer; font-family:inherit;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                Have an account? <strong style="color:#2a5b32;">Sign in</strong>
+            </button>
+        </div>
         <div class="brand-signin-banner" id="brandSigninBannerLanding">
             <div>Signed in as <strong id="brandSigninNameLanding">, </strong>, your contact info will auto-fill when you book</div>
             <div class="actions">
@@ -370,6 +376,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="view client" id="clientView">
         <div class="main-scroll">
             <div class="container">
+                <div id="brandSignInPillClient" style="padding:12px 0 8px; text-align:right;">
+                    <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        Sign in for faster booking
+                    </button>
+                </div>
                 <div class="page-header">
                     <h2 class="page-title">Schedule Your Demos</h2>
                     <p class="page-subtitle">Select dates and times, then add to your cart. Book multiple demos at once!</p>
@@ -503,6 +515,34 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <button class="btn btn-secondary" onclick="closeContactInfoModal()" style="flex:1; justify-content: center;">Cancel</button>
                     <button class="btn btn-primary" id="bookSubmitBtn" onclick="submitContactInfo()" style="flex:1; justify-content: center;">Confirm Booking</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Brand sign-in modal (email + 6-digit code) -->
+    <div id="brandSignInModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.55); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:24px; font-family:'Plus Jakarta Sans',sans-serif;">
+        <div style="background:white; border-radius:20px; box-shadow:0 24px 60px rgba(15,44,23,0.35); max-width:440px; width:100%; padding:32px 28px; position:relative;">
+            <button type="button" onclick="closeBrandSignIn()" aria-label="Close" style="position:absolute; top:14px; right:18px; background:none; border:none; font-size:1.8rem; color:#6b6a64; cursor:pointer; padding:4px 8px; line-height:1;">&times;</button>
+            <div style="text-align:center; margin-bottom:20px;">
+                <h2 style="font-family:'Instrument Serif',Georgia,serif; font-size:1.75rem; font-weight:400; color:#0f2c17; margin:0 0 8px; line-height:1.2;">Sign in to your Demohub brand account</h2>
+                <p style="font-size:0.9rem; color:#6b6a64; margin:0; line-height:1.5;">Your info, COI, and demo history follow you to every retailer.</p>
+            </div>
+            <div id="brandSignInStep1">
+                <label class="form-label" for="brandSignInEmail" style="display:block; margin-bottom:6px; font-size:0.78rem; font-weight:700; color:#0f2c17; text-transform:uppercase; letter-spacing:0.06em;">Email</label>
+                <input type="email" id="brandSignInEmail" placeholder="you@company.com" autocomplete="email" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1rem; font-family:inherit; margin-bottom:6px; box-sizing:border-box;">
+                <div id="brandSignInErr1" style="font-size:0.82rem; color:#a14e2a; margin-bottom:12px; min-height:1em;"></div>
+                <button type="button" id="brandSignInSendBtn" onclick="brandSignInSendCode()" style="width:100%; background:#0f2c17; color:white; border:none; padding:13px 18px; border-radius:10px; font-weight:700; font-size:0.95rem; cursor:pointer; font-family:inherit;">Send me a code</button>
+                <div style="text-align:center; margin-top:18px; font-size:0.8rem; color:#6b6a64; line-height:1.5;">New here? Just complete your first booking — we'll create your account automatically.</div>
+            </div>
+            <div id="brandSignInStep2" style="display:none;">
+                <div style="background:#fbf7f0; border-radius:10px; padding:12px 16px; margin-bottom:16px; text-align:center; font-size:0.88rem; color:#3a3a36;">
+                    6-digit code sent to <strong id="brandSignInEmailDisplay" style="color:#0f2c17;"></strong>
+                </div>
+                <label class="form-label" for="brandSignInCode" style="display:block; margin-bottom:6px; font-size:0.78rem; font-weight:700; color:#0f2c17; text-transform:uppercase; letter-spacing:0.06em;">6-digit code</label>
+                <input type="text" id="brandSignInCode" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="width:100%; padding:14px 16px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.4rem; font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace; letter-spacing:0.15em; text-align:center; margin-bottom:6px; box-sizing:border-box;">
+                <div id="brandSignInErr2" style="font-size:0.82rem; color:#a14e2a; margin-bottom:12px; min-height:1em;"></div>
+                <button type="button" id="brandSignInVerifyBtn" onclick="brandSignInVerifyCode()" style="width:100%; background:#0f2c17; color:white; border:none; padding:13px 18px; border-radius:10px; font-weight:700; font-size:0.95rem; cursor:pointer; font-family:inherit;">Verify &amp; sign in</button>
+                <button type="button" onclick="brandSignInReset()" style="width:100%; background:none; color:#6b6a64; border:none; padding:10px; font-size:0.85rem; cursor:pointer; margin-top:8px; text-decoration:underline; font-family:inherit;">Use a different email</button>
             </div>
         </div>
     </div>
@@ -1536,41 +1576,130 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [] };
 
         // ===== Brand account auto-fill =====
-        // If user is signed in to a Demohub brand account, pull profile and show banner.
+        // Uses HttpOnly dh_brand_session cookie (set by /api/brand-account verify-code).
+        // Server reads cookie automatically — no need to pass session_id in URL.
         window._brandProfile = null;
         async function loadBrandAccountSession() {
             try {
-                const t = localStorage.getItem('demohub_brand_account_session');
-                if (!t) return;
-                const r = await fetch('/api/brand-account?action=data&session_id=' + encodeURIComponent(t));
-                if (!r.ok) { if (r.status === 401) localStorage.removeItem('demohub_brand_account_session'); return; }
-                const j = await r.json();
-                if (!j || !j.profile) return;
-                window._brandProfile = j.profile;
-                const banner = document.getElementById('brandSigninBanner');
-                const name = document.getElementById('brandSigninName');
-                const bannerLanding = document.getElementById('brandSigninBannerLanding');
-                const nameLanding = document.getElementById('brandSigninNameLanding');
-                const displayName = j.profile.company_name || j.profile.email || 'your brand';
-                if (banner && name) {
-                    name.textContent = displayName;
-                    banner.classList.add('active');
+                const r = await fetch('/api/brand-account?action=data', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: '{}',
+                    credentials: 'same-origin',
+                });
+                if (r.ok) {
+                    const j = await r.json();
+                    if (j && j.profile) {
+                        window._brandProfile = j.profile;
+                    }
                 }
-                if (bannerLanding && nameLanding) {
-                    nameLanding.textContent = displayName;
-                    bannerLanding.classList.add('active');
-                }
+                // Legacy cleanup: nuke old localStorage entry so we don't leak session material
+                try { localStorage.removeItem('demohub_brand_account_session'); } catch (_) {}
             } catch (e) { /* silent */ }
+            renderBrandAuthUi();
         }
-        window.brandPublicSignOut = async function() {
-            try { await fetch('/api/brand-account?action=logout&session_id=' + encodeURIComponent(localStorage.getItem('demohub_brand_account_session') || ''), { method: 'POST' }); } catch (_) {}
-            localStorage.removeItem('demohub_brand_account_session');
-            window._brandProfile = null;
+
+        function renderBrandAuthUi() {
             const banner = document.getElementById('brandSigninBanner');
-            if (banner) banner.classList.remove('active');
+            const name = document.getElementById('brandSigninName');
             const bannerLanding = document.getElementById('brandSigninBannerLanding');
-            if (bannerLanding) bannerLanding.classList.remove('active');
+            const nameLanding = document.getElementById('brandSigninNameLanding');
+            const pill = document.getElementById('brandSignInPill');
+            const pillClient = document.getElementById('brandSignInPillClient');
+            if (window._brandProfile) {
+                const displayName = window._brandProfile.company_name || window._brandProfile.email || 'your brand';
+                if (banner && name) { name.textContent = displayName; banner.classList.add('active'); }
+                if (bannerLanding && nameLanding) { nameLanding.textContent = displayName; bannerLanding.classList.add('active'); }
+                if (pill) pill.style.display = 'none';
+                if (pillClient) pillClient.style.display = 'none';
+            } else {
+                if (banner) banner.classList.remove('active');
+                if (bannerLanding) bannerLanding.classList.remove('active');
+                if (pill) pill.style.display = '';
+                if (pillClient) pillClient.style.display = '';
+            }
+        }
+
+        window.brandPublicSignOut = async function() {
+            try {
+                await fetch('/api/brand-account?action=logout', {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+                    credentials: 'same-origin',
+                });
+            } catch (_) {}
+            try { localStorage.removeItem('demohub_brand_account_session'); } catch (_) {}
+            window._brandProfile = null;
+            renderBrandAuthUi();
         };
+
+        // ===== Brand sign-in modal (6-digit code) =====
+        function openBrandSignIn() {
+            const m = document.getElementById('brandSignInModal');
+            if (!m) return;
+            m.style.display = 'flex';
+            document.getElementById('brandSignInStep1').style.display = '';
+            document.getElementById('brandSignInStep2').style.display = 'none';
+            document.getElementById('brandSignInErr1').textContent = '';
+            document.getElementById('brandSignInErr2').textContent = '';
+            document.getElementById('brandSignInCode').value = '';
+            setTimeout(() => { const e = document.getElementById('brandSignInEmail'); if (e) e.focus(); }, 100);
+        }
+        function closeBrandSignIn() {
+            const m = document.getElementById('brandSignInModal');
+            if (m) m.style.display = 'none';
+        }
+        function brandSignInReset() {
+            document.getElementById('brandSignInStep2').style.display = 'none';
+            document.getElementById('brandSignInStep1').style.display = '';
+            document.getElementById('brandSignInErr1').textContent = '';
+            document.getElementById('brandSignInErr2').textContent = '';
+        }
+        async function brandSignInSendCode() {
+            const email = (document.getElementById('brandSignInEmail').value || '').trim().toLowerCase();
+            const err = document.getElementById('brandSignInErr1');
+            err.textContent = '';
+            if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { err.textContent = 'Enter a valid email.'; return; }
+            const btn = document.getElementById('brandSignInSendBtn');
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = 'Sending…';
+            try {
+                const r = await fetch('/api/brand-account?action=login', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ email }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) { err.textContent = j.error || j.message || 'Could not send code.'; btn.disabled=false; btn.textContent=orig; return; }
+                document.getElementById('brandSignInEmailDisplay').textContent = email;
+                document.getElementById('brandSignInStep1').style.display = 'none';
+                document.getElementById('brandSignInStep2').style.display = '';
+                setTimeout(() => { const c = document.getElementById('brandSignInCode'); if (c) c.focus(); }, 100);
+                btn.disabled = false; btn.textContent = orig;
+            } catch (e) { err.textContent = 'Network error.'; btn.disabled=false; btn.textContent=orig; }
+        }
+        async function brandSignInVerifyCode() {
+            const email = (document.getElementById('brandSignInEmail').value || '').trim().toLowerCase();
+            const code = (document.getElementById('brandSignInCode').value || '').replace(/\D/g, '').trim();
+            const err = document.getElementById('brandSignInErr2');
+            err.textContent = '';
+            if (code.length !== 6) { err.textContent = 'Enter the 6-digit code.'; return; }
+            const btn = document.getElementById('brandSignInVerifyBtn');
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = 'Verifying…';
+            try {
+                const r = await fetch('/api/brand-account?action=verify-code', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ email, code }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) { err.textContent = j.error || j.message || 'Invalid code.'; btn.disabled=false; btn.textContent=orig; return; }
+                await loadBrandAccountSession();
+                closeBrandSignIn();
+            } catch (e) { err.textContent = 'Network error.'; btn.disabled=false; btn.textContent=orig; }
+        }
+        document.addEventListener('click', function(e) {
+            const m = document.getElementById('brandSignInModal');
+            if (m && e.target === m) closeBrandSignIn();
+        });
         // Fire off brand session check as the page loads; doesn't block bookings.
         loadBrandAccountSession();
 
