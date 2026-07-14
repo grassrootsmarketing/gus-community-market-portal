@@ -973,6 +973,9 @@ async function handleOwnerAction(action, req, res, body) {
     const ownerRetailerId = (await ensureOwnerRetailerId()) || tok.retailer_id;
     const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId }) });
     const session = Array.isArray(sessions) ? sessions[0] : null;
+    // Consistent with retailer/brand flows: set the HttpOnly cookie so /owner page auth
+    // can rely on the same cookie the rest of the admin uses.
+    if (session?.session_id) setSessionCookie(res, session.session_id);
     return res.status(200).json({ ok: true, session_id: session?.session_id, email: tok.email });
   }
 
