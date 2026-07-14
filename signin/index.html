@@ -364,12 +364,12 @@ window.verifyLoginCode = async function(side) {
             return;
         }
         // Store session + redirect
+        // Session_id is now carried in an HttpOnly cookie set by the server.
+        // We no longer stash it in localStorage — that was the XSS-exfiltrable path.
         if (side === 'brand') {
-            if (j.session_id) localStorage.setItem('demohub_brand_account_session', j.session_id);
             window.location.href = '/brand/dashboard';
         } else {
-            if (j.session_id && j.retailer_slug) {
-                localStorage.setItem('demohub_admin_session_' + j.retailer_slug, j.session_id);
+            if (j.retailer_slug) {
                 window.location.href = '/r/' + j.retailer_slug + '/admin';
             } else {
                 err.textContent = 'Session created but retailer slug missing. Contact support.';
@@ -431,12 +431,11 @@ window.verifyRecognizedCode = async function() {
             btn.textContent = 'Verify code →';
             return;
         }
+        // HttpOnly cookie carries the session — no localStorage write.
         if (role === 'brand') {
-            if (j.session_id) localStorage.setItem('demohub_brand_account_session', j.session_id);
             window.location.href = '/brand/dashboard';
         } else {
-            if (j.session_id && j.retailer_slug) {
-                localStorage.setItem('demohub_admin_session_' + j.retailer_slug, j.session_id);
+            if (j.retailer_slug) {
                 window.location.href = '/r/' + j.retailer_slug + '/admin';
             } else {
                 err.textContent = 'Session created but retailer slug missing. Contact support.';
