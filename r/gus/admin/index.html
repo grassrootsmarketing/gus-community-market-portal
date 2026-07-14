@@ -597,8 +597,11 @@
                         <span>Account</span>
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
-                    <div id="acctMenu" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:white; border-radius:10px; box-shadow:0 8px 24px rgba(15,44,23,0.15); min-width:220px; padding:6px; z-index:100; border:1px solid var(--sand-200);">
-                        <div id="acctMenuEmail" style="padding:10px 12px 4px; font-size:0.75rem; color:var(--ink-500); border-bottom:1px solid var(--sand-100); margin-bottom:4px; word-break:break-all;">Signed in as <span id="acctEmailValue" style="color:var(--forest-800); font-weight:600;"></span></div>
+                    <div id="acctMenu" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:white; border-radius:10px; box-shadow:0 8px 24px rgba(15,44,23,0.15); min-width:260px; max-width:320px; padding:6px; z-index:100; border:1px solid var(--sand-200);">
+                        <div id="acctMenuEmail" style="padding:10px 12px 8px; font-size:0.75rem; color:var(--ink-500); border-bottom:1px solid var(--sand-100); margin-bottom:4px; line-height:1.4;">
+                            <div style="font-size:0.7rem; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-500); font-weight:600; margin-bottom:2px;">Signed in as</div>
+                            <div id="acctEmailValue" style="color:var(--forest-800); font-weight:600; font-size:0.85rem; overflow-wrap:anywhere; word-break:normal;"></div>
+                        </div>
                         <button type="button" onclick="acctSwitchAccount()" style="width:100%; text-align:left; background:none; border:none; padding:9px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.88rem; color:var(--ink-700); font-weight:500; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='var(--sand-100)'" onmouseout="this.style.background='none'">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m22 11-3-3m0 0-3 3m3-3v12"/></svg>
                             Switch account
