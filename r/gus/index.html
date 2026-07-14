@@ -1082,10 +1082,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             } else {
                 let html = '<div class="cart-items">';
                 cart.forEach((item, index) => {
+                    // XSS-safe: escape user-controlled venue name (comes from retailer input)
                     html += '<div class="cart-item">' +
                         '<div class="cart-item-info">' +
-                            '<div class="cart-item-date">' + item.displayDate + '</div>' +
-                            '<div class="cart-item-time">' + item.time + ' • ' + item.location + '</div>' +
+                            '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
+                            '<div class="cart-item-time">' + escapeHtml(item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
                         '<span class="cart-item-price">$' + Number(perDemoFee).toFixed(0) + '</span>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
@@ -1284,10 +1285,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Success, show success modal with details
             document.getElementById('contactInfoModal').classList.remove('active');
             let detailsHtml = '<div class="summary-line"><span>Confirmation #</span><span>DH-' + String(Math.floor(Math.random() * 90000) + 10000) + '</span></div>';
-            detailsHtml += '<div class="summary-line"><span>Confirmation email</span><span>' + (emailWarned ? 'Sent shortly' : 'Sent to ' + contactEmail) + '</span></div>';
+            detailsHtml += '<div class="summary-line"><span>Confirmation email</span><span>' + (emailWarned ? 'Sent shortly' : 'Sent to ' + escapeHtml(contactEmail)) + '</span></div>';
             detailsHtml += '<div style="margin-top: 16px; font-weight: 600; color: var(--forest-800); margin-bottom: 8px;">Booked Demos:</div>';
             cart.forEach(item => {
-                detailsHtml += '<div class="confirmation-booking"><div style="font-weight: 600;">' + item.displayDate + ' • ' + item.time + '</div><div style="font-size: 0.85rem; color: var(--bark-500);">Gus\'s Community Market, ' + item.location + '</div></div>';
+                detailsHtml += '<div class="confirmation-booking"><div style="font-weight: 600;">' + escapeHtml(item.displayDate) + ' &bull; ' + escapeHtml(item.time) + '</div><div style="font-size: 0.85rem; color: var(--bark-500);">Gus\'s Community Market, ' + escapeHtml(item.location) + '</div></div>';
             });
             document.getElementById('confirmationDetails').innerHTML = detailsHtml;
             document.getElementById('successModal').classList.add('active');
@@ -1538,7 +1539,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (landingLogo && data.retailer) {
                 if (data.retailer.logo_url) {
                     landingLogo.style.background = 'white';
-                    landingLogo.innerHTML = `<img src="${data.retailer.logo_url}" alt="${(data.retailer.name || '').replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">`;
+                    // XSS-safe: validate logo_url is http(s), escape name via escapeHtml
+                    const _logoUrl1541 = String(data.retailer.logo_url || '');
+                    if (/^https?:\/\//i.test(_logoUrl1541)) {
+                        landingLogo.innerHTML = '<img src="' + escapeHtml(_logoUrl1541) + '" alt="' + escapeHtml(data.retailer.name || '') + '" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;">';
+                    }
                 } else {
                     const name = (data.retailer.name || 'D');
                     const initials = name.split(/\s+/).filter(Boolean).slice(0,2).map(w=>w[0]).join('').toUpperCase().slice(0,2) || 'D';
@@ -1568,7 +1573,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             window.state.retailer = data.retailer || null;
             if (data.retailer && data.retailer.logo_url) {
                 const iconEl = document.getElementById('publicRetailerLogoIcon');
-                if (iconEl) iconEl.innerHTML = '<img src="' + data.retailer.logo_url + '" alt="' + (data.retailer.name || '') + ' logo">';
+                if (iconEl) {
+                    // XSS-safe: validate logo_url is http(s), escape name via escapeHtml
+                    const _logoUrl1571 = String(data.retailer.logo_url || '');
+                    if (/^https?:\/\//i.test(_logoUrl1571)) {
+                        iconEl.innerHTML = '<img src="' + escapeHtml(_logoUrl1571) + '" alt="' + escapeHtml(data.retailer.name || '') + ' logo">';
+                    }
+                }
             }
             const cp = document.getElementById('cancellationPolicyText');
             if (cp && data.retailer && data.retailer.cancellation_policy) {
