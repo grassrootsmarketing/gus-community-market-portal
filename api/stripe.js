@@ -203,6 +203,93 @@ export default async function handler(req, res) {
       });
     }
 
+    // ---- sync: re-fetch this retailer's Stripe billing state and mirror it into the DB ----
+    // Self-heal path. Used by the admin auto-sync on ?billing=success return and by the
+    // manual "Resync billing" button. Handles the case where a webhook was missed or fired
+    // before our webhook secret was configured.
+    if (action === 'sync') {
+      // Prefer to look up by known IDs; fall back to searching by billing_email.
+      let subscription = null;
+      let customerId = retailer.stripe_customer_id || null;
+
+      // 1) Try the stored subscription id first (fastest, most accurate)
+      if (retailer.stripe_subscription_id) {
+        try {
+          subscription = await stripe('GET', `/v1/subscriptions/${encodeURIComponent(retailer.stripe_subscription_id)}?expand[]=items.data.price.product`);
+        } catch (_) { subscription = null; }
+      }
+
+      // 2) If no stored subscription id but we have a customer, list their subs
+      if (!subscription && customerId) {
+        try {
+          const list = await stripe('GET', `/v1/subscriptions?customer=${encodeURIComponent(customerId)}&status=all&limit=10&expand[]=data.items.data.price.product`);
+          const subs = list?.data || [];
+          // Prefer active/trialing/past_due over canceled
+          subscription = subs.find(s => ['active','trialing','past_due','incomplete'].includes(s.status)) || subs[0] || null;
+        } catch (_) { /* non-fatal */ }
+      }
+
+      // 3) Last resort: search customers by billing_email, then their subs
+      if (!subscription && !customerId && retailer.billing_email) {
+        try {
+          const search = await stripe('GET', `/v1/customers?email=${encodeURIComponent(retailer.billing_email)}&limit=3`);
+          const custs = search?.data || [];
+          for (const c of custs) {
+            const list = await stripe('GET', `/v1/subscriptions?customer=${encodeURIComponent(c.id)}&status=all&limit=10&expand[]=data.items.data.price.product`);
+            const subs = list?.data || [];
+            const active = subs.find(s => ['active','trialing','past_due','incomplete'].includes(s.status)) || subs[0];
+            if (active) { subscription = active; customerId = c.id; break; }
+          }
+        } catch (_) { /* non-fatal */ }
+      }
+
+      // If we found nothing, report that clearly instead of clobbering state.
+      if (!subscription) {
+        return jsonResp(res, 200, {
+          ok: true,
+          found: false,
+          message: 'No Stripe subscription found for this retailer. If you just completed checkout, wait a few seconds and retry.',
+          tier: retailer.billing_tier || 'solo',
+          status: retailer.billing_status || null,
+        });
+      }
+
+      // Derive tier from the subscription's price → product metadata (source of truth)
+      let tier = 'pro';
+      try {
+        const item = subscription.items?.data?.[0];
+        const prodMeta = item?.price?.product?.metadata || {};
+        const metaTier = (subscription.metadata?.tier || prodMeta.tier || '').toLowerCase();
+        if (['solo','pro','starter','growth'].includes(metaTier)) tier = metaTier;
+      } catch (_) { /* keep default 'pro' */ }
+
+      const status = subscription.status || 'active';
+      const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null;
+      const cancelAt = subscription.cancel_at ? new Date(subscription.cancel_at * 1000).toISOString() : null;
+      // If they're in a paying state, they get their tier. If canceled, revert to solo.
+      const isPaying = ['active','trialing','past_due','incomplete'].includes(status);
+      const patch = {
+        stripe_customer_id: customerId || subscription.customer,
+        stripe_subscription_id: subscription.id,
+        billing_tier: isPaying ? tier : 'solo',
+        billing_status: status,
+        billing_period_end: periodEnd,
+        billing_cancel_at: cancelAt,
+      };
+      await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      return jsonResp(res, 200, {
+        ok: true,
+        found: true,
+        tier: patch.billing_tier,
+        status: patch.billing_status,
+        subscription_id: subscription.id,
+        period_end: patch.billing_period_end,
+      });
+    }
+
     // ---- connect-onboard: create Stripe Connect Express account + onboarding link ----
     if (action === 'connect-onboard') {
       // Create the account if we don't already have one for this retailer
@@ -290,7 +377,7 @@ export default async function handler(req, res) {
       });
     }
 
-    return jsonResp(res, 400, { error: 'Unknown action. Use subscribe, portal, cancel, status, connect-onboard, connect-dashboard, or connect-status.' });
+    return jsonResp(res, 400, { error: 'Unknown action. Use subscribe, portal, cancel, status, sync, connect-onboard, connect-dashboard, or connect-status.' });
   } catch (e) {
     console.error('stripe.js error:', e);
     return jsonResp(res, 500, { error: String(e?.message || e) });
