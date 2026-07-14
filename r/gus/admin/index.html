@@ -1721,26 +1721,49 @@
         });
 
         // ===== AdminAuth — per-retailer magic-link gate =====
+        // NEW: session_id lives in-memory + an HttpOnly cookie set by the server.
+        // localStorage is only touched to MIGRATE legacy sessions to the cookie, then cleared.
         const AdminAuth = (() => {
             const RETAILER_SLUG_LOCAL = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
-            const KEY = 'demohub_admin_session_' + RETAILER_SLUG_LOCAL;
+            const LEGACY_KEY = 'demohub_admin_session_' + RETAILER_SLUG_LOCAL;
+            let _memSession = null;
             return {
-                getSession() { return localStorage.getItem(KEY); },
-                setSession(id) { if (id) localStorage.setItem(KEY, id); },
-                clearSession() { localStorage.removeItem(KEY); },
+                getSession() { return _memSession; },
+                setSession(id) { if (id) _memSession = id; },
+                clearSession() { _memSession = null; try { localStorage.removeItem(LEGACY_KEY); } catch(_){} },
                 logout: async function() {
-                    const sid = this.getSession();
-                    if (sid) {
-                        try { await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout', session_id: sid }) }); } catch (_) {}
-                    }
+                    try { await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }), credentials: 'same-origin' }); } catch (_) {}
                     this.clearSession();
                     location.reload();
                 },
                 async api(payload) {
-                    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                    // credentials: 'same-origin' ensures the dh_session cookie rides along
+                    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'same-origin' });
                     const j = await r.json().catch(() => ({}));
                     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
                     return j;
+                },
+                // NEW: on page load, migrate any legacy localStorage session to the HttpOnly cookie.
+                // If we already have a cookie (fresh login) this is a no-op.
+                async migrateLegacyToken() {
+                    let legacy = null;
+                    try { legacy = localStorage.getItem(LEGACY_KEY); } catch(_){}
+                    if (!legacy) return null;
+                    try {
+                        const r = await fetch('/api/admin-auth', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'cookie-migrate', session_id: legacy }),
+                            credentials: 'same-origin',
+                        });
+                        if (r.ok) {
+                            const j = await r.json().catch(() => ({}));
+                            _memSession = j.session_id || legacy;
+                            try { localStorage.removeItem(LEGACY_KEY); } catch(_){}
+                            return _memSession;
+                        }
+                    } catch (_) {}
+                    // Migration failed — leave legacy alone; init() will treat as unauthenticated
+                    return null;
                 },
                 async init() {
                     const gate = document.getElementById('adminAuthGate');
@@ -1749,6 +1772,10 @@
                     const success = document.getElementById('adminAuthSuccess');
                     if (!gate) return false;
                     loading.style.display = 'block'; login.style.display = 'none'; success.style.display = 'none';
+
+                    // 0) Cookie migration: if a legacy localStorage session exists, upgrade it to the HttpOnly cookie.
+                    // This is safe to run every load — it's a no-op if there's nothing in localStorage.
+                    try { await this.migrateLegacyToken(); } catch(_){}
 
                     // 1) Magic link landing — exchange ?token for session
                     const params = new URLSearchParams(location.search);
