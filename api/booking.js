@@ -219,7 +219,7 @@ export default async function handler(req, res) {
     }
 
     // ---- Rate limit: prevent booking spam against any single retailer or from any single brand email ----
-    const rlSlug = await checkRateLimitStrict(req, 'booking-slug:' + String(retailer_slug).slice(0, 32), 40);
+    const rlSlug = await checkRateLimitStrict(req, 'booking-slug:' + String(retailer_slug).slice(0, 32), 100);
     if (!rlSlug.allowed) {
       const isBlip = rlSlug.error === 'rate_limit_unavailable';
       return res.status(isBlip ? 503 : 429).json({
@@ -227,7 +227,7 @@ export default async function handler(req, res) {
         message: isBlip ? 'Try again in a moment.' : 'Too many booking attempts. Try again in an hour.',
       });
     }
-    const rlEmail = await checkRateLimitStrict(req, 'booking-email:' + String(contact_email).toLowerCase().slice(0, 64), 15);
+    const rlEmail = await checkRateLimitStrict(req, 'booking-email:' + String(contact_email).toLowerCase().slice(0, 64), 50);
     if (!rlEmail.allowed) {
       const isBlip = rlEmail.error === 'rate_limit_unavailable';
       return res.status(isBlip ? 503 : 429).json({
