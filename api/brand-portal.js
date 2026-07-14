@@ -23,6 +23,34 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// -----------------------------------------------------------------------------
+// Rate limit — fail-closed. Prevents magic-link email spam / token brute force.
+// -----------------------------------------------------------------------------
+function clientIpForRateLimit(req) {
+  return req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+    || req.socket?.remoteAddress
+    || 'unknown';
+}
+
+async function checkRateLimit(req, bucketKey, maxPerHour) {
+  try {
+    const ip = clientIpForRateLimit(req);
+    const key = bucketKey + ':' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('brand-portal rate limit failed - denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
+}
+
 function magicLinkEmail({ contact_name, retailerName, link, expires_at }) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
@@ -58,9 +86,13 @@ export default async function handler(req, res) {
 
     // ---- LOGIN: request a magic link ----
     if (action === 'login') {
+      const rlIp = await checkRateLimit(req, 'bp-login-ip', 10);
+      if (!rlIp.allowed) return res.status(rlIp.error === 'rate_limit_unavailable' ? 503 : 429).json({ error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
       const { email, retailer_slug } = body || {};
       if (!email || !retailer_slug) return res.status(400).json({ error: 'email and retailer_slug required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
+      const rlEmail = await checkRateLimit(req, 'bp-login-email:' + String(email).toLowerCase().slice(0, 64), 5);
+      if (!rlEmail.allowed) return res.status(rlEmail.error === 'rate_limit_unavailable' ? 503 : 429).json({ error: rlEmail.error || 'too_many_requests', message: 'Too many sign-in requests for this email.' });
 
       const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`);
       const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -94,6 +126,8 @@ export default async function handler(req, res) {
 
     // ---- VERIFY: exchange token for session ----
     if (action === 'verify') {
+      const rl = await checkRateLimit(req, 'bp-verify', 30);
+      if (!rl.allowed) return res.status(rl.error === 'rate_limit_unavailable' ? 503 : 429).json({ error: rl.error || 'too_many_requests', message: 'Too many verify attempts. Try again in an hour.' });
       const { token } = body || {};
       if (!token) return res.status(400).json({ error: 'token required' });
       const tokens = await sb(`brand_tokens?token=eq.${encodeURIComponent(token)}&select=*`);
