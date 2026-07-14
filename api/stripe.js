@@ -83,6 +83,42 @@ async function verifySession(session_id) {
   } catch (_) { return null; }
 }
 
+// -----------------------------------------------------------------------------
+// HttpOnly cookie: prefer cookie session over body/query for auth.
+// -----------------------------------------------------------------------------
+const SESSION_COOKIE = 'dh_session';
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function parseCookies(req) {
+  const raw = req.headers && req.headers['cookie'];
+  const out = {};
+  if (!raw) return out;
+  for (const seg of String(raw).split(';')) {
+    const i = seg.indexOf('=');
+    if (i < 0) continue;
+    const k = seg.slice(0, i).trim();
+    const v = seg.slice(i + 1).trim();
+    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
+  }
+  return out;
+}
+
+function setSessionCookie(res, sessionId) {
+  if (!sessionId) return;
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function getSessionIdFromReq(req, body) {
+  const cookies = parseCookies(req);
+  return cookies[SESSION_COOKIE]
+    || (body && body.session_id)
+    || (req.query && req.query.session_id)
+    || null;
+}
+
 // ----- price/product lookup (cached in-memory per cold start) -----
 let _priceCache = null;
 async function getPriceForTier(tier, interval) {
@@ -112,10 +148,14 @@ export default async function handler(req, res) {
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const action = (req.query?.action || body.action || '').toString();
-    const session_id = (req.query?.session_id || body.session_id || '').toString();
+    // Prefer cookie session; fall back to query/body for backwards compat.
+    const session_id = getSessionIdFromReq(req, body);
 
     const session = await verifySession(session_id);
     if (!session) return jsonResp(res, 401, { error: 'Not authenticated' });
+    // Opportunistic upgrade: if authenticated via body but no cookie yet, set it.
+    const _cookies = parseCookies(req);
+    if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
 
     const retailerArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=*`);
     const retailer = Array.isArray(retailerArr) ? retailerArr[0] : null;
