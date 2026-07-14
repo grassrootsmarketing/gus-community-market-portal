@@ -112,6 +112,13 @@ function clearBrandSessionCookie(res) {
   else res.setHeader('Set-Cookie', cookie);
 }
 
+function generateLoginCode() {
+  // 6-digit numeric code, zero-padded, cryptographically random.
+  const { randomInt } = require('crypto');
+  const n = randomInt(0, 1000000);
+  return String(n).padStart(6, '0');
+}
+
 function getBrandSessionFromReq(req, body) {
   const cookies = parseCookies(req);
   return cookies[BRAND_SESSION_COOKIE]
@@ -121,14 +128,23 @@ function getBrandSessionFromReq(req, body) {
     || (req.query && req.query.session_token)
     || null;
 }
-async function sendMagicLink(email, link, isNew) {
-  if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — printing link to logs'); console.log('MAGIC LINK:', link); return; }
+async function sendMagicLink(email, link, isNew, code) {
+  if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — printing link to logs'); console.log('MAGIC LINK:', link, code ? '  CODE:' + code : ''); return; }
   const subject = isNew ? 'Welcome to Demohub — verify your brand account' : 'Sign in to your Demohub brand account';
+  const codeBlock = code ? `
+      <div style="background:#fbf7f0;border:1.5px solid #ede3d0;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center;">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:8px;">Your sign-in code</div>
+        <div style="font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div>
+        <div style="font-size:12px;color:#6b6a64;margin-top:10px;">Type this into the sign-in modal on any Demohub booking page.</div>
+      </div>
+      <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">— or —</p>
+  ` : '';
   const body = `
     <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
       <h1 style="font-family:Georgia,serif;font-weight:400;font-size:28px;margin:0 0 12px;">${isNew ? 'Welcome to Demohub.' : 'Sign in to your brand account.'}</h1>
-      <p style="font-size:16px;line-height:1.5;margin:0 0 24px;color:#3a3a36;">${isNew ? 'One profile that follows you to every Demohub retailer.' : 'Click below to access your dashboard.'} Link expires in 30 minutes.</p>
-      <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 28px;border-radius:99px;text-decoration:none;font-weight:600;font-size:15px;">${isNew ? 'Verify and continue' : 'Sign in'}</a>
+      <p style="font-size:16px;line-height:1.5;margin:0 0 24px;color:#3a3a36;">${isNew ? 'One profile that follows you to every Demohub retailer.' : 'Enter the code below on the sign-in modal, or click the link.'} ${code ? 'Code expires in 30 minutes.' : 'Link expires in 30 minutes.'}</p>
+      ${codeBlock}
+      <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 28px;border-radius:99px;text-decoration:none;font-weight:600;font-size:15px;">${isNew ? 'Verify and continue' : 'Sign in via link'}</a>
       <p style="font-size:13px;color:#6b6a64;margin-top:32px;">If you didn't request this, you can safely ignore the email.</p>
     </div>
   `;
@@ -468,15 +484,54 @@ export default async function handler(req, res) {
       const member = (await lookupR.json())[0];
       if (member) {
         const token = randomToken(24);
+        const code = generateLoginCode();
         const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-        await sb('brand_account_tokens', {
-          method: 'POST',
-          body: JSON.stringify({ brand_id: member.brand_id, email: member.email, token, expires_at: expires }),
-        });
+        // Insert both the magic-link token AND the 6-digit code as separate rows.
+        // Verify-code looks up by (token=<code>, email=<email>). Verify (magic-link) looks up by token=<hex>.
+        // Both same expires_at; either path marks used_at and invalidates.
+        await Promise.all([
+          sb('brand_account_tokens', {
+            method: 'POST',
+            body: JSON.stringify({ brand_id: member.brand_id, email: member.email, token, expires_at: expires }),
+          }),
+          sb('brand_account_tokens', {
+            method: 'POST',
+            body: JSON.stringify({ brand_id: member.brand_id, email: member.email, token: code, expires_at: expires }),
+          }),
+        ]);
         const link = `https://demohubhq.com/brand/verify?t=${token}`;
-        await sendMagicLink(member.email, link, false);
+        // Fire-and-forget email — don't block response on Resend latency
+        sendMagicLink(member.email, link, false, code).catch(e => console.warn('brand login email failed:', e?.message || e));
       }
+      // Always return ok:true to prevent email enumeration
       return jsonResp(res, 200, { ok: true });
+    }
+
+    // ---- VERIFY-CODE: exchange 6-digit code (+ email) for session ----
+    // Parallel to admin-auth verify-code but for brand accounts. Rate-limited.
+    if (action === 'verify-code') {
+      const email = String(body.email || '').trim().toLowerCase();
+      const code = String(body.code || '').replace(/\D/g, '').trim();
+      if (!email || !code || code.length !== 6) return jsonResp(res, 400, { error: 'Email and 6-digit code required' });
+      const rl = await checkRateLimit(req, 'brand-verify-code', 30);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
+      // Look up by token = code AND email = email (scoped, so 6-digit collisions across brands don't matter)
+      const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=ilike.${encodeURIComponent(email)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
+      const tok = (await tR.json())[0];
+      if (!tok) return jsonResp(res, 404, { error: 'Invalid code' });
+      if (new Date(tok.expires_at).getTime() < Date.now()) return jsonResp(res, 410, { error: 'Code expired' });
+      // Mark used to prevent reuse
+      await sb(`brand_account_tokens?id=eq.${tok.id}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+      // Create the session
+      const sessionToken = randomToken(32);
+      const sessionExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      await sb('brand_account_sessions', {
+        method: 'POST',
+        body: JSON.stringify({ brand_id: tok.brand_id, email: tok.email, session_token: sessionToken, expires_at: sessionExpires }),
+      });
+      // Set HttpOnly cookie so future requests authenticate without body-token
+      setBrandSessionCookie(res, sessionToken);
+      return jsonResp(res, 200, { ok: true, session_token: sessionToken, email: tok.email, brand_id: tok.brand_id });
     }
 
     if (action === 'verify') {
