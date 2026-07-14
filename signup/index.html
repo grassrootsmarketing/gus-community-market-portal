@@ -433,6 +433,32 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       // Update URL so refresh stays on success state and shareable
       try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(slug)); } catch(_){}
 
+      // Phase E: Multi-store signup needs Pro subscription. Redirect to Stripe Checkout
+      // (14-day free trial). The signup token doubles as an admin session for the subscribe call.
+      if (j.needs_billing && j.session_token) {
+        try {
+          if (submitBtn) submitBtn.textContent = 'Redirecting to payment…';
+          // Stash minimal state so if they cancel out of Stripe they land back on the success card
+          localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
+            slug, adminUrl, adminUrlAuto, publicUrl, savedAt: Date.now(),
+            tier: 'pro', pending_billing: true,
+          }));
+          const stripeResp = await fetch('/api/stripe?action=subscribe&session_id=' + encodeURIComponent(j.session_token), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tier: 'pro', interval: 'month' }),
+          });
+          const stripeJson = await stripeResp.json().catch(() => ({}));
+          if (stripeResp.ok && stripeJson.url) {
+            window.location.href = stripeJson.url;
+            return;
+          }
+          console.warn('Stripe subscribe failed, showing success card:', stripeJson.error || stripeResp.status);
+        } catch (stripeErr) {
+          console.warn('Stripe redirect failed:', stripeErr);
+        }
+        // If Stripe failed, fall through to normal success (they can hit the button in admin)
+      }
+
       renderSuccess({ slug, adminUrl, adminUrlAuto, publicUrl });
     } catch (err) {
       showError(err.message || 'Sign-up failed. Try again or email david@demohubhq.com.');
