@@ -45,6 +45,52 @@ async function sb(path, opts = {}) {
     },
   });
 }
+
+// -----------------------------------------------------------------------------
+// HttpOnly cookie for BRAND sessions (dh_brand_session, distinct from dh_session
+// used by retailers). Same invariants: HttpOnly, Secure, SameSite=Lax.
+// -----------------------------------------------------------------------------
+const BRAND_SESSION_COOKIE = 'dh_brand_session';
+const BRAND_SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function parseCookies(req) {
+  const raw = req.headers && req.headers['cookie'];
+  const out = {};
+  if (!raw) return out;
+  for (const seg of String(raw).split(';')) {
+    const i = seg.indexOf('=');
+    if (i < 0) continue;
+    const k = seg.slice(0, i).trim();
+    const v = seg.slice(i + 1).trim();
+    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
+  }
+  return out;
+}
+
+function setBrandSessionCookie(res, token) {
+  if (!token) return;
+  const cookie = `${BRAND_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${BRAND_SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function clearBrandSessionCookie(res) {
+  const cookie = `${BRAND_SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function getBrandSessionFromReq(req, body) {
+  const cookies = parseCookies(req);
+  return cookies[BRAND_SESSION_COOKIE]
+    || (body && body.session_id)
+    || (body && body.session_token)
+    || (req.query && req.query.session_id)
+    || (req.query && req.query.session_token)
+    || null;
+}
 async function sendMagicLink(email, link, isNew) {
   if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — printing link to logs'); console.log('MAGIC LINK:', link); return; }
   const subject = isNew ? 'Welcome to Demohub — verify your brand account' : 'Sign in to your Demohub brand account';
@@ -424,11 +470,13 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
       });
+      // Set HttpOnly cookie so subsequent requests authenticate without body-session_token.
+      setBrandSessionCookie(res, sessionToken);
       return jsonResp(res, 200, { ok: true, session_token: sessionToken });
     }
 
     if (action === 'data') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const [profileR, demosR, contactsR] = await Promise.all([
@@ -443,7 +491,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'agreement-list') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const rRows = await sb(`brand_retailer_agreements?brand_id=eq.${brandId}&select=*,retailers(id,name,slug,demo_policy,cancellation_policy)&order=signed_at.desc`);
@@ -463,7 +511,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'profile-update') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity'];
@@ -488,7 +536,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'upload-avatar' || action === 'upload-logo') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const dataUrl = String(body.image || '');
@@ -517,7 +565,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'upload-coi') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const dataUrl = String(body.file || '');
@@ -555,7 +603,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'remove-coi') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       await sb(`brands?id=eq.${brandId}`, {
@@ -575,7 +623,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'remove-avatar') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       await sb(`brands?id=eq.${brandId}`, {
@@ -671,16 +719,27 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
+    // ---- COOKIE-MIGRATE: legacy body session_token → HttpOnly cookie ----
+    if (action === 'cookie-migrate') {
+      const sessionToken = (body.session_token || body.session_id || '').toString();
+      if (!sessionToken) return jsonResp(res, 400, { error: 'session_token required' });
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Session not found or expired' });
+      setBrandSessionCookie(res, sessionToken);
+      return jsonResp(res, 200, { ok: true, brand_id: brandId });
+    }
+
     if (action === 'logout') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body);
       if (sessionToken) {
         await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}`, { method: 'DELETE' });
       }
+      clearBrandSessionCookie(res);
       return jsonResp(res, 200, { ok: true });
     }
 
     if (action === 'logout-everywhere') {
-      const sessionToken = (req.query?.session_id || body.session_id || '').toString();
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
