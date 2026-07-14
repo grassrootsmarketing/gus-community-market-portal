@@ -54,6 +54,47 @@ async function sb(path, opts = {}) {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
+// -----------------------------------------------------------------------------
+// HttpOnly cookie: prefer cookie over query/body for auth. Opportunistically
+// set the cookie for callers that authenticated via legacy body/query so they
+// upgrade seamlessly to cookie-only over time.
+// -----------------------------------------------------------------------------
+const SESSION_COOKIE = 'dh_session';
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function parseCookies(req) {
+  const raw = req.headers && req.headers['cookie'];
+  const out = {};
+  if (!raw) return out;
+  for (const seg of String(raw).split(';')) {
+    const i = seg.indexOf('=');
+    if (i < 0) continue;
+    const k = seg.slice(0, i).trim();
+    const v = seg.slice(i + 1).trim();
+    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
+  }
+  return out;
+}
+
+function setSessionCookie(res, sessionId) {
+  if (!sessionId) return;
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function getSessionIdFromReq(req) {
+  const cookies = parseCookies(req);
+  const bodySid = (() => {
+    try {
+      const b = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+      return b.session_id || null;
+    } catch (_) { return null; }
+  })();
+  return cookies[SESSION_COOKIE] || bodySid || (req.query && req.query.session_id) || null;
+}
+
 // Inline session verification (mirrors verifyAdminSession in admin-auth.js).
 async function verifySession(session_id) {
   if (!session_id || !isUuid(session_id)) return null;
@@ -89,10 +130,14 @@ export default async function handler(req, res) {
 
   if (!SERVICE_KEY) return send(res, 500, { error: 'SUPABASE_SERVICE_KEY not configured on server' });
 
-  const { table, id, session_id } = req.query || {};
-  // === Session check ===
+  const { table, id } = req.query || {};
+  // === Session check (cookie first, query/body fallback for backwards compat) ===
+  const session_id = getSessionIdFromReq(req);
   const session = await verifySession(session_id);
   if (!session) return send(res, 401, { error: 'Invalid or missing admin session' });
+  // Opportunistic upgrade: if authenticated via body/query but no cookie yet, set it.
+  const _cookies = parseCookies(req);
+  if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
 
   // Phase C: block writes on the demo tenant. Reads (GET action=data) still allowed.
   if (['POST', 'PATCH', 'DELETE', 'PUT'].includes(req.method)) {
