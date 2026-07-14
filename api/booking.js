@@ -437,12 +437,15 @@ export default async function handler(req, res) {
       }
     }
 
-    // Insert booking row
+    // Insert booking row — MUST use SERVICE_KEY to bypass RLS on bookings table.
+    // Anonymous inserts are blocked by design; this endpoint acts as the trusted
+    // proxy for public brand booking submissions.
+    if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
       headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
+        apikey: SERVICE_KEY,
+        Authorization: `Bearer ${SERVICE_KEY}`,
         'Content-Type': 'application/json',
         Prefer: 'return=representation',
       },
