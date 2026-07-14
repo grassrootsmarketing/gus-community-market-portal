@@ -593,12 +593,12 @@
                 <button onclick="window.open('/r/' + (window.RETAILER_SLUG || ''), '_blank')">Preview booking page</button>
                 <div id="acctMenuWrap" style="position:relative;">
                     <button id="acctMenuBtn" onclick="toggleAcctMenu(event)" class="active" style="display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
-                        <span id="acctMenuInitials" style="width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.18); color:#fbf7f0; display:inline-flex; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700;">·</span>
+                        <span id="acctMenuInitials" style="width:22px; height:22px; border-radius:50%; background:rgba(255,255,255,0.18); color:#fbf7f0; display:none; align-items:center; justify-content:center; font-size:0.72rem; font-weight:700;"></span>
                         <span>Account</span>
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     <div id="acctMenu" style="display:none; position:absolute; right:0; top:calc(100% + 6px); background:white; border-radius:10px; box-shadow:0 8px 24px rgba(15,44,23,0.15); min-width:220px; padding:6px; z-index:100; border:1px solid var(--sand-200);">
-                        <div id="acctMenuEmail" style="padding:10px 12px 4px; font-size:0.75rem; color:var(--ink-500); border-bottom:1px solid var(--sand-100); margin-bottom:4px; word-break:break-all;">Signed in as <span id="acctEmailValue" style="color:var(--forest-800); font-weight:600;">…</span></div>
+                        <div id="acctMenuEmail" style="padding:10px 12px 4px; font-size:0.75rem; color:var(--ink-500); border-bottom:1px solid var(--sand-100); margin-bottom:4px; word-break:break-all;">Signed in as <span id="acctEmailValue" style="color:var(--forest-800); font-weight:600;"></span></div>
                         <button type="button" onclick="acctSwitchAccount()" style="width:100%; text-align:left; background:none; border:none; padding:9px 12px; border-radius:6px; cursor:pointer; font-family:inherit; font-size:0.88rem; color:var(--ink-700); font-weight:500; display:flex; align-items:center; gap:8px;" onmouseover="this.style.background='var(--sand-100)'" onmouseout="this.style.background='none'">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="m22 11-3-3m0 0-3 3m3-3v12"/></svg>
                             Switch account
@@ -1519,15 +1519,8 @@
             if (!menu) return;
             menu.style.display = menu.style.display === 'block' ? 'none' : 'block';
             if (menu.style.display === 'block') {
-                // Populate email + initials
-                const email = (window.AdminAuth?.getEmail?.() || localStorage.getItem('demohub_admin_email_' + (window.RETAILER_SLUG||'')) || '');
-                const emailSpan = document.getElementById('acctEmailValue');
-                if (emailSpan) emailSpan.textContent = email || 'unknown';
-                const initEl = document.getElementById('acctMenuInitials');
-                if (initEl) {
-                    const first = (email || '?').charAt(0).toUpperCase();
-                    initEl.textContent = first;
-                }
+                // Populate email + initials via the shared helper
+                if (typeof updateAccountBadge === 'function') updateAccountBadge();
             }
         }
         // Close on outside click
@@ -1898,12 +1891,32 @@
             };
         })();
 
+        // Populate the account button + menu with the signed-in email + first-letter initial.
+        // Called after AdminAuth.init() succeeds so the button reads correctly on page load,
+        // not just after the user opens the menu.
+        function updateAccountBadge() {
+            try {
+                const email = (window.AdminAuth?.getEmail?.() || window.state?.myEmail || '').trim();
+                const initEl = document.getElementById('acctMenuInitials');
+                const emailEl = document.getElementById('acctEmailValue');
+                if (initEl) {
+                    initEl.textContent = email ? email.charAt(0).toUpperCase() : '';
+                    // Hide the circle entirely if no email — cleaner than showing a placeholder glyph
+                    initEl.style.display = email ? 'inline-flex' : 'none';
+                }
+                if (emailEl) {
+                    emailEl.textContent = email || 'not signed in';
+                }
+            } catch (_) { /* non-fatal cosmetic update */ }
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             // renderCalendar() is for the public booking calendar; admin page doesn't have it
             if (document.getElementById('calendarMonth')) { try { renderCalendar(); } catch(e){} }
             // Auth gate first — bail out if not signed in
             const ok = await AdminAuth.init();
             if (!ok) return;
+            updateAccountBadge();
             initSupabase();
         });
         
