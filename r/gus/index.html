@@ -598,7 +598,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const radius = opts.radius || '10px 10px 0 0';
             const textSize = size >= 100 ? '2.6rem' : size >= 60 ? '1.55rem' : '1.05rem';
             if (url) {
-                return `<img src="${url.replace(/"/g,'&quot;')}" alt="${name.replace(/"/g,'&quot;')}" style="width:100%;height:100%;object-fit:cover;border-radius:${radius};display:block;">`;
+                // Use contain + centered flex so the full logo shows regardless of aspect ratio (wide banners, tall marks, square avatars all handled).
+                // Frame uses the same forest gradient as the initials fallback so mixed cases (some retailers with logo, some without) sit together consistently.
+                const pad = size >= 100 ? '18px' : size >= 60 ? '10px' : '6px';
+                return `<div style="width:100%;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;padding:${pad};border-radius:${radius};box-sizing:border-box;"><img src="${url.replace(/"/g,'&quot;')}" alt="${name.replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;"></div>`;
             }
             return `<div style="width:100%;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;border-radius:${radius};"><span style="font-family:'Plus Jakarta Sans','Inter',sans-serif;font-weight:700;font-size:${textSize};color:#fbf7f0;letter-spacing:0.02em;">${initials}</span></div>`;
         }
