@@ -9,7 +9,7 @@
 // Sensitive fields (contact email, phone, notes) are NOT included.
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
-const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function toICSDate(d) {
