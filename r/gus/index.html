@@ -1325,28 +1325,68 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         window.location.assign(checkoutJson.url);
                         return; // stop here; brand comes back to /r/{slug}/?paid=1
                     }
-                    // fall through to the current success modal for skip:true or errors
+                    // Stripe path unavailable — do NOT show a 'Confirmed' state. Show a clear
+                    // 'pending payment' state instead. Bookings on the server are already in
+                    // pending_payment status (see api/booking.js), so we're just telling the user.
                     if (checkoutJson.skip) {
                         console.log('Stripe collection skipped:', checkoutJson.reason);
+                        showPendingPaymentModal(cart.length, checkoutJson.reason, contactEmail);
+                        btn.disabled = false;
+                        btn.textContent = origLabel;
+                        return;
                     } else if (!checkoutResp.ok) {
                         console.warn('checkout-session failed:', checkoutJson.error || checkoutResp.status);
+                        errMsg.textContent = 'Could not open payment. Try again in a moment, or the retailer can invoice you.';
+                        errMsg.style.display = 'block';
+                        btn.disabled = false;
+                        btn.textContent = origLabel;
+                        return;
                     }
                 } catch (e) {
                     console.warn('checkout-session error, falling back to modal:', e);
+                    errMsg.textContent = 'Network error opening payment. Your booking is on hold — try again in a moment.';
+                    errMsg.style.display = 'block';
+                    btn.disabled = false;
+                    btn.textContent = origLabel;
+                    return;
                 }
                 btn.disabled = false;
                 btn.textContent = origLabel;
             }
-            // Success, show success modal with details
+            // NOTE: never falls through to the old "Success! Confirmation #" modal anymore.
+            // That path used to show "Confirmed" even when payment was skipped, which was
+            // a payment-gating bypass. Server enforces pending_payment status until webhook
+            // fires; this UI now honors the same gate.
+        }
+
+        // Modal shown when payment collection couldn't complete (Stripe not connected on retailer
+        // side, checkout endpoint errored, etc.). Booking IS in the DB but pending payment —
+        // retailer will follow up. Very different visual language from "Confirmed!"
+        function showPendingPaymentModal(count, reason, email) {
             document.getElementById('contactInfoModal').classList.remove('active');
-            let detailsHtml = '<div class="summary-line"><span>Confirmation #</span><span>DH-' + String(Math.floor(Math.random() * 90000) + 10000) + '</span></div>';
-            detailsHtml += '<div class="summary-line"><span>Confirmation email</span><span>' + (emailWarned ? 'Sent shortly' : 'Sent to ' + escapeHtml(contactEmail)) + '</span></div>';
-            detailsHtml += '<div style="margin-top: 16px; font-weight: 600; color: var(--forest-800); margin-bottom: 8px;">Booked Demos:</div>';
-            cart.forEach(item => {
-                detailsHtml += '<div class="confirmation-booking"><div style="font-weight: 600;">' + escapeHtml(item.displayDate) + ' &bull; ' + escapeHtml(item.time) + '</div><div style="font-size: 0.85rem; color: var(--bark-500);">Gus\'s Community Market, ' + escapeHtml(item.location) + '</div></div>';
-            });
-            document.getElementById('confirmationDetails').innerHTML = detailsHtml;
-            document.getElementById('successModal').classList.add('active');
+            const overlay = document.createElement('div');
+            overlay.id = 'pendingPaymentOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+            const bookingWord = count === 1 ? 'booking' : 'bookings';
+            const isNoStripe = reason === 'stripe_not_connected';
+            overlay.innerHTML = `
+                <div style="background:white;border-radius:20px;box-shadow:0 24px 60px rgba(15,44,23,0.35);max-width:520px;width:100%;padding:36px 32px;font-family:'Plus Jakarta Sans',sans-serif;">
+                    <div style="width:64px;height:64px;border-radius:50%;background:#fdebe5;display:inline-flex;align-items:center;justify-content:center;margin-bottom:18px;">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </div>
+                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${bookingWord} on hold, awaiting payment</h2>
+                    <p style="font-size:0.95rem;color:#3a3a36;margin:0 0 18px;line-height:1.55;">
+                        ${isNoStripe
+                            ? `We couldn't collect payment because this retailer hasn't finished setting up online payments yet. Your ${bookingWord} ${count === 1 ? 'is' : 'are'} saved but NOT confirmed — the retailer will follow up at <strong>${escapeHtml(email)}</strong> to arrange payment.`
+                            : `We couldn't reach our payment processor. Your ${bookingWord} ${count === 1 ? 'is' : 'are'} saved but NOT confirmed — the retailer will follow up at <strong>${escapeHtml(email)}</strong>.`}
+                    </p>
+                    <div style="background:#fbf7f0;border-left:3px solid #a14e2a;padding:14px 18px;border-radius:8px;font-size:0.85rem;line-height:1.55;color:#3a3a36;margin-bottom:22px;">
+                        <strong style="color:#0f2c17;">Important:</strong> until payment is completed, the demo slot is on hold and can be released if payment doesn't come through. You'll get an email once payment is arranged and the booking is fully confirmed.
+                    </div>
+                    <button type="button" onclick="document.getElementById('pendingPaymentOverlay').remove();showView('landing');" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;">Got it</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
         }
         
         function closeModal() { 
