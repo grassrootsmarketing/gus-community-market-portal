@@ -56,6 +56,7 @@ function parseDemoTime(dateStr, timeStr) {
 
 export default async function handler(req, res) {
   const slug = String((req.query && req.query.slug) || '').trim().toLowerCase();
+  const venueParam = String((req.query && req.query.venue) || '').trim();
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
     res.status(400).send('Missing or invalid ?slug= parameter');
     return;
@@ -79,10 +80,25 @@ export default async function handler(req, res) {
         headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
       }),
     ]);
-    const demos = await dR.json();
+    let demos = await dR.json();
     const venues = await vR.json();
     const venueById = {};
     (venues || []).forEach(v => { venueById[v.id] = v; });
+
+    // Phase F: venue filter — accept UUID or exact venue name (case-insensitive)
+    let filteredVenueName = null;
+    if (venueParam) {
+      const wantId = /^[0-9a-f-]{36}$/i.test(venueParam) ? venueParam : null;
+      const wantName = venueParam.toLowerCase();
+      const match = (venues || []).find(v => (wantId && v.id === wantId) || (!wantId && (v.name || '').toLowerCase() === wantName));
+      if (match) {
+        filteredVenueName = match.name;
+        demos = (demos || []).filter(d => d.venue_id === match.id);
+      } else {
+        // Venue param supplied but no match — return empty calendar rather than 404
+        demos = [];
+      }
+    }
 
     const now = new Date();
     const lines = [
@@ -91,8 +107,8 @@ export default async function handler(req, res) {
       `PRODID:-//Demohub//Calendar feed//EN`,
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      fold('X-WR-CALNAME:' + escapeICS(`${retailer.name} — Demos`)),
-      fold('X-WR-CALDESC:' + escapeICS(`Confirmed demos at ${retailer.name}, powered by Demohub`)),
+      fold('X-WR-CALNAME:' + escapeICS(`${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''} — Demos`)),
+      fold('X-WR-CALDESC:' + escapeICS(`Confirmed demos at ${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''}, powered by Demohub`)),
       'X-WR-TIMEZONE:America/Los_Angeles',
     ];
 
