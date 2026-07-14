@@ -1165,6 +1165,9 @@
                                     <a href="/pricing" style="font-size:0.85rem; color:var(--forest-700); font-weight:600; text-decoration:underline;">See plan details</a>
                                 </div>
                                 <div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px; line-height:1.5;">$29.99/mo. Cancel anytime from this page.</div>
+                                <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(15,44,23,0.08); font-size:0.78rem; color:var(--ink-500); line-height:1.5;">
+                                    Already paid but still see Solo? <button type="button" onclick="resyncBillingTier(this)" style="background:none; border:none; color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-family:inherit; font-size:0.78rem;">Resync my plan &rarr;</button>
+                                </div>
                             </div>
                             <div id="planPaidState" style="padding:14px 0; display:none;">
                                 <div id="planPaidLabel" style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">Pro plan</div>
@@ -5635,6 +5638,74 @@ END:VEVENT
             }
         }
         document.addEventListener('DOMContentLoaded', () => setTimeout(_renderBillingState, 1500));
+        // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
+        // our DB. Rescue path for any retailer whose billing_tier didn't update because a
+        // webhook was missed (e.g. before the webhook secret was configured).
+        async function resyncBillingTier(btn) {
+            const origLabel = btn ? btn.innerHTML : null;
+            if (btn) { btn.disabled = true; btn.innerHTML = 'Checking Stripe…'; }
+            try {
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
+                const r = await fetch('/api/stripe?action=sync&session_id=' + encodeURIComponent(sessionId), {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+                });
+                const d = await r.json();
+                if (!r.ok) throw new Error(d.error || 'Sync failed');
+                if (d.found === false) {
+                    if (typeof toast === 'function') toast(d.message || 'No Stripe subscription found for this account yet.', 'warn');
+                    else alert(d.message || 'No Stripe subscription found for this account yet.');
+                    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+                    return;
+                }
+                // Mirror what came back into local state so the UI re-renders immediately
+                if (window.state) {
+                    window.state.retailer = window.state.retailer || {};
+                    window.state.retailer.billing_tier = d.tier;
+                    window.state.retailer.billing_status = d.status;
+                    if (window.state.settings) window.state.settings.billing_tier = d.tier;
+                }
+                if (typeof toast === 'function') toast(`Plan resynced. You're on ${d.tier === 'pro' ? 'Pro' : d.tier}.`, 'ok');
+                _renderBillingState();
+                // Also nudge a full refresh so tier-gated UI (team invite, locations count) updates
+                setTimeout(() => window.location.reload(), 900);
+            } catch (e) {
+                console.error('resync failed:', e);
+                if (typeof toast === 'function') toast('Resync failed: ' + (e.message || e), 'err');
+                else alert('Resync failed: ' + (e.message || e));
+                if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
+            }
+        }
+
+        // Auto-sync: when the retailer returns from Stripe Checkout on ?billing=success, we
+        // trigger a resync so the tier upgrade is reflected immediately even if the webhook
+        // hasn\'t landed yet (or is not configured).
+        (function autoSyncOnBillingReturn() {
+            try {
+                const params = new URLSearchParams(window.location.search || '');
+                if (params.get('billing') !== 'success') return;
+                // Clean the URL so refresh doesn\'t re-fire
+                const clean = window.location.pathname + window.location.hash;
+                window.history.replaceState({}, '', clean);
+                // Wait for session + state to hydrate
+                setTimeout(() => {
+                    const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
+                    if (!sessionId) return;
+                    fetch('/api/stripe?action=sync&session_id=' + encodeURIComponent(sessionId), {
+                        method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+                    }).then(r => r.json()).then(d => {
+                        if (d && d.found && window.state) {
+                            window.state.retailer = window.state.retailer || {};
+                            window.state.retailer.billing_tier = d.tier;
+                            if (window.state.settings) window.state.settings.billing_tier = d.tier;
+                            _renderBillingState();
+                            if (typeof toast === 'function') toast('Payment received. You\'re on Pro.', 'ok');
+                        }
+                    }).catch(() => {});
+                }, 1200);
+            } catch (_) { /* non-fatal */ }
+        })();
+
+
         async function subscribeToTier(tier, interval) {
             const btn = event?.target;
             const origLabel = btn ? btn.innerHTML : null;
