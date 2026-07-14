@@ -1,11 +1,18 @@
 // /api/stripe-webhook — receives events from Stripe and updates our DB.
 //
 // Events handled:
-//   account.updated              → flips retailers.stripe_charges_enabled / _payouts_enabled
-//                                  when Plaid or micro-deposit verification completes.
-//   payment_intent.succeeded     → marks the associated booking as paid.
-//   payment_intent.payment_failed → marks the booking as payment-failed.
-//   charge.refunded              → marks the booking as refunded.
+//   account.updated                → flips retailers.stripe_charges_enabled / _payouts_enabled
+//                                     when Plaid or micro-deposit verification completes.
+//   checkout.session.completed     → for subscription mode: mirrors billing_tier and
+//                                     stripe_subscription_id onto the retailer row.
+//                                     This is how a Pro-tier upgrade actually sticks.
+//   customer.subscription.updated  → keeps billing_status + billing_period_end in sync
+//                                     (past_due, cancel_at_period_end, renewal, tier changes).
+//   customer.subscription.deleted  → reverts retailer to Solo, clears subscription id.
+//   invoice.payment_failed         → flips billing_status to past_due.
+//   payment_intent.succeeded       → marks the associated booking as paid.
+//   payment_intent.payment_failed  → marks the booking as payment-failed.
+//   charge.refunded                → marks the booking as refunded.
 //
 // Env vars required:
 //   STRIPE_WEBHOOK_SECRET (whsec_...)   — from Stripe Dashboard → Developers → Webhooks
@@ -322,6 +329,139 @@ async function handleChargeRefunded(event) {
 }
 
 // -----------------------------------------------------------------------------
+// Subscription lifecycle handlers
+// -----------------------------------------------------------------------------
+
+// checkout.session.completed: fires when the brand/retailer finishes any Checkout Session.
+// For mode=subscription, this is the moment a Pro upgrade completes. We mirror everything
+// into the retailer row so the admin UI immediately shows Pro on next page load, without
+// waiting on customer.subscription.created (which lands a beat later).
+async function handleCheckoutSessionCompleted(event) {
+  const session = event.data.object || {};
+  const mode = session.mode;
+  const meta = session.metadata || {};
+  const retailerId = meta.retailer_id;
+  const tier = (meta.tier || '').toLowerCase();
+
+  // Only handle subscription-mode checkouts here. Payment-mode is per-booking, already
+  // handled via payment_intent.succeeded on individual bookings.
+  if (mode !== 'subscription') return;
+  if (!retailerId) {
+    console.warn('checkout.session.completed subscription without retailer_id metadata:', session.id);
+    return;
+  }
+
+  const subscriptionId = session.subscription || null;
+  const customerId = session.customer || null;
+
+  const patch = {
+    stripe_customer_id: customerId,
+    stripe_subscription_id: subscriptionId,
+    billing_tier: (tier === 'pro' || tier === 'starter' || tier === 'growth') ? tier : 'pro',
+    billing_status: 'active',
+  };
+
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  console.log(`checkout.session.completed: retailer ${retailerId} upgraded to ${patch.billing_tier}`);
+}
+
+// customer.subscription.updated: fires on plan changes, status changes, cancel_at_period_end
+// toggles, renewals. Keep billing_status + billing_period_end fresh.
+async function handleSubscriptionUpdated(event) {
+  const sub = event.data.object || {};
+  const meta = sub.metadata || {};
+  let retailerId = meta.retailer_id;
+
+  // Fallback: look up by stripe_subscription_id if metadata is missing.
+  if (!retailerId && sub.id) {
+    const rows = await sb(`retailers?stripe_subscription_id=eq.${encodeURIComponent(sub.id)}&select=id`);
+    if (Array.isArray(rows) && rows.length) retailerId = rows[0].id;
+  }
+  if (!retailerId) {
+    console.warn('customer.subscription.updated: no retailer for sub', sub.id);
+    return;
+  }
+
+  const status = sub.status || null; // active | past_due | canceled | unpaid | incomplete | trialing
+  const periodEnd = sub.current_period_end ? new Date(sub.current_period_end * 1000).toISOString() : null;
+  const cancelAt = sub.cancel_at ? new Date(sub.cancel_at * 1000).toISOString() : null;
+
+  const patch = {
+    billing_status: status,
+    billing_period_end: periodEnd,
+    billing_cancel_at: cancelAt,
+  };
+
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  console.log(`customer.subscription.updated: retailer ${retailerId} status=${status}`);
+}
+
+// customer.subscription.deleted: subscription has fully ended (past cancel_at, or hard-canceled).
+// Revert the retailer to Solo. They can still resubscribe from Billing.
+async function handleSubscriptionDeleted(event) {
+  const sub = event.data.object || {};
+  let retailerId = (sub.metadata || {}).retailer_id;
+  if (!retailerId && sub.id) {
+    const rows = await sb(`retailers?stripe_subscription_id=eq.${encodeURIComponent(sub.id)}&select=id`);
+    if (Array.isArray(rows) && rows.length) retailerId = rows[0].id;
+  }
+  if (!retailerId) return;
+
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      billing_tier: 'solo',
+      billing_status: 'canceled',
+      stripe_subscription_id: null,
+      billing_cancel_at: null,
+    }),
+  });
+  console.log(`customer.subscription.deleted: retailer ${retailerId} reverted to solo`);
+}
+
+// invoice.payment_failed: retailer's card failed for a subscription invoice. Flag past_due so
+// the admin UI can prompt them to update their payment method via the Stripe portal.
+async function handleInvoicePaymentFailed(event) {
+  const invoice = event.data.object || {};
+  const subscriptionId = invoice.subscription || null;
+  if (!subscriptionId) return;
+  const rows = await sb(`retailers?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}&select=id`);
+  const retailerId = Array.isArray(rows) && rows.length ? rows[0].id : null;
+  if (!retailerId) return;
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ billing_status: 'past_due' }),
+  });
+  console.log(`invoice.payment_failed: retailer ${retailerId} flagged past_due`);
+}
+
+// invoice.paid: monthly renewal succeeded. Refresh billing_period_end + set active.
+async function handleInvoicePaid(event) {
+  const invoice = event.data.object || {};
+  const subscriptionId = invoice.subscription || null;
+  if (!subscriptionId) return;
+  const rows = await sb(`retailers?stripe_subscription_id=eq.${encodeURIComponent(subscriptionId)}&select=id`);
+  const retailerId = Array.isArray(rows) && rows.length ? rows[0].id : null;
+  if (!retailerId) return;
+  const periodEnd = invoice.lines?.data?.[0]?.period?.end
+    ? new Date(invoice.lines.data[0].period.end * 1000).toISOString()
+    : null;
+  const patch = { billing_status: 'active' };
+  if (periodEnd) patch.billing_period_end = periodEnd;
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  console.log(`invoice.paid: retailer ${retailerId} renewed`);
+}
+
+// -----------------------------------------------------------------------------
 // Handler entrypoint
 // -----------------------------------------------------------------------------
 export default async function handler(req, res) {
@@ -350,6 +490,18 @@ export default async function handler(req, res) {
     switch (event.type) {
       case 'account.updated':
         await handleAccountUpdated(event); break;
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event); break;
+      case 'customer.subscription.updated':
+      case 'customer.subscription.created':
+        await handleSubscriptionUpdated(event); break;
+      case 'customer.subscription.deleted':
+        await handleSubscriptionDeleted(event); break;
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event); break;
+      case 'invoice.paid':
+      case 'invoice.payment_succeeded':
+        await handleInvoicePaid(event); break;
       case 'payment_intent.succeeded':
         await handlePaymentIntentSucceeded(event); break;
       case 'payment_intent.payment_failed':
