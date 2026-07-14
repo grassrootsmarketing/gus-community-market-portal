@@ -471,7 +471,6 @@ export default async function handler(req, res) {
             ? 'pending_payment'
             : (retailer.auto_confirm_bookings ? 'confirmed' : 'pending')
         ),
-        payment_status: (venueRow && Number(venueRow.demo_fee) > 0) ? 'unpaid' : 'not_required',
         brand_id: brandId,
       }),
     });
