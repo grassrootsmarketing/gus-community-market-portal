@@ -431,9 +431,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                                 <div class="cart-empty">No demos selected yet.<br>Pick a date and time above!</div>
                             </div>
                             
-                            <div class="summary-line"><span>Price per demo</span><span>$30.00</span></div>
+                            <div class="summary-line"><span>Price per demo</span><span id="pricePerDemo">$30.00</span></div>
                             <div class="summary-line"><span>Number of demos</span><span id="demoCount">0</span></div>
+                            <div class="summary-line" id="subtotalLine" style="display:none;"><span>Demo fees</span><span id="subtotalPrice">$0.00</span></div>
+                            <div class="summary-line" id="platformFeeLine" style="display:none;"><span title="Demohub keeps a small booking fee, paid to Stripe securely." style="cursor:help;">Booking fee (× <span id="platformFeeCount">0</span>)</span><span id="platformFeePrice">$0.00</span></div>
                             <div class="summary-line total"><span>Total</span><span id="totalPrice">$0.00</span></div>
+                            <div id="paymentTrustLine" style="display:none; font-size:0.72rem; color:var(--ink-500); margin-top:6px; padding:8px 10px; background:var(--forest-50); border-radius:6px; text-align:center;">
+                                <span style="font-weight:600; color:var(--forest-800);">Secure checkout via Stripe.</span> We never see your card details.
+                            </div>
                             
                             <div class="policy-notice" id="cancellationPolicyNotice">
                                 <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -540,6 +545,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         let currentLocation = '';  // populated from first venue after data loads
         let cart = [];
         const PRICE_PER_DEMO = 30;
+        const PLATFORM_FEE_PER_DEMO = 5;  // flat Demohub booking fee per confirmed demo
         const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
         
         document.addEventListener('DOMContentLoaded', () => {
@@ -993,7 +999,32 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
-            totalPrice.textContent = '$' + (cart.length * PRICE_PER_DEMO).toFixed(2);
+            // Compute per-demo fee (may vary per venue, fall back to PRICE_PER_DEMO)
+            const perDemoFee = (window.state && window.state.settings && window.state.settings.demo_fee) || PRICE_PER_DEMO;
+            const subtotal = cart.length * perDemoFee;
+            const platformFees = cart.length * PLATFORM_FEE_PER_DEMO;
+            const total = subtotal + platformFees;
+            const priceEl = document.getElementById('pricePerDemo');
+            if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
+            const subLine = document.getElementById('subtotalLine');
+            const platLine = document.getElementById('platformFeeLine');
+            const subEl = document.getElementById('subtotalPrice');
+            const platEl = document.getElementById('platformFeePrice');
+            const platCount = document.getElementById('platformFeeCount');
+            const trustLine = document.getElementById('paymentTrustLine');
+            if (cart.length > 0) {
+                if (subLine) subLine.style.display = '';
+                if (platLine) platLine.style.display = '';
+                if (subEl) subEl.textContent = '$' + subtotal.toFixed(2);
+                if (platEl) platEl.textContent = '$' + platformFees.toFixed(2);
+                if (platCount) platCount.textContent = cart.length + ' × $' + PLATFORM_FEE_PER_DEMO;
+                if (trustLine) trustLine.style.display = '';
+            } else {
+                if (subLine) subLine.style.display = 'none';
+                if (platLine) platLine.style.display = 'none';
+                if (trustLine) trustLine.style.display = 'none';
+            }
+            totalPrice.textContent = '$' + total.toFixed(2);
             
             if (cart.length === 0) {
                 cartContainer.innerHTML = '<div class="cart-empty">No demos selected yet.<br>Pick a date and time above!</div>';
@@ -1007,7 +1038,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             '<div class="cart-item-date">' + item.displayDate + '</div>' +
                             '<div class="cart-item-time">' + item.time + ' • ' + item.location + '</div>' +
                         '</div>' +
-                        '<span class="cart-item-price">$30</span>' +
+                        '<span class="cart-item-price">$' + Number(perDemoFee).toFixed(0) + '</span>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
                             '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
                         '</button>' +
