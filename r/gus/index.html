@@ -16,6 +16,7 @@
             --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
             --shadow-lg: 0 12px 40px rgba(13,31,18,0.12); --shadow-xl: 0 24px 60px rgba(13,31,18,0.16);
             --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
+                    renderLocationSwitcher();
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
@@ -372,6 +373,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="page-header">
                     <h2 class="page-title">Schedule Your Demos</h2>
                     <p class="page-subtitle">Select dates and times, then add to your cart. Book multiple demos at once!</p>
+                </div>
+                <div class="location-switcher-wrap" id="locationSwitcherWrap" style="display:none; margin-bottom:24px;">
+                    <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:10px;">Booking at</div>
+                    <div class="location-switcher" id="locationSwitcher" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
                 </div>
                 <div class="booking-layout">
                     <div class="booking-card">
@@ -828,6 +833,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
             renderCalendar();
             applyTimeSlotAvailability();
+            renderLocationSwitcher();
+        }
+
+        // Renders the location-switcher pill row inside the booking view. Lets a brand
+        // jump between venues without losing their cart. Hidden entirely if there's only
+        // one venue (single-location retailer — no need to switch).
+        function renderLocationSwitcher() {
+            const wrap = document.getElementById('locationSwitcherWrap');
+            const inner = document.getElementById('locationSwitcher');
+            if (!wrap || !inner) return;
+            const venues = (window.state && window.state.venues) || [];
+            if (venues.length <= 1) { wrap.style.display = 'none'; return; }
+            wrap.style.display = '';
+            inner.innerHTML = venues.map(v => {
+                const nameEsc = escapeHtml(v.name || '');
+                const isActive = v.name === currentLocation;
+                const cartCount = cart.filter(item => item.location === v.name).length;
+                const badge = cartCount > 0 ? `<span style="margin-left:6px; background:${isActive ? 'rgba(255,255,255,0.25)' : 'var(--forest-100)'}; color:${isActive ? 'white' : 'var(--forest-800)'}; padding:1px 7px; border-radius:99px; font-size:0.72rem; font-weight:700;">${cartCount}</span>` : '';
+                const bg = isActive ? 'var(--forest-800)' : 'white';
+                const fg = isActive ? 'white' : 'var(--ink-700)';
+                const bd = isActive ? 'var(--forest-800)' : 'rgba(15,44,23,0.15)';
+                return `<button type="button" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')" style="padding:9px 16px; border-radius:99px; background:${bg}; color:${fg}; border:1.5px solid ${bd}; font-size:0.88rem; font-weight:600; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; transition:all 0.15s;">${nameEsc}${badge}</button>`;
+            }).join('');
         }
         
         // ===== Venue availability helpers =====
