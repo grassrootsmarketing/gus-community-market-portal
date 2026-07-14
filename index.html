@@ -1324,6 +1324,31 @@
             .container { padding-left: 16px; padding-right: 16px; }
         }
 
+
+        /* === Play glyph circle wrapper for "Take the tour" buttons === */
+        .hero-tour-cta svg,
+        .tour-band-cta svg {
+            width: 18px !important;
+            height: 18px !important;
+            padding: 4px !important;
+            border-radius: 50% !important;
+            background: var(--clay-bright, #ed682f) !important;
+            fill: #fdf9ee !important;
+            box-sizing: content-box;
+        }
+        .hero-product-play svg {
+            width: 12px !important;
+            height: 12px !important;
+            padding: 4px !important;
+            border-radius: 50% !important;
+            background: var(--clay-bright, #ed682f) !important;
+            fill: #fdf9ee !important;
+            box-sizing: content-box;
+        }
+        /* Slightly tighten the button padding since the icon now has its own bg */
+        .hero-tour-cta { gap: 10px !important; }
+        .tour-band-cta { gap: 8px !important; }
+        .hero-product-play { padding: 6px 12px 6px 6px !important; gap: 6px !important; }
 </style>
 <!-- PostHog -->
 <script>
