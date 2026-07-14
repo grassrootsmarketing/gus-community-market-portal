@@ -1397,17 +1397,19 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         loadBrandAccountSession();
 
         async function initSupabase() {
+            // Best-effort: create Supabase client if lib is available. It's not strictly required
+            // for the public page — refreshAll goes through /api/find-retailer which is fetch-only.
             try {
-                sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                const { data: retailer } = await sb.from('retailers').select('id').eq('slug', RETAILER_SLUG).single();
-                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); return; }
-                RETAILER_ID = retailer.id;
-                await refreshAll();
-            } catch (e) { console.error('Supabase init failed:', e); }
+                if (window.supabase && window.supabase.createClient) {
+                    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                }
+            } catch (e) { console.warn('Supabase init warning:', e); }
+            // Always run refreshAll — it uses fetch, not the Supabase JS client
+            await refreshAll();
         }
 
         async function refreshAll() {
-            if (!sb || !RETAILER_ID) return;
+            // Guard removed — refreshAll works without sb, and RETAILER_ID gets set below from find-retailer response
             // Privacy Phase 0: single sanitized public endpoint replaces 8 anon table reads.
             // /api/find-retailer?action=public-data returns ONLY public-safe fields
             // (no PII , no contact emails, phones, names, no compliance docs, no internal staff).
@@ -1424,6 +1426,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             } catch (e) {
                 console.error('public-data load failed:', e);
             }
+            // Set RETAILER_ID from find-retailer response (used by booking form later)
+            if (data.retailer && data.retailer.id) RETAILER_ID = data.retailer.id;
+            // Store retailer meta on state so consumers can read it
+            window.state.retailer = data.retailer || null;
             window.state.venues = data.venues || [];
             // Wave 6 silo fix: rebuild color order from actual venues
             VENUE_COLOR_ORDER = window.state.venues.map(v => v.name);
