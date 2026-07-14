@@ -341,6 +341,23 @@ export default async function handler(req, res) {
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot invite team members' });
 
+      // Phase E: Solo tier is single-admin. Team invites require Pro.
+      try {
+        const settingsArr = await sb(`settings?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=billing_tier&limit=1`);
+        const retArr = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=billing_tier`);
+        const settingsTier = (Array.isArray(settingsArr) && settingsArr[0] && settingsArr[0].billing_tier) || null;
+        const retailerTier = (Array.isArray(retArr) && retArr[0] && retArr[0].billing_tier) || null;
+        const tier = (settingsTier || retailerTier || 'solo').toLowerCase();
+        if (tier === 'solo' || tier === 'free') {
+          return res.status(402).json({
+            error: 'plan_upgrade_required',
+            message: 'Adding team members requires Pro. Solo stores are single-admin. Upgrade to invite staff.',
+            tier,
+            upgrade_url: '/pricing',
+          });
+        }
+      } catch (e) { console.warn('tier check for team-invite:', e && e.message); }
+
       const normalizedEmail = email.toLowerCase().trim();
       // Check dup
       const existing = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=id`);
