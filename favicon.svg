@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72">
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" preserveAspectRatio="xMidYMid meet">
   <circle cx="36" cy="36" r="36" fill="#0f2c17"/>
   <circle cx="36" cy="40" r="18" fill="#ed682f"/>
   <rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/>
