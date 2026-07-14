@@ -204,7 +204,9 @@
         .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
         .status-confirmed { background: var(--forest-100); color: var(--forest-700); }
         
-        .settings-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; align-items: start; }
+        /* Masonry-style pack: cards fill columns bottom-up, avoiding awkward vertical gaps. */
+        .settings-grid { column-count: 2; column-gap: 24px; align-items: start; }
+        .settings-grid > * { break-inside: avoid; margin-bottom: 24px; display: inline-block; width: 100%; }
         .settings-card { background: white; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); border: 1px solid var(--sand-200); }
         .settings-card-header { padding: 20px 24px; border-bottom: 1px solid var(--sand-200); display: flex; justify-content: space-between; align-items: center; }
         .settings-card-header h3 { font-size: 1rem; color: var(--forest-800); }
@@ -327,7 +329,7 @@
             .booking-layout { grid-template-columns: 1fr; }
             .summary-card { position: static; }
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
-            .settings-grid { grid-template-columns: 1fr; }
+            .settings-grid { column-count: 1; }
             .location-grid { grid-template-columns: 1fr; }
         }
         @media (max-width: 600px) {
@@ -1159,10 +1161,10 @@
                                 <div style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">You're on the Solo plan.</div>
                                 <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:16px; line-height:1.5;">Solo is free forever for a single store. Upgrade to Pro to add locations, invite teammates, and unlock paid demos with Stripe.</div>
                                 <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                                    <button type="button" class="btn btn-primary" onclick="subscribeToTier('pro', 'month')" style="padding:10px 20px; font-size:0.95rem; font-weight:700;">Start 14-day Pro trial &rarr;</button>
+                                    <button type="button" class="btn btn-primary" onclick="subscribeToTier('pro', 'month')" style="padding:10px 20px; font-size:0.95rem; font-weight:700;">Upgrade to Pro &rarr;</button>
                                     <a href="/pricing" style="font-size:0.85rem; color:var(--forest-700); font-weight:600; text-decoration:underline;">See plan details</a>
                                 </div>
-                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px; line-height:1.5;">$29.99/mo after trial. No commitment. Cancel anytime from this page.</div>
+                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px; line-height:1.5;">$29.99/mo. Cancel anytime from this page.</div>
                             </div>
                             <div id="planPaidState" style="padding:14px 0; display:none;">
                                 <div id="planPaidLabel" style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">Pro plan</div>
@@ -5635,6 +5637,7 @@ END:VEVENT
         document.addEventListener('DOMContentLoaded', () => setTimeout(_renderBillingState, 1500));
         async function subscribeToTier(tier, interval) {
             const btn = event?.target;
+            const origLabel = btn ? btn.innerHTML : null;
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
                 const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
@@ -5647,7 +5650,7 @@ END:VEVENT
                 throw new Error(d.error || 'Failed');
             } catch (e) {
                 DhModal.toast('Could not start checkout: ' + (e.message || e), 'error');
-                if (btn) { btn.disabled = false; btn.textContent = 'Subscribe'; }
+                if (btn) { btn.disabled = false; if (origLabel) btn.innerHTML = origLabel; }
             }
         }
 
