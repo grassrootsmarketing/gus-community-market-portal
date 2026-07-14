@@ -760,8 +760,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         
         function selectLocation(location) {
             currentLocation = location;
-            document.getElementById('headerLocation').textContent = location;
-            document.getElementById('summaryLocation').textContent = location + ', San Francisco';
+            const hdr = document.getElementById('headerLocation');
+            if (hdr) hdr.textContent = location;
+            const sum = document.getElementById('summaryLocation');
+            if (sum) sum.textContent = location;
             showView('client');
             selectedDate = null;
             const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
@@ -1397,19 +1399,17 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         loadBrandAccountSession();
 
         async function initSupabase() {
-            // Best-effort: create Supabase client if lib is available. It's not strictly required
-            // for the public page — refreshAll goes through /api/find-retailer which is fetch-only.
             try {
-                if (window.supabase && window.supabase.createClient) {
-                    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                }
-            } catch (e) { console.warn('Supabase init warning:', e); }
-            // Always run refreshAll — it uses fetch, not the Supabase JS client
-            await refreshAll();
+                sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                const { data: retailer } = await sb.from('retailers').select('id').eq('slug', RETAILER_SLUG).single();
+                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); return; }
+                RETAILER_ID = retailer.id;
+                await refreshAll();
+            } catch (e) { console.error('Supabase init failed:', e); }
         }
 
         async function refreshAll() {
-            // Guard removed — refreshAll works without sb, and RETAILER_ID gets set below from find-retailer response
+            if (!sb || !RETAILER_ID) return;
             // Privacy Phase 0: single sanitized public endpoint replaces 8 anon table reads.
             // /api/find-retailer?action=public-data returns ONLY public-safe fields
             // (no PII , no contact emails, phones, names, no compliance docs, no internal staff).
@@ -1426,10 +1426,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             } catch (e) {
                 console.error('public-data load failed:', e);
             }
-            // Set RETAILER_ID from find-retailer response (used by booking form later)
-            if (data.retailer && data.retailer.id) RETAILER_ID = data.retailer.id;
-            // Store retailer meta on state so consumers can read it
-            window.state.retailer = data.retailer || null;
             window.state.venues = data.venues || [];
             // Wave 6 silo fix: rebuild color order from actual venues
             VENUE_COLOR_ORDER = window.state.venues.map(v => v.name);
@@ -1503,7 +1499,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             applySettingsToInputs();
             updateStats();
             renderMonthlyChart();
-            renderBigCalendar();
+            typeof renderBigCalendar === "function" && renderBigCalendar();
             populateBillingMonths();
             renderBilling();
         }
@@ -2068,16 +2064,4 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 + 'h1, h2, h3 { font-family: \'Plus Jakarta Sans\', sans-serif; font-weight: 500; color: #0f2c17; }'
                 + 'h1 { font-size: 2.4rem; margin: 0 0 6px; letter-spacing: -0.02em; }'
                 + '.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; }'
-                + '.brand-mark { width: 44px; height: 44px; border-radius: 10px; background: #0f2c17; }'
-                + '</style></head><body>'
-                + '<h1>Statement — ' + monthLabel(ym) + '</h1>'
-                + '<p>Total: $' + total.toFixed(2) + ' across ' + demos.length + ' demo' + (demos.length===1?'':'s') + '</p>'
-                + '<table style="width:100%; border-collapse:collapse;"><thead><tr><th style="text-align:left;padding:8px;border-bottom:1px solid #ccc;">Date</th><th style="text-align:left;padding:8px;border-bottom:1px solid #ccc;">Brand</th><th style="text-align:left;padding:8px;border-bottom:1px solid #ccc;">Product</th><th style="text-align:left;padding:8px;border-bottom:1px solid #ccc;">Store</th><th style="text-align:right;padding:8px;border-bottom:1px solid #ccc;">Fee</th></tr></thead><tbody>'
-                + rows
-                + '</tbody></table></body></html>';
-            const w = window.open('', '_blank');
-            if (w) { w.document.write(html); w.document.close(); }
-        }
-    </script>
-</body>
-</html>
+                + '.brand-mark { width: 44px; height: 44p
