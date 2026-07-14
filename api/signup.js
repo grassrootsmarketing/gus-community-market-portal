@@ -145,10 +145,10 @@ export default async function handler(req, res) {
     // ===== Single-profile-per-email enforcement =====
     // 1a) Already registered as a retailer?
     try {
-      const dupR = await sb(`retailers?billing_email=eq.${encodeURIComponent(normalizedEmail)}&select=id,slug&limit=1`);
-      const dupRows = await dupR.json();
+      // sb() returns parsed JSON directly (not a Response). Calling .json() again would
+      // throw and get swallowed by the catch — hiding the friendly "sign in instead" path.
+      const dupRows = await sb(`retailers?billing_email=eq.${encodeURIComponent(normalizedEmail)}&select=id,slug&limit=1`);
       if (Array.isArray(dupRows) && dupRows.length > 0) {
-        const existing = dupRows[0];
         return res.status(409).json({
           error: 'already_retailer',
           message: `You already have a retailer account on Demohub. Sign in to your existing admin instead.`,
@@ -159,8 +159,8 @@ export default async function handler(req, res) {
 
     // 1b) Already registered as a brand?
     try {
-      const dupB = await sb(`brands?email=eq.${encodeURIComponent(normalizedEmail)}&select=id&limit=1`);
-      const dupBRows = await dupB.json();
+      // Same fix — sb() returns parsed JSON, never call .json() on it.
+      const dupBRows = await sb(`brands?email=eq.${encodeURIComponent(normalizedEmail)}&select=id&limit=1`);
       if (Array.isArray(dupBRows) && dupBRows.length > 0) {
         return res.status(409).json({
           error: 'already_brand',
