@@ -1229,47 +1229,47 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const btn = document.getElementById('bookSubmitBtn');
             btn.disabled = true;
             const origLabel = btn.textContent;
-            btn.textContent = 'Booking…';
+            btn.textContent = cart.length > 1 ? `Booking ${cart.length} demos…` : 'Booking…';
             let okAll = true;
             const errors = [];
             let emailWarned = false;
             const successBookingIds = [];
-            for (const item of cart) {
-                try {
-                    const resp = await fetch('/api/booking', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            retailer_slug: RETAILER_SLUG,
-                            brand_name: brandName,
-                            contact_name: contactName,
-                            contact_email: contactEmail,
-                            contact_phone: contactPhone,
-                            product: product,
-                            venue: item.location,
-                            demo_date: item.dateStr,
-                            demo_time: item.time,
-                            notes: notes,
-                            // Wave 5: include the typed signature if the brand
-                            // just agreed via the conduct-contract modal; the
-                            // server captures it once per booking burst.
-                            signed_name: window._pendingSignedName || null,
-                        }),
-                    });
-                    const json = await resp.json().catch(() => ({}));
-                    if (!resp.ok || !json.success) {
-                        okAll = false;
-                        errors.push(json.error || ('HTTP ' + resp.status));
-                    } else {
-                        if (json.booking_id) successBookingIds.push(json.booking_id);
-                        if (!json.email_sent && !emailWarned) {
-                            emailWarned = true;
-                            console.warn('Email send failed:', json.email_error);
-                        }
-                    }
-                } catch (e) {
+            // PERF: fire all booking requests in parallel — 3-slot cart used to take 3× sequential
+            // waits (~4-6s total). Now they complete in parallel, and the checkout redirect fires
+            // as soon as the slowest one returns.
+            const bookingPromises = cart.map(item => fetch('/api/booking', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    retailer_slug: RETAILER_SLUG,
+                    brand_name: brandName,
+                    contact_name: contactName,
+                    contact_email: contactEmail,
+                    contact_phone: contactPhone,
+                    product: product,
+                    venue: item.location,
+                    demo_date: item.dateStr,
+                    demo_time: item.time,
+                    notes: notes,
+                    signed_name: window._pendingSignedName || null,
+                }),
+            }).then(async resp => {
+                const json = await resp.json().catch(() => ({}));
+                return { resp, json };
+            }).catch(e => ({ error: e.message || String(e) })));
+            const results = await Promise.all(bookingPromises);
+            for (const r of results) {
+                if (r.error) { okAll = false; errors.push(r.error); continue; }
+                const { resp, json } = r;
+                if (!resp.ok || !json.success) {
                     okAll = false;
-                    errors.push(e.message || String(e));
+                    errors.push(json.error || ('HTTP ' + resp.status));
+                } else {
+                    if (json.booking_id) successBookingIds.push(json.booking_id);
+                    if (!json.email_sent && !emailWarned) {
+                        emailWarned = true;
+                        console.warn('Email send failed:', json.email_error);
+                    }
                 }
             }
             btn.disabled = false;
