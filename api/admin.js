@@ -217,8 +217,15 @@ export default async function handler(req, res) {
           }
         }
       } catch (e) {
-        // Non-blocking: if the check fails, log and continue rather than deadlock create
-        console.warn('venue tier check failed:', e?.message || e);
+        // Deny-by-default: if the tier check fails we do NOT know whether the caller is
+        // Solo (limit=1) or Pro (limit=999). Silently allowing would create a bypass path
+        // (Solo user retries during a transient DB blip and lands 2+ locations).
+        // Return 503 with a clear message so client-side retries / support can diagnose.
+        console.error('venue tier check failed — denying create:', e?.message || e);
+        return send(res, 503, {
+          error: 'tier_check_unavailable',
+          message: 'Could not verify your plan just now. Try again in a moment.',
+        });
       }
     }
     // For new compliance_records rows, reset COI warn timestamps so the cron will pick them up cleanly
