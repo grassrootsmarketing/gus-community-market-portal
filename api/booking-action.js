@@ -132,6 +132,43 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// -----------------------------------------------------------------------------
+// HttpOnly cookie: prefer cookie session for auth
+// -----------------------------------------------------------------------------
+const SESSION_COOKIE = 'dh_session';
+const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+
+function parseCookies(req) {
+  const raw = req.headers && req.headers['cookie'];
+  const out = {};
+  if (!raw) return out;
+  for (const seg of String(raw).split(';')) {
+    const i = seg.indexOf('=');
+    if (i < 0) continue;
+    const k = seg.slice(0, i).trim();
+    const v = seg.slice(i + 1).trim();
+    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
+  }
+  return out;
+}
+
+function setSessionCookie(res, sessionId) {
+  if (!sessionId) return;
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
+function getSessionIdFromReq(req, body) {
+  const cookies = parseCookies(req);
+  return cookies[SESSION_COOKIE]
+    || (body && body.session_id)
+    || (req.query && req.query.session_id)
+    || null;
+}
+
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -144,13 +181,14 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    const { booking_id, action, reason, demo_fee, session_id, force_refund } = body || {};
+    const { booking_id, action, reason, demo_fee, force_refund } = body || {};
     if (!booking_id || !['confirm', 'decline', 'cancel'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline|cancel required' });
     }
     if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
 
-    // === Session check ===
+    // === Session check (cookie first, body fallback for backwards compat) ===
+    const session_id = getSessionIdFromReq(req, body);
     if (!session_id) return res.status(401).json({ error: 'Invalid or missing admin session' });
     if (!isUuid(session_id)) return res.status(401).json({ error: 'Invalid admin session' });
     let sessRows;
@@ -160,6 +198,9 @@ export default async function handler(req, res) {
     const session = Array.isArray(sessRows) ? sessRows[0] : null;
     if (!session) return res.status(401).json({ error: 'Invalid admin session' });
     if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
+    // Opportunistic cookie upgrade: if authenticated via body but no cookie yet, set it.
+    const _cookies = parseCookies(req);
+    if (!_cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
 
     // Fetch booking + retailer + venue
     let bookings;
