@@ -503,7 +503,28 @@ document.addEventListener('keydown', function(e) {
 
 <script>
 const SESSION_KEY = 'demohub_brand_account_session';
-const sessionToken = localStorage.getItem(SESSION_KEY);
+// Session token now lives in an HttpOnly cookie set by /api/brand-account.
+// We keep in-memory storage so existing fetches that pass session_id in body keep working,
+// but nothing sensitive persists to localStorage.
+let sessionToken = null;
+try {
+    const legacy = localStorage.getItem(SESSION_KEY);
+    if (legacy) {
+        // Best-effort migrate legacy localStorage session to cookie, then remove.
+        fetch('/api/brand-account?action=cookie-migrate', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ session_token: legacy }),
+            credentials: 'same-origin',
+        }).then(r => {
+            if (r.ok) {
+                sessionToken = legacy;  // valid until server expires it
+                try { localStorage.removeItem(SESSION_KEY); } catch(_){}
+            }
+        }).catch(() => {});
+        // Also seed in-memory synchronously so the initial fetches on this page work
+        sessionToken = legacy;
+    }
+} catch(_){}
 const main = document.getElementById('mainContent');
 const navAvatar = document.getElementById('navAvatar');
 const navName = document.getElementById('navName');
@@ -601,7 +622,13 @@ let _calYear = new Date().getFullYear();
 async function loadData() {
   try {
     const r = await fetch('/api/brand-account?action=data&session_id=' + encodeURIComponent(sessionToken));
-    if (r.status === 401) { localStorage.removeItem(SESSION_KEY); window.location.href = '/brand/signin'; return; }
+    if (r.status === 401) {
+        try { localStorage.removeItem(SESSION_KEY); } catch(_){}
+        // Ask server to clear the cookie (best-effort)
+        try { fetch('/api/brand-account?action=logout', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}', credentials: 'same-origin' }); } catch(_){}
+        sessionToken = null;
+        window.location.href = '/brand/signin'; return;
+    }
     _data = await r.json();
   } catch (e) {
     main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
@@ -1447,7 +1474,8 @@ async function renderAgreements() {
   let agreements = [];
   try {
     // Use the same session_id pattern as /api/brand-account?action=data
-    const sessionToken = localStorage.getItem('demohub_brand_account_session') || '';
+    // Prefer the in-memory token seeded from the legacy migration; server also has the cookie.
+    const sessionToken = (typeof window !== 'undefined' && window.sessionToken) || localStorage.getItem('demohub_brand_account_session') || '';
     const r = await fetch('/api/brand-account?action=agreement-list&session_id=' + encodeURIComponent(sessionToken), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'agreement-list', session_id: sessionToken }),
