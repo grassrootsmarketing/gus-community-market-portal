@@ -1070,20 +1070,30 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Demo Duration</label>
-                                <select class="form-input" id="settingDemoDuration" disabled>
-                                    <option value="3 hours" selected>3 hours</option>
-                                    <option value="6 hours">6 hours</option>
-                                </select>
+                                <div style="display:flex; gap:8px;">
+                                    <select class="form-input" id="settingDemoDuration" disabled onchange="onDemoDurationChange()" style="flex:1;">
+                                        <option value="1 hour">1 hour</option>
+                                        <option value="2 hours">2 hours</option>
+                                        <option value="3 hours" selected>3 hours</option>
+                                        <option value="4 hours">4 hours</option>
+                                        <option value="6 hours">6 hours</option>
+                                        <option value="8 hours">8 hours</option>
+                                        <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="number" id="settingDemoDurationCustom" min="1" max="24" step="1" placeholder="hrs" style="display:none; width:90px; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit; font-size:0.95rem;">
+                                </div>
+                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Length of each demo slot. Custom lets you pick any whole number of hours (1–24).</div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Minimum advance notice</label>
+                                <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Minimum booking lead time<span data-tooltip="How far in advance brands must book a demo. Gives your team time to prepare for the demo and order product in advance." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
                                 <select class="form-input" id="settingAdvanceBooking" disabled>
+                                    <option value="3">3 days ahead</option>
                                     <option value="7">1 week ahead</option>
                                     <option value="14" selected>2 weeks ahead</option>
                                     <option value="21">3 weeks ahead</option>
                                     <option value="30">30 days ahead</option>
                                 </select>
-                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">How far ahead a brand must book. Prevents last-minute demos.</div>
+                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Gives your team time to prepare — order product, plan staffing, brief the floor.</div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
@@ -1096,20 +1106,30 @@
                                 <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Recap of the past month's activity, delivered on the 1st.</div>
                                 <div id="notificationStatus" style="font-size:0.72rem; color:var(--ink-500); margin-top:4px; min-height:1em;"></div>
                             </div>
-                                                        <div class="form-group">
-                                <label class="form-label">Calendar feed</label>
-                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically.</div>
-                                <div style="display:flex; gap:6px; margin-bottom:10px;">
-                                    <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:9px 12px; border:1px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.8rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">
-                                    <button class="btn btn-primary" style="padding:9px 16px; font-size:0.85rem;" id="copyIcalBtn" onclick="copyIcalUrl(this)">Copy URL</button>
+                                                        <div class="form-group" id="calendarFeedGroup">
+                                <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Calendar feeds<span data-tooltip="Owners see the umbrella feed with every location. Team members can subscribe to just their own store’s calendar." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically. Share a single-location feed with team members so they only see their store.</div>
+                                <!-- Umbrella (all locations) -->
+                                <div style="border:1px solid rgba(15,44,23,0.08); border-radius:10px; padding:14px; margin-bottom:10px; background:var(--cream-50);">
+                                    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:8px;">
+                                        <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem;">All locations <span style="font-size:0.72rem; color:var(--ink-500); font-weight:500; margin-left:6px;">(owner / admin view)</span></div>
+                                    </div>
+                                    <div style="display:flex; gap:6px; margin-bottom:8px;">
+                                        <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:9px 12px; border:1px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.78rem; font-family:monospace; color:var(--ink-700); background:white;">
+                                        <button class="btn btn-primary" style="padding:9px 14px; font-size:0.8rem;" id="copyIcalBtn" onclick="copyIcalUrl(this)">Copy URL</button>
+                                    </div>
+                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToAppleBtn" onclick="addToAppleCal()">Apple Calendar</button>
+                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToGoogleBtn" onclick="openGoogleAddByUrl(this)">Google Cal</button>
+                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToOutlookBtn" onclick="openOutlookAddByUrl(this)">Outlook</button>
+                                    </div>
                                 </div>
-                                <div style="font-size:0.75rem; color:var(--ink-500); margin-bottom:14px; line-height:1.5;">Or use a shortcut for your calendar app:</div>
-                                <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToAppleBtn" onclick="addToAppleCal()">Apple Calendar (one-click)</button>
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToGoogleBtn" onclick="openGoogleAddByUrl(this)">Open Google Calendar</button>
-                                    <button class="btn btn-secondary" style="flex:1; min-width:140px;" id="addToOutlookBtn" onclick="openOutlookAddByUrl(this)">Open Outlook</button>
+                                <!-- Per-location feeds -->
+                                <div style="font-size:0.76rem; color:var(--ink-500); font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin:14px 0 8px;">Single-location feeds</div>
+                                <div id="perLocationFeeds" style="display:flex; flex-direction:column; gap:8px;">
+                                    <div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>
                                 </div>
-                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:10px; line-height:1.55;">Google and Outlook can\'t subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can\'t subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
                             </div>
                         </div>
                     </div>
@@ -2384,6 +2404,7 @@ END:VEVENT
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
             if (document.getElementById('complianceTableBody')) renderCompliance();
             applySettingsToInputs();
+            try { _renderPerLocationFeeds(); } catch(_){}
             updateStats();
             renderMonthlyChart();
             renderBigCalendar();
@@ -3153,6 +3174,80 @@ END:VEVENT
             }, 500);
         });
 
+
+        // Phase F: Demo Duration custom option toggle
+        function onDemoDurationChange() {
+            const sel = document.getElementById('settingDemoDuration');
+            const input = document.getElementById('settingDemoDurationCustom');
+            if (!sel || !input) return;
+            if (sel.value === 'custom') {
+                input.style.display = 'inline-block';
+                input.focus();
+            } else {
+                input.style.display = 'none';
+            }
+        }
+        // Compute the actual duration to save (either the dropdown value or the custom input)
+        function getDemoDurationValue() {
+            const sel = document.getElementById('settingDemoDuration');
+            const input = document.getElementById('settingDemoDurationCustom');
+            if (!sel) return '3 hours';
+            if (sel.value === 'custom') {
+                const n = parseInt(input && input.value, 10);
+                if (!Number.isFinite(n) || n < 1 || n > 24) return '3 hours';
+                return n === 1 ? '1 hour' : n + ' hours';
+            }
+            return sel.value;
+        }
+        // Restore dropdown state on load — if the saved value doesn't match any option, switch to custom
+        function applyDemoDurationValue(v) {
+            const sel = document.getElementById('settingDemoDuration');
+            const input = document.getElementById('settingDemoDurationCustom');
+            if (!sel) return;
+            const val = v || '3 hours';
+            const known = ['1 hour','2 hours','3 hours','4 hours','6 hours','8 hours'];
+            if (known.includes(val)) {
+                sel.value = val;
+                if (input) input.style.display = 'none';
+            } else {
+                sel.value = 'custom';
+                if (input) {
+                    const n = parseInt(val, 10);
+                    input.value = Number.isFinite(n) && n > 0 ? n : '';
+                    input.style.display = 'inline-block';
+                }
+            }
+        }
+
+        // Phase F: Per-location calendar feeds
+        function _renderPerLocationFeeds() {
+            const box = document.getElementById('perLocationFeeds');
+            if (!box) return;
+            const venues = (window.state && window.state.venues) || [];
+            if (!venues.length) {
+                box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>';
+                return;
+            }
+            const origin = location.origin;
+            const slug = RETAILER_SLUG;
+            box.innerHTML = venues.map(v => {
+                const url = origin + '/api/cal?slug=' + encodeURIComponent(slug) + '&venue=' + encodeURIComponent(v.id);
+                return '<div style="border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:10px 12px; background:white;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">' +
+                        '<div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + (v.name || '').replace(/[<>&]/g,'') + '</div>' +
+                        '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="copyLocationCalUrl(\'' + v.id + '\', this)">Copy link</button>' +
+                    '</div>' +
+                    '<input type="text" readonly value="' + url + '" style="width:100%; padding:6px 10px; border:1px solid rgba(15,44,23,0.10); border-radius:6px; font-size:0.72rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">' +
+                '</div>';
+            }).join('');
+        }
+        async function copyLocationCalUrl(venueId, btn) {
+            try {
+                const url = location.origin + '/api/cal?slug=' + encodeURIComponent(RETAILER_SLUG) + '&venue=' + encodeURIComponent(venueId);
+                await navigator.clipboard.writeText(url);
+                if (btn) { const t = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = t, 1600); }
+            } catch (e) { DhModal.toast('Could not copy: ' + e.message, 'error'); }
+        }
         function applySettingsToInputs() {
             if (!window.state.settings) return;
             const s = window.state.settings;
@@ -3164,7 +3259,7 @@ END:VEVENT
             const feeSlider = document.getElementById('settingDemoFeeSlider');
             if (feeSlider) feeSlider.value = String(feeVal);
             _updateDemoFeeSplit(feeVal);
-            if (dur) dur.value = s.demo_duration || '3 hours';
+            if (dur) applyDemoDurationValue(s.demo_duration || '3 hours');
             if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
             // Load booking preferences from retailer row (not settings row)
             if (window.state.retailer) {
@@ -3952,7 +4047,8 @@ END:VEVENT
         }
 
         // ===== Settings edit toggle =====
-        function loadSettings() { applySettingsToInputs(); }
+        function loadSettings() { applySettingsToInputs();
+            try { _renderPerLocationFeeds(); } catch(_){} }
 
 
         // ===== Demo policy PDF upload =====
@@ -5371,7 +5467,7 @@ END:VEVENT
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
                             demo_fee: Number.isFinite(feeNum) && feeNum > 0 ? feeNum : 30,
-                            demo_duration: dur.value,                    // dropdown value, always valid
+                            demo_duration: getDemoDurationValue(),          // dropdown or custom input
                             advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
                         });
                         await refreshAll();
