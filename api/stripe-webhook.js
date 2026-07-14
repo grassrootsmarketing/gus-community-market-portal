@@ -243,16 +243,34 @@ async function handlePaymentIntentSucceeded(event) {
   const paidAt = new Date().toISOString();
   const amount = pi.amount_received || pi.amount || 0;
   const perBooking = bookingIds.length > 0 ? Math.floor(amount / bookingIds.length) : 0;
-  await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      payment_status: 'paid',
-      payment_intent_id: pi.id,
-      paid_at: paidAt,
-      amount_paid: perBooking,
-    }),
-  }).catch(e => console.warn('booking', bookingId, 'paid PATCH failed:', (e && e.message) || e))));
-  console.log(`payment_intent.succeeded: marked ${bookingIds.length} booking(s) paid`);
+  // Promote each booking from pending_payment → confirmed (or pending if retailer manual-vets).
+  // Payment is the gate for status transitions: no confirmed state ever without a paid booking.
+  await Promise.all(bookingIds.map(async (bookingId) => {
+    try {
+      const bookingRows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=retailer_id,status`);
+      const b = Array.isArray(bookingRows) ? bookingRows[0] : null;
+      let nextStatus = null;
+      if (b && b.status === 'pending_payment') {
+        const retailerRows = await sb(`retailers?id=eq.${encodeURIComponent(b.retailer_id)}&select=auto_confirm_bookings`);
+        const r = Array.isArray(retailerRows) ? retailerRows[0] : null;
+        nextStatus = (r && r.auto_confirm_bookings) ? 'confirmed' : 'pending';
+      }
+      const patch = {
+        payment_status: 'paid',
+        payment_intent_id: pi.id,
+        paid_at: paidAt,
+        amount_paid: perBooking,
+      };
+      if (nextStatus) patch.status = nextStatus;
+      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+    } catch (e) {
+      console.warn('booking', bookingId, 'paid PATCH failed:', (e && e.message) || e);
+    }
+  }));
+  console.log(`payment_intent.succeeded: promoted ${bookingIds.length} booking(s) from pending_payment`);
 }
 
 async function handlePaymentIntentFailed(event) {
