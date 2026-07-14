@@ -1062,29 +1062,24 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
-            // Compute per-demo fee (may vary per venue, fall back to PRICE_PER_DEMO)
-            const perDemoFee = (window.state && window.state.settings && window.state.settings.demo_fee) || PRICE_PER_DEMO;
-            const subtotal = cart.length * perDemoFee;
-            const platformFees = cart.length * PLATFORM_FEE_PER_DEMO;
-            const total = subtotal + platformFees;
+            // Compute per-demo fee (venue fee + platform fee bundled — shown as one number to brand)
+            const venueFee = (window.state && window.state.settings && window.state.settings.demo_fee) || PRICE_PER_DEMO;
+            const perDemoFee = Number(venueFee) + PLATFORM_FEE_PER_DEMO;
+            const total = cart.length * perDemoFee;
             const priceEl = document.getElementById('pricePerDemo');
             if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
             const subLine = document.getElementById('subtotalLine');
             const platLine = document.getElementById('platformFeeLine');
             const subEl = document.getElementById('subtotalPrice');
-            const platEl = document.getElementById('platformFeePrice');
-            const platCount = document.getElementById('platformFeeCount');
             const trustLine = document.getElementById('paymentTrustLine');
+            // Hide the separate platform-fee line — bundled into per-demo price now
+            if (platLine) platLine.style.display = 'none';
             if (cart.length > 0) {
                 if (subLine) subLine.style.display = '';
-                if (platLine) platLine.style.display = '';
-                if (subEl) subEl.textContent = '$' + subtotal.toFixed(2);
-                if (platEl) platEl.textContent = '$' + platformFees.toFixed(2);
-                if (platCount) platCount.textContent = cart.length + ' × $' + PLATFORM_FEE_PER_DEMO;
+                if (subEl) subEl.textContent = '$' + total.toFixed(2);
                 if (trustLine) trustLine.style.display = '';
             } else {
                 if (subLine) subLine.style.display = 'none';
-                if (platLine) platLine.style.display = 'none';
                 if (trustLine) trustLine.style.display = 'none';
             }
             totalPrice.textContent = '$' + total.toFixed(2);
