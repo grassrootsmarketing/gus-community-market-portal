@@ -249,7 +249,8 @@ export default async function handler(req, res) {
 
     let demoId = null;
     if (action === 'confirm') {
-      const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : 30);
+      const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : null);
+      if (fee == null || Number.isNaN(fee) || fee < 0) return res.status(400).json({ error: 'venue_missing_fee', message: 'This venue has no demo fee configured. Set one in the admin before confirming this booking.' });
       const brandId = booking.brand_id || null;
 
       // Build demo payload — include confirmed_at so the welcome-series cron can find
