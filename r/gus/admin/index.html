@@ -1141,6 +1141,14 @@
                                 <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); margin-bottom:6px;">Two ways to verify</div>
                                 <div style="font-size:0.8rem; color:var(--ink-500); line-height:1.5;"><strong style="color:var(--forest-800);">Instant (via Plaid)</strong> - log into your bank inside Stripe, verified in 30 seconds. Or <strong style="color:var(--forest-800);">Manual (micro-deposits)</strong> - enter routing + account, confirm 1-2 business days later.</div>
                             </div>
+                            <!-- Stripe trust card -->
+                            <div style="display:flex; gap:12px; align-items:flex-start; background:var(--forest-50); border:1px solid var(--forest-100); border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0; margin-top:1px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                <div style="font-size:0.82rem; color:var(--forest-900); line-height:1.55;">
+                                    <div style="font-weight:700; margin-bottom:4px;">Your bank info stays with Stripe.</div>
+                                    <div style="color:var(--ink-700);">Demohub never sees or stores your routing number, account number, or login credentials. Everything lives inside Stripe, PCI-DSS Level 1 certified and the same infrastructure used by Amazon, Shopify, and Instacart. You can disconnect any time — we can't view or move money on our own.</div>
+                                </div>
+                            </div>
                             <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:11px 22px;font-size:0.95rem;">Connect bank for payouts &rarr;</button>
                         </div>
                     </div>
