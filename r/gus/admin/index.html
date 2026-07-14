@@ -810,8 +810,8 @@
                     </div>
                     <div id="demosTableView">
                         <table>
-                            <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th></tr></thead>
-                            <tbody id="demosTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Demo requests will appear here as brands submit them through your booking link. Confirm requests to add them to your calendar.</td></tr></tbody>
+                            <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
+                            <tbody id="demosTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Demo requests will appear here as brands submit them through your booking link. Confirm requests to add them to your calendar.</td></tr></tbody>
                         </table>
                     </div>
                     <div id="demosCalendarView" class="demo-cal-wrap" style="display:none;">
@@ -917,7 +917,7 @@
                     </div>
                     <div class="billing-summary" id="billingSummary"></div>
                     <table>
-                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Fee</th></tr></thead>
+                        <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead>
                         <tbody id="billingTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Completed demos and payouts will appear here at the end of each month. Statements can be downloaded once billing data is available.</td></tr></tbody>
                     </table>
                 </div>
@@ -3986,6 +3986,41 @@ END:VEVENT
                 if (saved[key] != null) el.value = saved[key];
             });
         }
+
+
+        // Phase G: cancel a demo — confirmation modal, fires POST /api/booking-action with action=cancel.
+        // Response tells us the refund status; toast reflects what happened.
+        async function cancelDemoConfirm(demoId, brandName, dateStr, timeStr) {
+            if (!demoId) { DhModal.toast('Missing demo id', 'error'); return; }
+            const label = brandName + ' on ' + dateStr + ' at ' + timeStr;
+            const ok = await DhModal.confirm({
+                title: 'Cancel this demo?',
+                message: '<div>Cancel the demo with <strong>' + escapeHtml(brandName) + '</strong> on ' + escapeHtml(dateStr) + ' at ' + escapeHtml(timeStr) + '?</div>' +
+                    '<div style="margin-top:12px; padding:12px 14px; background:var(--forest-50); border-radius:8px; font-size:0.85rem; color:var(--forest-900); line-height:1.5;">' +
+                        '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy — refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
+                    '</div>',
+                ok: 'Yes, cancel demo',
+                kind: 'confirm',
+            });
+            if (!ok) return;
+            try {
+                const r = await fetch('/api/booking-action', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ booking_id: demoId, action: 'cancel', session_id: AdminAuth.getSession() }),
+                });
+                const j = await r.json();
+                if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                let msg = 'Demo cancelled.';
+                if (j.refund_status === 'issued') msg = 'Demo cancelled. Refund issued to the brand.';
+                else if (j.refund_status === 'pending_manual') msg = 'Demo cancelled. Refund is at your discretion per your policy.';
+                else if (j.refund_status === 'refund_failed') msg = 'Demo cancelled, but the refund did not go through. Check Stripe.';
+                else if (j.refund_status === 'not_paid') msg = 'Demo cancelled. No charge was captured, so no refund needed.';
+                DhModal.toast(msg, 'success');
+                await refreshAll();
+            } catch (e) {
+                DhModal.toast('Cancel failed: ' + (e.message || e), 'error');
+            }
+        }
         function renderDemos() {
             renderDemosTable();
             if (demoView === 'calendar') renderDemosCalendar();
@@ -3995,18 +4030,24 @@ END:VEVENT
             if (!tbody) return;
             const list = getFilteredDemos().slice().sort((a, b) => a.date.localeCompare(b.date));
             if (list.length === 0) {
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="5" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">No demos here yet — they\'ll appear as you confirm incoming bookings, or if you add them manually.</td></tr>';
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">No demos here yet — they\'ll appear as you confirm incoming bookings, or if you add them manually.</td></tr>';
                 return;
             }
-            tbody.innerHTML = list.map(d =>
-                '<tr>'
+            tbody.innerHTML = list.map(d => {
+                const status = (d.status || '').toLowerCase();
+                const cancelled = status === 'cancelled' || status === 'declined';
+                const cancelBtn = cancelled
+                    ? '<span style="font-size:0.72rem; color:var(--ink-500);">—</span>'
+                    : '<button onclick="cancelDemoConfirm(\'' + (d.id || d.booking_id || '') + '\', ' + JSON.stringify(String(d.company || '')) + ', ' + JSON.stringify(String(d.date || '')) + ', ' + JSON.stringify(String(d.time || '')) + ')" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>';
+                return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
                 + '<td>' + escapeHtml(d.contact) + '</td>'
                 + '<td>' + escapeHtml(d.product) + '</td>'
-                + '<td><span class="status-badge status-confirmed">' + escapeHtml(d.status) + '</span></td>'
-                + '</tr>'
-            ).join('');
+                + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span></td>'
+                + '<td style="text-align:right;">' + cancelBtn + '</td>'
+                + '</tr>';
+            }).join('');
         }
         function setDemoView(view) {
             demoView = view;
@@ -5322,20 +5363,24 @@ END:VEVENT
             const tbody = document.getElementById('billingTableBody');
             const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
             if (demos.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="billing-empty">No demos billed for ' + monthLabel(ym) + '.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">No demos billed for ' + monthLabel(ym) + '.</td></tr>';
                 return;
             }
             tbody.innerHTML = demos.map(d => {
                 const dateLabel = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
                 const venue = brandsByCompany[d.company]?.venue || '—';
+                const fee = parseFloat(d.demo_fee) || 0;
+                const brandPaid = fee + 5;   // brand paid demo fee + $5 booking fee
                 return '<tr>'
                     + '<td>' + escapeHtml(dateLabel) + (d.time ? ' · ' + escapeHtml(d.time) : '') + '</td>'
                     + '<td>' + escapeHtml(d.company) + '</td>'
                     + '<td>' + escapeHtml(d.product || '—') + '</td>'
                     + '<td>' + escapeHtml(venue) + '</td>'
-                    + '<td style="text-align:right;">$' + (parseFloat(d.demo_fee) || 0).toFixed(2) + '</td>'
+                    + '<td style="text-align:right;">$' + brandPaid.toFixed(2) + '</td>'
+                    + '<td style="text-align:right; color:var(--ink-500); font-size:0.9em;">$' + (5).toFixed(2) + '</td>'
+                    + '<td style="text-align:right; font-weight:700; color:var(--forest-800);">$' + fee.toFixed(2) + '</td>'
                     + '</tr>';
-            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>';
+            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + (total + (demos.length * 5)).toFixed(2) + '</td><td style="text-align:right; color:var(--ink-500);">$' + (demos.length * 5).toFixed(2) + '</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>';
         }
 
         function openStatement() {
@@ -5390,7 +5435,7 @@ END:VEVENT
                 + '<div class="party"><h3>To</h3><div class="party-body"><strong>' + escapeHtml(window._billingTo?.name || 'Your Business') + '</strong><br>' + escapeHtml(window._billingTo?.stores || '') + '<br>' + escapeHtml(window._billingTo?.email || '') + '</div></div>'
                 + '</div>'
                 + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
-                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Fee</th></tr></thead><tbody>'
+                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead><tbody>'
                 + rows
                 + '<tr class="total-row"><td colspan="4" style="text-align:right;">Total billed</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
                 + '</tbody></table>')
