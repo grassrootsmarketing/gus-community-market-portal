@@ -45,8 +45,9 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
 }
 
 function generateLoginCode() {
-  // 6-digit numeric code, zero-padded
-  const n = Math.floor(Math.random() * 1000000);
+  // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
+  const { randomInt } = require('crypto');
+  const n = randomInt(0, 1000000);
   return String(n).padStart(6, '0');
 }
 
@@ -115,7 +116,12 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
     if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
     else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
     return { allowed: true };
-  } catch (_) { return { allowed: true }; }
+  } catch (e) {
+    // Fail-CLOSED for auth write paths (magic-link request, code verification):
+    // an unavailable rate-limiter must NOT translate into unlimited requests.
+    console.error('admin-auth rate limit check failed — denying request:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
 }
 
 export default async function handler(req, res) {
@@ -257,7 +263,10 @@ export default async function handler(req, res) {
       if (!email || !code || code.length !== 6) return res.status(400).json({ error: 'Email and 6-digit code required' });
       // Rate limit code verification per IP (defense against brute force)
       const rl = await checkRateLimit(req, 'verify-code', 30);
-      if (!rl.allowed) return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
+      if (!rl.allowed) {
+        if (rl.error === 'rate_limit_unavailable') return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Try again in a moment.' });
+        return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
+      }
       const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
       const trow = Array.isArray(rows) ? rows[0] : null;
       if (!trow) return res.status(404).json({ error: 'Invalid code' });
@@ -706,9 +715,10 @@ async function ensureOwnerRetailerId() {
 }
 
 function randomToken(n = 32) {
-  const buf = new Uint8Array(n);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(buf);
-  else for (let i = 0; i < n; i++) buf[i] = Math.floor(Math.random() * 256);
+  // Use Node's crypto — throw if unavailable rather than fall back to Math.random,
+  // which is a predictable PRNG unsuitable for auth tokens.
+  const { randomBytes } = require('crypto');
+  const buf = randomBytes(n);
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
