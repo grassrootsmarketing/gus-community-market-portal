@@ -249,7 +249,7 @@ export default async function handler(req, res) {
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';
 
     // Look up venue by retailer + name (for venue_id on the row)
-    const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id`, {
+    const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee`, {
       headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     });
     const venues = await venueResp.json();
@@ -463,7 +463,15 @@ export default async function handler(req, res) {
         demo_date,
         demo_time,
         notes: notes || null,
-        status: (retailer.auto_confirm_bookings ? 'confirmed' : 'pending'),
+        // Payment-gated status: bookings with a fee cannot skip past 'pending_payment'
+        // until Stripe webhook fires. Only free-demo bookings (fee=0) honor auto_confirm.
+        // Server-side gate — client cannot bypass by faking a checkout success.
+        status: (
+          (venueRow && Number(venueRow.demo_fee) > 0)
+            ? 'pending_payment'
+            : (retailer.auto_confirm_bookings ? 'confirmed' : 'pending')
+        ),
+        payment_status: (venueRow && Number(venueRow.demo_fee) > 0) ? 'unpaid' : 'not_required',
         brand_id: brandId,
       }),
     });
