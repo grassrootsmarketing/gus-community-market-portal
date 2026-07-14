@@ -929,10 +929,8 @@
         }
         .nav-tour::before {
             content: '';
-            width: 14px; height: 14px; border-radius: 50%;
-            background: var(--clay-bright);
-            mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M8 5v14l11-7z'/></svg>") center/70% no-repeat;
-            -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><path d='M8 5v14l11-7z'/></svg>") center/70% no-repeat;
+            width: 18px; height: 18px; border-radius: 50%;
+            background: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><circle cx='12' cy='12' r='12' fill='%23ed682f'/><path d='M9 7v10l8-5z' fill='%23fdf9ee'/></svg>") center/contain no-repeat;
             flex-shrink: 0;
         }
         .nav-tour:hover { background: var(--forest-900); color: white; }
