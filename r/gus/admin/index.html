@@ -1727,10 +1727,13 @@
             const RETAILER_SLUG_LOCAL = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
             const LEGACY_KEY = 'demohub_admin_session_' + RETAILER_SLUG_LOCAL;
             let _memSession = null;
+            let _memEmail = null;
             return {
                 getSession() { return _memSession; },
                 setSession(id) { if (id) _memSession = id; },
-                clearSession() { _memSession = null; try { localStorage.removeItem(LEGACY_KEY); } catch(_){} },
+                getEmail() { return _memEmail; },
+                setEmail(e) { if (e) _memEmail = e; },
+                clearSession() { _memSession = null; _memEmail = null; try { localStorage.removeItem(LEGACY_KEY); } catch(_){} },
                 logout: async function() {
                     try { await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }), credentials: 'same-origin' }); } catch (_) {}
                     this.clearSession();
@@ -1758,6 +1761,7 @@
                         if (r.ok) {
                             const j = await r.json().catch(() => ({}));
                             _memSession = j.session_id || legacy;
+                            if (j.email) _memEmail = j.email;
                             try { localStorage.removeItem(LEGACY_KEY); } catch(_){}
                             return _memSession;
                         }
@@ -1832,6 +1836,12 @@
                         if (j.ok) {
                             // Populate in-memory session so subsequent fetches (which pass it in body) work.
                             if (j.session_id) this.setSession(j.session_id);
+                            if (j.email) this.setEmail(j.email);
+                            // Also stash on window.state so other code paths can read it
+                            window.state = window.state || {};
+                            window.state.myEmail = j.email || null;
+                            window.state.retailer = window.state.retailer || {};
+                            window.state.retailer.name = j.retailer_name || null;
                             const h = document.getElementById('adminHeaderRetailerName');
                             if (h && j.retailer_name) {
                                 const editBtn = h.querySelector('.logo-edit-btn');
