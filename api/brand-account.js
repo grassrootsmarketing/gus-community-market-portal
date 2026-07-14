@@ -47,6 +47,36 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
+// Rate limit — fail-closed. Denies on DB errors so a Supabase blip cannot turn
+// into an unbounded magic-link-email spam window.
+// -----------------------------------------------------------------------------
+function clientIpForRateLimit(req) {
+  return req.headers['cf-connecting-ip']
+    || req.headers['x-real-ip']
+    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
+    || req.socket?.remoteAddress
+    || 'unknown';
+}
+
+async function checkRateLimit(req, bucketKey, maxPerHour) {
+  try {
+    const ip = clientIpForRateLimit(req);
+    const key = bucketKey + ':' + ip;
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existingResp = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const existing = await existingResp.json().catch(() => []);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('brand-account rate limit failed - denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
+}
+
+// -----------------------------------------------------------------------------
 // HttpOnly cookie for BRAND sessions (dh_brand_session, distinct from dh_session
 // used by retailers). Same invariants: HttpOnly, Secure, SameSite=Lax.
 // -----------------------------------------------------------------------------
@@ -343,6 +373,8 @@ export default async function handler(req, res) {
 
   try {
     if (action === 'signup') {
+      const rl = await checkRateLimit(req, 'brand-signup', 10);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many signup attempts. Try again in an hour.' });
       const email = String(body.email || '').trim().toLowerCase();
       const companyName = String(body.company_name || '').trim();
       const contactName = String(body.contact_name || '').trim() || null;
@@ -428,6 +460,10 @@ export default async function handler(req, res) {
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       if (!email) return jsonResp(res, 400, { error: 'Missing email' });
+      const rlIp = await checkRateLimit(req, 'brand-login-ip', 10);
+      if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
+      const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 5);
+      if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many sign-in requests for this email in the last hour.' });
       const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email`);
       const member = (await lookupR.json())[0];
       if (member) {
