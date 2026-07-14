@@ -1531,7 +1531,7 @@
         });
         async function acctLogout() {
             const slug = window.RETAILER_SLUG || '';
-            const sessionId = localStorage.getItem('demohub_admin_session_' + slug);
+            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + slug);
             // Best-effort server invalidation
             try {
                 await fetch('/api/admin-auth', {
@@ -2407,7 +2407,7 @@ END:VEVENT
                 const file = e.target.files && e.target.files[0];
                 if (!file) return;
                 if (file.size > 2 * 1024 * 1024) { DhModal.toast('Image too large — max 2MB', 'error'); e.target.value = ''; return; }
-                const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
                 if (!sessionId) { DhModal.toast('Sign in again to upload a logo.', 'info'); return; }
                 const reader = new FileReader();
                 reader.onload = async () => {
@@ -4170,7 +4170,7 @@ END:VEVENT
             const reader = new FileReader();
             reader.onload = async () => {
                 try {
-                    const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
+                    const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
                     const r = await fetch('/api/admin-auth', {
                         method: 'POST', headers: {'Content-Type':'application/json'},
                         body: JSON.stringify({
@@ -4199,7 +4199,7 @@ END:VEVENT
             if (!(await DhModal.confirm({title:'Remove policy PDF?', message:'Brands will see the text policy instead.', ok:'Remove', danger:true}))) return;
             const status = document.getElementById('demoPolicyStatus');
             try {
-                const sessionId = localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
+                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ action: 'remove-demo-policy', session_id: sessionId }),
