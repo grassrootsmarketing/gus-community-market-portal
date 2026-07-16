@@ -112,6 +112,38 @@ function clearBrandSessionCookie(res) {
   else res.setHeader('Set-Cookie', cookie);
 }
 
+// -----------------------------------------------------------------------------
+// Password hashing (Node stdlib scrypt — no npm dependency).
+// Storage format: <salt_hex>$<hash_hex>. Salt is 16 bytes, hash is 64 bytes.
+// scrypt cost params are Node defaults (N=16384, r=8, p=1).
+// -----------------------------------------------------------------------------
+async function hashPassword(password) {
+  const { randomBytes, scrypt } = require('crypto');
+  const salt = randomBytes(16);
+  return new Promise((resolve, reject) => {
+    scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return reject(err);
+      resolve(salt.toString('hex') + '$' + derivedKey.toString('hex'));
+    });
+  });
+}
+
+async function verifyPassword(password, storedHash) {
+  if (!storedHash || typeof storedHash !== 'string' || !storedHash.includes('$')) return false;
+  const [saltHex, hashHex] = storedHash.split('$');
+  if (!saltHex || !hashHex) return false;
+  const { scrypt, timingSafeEqual } = require('crypto');
+  const salt = Buffer.from(saltHex, 'hex');
+  const expected = Buffer.from(hashHex, 'hex');
+  return new Promise((resolve) => {
+    scrypt(password, salt, 64, (err, derivedKey) => {
+      if (err) return resolve(false);
+      try { resolve(derivedKey.length === expected.length && timingSafeEqual(derivedKey, expected)); }
+      catch (_) { resolve(false); }
+    });
+  });
+}
+
 function generateLoginCode() {
   // 6-digit numeric code, zero-padded, cryptographically random.
   const { randomInt } = require('crypto');
@@ -808,6 +840,79 @@ export default async function handler(req, res) {
       if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot change owner role' });
       await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
       return jsonResp(res, 200, { ok: true });
+    }
+
+    // ---- SET-PASSWORD: claim the account by setting a password ----
+    // Two entry points: (a) authenticated brand (session cookie) setting first password,
+    // (b) unauthenticated brand who just paid and knows their email — but we require
+    // that a valid session already exist. The confirmation-page flow creates a session
+    // BEFORE prompting for password via a one-time signed token in the ?paid= redirect.
+    // For safety in this pass we only accept authenticated calls.
+    if (action === 'set-password') {
+      const sessionToken = getBrandSessionFromReq(req, body);
+      const brandInfo = await verifySessionFull(sessionToken);
+      if (!brandInfo) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const password = String(body.password || '');
+      if (password.length < 8) return jsonResp(res, 400, { error: 'Password must be at least 8 characters' });
+      if (password.length > 128) return jsonResp(res, 400, { error: 'Password too long' });
+      try {
+        const password_hash = await hashPassword(password);
+        // Store the hash + mark the brand as verified (claimed).
+        await sb(`brands?id=eq.${encodeURIComponent(brandInfo.brand_id)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ password_hash, is_verified: true, updated_at: new Date().toISOString() }),
+        });
+        return jsonResp(res, 200, { ok: true, claimed: true, brand_id: brandInfo.brand_id });
+      } catch (e) {
+        console.error('set-password failed:', e?.message || e);
+        return jsonResp(res, 500, { error: 'Could not save password. Try again.' });
+      }
+    }
+
+    // ---- LOGIN-PASSWORD: exchange email + password for session ----
+    if (action === 'login-password') {
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      if (!email || !password) return jsonResp(res, 400, { error: 'Email and password required' });
+      // Same rate limits as code login to prevent brute force
+      const rlIp = await checkRateLimit(req, 'brand-login-pw-ip', 30);
+      if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
+      const rlEmail = await checkRateLimit(req, 'brand-login-pw-email:' + email.slice(0, 64), 10);
+      if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many attempts for this email.' });
+      // Look up brand by email (via brand_members which is the shareable auth surface)
+      const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
+      const member = (await lookupR.json())[0];
+      const storedHash = member && member.brands && member.brands.password_hash;
+      if (!storedHash) {
+        // Don't reveal whether the email exists — return generic error
+        return jsonResp(res, 401, { error: 'Invalid email or password' });
+      }
+      const ok = await verifyPassword(password, storedHash);
+      if (!ok) return jsonResp(res, 401, { error: 'Invalid email or password' });
+      // Create session + set cookie (same as verify-code flow)
+      const sessionToken = randomToken(32);
+      const sessionExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      await sb('brand_account_sessions', {
+        method: 'POST',
+        body: JSON.stringify({ brand_id: member.brand_id, email: member.email, session_token: sessionToken, expires_at: sessionExpires }),
+      });
+      setBrandSessionCookie(res, sessionToken);
+      return jsonResp(res, 200, { ok: true, session_token: sessionToken, email: member.email, brand_id: member.brand_id });
+    }
+
+    // ---- CLAIM-STATUS: does this brand have a password set? ----
+    if (action === 'claim-status') {
+      const sessionToken = getBrandSessionFromReq(req, body);
+      const brandInfo = await verifySessionFull(sessionToken);
+      if (!brandInfo) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const bR = await sb(`brands?id=eq.${brandInfo.brand_id}&select=password_hash,is_verified`);
+      const b = (await bR.json())[0] || {};
+      return jsonResp(res, 200, {
+        ok: true,
+        claimed: !!(b.password_hash),
+        verified: !!(b.is_verified),
+        email: brandInfo.email,
+      });
     }
 
     // ---- COOKIE-MIGRATE: legacy body session_token → HttpOnly cookie ----
