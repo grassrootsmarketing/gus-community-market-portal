@@ -70,7 +70,7 @@ function clientIp(req) {
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName, cancellationPolicy }) {
+function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName, cancellationPolicy, manageBookingUrl, rebookUrl }) {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
@@ -152,6 +152,27 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 </td></tr>
 <tr><td style="padding:20px 40px 28px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>Sent because you just booked a demo through Demohub. You can turn off these onboarding emails from your brand portal.</td></tr>
 </table></body></html>`;
+}
+
+
+// Generate a magic-link token for the brand so the confirmation email can deep-link
+// them into their portal without re-verifying. Best-effort; falls through if it fails.
+async function createBrandMagicLink(brand_id, email) {
+  if (!SERVICE_KEY || !brand_id || !email) return null;
+  try {
+    const { randomBytes } = require('crypto');
+    const token = randomBytes(24).toString('hex');
+    // Match brand-account.js format: brand_account_tokens with token/brand_id/email/expires_at
+    const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days per P8 spec
+    await svcCall('brand_account_tokens', {
+      method: 'POST',
+      body: JSON.stringify({ brand_id, email: String(email).toLowerCase(), token, expires_at: expires }),
+    });
+    return `https://demohubhq.com/brand/verify?t=${token}`;
+  } catch (e) {
+    console.warn('createBrandMagicLink failed (non-fatal):', e?.message || e);
+    return null;
+  }
 }
 
 export default async function handler(req, res) {
@@ -493,18 +514,28 @@ export default async function handler(req, res) {
     } else {
       // FIRE-AND-FORGET: don't block booking response on Resend latency (~500-800ms).
       // The booking row is already inserted; email is best-effort delivery to the brand.
-      fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: FROM_ADDRESS,
-          to: contact_email,
-          reply_to: 'david@demohubhq.com',
-          subject: `Demo request received — ${RETAILER_NAME}`,
-          html: emailBody({ contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel, retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY }),
-        }),
-      }).then(r => { if (!r.ok) console.warn('confirmation email non-2xx:', r.status); }).catch(e => console.warn('confirmation email failed:', e?.message || e));
-      // Assume success from client's perspective — background failure logged, not user-facing.
+      // Generate a magic link so the "Manage your booking" CTA in the email lands the brand
+      // authenticated in their portal. Fire-and-forget; if it fails, email still sends.
+      const magicLinkPromise = createBrandMagicLink(brandId, contact_email);
+      magicLinkPromise.then(magicLink => {
+        fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: FROM_ADDRESS,
+            to: contact_email,
+            reply_to: 'david@demohubhq.com',
+            subject: `Your demo booking at ${RETAILER_NAME}`,
+            html: emailBody({
+              contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel,
+              retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY,
+              // P8 additions
+              manageBookingUrl: magicLink || 'https://demohubhq.com/brand/signin',
+              rebookUrl: `https://demohubhq.com/r/${retailer_slug}?prefill=1`,
+            }),
+          }),
+        }).then(r => { if (!r.ok) console.warn('confirmation email non-2xx:', r.status); }).catch(e => console.warn('confirmation email failed:', e?.message || e));
+      });
       emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
@@ -582,6 +613,13 @@ export default async function handler(req, res) {
 </table>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong> added you to their team with new-demo alerts on.</p>
 <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${retailer_slug}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
+</td></tr>
+<tr><td style="padding:24px 32px 6px;">
+<div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:8px;">
+<a href="${manageBookingUrl || '#'}" style="background:#0f2c17; color:white; padding:12px 22px; border-radius:10px; text-decoration:none; font-weight:700; font-size:14px; display:inline-block;">Manage your booking</a>
+<a href="${rebookUrl || '#'}" style="background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); padding:12px 22px; border-radius:10px; text-decoration:none; font-weight:600; font-size:14px; display:inline-block;">Book another demo</a>
+</div>
+<p style="font-size:12px; color:#6b6a64; text-align:center; margin:6px 0 0; line-height:1.5;">The Manage link signs you in automatically. Link is good for 7 days.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
 </table></body></html>`;
