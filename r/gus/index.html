@@ -610,35 +610,96 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
         // Phase B: green banner shown when a brand returns from Stripe Checkout with paid=1.
         function showPaidBanner(bookingIds) {
-            // Full-page success card — persists until user dismisses. Replaces the tiny
-            // transient banner that auto-vanished after 6 seconds leaving brands wondering
-            // if anything actually happened.
+            // Full-page success card with INLINE PASSWORD CLAIM (P8 Phase 2).
+            // Framing: possession not signup. The account already exists; they're securing it.
             const count = Array.isArray(bookingIds) && bookingIds.length ? bookingIds.length : 0;
+            const email = (window._brandProfile && window._brandProfile.email) || (window._lastBookingEmail || '');
+            const alreadyClaimed = !!(window._brandProfile && window._brandProfile.password_hash);
+            // PostHog event: booking_paid
+            try { if (window.posthog) window.posthog.capture('booking_paid', { bookings: count, retailer_slug: RETAILER_SLUG }); } catch(_){}
             const overlay = document.createElement('div');
             overlay.id = 'paidSuccessOverlay';
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;overflow-y:auto;';
+            const bookingCopy = count > 0
+                ? `${count} demo${count === 1 ? '' : 's'} at Gus's Community Market ${count === 1 ? 'is' : 'are'} on your calendar. Receipt on the way to ${email || 'your inbox'}.`
+                : `Your demos at Gus's Community Market are on your calendar. Receipt on the way.`;
+            // Inline password module — only shown if NOT already claimed
+            const claimBlock = alreadyClaimed ? `` : `
+                <div id="inlineClaimBlock" style="background:#fbf7f0;border-radius:12px;padding:20px 22px;text-align:left;margin:22px 0 20px;">
+                    <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:6px;">Your booking is saved to</div>
+                    <div style="font-size:0.95rem;font-weight:700;color:#0f2c17;margin-bottom:14px;word-break:break-word;">${escapeHtml(email || 'your email')}</div>
+                    <label for="inlinePasswordInput" style="display:block;font-size:0.8rem;font-weight:700;color:#0f2c17;margin-bottom:6px;">Set a password so you can manage it next time</label>
+                    <input type="password" id="inlinePasswordInput" placeholder="8 characters or more" minlength="8" autocomplete="new-password" style="width:100%;padding:11px 13px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-size:0.95rem;font-family:inherit;box-sizing:border-box;margin-bottom:6px;">
+                    <div id="inlinePasswordErr" style="font-size:0.8rem;color:#a14e2a;margin-bottom:8px;min-height:1em;"></div>
+                    <button type="button" id="inlinePasswordBtn" onclick="submitInlinePassword()" style="width:100%;background:#0f2c17;color:white;border:none;padding:12px;border-radius:10px;font-weight:700;font-size:0.92rem;cursor:pointer;font-family:inherit;">Set password</button>
+                    <div style="font-size:0.75rem;color:#6b6a64;margin-top:10px;line-height:1.5;">Skipping is fine. The confirmation email has a link that signs you in whenever you want.</div>
+                </div>
+            `;
             overlay.innerHTML = `
-                <div style="background:white;border-radius:20px;box-shadow:0 24px 60px rgba(15,44,23,0.35);max-width:520px;width:100%;padding:40px 36px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;">
-                    <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg, #3a7142 0%, #2a5b32 100%);display:inline-flex;align-items:center;justify-content:center;margin-bottom:20px;">
-                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <div style="background:white;border-radius:20px;box-shadow:0 24px 60px rgba(15,44,23,0.35);max-width:520px;width:100%;padding:36px 32px;text-align:center;font-family:'Plus Jakarta Sans',sans-serif;">
+                    <div style="width:64px;height:64px;border-radius:50%;background:linear-gradient(135deg, #3a7142 0%, #2a5b32 100%);display:inline-flex;align-items:center;justify-content:center;margin-bottom:16px;">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                     </div>
-                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:2.2rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.15;">Payment received.</h2>
-                    <p style="font-size:1rem;color:#3a3a36;margin:0 0 22px;line-height:1.55;">${count > 0 ? `Your ${count} demo${count === 1 ? '' : 's'} at Gus's Community Market ${count === 1 ? 'is' : 'are'} booked.` : 'Your demos at Gus\'s Community Market are booked.'} A confirmation email is on its way.</p>
-                    <div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:16px 20px;border-radius:8px;text-align:left;margin-bottom:24px;">
-                        <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:8px;">What happens next</div>
-                        <ol style="margin:0;padding-left:18px;font-size:0.9rem;line-height:1.65;color:#3a3a36;">
-                            <li>Confirmation email with all your booking details</li>
-                            <li>Gus's team will reach out if they need anything</li>
-                            <li>Manage your bookings anytime at <a href="/brand/signin" style="color:#2a5b32;font-weight:600;">demohubhq.com/brand/signin</a></li>
-                        </ol>
-                    </div>
-                    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-                        <button type="button" onclick="document.getElementById('paidSuccessOverlay').remove();" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;">Done</button>
-                        <button type="button" onclick="document.getElementById('paidSuccessOverlay').remove();showView('landing');" style="background:white;color:#0f2c17;border:1.5px solid rgba(15,44,23,0.15);padding:12px 22px;border-radius:10px;font-weight:600;font-size:0.9rem;cursor:pointer;font-family:inherit;">Book more demos</button>
+                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:2rem;font-weight:400;color:#0f2c17;margin:0 0 10px;line-height:1.15;">You're booked.</h2>
+                    <p style="font-size:0.98rem;color:#3a3a36;margin:0 0 6px;line-height:1.55;">${bookingCopy}</p>
+                    ${claimBlock}
+                    <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:${alreadyClaimed ? '22px' : '0'};">
+                        <button type="button" onclick="document.getElementById('paidSuccessOverlay').remove();" style="background:${alreadyClaimed ? '#0f2c17' : 'white'};color:${alreadyClaimed ? 'white' : '#0f2c17'};border:${alreadyClaimed ? 'none' : '1.5px solid rgba(15,44,23,0.15)'};padding:12px 26px;border-radius:10px;font-weight:${alreadyClaimed ? '700' : '600'};font-size:0.92rem;cursor:pointer;font-family:inherit;">Done</button>
+                        <button type="button" onclick="document.getElementById('paidSuccessOverlay').remove();showView('landing');" style="background:white;color:#0f2c17;border:1.5px solid rgba(15,44,23,0.15);padding:12px 22px;border-radius:10px;font-weight:600;font-size:0.9rem;cursor:pointer;font-family:inherit;">Book another demo</button>
                     </div>
                 </div>
             `;
             document.body.appendChild(overlay);
+            // Auto-focus the password input for one-tap flow
+            setTimeout(() => { const p = document.getElementById('inlinePasswordInput'); if (p) p.focus(); }, 200);
+        }
+
+        // Inline password claim from success card (P8 Phase 2)
+        async function submitInlinePassword() {
+            const input = document.getElementById('inlinePasswordInput');
+            const err = document.getElementById('inlinePasswordErr');
+            const btn = document.getElementById('inlinePasswordBtn');
+            const password = (input.value || '').trim();
+            err.textContent = '';
+            if (password.length < 8) { err.textContent = 'Password must be at least 8 characters.'; return; }
+            const orig = btn.textContent;
+            btn.disabled = true; btn.textContent = 'Setting…';
+            try {
+                const r = await fetch('/api/brand-account?action=set-password', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ password }),
+                    credentials: 'same-origin',
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) {
+                    if (r.status === 401) {
+                        err.textContent = 'Session expired. Use the link in your email to sign in and set a password there.';
+                    } else {
+                        err.textContent = j.error || j.message || 'Could not save password. Try again.';
+                    }
+                    btn.disabled = false; btn.textContent = orig;
+                    return;
+                }
+                // PostHog events
+                try { if (window.posthog) { window.posthog.capture('password_set_inline'); window.posthog.capture('account_claimed', { via: 'inline_password' }); } } catch(_){}
+                // Swap the claim block for a signed-in confirmation
+                const block = document.getElementById('inlineClaimBlock');
+                if (block) {
+                    block.innerHTML = `
+                        <div style="text-align:center;padding:8px 0;">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2a5b32" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:8px;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            <div style="font-size:1rem;font-weight:700;color:#0f2c17;margin-bottom:6px;">Password saved. You're signed in.</div>
+                            <a href="/brand/dashboard" style="color:#2a5b32;font-weight:700;text-decoration:underline;font-size:0.9rem;">Go to my brand portal &rarr;</a>
+                        </div>
+                    `;
+                    block.style.background = '#eef7f0';
+                }
+                // Refresh brand session state so subsequent bookings prefill
+                if (typeof loadBrandAccountSession === 'function') loadBrandAccountSession();
+            } catch (e) {
+                err.textContent = 'Network error. Try again.';
+                btn.disabled = false; btn.textContent = orig;
+            }
         }
         function showCancelledBanner() {
             const el = document.createElement('div');
@@ -1347,6 +1408,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 window._pendingSignedName = null;
                 return;
             }
+            // Stash the booking email so the success card can show 'saved to X'
+            try { window._lastBookingEmail = contactEmail; } catch(_){}
             // Phase B: try to collect payment via Stripe Checkout for the whole batch.
             // If the retailer isn't Stripe-connected, the endpoint returns { skip: true }
             // and we fall through to the current success modal.
