@@ -320,6 +320,10 @@ export default async function handler(req, res) {
     }
 
     const text = await upstream.text();
+    // Level 3: bump support-session write counter if this was a write from an impersonation session
+    if (upstream.status >= 200 && upstream.status < 300 && ['POST','PATCH','DELETE','PUT'].includes(req.method)) {
+      bumpSupportWriteCounter(req, session_id);
+    }
     res.status(upstream.status);
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
     return res.send(text);
