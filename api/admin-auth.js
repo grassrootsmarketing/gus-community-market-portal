@@ -995,5 +995,102 @@ async function handleOwnerAction(action, req, res, body) {
     return res.status(200).json({ ok: true });
   }
 
+
+  // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
+  if (action === 'owner-list-retailers') {
+    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const v = await verifyOwnerSession(sessionId);
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const rows = await sb('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc&limit=500');
+    return res.status(200).json({ ok: true, retailers: rows || [] });
+  }
+
+  // ---- OWNER-IMPERSONATE: create a scoped 4-hour session for a retailer, log to audit table ----
+  // Sets the retailer's admin cookie (dh_session) AND a non-HttpOnly marker cookie (dh_support)
+  // so the client-side admin page can render the "Support session" banner.
+  if (action === 'owner-impersonate') {
+    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const owner = await verifyOwnerSession(sessionId);
+    if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+    const retailer_id = String((body && body.retailer_id) || '');
+    if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
+    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email`);
+    const r = Array.isArray(rArr) ? rArr[0] : null;
+    if (!r) return res.status(404).json({ error: 'Retailer not found' });
+    // Create the impersonation session with a 4-hour expiry
+    const impersonationExpires = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const sessions = await sb('admin_sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: r.billing_email || owner.email,
+        retailer_id: r.id,
+        expires_at: impersonationExpires,
+      }),
+    });
+    const session = Array.isArray(sessions) ? sessions[0] : null;
+    if (!session) return res.status(500).json({ error: 'Failed to create impersonation session' });
+    // Log to support_sessions audit table (best-effort — don't fail the impersonation if this errors)
+    try {
+      const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || null;
+      const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+      await sb('support_sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          owner_email: owner.email,
+          target_retailer_id: r.id,
+          target_session_id: session.session_id,
+          ip_address: ip,
+          user_agent: ua,
+        }),
+      });
+    } catch (e) {
+      console.warn('support_sessions log failed (impersonation still proceeds):', e?.message || e);
+    }
+    // Set the admin session cookie (HttpOnly — the impersonated session)
+    setSessionCookie(res, session.session_id);
+    // Set a non-HttpOnly marker cookie so client JS can render the banner + Exit button
+    const markerVal = encodeURIComponent(JSON.stringify({ owner: owner.email, retailer: r.name, started: new Date().toISOString() }));
+    const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=14400; Secure; SameSite=Lax`;
+    const existing = res.getHeader('Set-Cookie');
+    if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, markerCookie] : [existing, markerCookie]);
+    else res.setHeader('Set-Cookie', markerCookie);
+    return res.status(200).json({
+      ok: true,
+      retailer_slug: r.slug,
+      retailer_name: r.name,
+      admin_url: `/r/${r.slug}/admin`,
+    });
+  }
+
+  // ---- OWNER-END-IMPERSONATION: clear the impersonation session + cookies ----
+  if (action === 'owner-end-impersonation') {
+    const sid = getSessionIdFromReq(req, body);
+    if (sid) {
+      // Mark the support_sessions row as ended
+      try { await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&ended_at=is.null`, {
+        method: 'PATCH',
+        body: JSON.stringify({ ended_at: new Date().toISOString() }),
+      }); } catch (_) {}
+      try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' }); } catch (_) {}
+    }
+    clearSessionCookie(res);
+    // Clear the marker cookie
+    const clearMarker = `dh_support=; Path=/; Max-Age=0; Secure; SameSite=Lax`;
+    const existing = res.getHeader('Set-Cookie');
+    if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, clearMarker] : [existing, clearMarker]);
+    else res.setHeader('Set-Cookie', clearMarker);
+    return res.status(200).json({ ok: true });
+  }
+
+  // ---- SUPPORT-SESSIONS: retailer views their own support-session audit log ----
+  // Reads via retailer admin session (any admin of that retailer). Not owner-only.
+  if (action === 'support-sessions') {
+    const sid = getSessionIdFromReq(req, body);
+    const v = await verifyAdminSession(sid);
+    if (!v.ok) return res.status(401).json({ error: v.error });
+    const rows = await sb(`support_sessions?target_retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id,owner_email,started_at,ended_at,writes_count&order=started_at.desc&limit=50`);
+    return res.status(200).json({ ok: true, sessions: rows || [] });
+  }
+
   return res.status(400).json({ error: 'Unknown owner action' });
 }
