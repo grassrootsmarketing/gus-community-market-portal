@@ -84,6 +84,27 @@ function setSessionCookie(res, sessionId) {
   else res.setHeader('Set-Cookie', cookie);
 }
 
+// Level 3: increment support_sessions.writes_count if this request runs under an
+// impersonation session (detected by dh_support marker cookie). Fire-and-forget —
+// wrapped so it can never throw into the caller's path.
+async function bumpSupportWriteCounter(req, session_id) {
+  try {
+    const cookies = parseCookies(req);
+    if (!cookies.dh_support || !session_id) return;
+    fetch(`${SUPABASE_URL}/rest/v1/support_sessions?target_session_id=eq.${encodeURIComponent(session_id)}&ended_at=is.null&select=id,writes_count`, {
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    }).then(r => r.json()).then(rows => {
+      if (!Array.isArray(rows) || !rows[0]) return;
+      const row = rows[0];
+      return fetch(`${SUPABASE_URL}/rest/v1/support_sessions?id=eq.${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify({ writes_count: (row.writes_count || 0) + 1, last_action_at: new Date().toISOString() }),
+      });
+    }).catch(() => {});
+  } catch (_) { /* never throws into the write path */ }
+}
+
 function getSessionIdFromReq(req) {
   const cookies = parseCookies(req);
   const bodySid = (() => {
