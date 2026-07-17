@@ -420,6 +420,74 @@ export default async function handler(req, res) {
   const action = (req.query?.action || body.action || '').toString();
 
   try {
+    // ---- BOOKING-SIGNUP: hard-gate account creation at booking time ----
+    // Purpose-built for the booking flow. Creates the brand + password + session in one shot.
+    // No website required (the retailer already knows the brand; COI/website collected later).
+    // If the email already has a password-protected account, tells them to sign in instead.
+    if (action === 'booking-signup') {
+      const rl = await checkRateLimit(req, 'brand-booking-signup', 15);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many attempts. Try again shortly.' });
+      const email = String(body.email || '').trim().toLowerCase();
+      const companyName = String(body.company_name || '').trim();
+      const contactName = String(body.contact_name || '').trim() || null;
+      const phone = String(body.phone || '').trim() || null;
+      const password = String(body.password || '');
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
+      if (!companyName) return jsonResp(res, 400, { error: 'Brand name required' });
+      if (password.length < 8) return jsonResp(res, 400, { error: 'Password must be at least 8 characters' });
+
+      // Cross-role collision: email already a retailer?
+      try {
+        const dupR = await sb(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id&limit=1`);
+        const dupRows = await dupR.json();
+        if (Array.isArray(dupRows) && dupRows.length > 0) {
+          return jsonResp(res, 409, { error: 'already_retailer', message: 'This email is a retailer account. Use a different email for your brand.' });
+        }
+      } catch (_) {}
+
+      // Existing brand?
+      const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id,password_hash`);
+      const existing = (await lookupR.json())[0];
+      let brandId;
+      if (existing) {
+        // If they already have a password, they must sign in — don't silently overwrite.
+        if (existing.password_hash) {
+          return jsonResp(res, 409, { error: 'account_exists', message: 'You already have a Demohub account. Sign in to continue.', signin: true });
+        }
+        // Brand row exists but no password (auto-created from a prior guest booking) — claim it now.
+        brandId = existing.id;
+        const password_hash = await hashPassword(password);
+        const patch = { password_hash, is_verified: true, updated_at: new Date().toISOString() };
+        if (companyName) patch.company_name = companyName;
+        if (contactName) patch.contact_name = contactName;
+        if (phone) patch.phone = phone;
+        try { await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) }); } catch (_) {}
+      } else {
+        // Brand new — create the brand with password set.
+        const password_hash = await hashPassword(password);
+        const createR = await sb('brands', {
+          method: 'POST',
+          body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone, password_hash, is_verified: true }),
+        });
+        const created = await createR.json();
+        if (!Array.isArray(created) || !created[0]) return jsonResp(res, 500, { error: 'Could not create account. Try again.' });
+        brandId = created[0].id;
+        try {
+          await sb('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email, role: 'owner', name: contactName }) });
+        } catch (_) {}
+      }
+
+      // Create session + set HttpOnly cookie so the brand is now signed in for the booking + future visits.
+      const sessionToken = randomToken(32);
+      const sessionExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      await sb('brand_account_sessions', {
+        method: 'POST',
+        body: JSON.stringify({ brand_id: brandId, email, session_token: sessionToken, expires_at: sessionExpires }),
+      });
+      setBrandSessionCookie(res, sessionToken);
+      return jsonResp(res, 200, { ok: true, brand_id: brandId, email });
+    }
+
     if (action === 'signup') {
       const rl = await checkRateLimit(req, 'brand-signup', 10);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many signup attempts. Try again in an hour.' });
