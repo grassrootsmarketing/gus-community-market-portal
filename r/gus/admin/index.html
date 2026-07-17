@@ -1050,14 +1050,14 @@
                                     <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;">
                                         <div style="position:relative; display:flex; align-items:center;">
                                             <span aria-hidden="true" style="position:absolute; left:12px; font-weight:600; color:var(--ink-700); pointer-events:none; z-index:1;">$</span>
-                                            <input type="number" step="1" min="5" max="50" inputmode="numeric" class="form-input" id="settingDemoFee" value="30" disabled style="padding-left:22px; width:90px; font-weight:700; text-align:center;" oninput="onDemoFeeInput(this)">
+                                            <input type="number" step="1" min="0" max="50" inputmode="numeric" class="form-input" id="settingDemoFee" value="30" disabled style="padding-left:22px; width:90px; font-weight:700; text-align:center;" oninput="onDemoFeeInput(this)">
                                         </div>
-                                        <input type="range" min="5" max="50" step="1" value="30" id="settingDemoFeeSlider" disabled style="flex:1; accent-color:var(--forest-700); cursor:pointer;" oninput="onDemoFeeSlider(this)">
+                                        <input type="range" min="0" max="50" step="1" value="30" id="settingDemoFeeSlider" disabled style="flex:1; accent-color:var(--forest-700); cursor:pointer;" oninput="onDemoFeeSlider(this)">
                                     </div>
                                     <div id="demoFeeSplit" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:0.82rem;">
                                         <div style="text-align:center; padding:8px 6px; background:white; border-radius:8px; border:1px solid var(--sand-200);">
                                             <div style="font-size:0.7rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Brand pays</div>
-                                            <div id="feeBrandPays" style="font-weight:700; color:var(--forest-900); font-size:1rem;">$30</div>
+                                            <div id="feeBrandPays" style="font-weight:700; color:var(--forest-900); font-size:1rem;">$35</div>
                                         </div>
                                         <div style="text-align:center; padding:8px 6px; background:#fff3ed; border-radius:8px; border:1px solid #ffdac2;">
                                             <div style="font-size:0.7rem; color:#a14e2a; text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Demohub fee</div>
@@ -1065,7 +1065,7 @@
                                         </div>
                                         <div style="text-align:center; padding:8px 6px; background:#f4f8f0; border-radius:8px; border:1px solid var(--forest-200, #c8d4c1);">
                                             <div style="font-size:0.7rem; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">You keep</div>
-                                            <div id="feeRetailerKeeps" style="font-weight:700; color:var(--forest-800); font-size:1rem;">$25</div>
+                                            <div id="feeRetailerKeeps" style="font-weight:700; color:var(--forest-800); font-size:1rem;">$30</div>
                                         </div>
                                     </div>
                                 </div>
@@ -3281,27 +3281,30 @@ END:VEVENT
 
         // Sync slider and numeric input for Default Demo Fee, update split preview.
         const _PLATFORM_FEE = 5;
-        function _updateDemoFeeSplit(brandPays) {
-            const p = Math.max(5, Math.min(50, Math.round(Number(brandPays) || 0)));
-            const platformFee = Math.min(p, _PLATFORM_FEE);
-            const retailerKeeps = Math.max(0, p - platformFee);
+        // Model: the retailer sets THEIR fee (what they keep). Demohub adds a flat $5 on top.
+        // Brand pays retailerFee + $5. Retailer keeps their full fee. Platform gets the flat $5.
+        // This matches exactly what the public booking page charges.
+        function _updateDemoFeeSplit(retailerFee) {
+            const rf = Math.max(0, Math.min(50, Math.round(Number(retailerFee) || 0)));
+            const platformFee = _PLATFORM_FEE;         // flat $5 added on top
+            const brandPays = rf + platformFee;        // what the brand is charged
             const brandEl = document.getElementById('feeBrandPays');
             const platEl = document.getElementById('feePlatform');
             const keepEl = document.getElementById('feeRetailerKeeps');
-            if (brandEl) brandEl.textContent = '$' + p;
+            if (brandEl) brandEl.textContent = '$' + brandPays;
             if (platEl) platEl.textContent = '$' + platformFee;
-            if (keepEl) keepEl.textContent = '$' + retailerKeeps;
+            if (keepEl) keepEl.textContent = '$' + rf;
         }
         function onDemoFeeSlider(el) {
-            const v = Math.max(5, Math.min(50, parseInt(el.value, 10) || 30));
+            const v = Math.max(0, Math.min(50, parseInt(el.value, 10) || 0));
             const input = document.getElementById('settingDemoFee');
             if (input) input.value = String(v);
             _updateDemoFeeSplit(v);
         }
         function onDemoFeeInput(el) {
             let v = parseInt(el.value, 10);
-            if (isNaN(v)) v = 30;
-            v = Math.max(5, Math.min(50, v));
+            if (isNaN(v)) v = 0;
+            v = Math.max(0, Math.min(50, v));
             const slider = document.getElementById('settingDemoFeeSlider');
             if (slider) slider.value = String(v);
             _updateDemoFeeSplit(v);
@@ -3393,7 +3396,7 @@ END:VEVENT
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
-            const feeVal = Math.max(5, Math.min(50, Math.round(Number(s.demo_fee || 30))));
+            const feeVal = Math.max(0, Math.min(50, Math.round(Number(s.demo_fee != null ? s.demo_fee : 30))));
             if (fee) fee.value = String(feeVal);
             const feeSlider = document.getElementById('settingDemoFeeSlider');
             if (feeSlider) feeSlider.value = String(feeVal);
