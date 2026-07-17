@@ -48,6 +48,14 @@ function parseCookies(req) {
   return out;
 }
 
+function setSessionCookieWithMaxAge(res, sessionId, maxAgeSeconds) {
+  if (!sessionId) return;
+  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
 function setSessionCookie(res, sessionId) {
   if (!sessionId) return;
   const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
@@ -971,11 +979,14 @@ async function handleOwnerAction(action, req, res, body) {
     if (!OWNER_EMAILS.includes((tok.email || '').toLowerCase())) return res.status(403).json({ error: 'Not authorised' });
     await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
     const ownerRetailerId = (await ensureOwnerRetailerId()) || tok.retailer_id;
-    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId }) });
+    // SECURITY: owner sessions expire in 12 HOURS (not the 30-day default for retailer logins).
+    // The master panel can see all platform data + impersonate any retailer, so it must
+    // re-authenticate at least twice a day. Forces a fresh magic-link login after expiry.
+    const ownerExpires = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId, expires_at: ownerExpires }) });
     const session = Array.isArray(sessions) ? sessions[0] : null;
-    // Consistent with retailer/brand flows: set the HttpOnly cookie so /owner page auth
-    // can rely on the same cookie the rest of the admin uses.
-    if (session?.session_id) setSessionCookie(res, session.session_id);
+    // Set the HttpOnly cookie with a matching 12-hour max-age (override the 30-day default).
+    if (session?.session_id) setSessionCookieWithMaxAge(res, session.session_id, 12 * 60 * 60);
     return res.status(200).json({ ok: true, session_id: session?.session_id, email: tok.email });
   }
 
