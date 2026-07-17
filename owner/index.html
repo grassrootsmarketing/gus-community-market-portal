@@ -418,6 +418,7 @@ function renderDashboard(d) {
     </div>
     <div class="tab-pane active" data-pane="overview">
       ${stats}
+      <div id="supportToolsCard"></div>
       ${trends}
       ${tablesHtml}
       ${watchlistHtml}
@@ -426,6 +427,10 @@ function renderDashboard(d) {
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
     <div class="tab-pane" data-pane="status" id="statusPane"></div>
   `;
+
+  // Support tools card (Level 1: impersonation, Level 2: audit link)
+  loadSupportTools();
+
   wireTabs();
 }
 
@@ -761,6 +766,67 @@ async function runPendingMigrations() {
 window.addEventListener('DOMContentLoaded', () => {
   setTimeout(loadMigrationsStatus, 800);
 });
+
+
+async function loadSupportTools() {
+  const card = document.getElementById('supportToolsCard');
+  if (!card) return;
+  const t = localStorage.getItem('demohub_owner_session') || '';
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'owner-list-retailers', session_id: t }),
+      credentials: 'same-origin',
+    });
+    if (!r.ok) { card.innerHTML = ''; return; }
+    const j = await r.json();
+    const retailers = j.retailers || [];
+    const rows = retailers.map(r => `
+      <tr>
+        <td>${escapeHtml(r.name)}</td>
+        <td><a href="/r/${escapeHtml(r.slug)}" target="_blank" style="color:var(--forest-700, #2a5b32); text-decoration:underline;">/r/${escapeHtml(r.slug)}</a></td>
+        <td>${escapeHtml(r.billing_tier || 'solo')}</td>
+        <td class="num">
+          <button type="button" onclick="doImpersonate('${r.id}', '${escapeHtml(r.name).replace(/'/g, "\\'")}')" style="background:#0f2c17; color:white; border:none; padding:7px 14px; border-radius:8px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit;">Sign in as admin &rarr;</button>
+        </td>
+      </tr>
+    `).join('');
+    card.innerHTML = `
+      <div class="card" style="margin-top:24px;">
+        <h2>Support tools — sign in as any retailer</h2>
+        <div class="sub">Creates a 4-hour scoped admin session. The retailer sees the sign-in in their audit log under Settings. Use only when you need to debug or fix something.</div>
+        <div class="tablewrap">
+          <table class="simple">
+            <thead><tr><th>Retailer</th><th>Public page</th><th>Tier</th><th class="num">Action</th></tr></thead>
+            <tbody>${rows || '<tr><td colspan="4" class="empty">No retailers yet.</td></tr>'}</tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    card.innerHTML = '';
+  }
+}
+
+async function doImpersonate(retailer_id, retailer_name) {
+  if (!confirm('Sign in as admin at ' + retailer_name + '?\n\nThis creates a 4-hour support session. Every action you take will show up in that retailer\'s audit log with your email.')) return;
+  const t = localStorage.getItem('demohub_owner_session') || '';
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ action: 'owner-impersonate', session_id: t, retailer_id }),
+      credentials: 'same-origin',
+    });
+    const j = await r.json();
+    if (!r.ok) { alert('Could not sign in: ' + (j.error || 'unknown error')); return; }
+    // Open the impersonated admin in a new tab — keeps the owner panel available
+    window.open(j.admin_url, '_blank');
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  }
+}
 
 </script>
 </body>
