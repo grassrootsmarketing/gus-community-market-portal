@@ -6110,18 +6110,32 @@ END:VEVENT
               link.classList.add('active');
             });
           });
-          // Highlight active section on .main-scroll scroll
+          // Highlight active section on .main-scroll scroll.
+          // Uses bounding-rect math (relative to the scroll container) — the same coordinate
+          // system as the click handler. The old code used el.offsetTop which measures from the
+          // element's positioned ancestor, NOT the scroller, causing an off-by-one where clicking
+          // 'Brands' would highlight 'Demos' etc.
           let _ticking = false;
+          let _clickLockUntil = 0;
           const sc = getScroller();
+          // When a nav link is clicked we smooth-scroll; suppress the scroll-spy for a beat so it
+          // doesn't overwrite the just-clicked active state mid-animation.
+          subnav.forEach(link => link.addEventListener('click', () => { _clickLockUntil = Date.now() + 700; }));
           if (sc) sc.addEventListener('scroll', () => {
             if (_ticking) return;
+            if (Date.now() < _clickLockUntil) return; // respect the click's active state
             _ticking = true;
             requestAnimationFrame(() => {
-              const scrollY = sc.scrollTop + 120;
+              const scRect = sc.getBoundingClientRect();
+              const threshold = 140; // px from top of scroller where a section counts as "current"
               let current = null;
               subnav.forEach(link => {
                 const el = document.getElementById(link.dataset.section);
-                if (el && el.offsetTop <= scrollY) current = link;
+                if (!el) return;
+                // Position of section top relative to the scroller's top edge
+                const relTop = el.getBoundingClientRect().top - scRect.top;
+                // A section is "current" once its top has scrolled above the threshold line
+                if (relTop <= threshold) current = link;
               });
               if (current) {
                 subnav.forEach(l => l.classList.remove('active'));
