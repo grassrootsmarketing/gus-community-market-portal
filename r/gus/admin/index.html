@@ -1154,6 +1154,15 @@
                             <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:11px 22px;font-size:0.95rem;">Connect bank for payouts &rarr;</button>
                         </div>
                     </div>
+                    <div class="settings-card" id="supportActivityCard">
+                        <div class="settings-card-header"><h3>Demohub support activity</h3></div>
+                        <div class="settings-card-body">
+                            <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
+                            <div id="supportSessionsList" style="font-size:0.88rem;">
+                                <div style="color:var(--ink-500);">Loading…</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="settings-card" id="billingCard">
                         <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
@@ -1910,6 +1919,48 @@
             } catch (_) { /* non-fatal cosmetic update */ }
         }
 
+        // ============================================================================
+        // IMPERSONATION BANNER (owner Support Tools) — reads dh_support marker cookie
+        // set by owner-impersonate action. Shows an orange top strip on every admin page.
+        // ============================================================================
+        function renderImpersonationBanner() {
+            try {
+                const cookies = Object.fromEntries(document.cookie.split(';').map(c => {
+                    const i = c.indexOf('=');
+                    return i > 0 ? [c.slice(0,i).trim(), decodeURIComponent(c.slice(i+1).trim())] : [c.trim(), ''];
+                }));
+                if (!cookies.dh_support) return;
+                let info = {};
+                try { info = JSON.parse(cookies.dh_support); } catch(_){}
+                if (document.getElementById('impersonationBanner')) return; // already rendered
+                const bar = document.createElement('div');
+                bar.id = 'impersonationBanner';
+                bar.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:9998;background:#ed682f;color:white;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:"Plus Jakarta Sans",sans-serif;font-size:0.88rem;font-weight:600;box-shadow:0 2px 12px rgba(237,104,47,0.35);';
+                bar.innerHTML = `
+                    <span style="display:inline-flex; align-items:center; gap:8px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+                        <strong>Support session</strong>
+                        <span style="opacity:0.9; font-weight:500;">Signed in as <strong>${(info.retailer || 'retailer').replace(/</g,'&lt;')}</strong> by <strong>${(info.owner || 'owner').replace(/</g,'&lt;')}</strong></span>
+                    </span>
+                    <button type="button" onclick="exitImpersonation()" style="background:white;color:#0f2c17;border:none;padding:7px 16px;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;font-family:inherit;">Exit support session &rarr;</button>
+                `;
+                document.body.insertBefore(bar, document.body.firstChild);
+            } catch (_) {}
+        }
+
+        async function exitImpersonation() {
+            try {
+                await fetch('/api/admin-auth', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'owner-end-impersonation' }),
+                    credentials: 'same-origin',
+                });
+            } catch (_) {}
+            // Redirect back to the owner panel
+            window.location.href = '/owner';
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
             // renderCalendar() is for the public booking calendar; admin page doesn't have it
             if (document.getElementById('calendarMonth')) { try { renderCalendar(); } catch(e){} }
@@ -1917,6 +1968,7 @@
             const ok = await AdminAuth.init();
             if (!ok) return;
             updateAccountBadge();
+            renderImpersonationBanner();
             initSupabase();
         });
         
@@ -5694,6 +5746,36 @@ END:VEVENT
             }
         }
         document.addEventListener('DOMContentLoaded', () => setTimeout(_renderBillingState, 1500));
+        // Load support-session audit list once auth is ready
+        async function _loadSupportSessions() {
+            const el = document.getElementById('supportSessionsList');
+            if (!el) return;
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'support-sessions' }),
+                    credentials: 'same-origin',
+                });
+                if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded.</div>'; return; }
+                const j = await r.json();
+                const sessions = j.sessions || [];
+                if (sessions.length === 0) {
+                    el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded. This will populate if anyone from Demohub signs in to your admin.</div>';
+                    return;
+                }
+                el.innerHTML = sessions.map(s => {
+                    const started = new Date(s.started_at).toLocaleString('en-US', {month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit'});
+                    const ended = s.ended_at ? new Date(s.ended_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'active or expired';
+                    return `<div style="padding:10px 0; border-bottom:1px solid var(--sand-100);">
+                        <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(s.owner_email)}</div>
+                        <div style="font-size:0.8rem; color:var(--ink-500); margin-top:2px;">${started} → ${ended}</div>
+                    </div>`;
+                }).join('');
+            } catch (_) {
+                el.innerHTML = '<div style="color:var(--ink-500);">Could not load support activity.</div>';
+            }
+        }
+        document.addEventListener('DOMContentLoaded', () => setTimeout(_loadSupportSessions, 2000));
         // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
         // our DB. Rescue path for any retailer whose billing_tier didn't update because a
         // webhook was missed (e.g. before the webhook secret was configured).
