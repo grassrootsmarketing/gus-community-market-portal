@@ -499,19 +499,20 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 <div class="modal-overlay" id="contactInfoModal">
         <div class="modal" style="max-width: 540px;">
             <div class="modal-body" style="text-align: left; padding: 32px;">
-                <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;">Your contact info</h3>
-                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;">We'll use this to confirm your booking by email.</p>
-                <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;">Your info also creates a free Demohub brand profile — sign in later at <a href="/brand/signin" target="_blank" style="color:var(--forest-700); font-weight:600; text-decoration:underline;">demohubhq.com/brand/signin</a> to see all your demos, upload your COI once, and book at other retailers.</p>
+                <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;" id="bookModalTitle">Create your account &amp; book</h3>
+                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.</p>
+                <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
-                <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com"></div>
+                <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
+                <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
                 <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-input" id="bookProduct" placeholder="Organic Granola Line"></div>
                 <div class="form-group"><label class="form-label">Notes (optional)</label><input type="text" class="form-input" id="bookNotes" placeholder="Any special requirements"></div>
                 <div id="bookErrorMsg" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:8px;"></div>
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
                     <button class="btn btn-secondary" onclick="closeContactInfoModal()" style="flex:1; justify-content: center;">Cancel</button>
-                    <button class="btn btn-primary" id="bookSubmitBtn" onclick="submitContactInfo()" style="flex:1; justify-content: center;">Confirm Booking</button>
+                    <button class="btn btn-primary" id="bookSubmitBtn" onclick="submitContactInfo()" style="flex:1; justify-content: center;">Create account &amp; book</button>
                 </div>
             </div>
         </div>
@@ -1256,17 +1257,34 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         
         function confirmBooking() {
             if (cart.length === 0) return;
-            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookProduct','bookNotes'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookProduct','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
-            // Auto-fill from signed-in brand profile, if present
             const bp = window._brandProfile || null;
+            const pwGroup = document.getElementById('bookPasswordGroup');
+            const title = document.getElementById('bookModalTitle');
+            const subtitle = document.getElementById('bookModalSubtitle');
+            const signInPrompt = document.getElementById('bookSignInPrompt');
+            const submitBtn = document.getElementById('bookSubmitBtn');
             if (bp) {
+                // SIGNED IN: prefill, hide password + signup framing, plain "Confirm booking"
                 const setVal = (id, v) => { const el = document.getElementById(id); if (el && v) el.value = v; };
                 setVal('bookBrandName', bp.company_name);
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
                 setVal('bookProduct', bp.default_product_info);
+                if (pwGroup) pwGroup.style.display = 'none';
+                if (title) title.textContent = 'Confirm your booking';
+                if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
+                if (signInPrompt) signInPrompt.style.display = 'none';
+                if (submitBtn) submitBtn.textContent = 'Confirm booking';
+            } else {
+                // NOT SIGNED IN: hard gate — require account creation (password)
+                if (pwGroup) pwGroup.style.display = '';
+                if (title) title.textContent = 'Create your account & book';
+                if (subtitle) subtitle.textContent = "Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.";
+                if (signInPrompt) signInPrompt.style.display = '';
+                if (submitBtn) submitBtn.textContent = 'Create account & book';
             }
             document.getElementById('contactInfoModal').classList.add('active');
         }
@@ -1332,10 +1350,46 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             errMsg.textContent = '';
             if (!brandName || !contactEmail) { errMsg.textContent = 'Brand name and email are required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
-            // Wave 5: if no signature staged yet, run agreement pre-flight.
-            // ensureAgreementOrPrompt opens the agreement modal if needed; the modal's
-            // confirm button calls actuallySubmitBookings() which lands at the same booking
-            // loop with window._pendingSignedName populated. If no signature needed, fall through.
+
+            // HARD GATE: if not signed in, they must create an account (password) before booking.
+            if (!window._brandProfile) {
+                const password = (document.getElementById('bookPassword')?.value || '');
+                if (password.length < 8) { errMsg.textContent = 'Create a password (8+ characters) to make your account.'; errMsg.style.display = 'block'; return; }
+                const btn = document.getElementById('bookSubmitBtn');
+                const orig = btn.textContent;
+                btn.disabled = true; btn.textContent = 'Creating account…';
+                try {
+                    const r = await fetch('/api/brand-account?action=booking-signup', {
+                        method: 'POST', headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ email: contactEmail, company_name: brandName, contact_name: contactName, phone: contactPhone, password }),
+                        credentials: 'same-origin',
+                    });
+                    const j = await r.json().catch(() => ({}));
+                    if (!r.ok) {
+                        if (r.status === 409 && (j.error === 'account_exists' || j.signin)) {
+                            errMsg.innerHTML = 'You already have a Demohub account. <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in</a> to continue.';
+                            errMsg.style.display = 'block';
+                        } else {
+                            errMsg.textContent = j.error || j.message || 'Could not create account. Try again.';
+                            errMsg.style.display = 'block';
+                        }
+                        btn.disabled = false; btn.textContent = orig;
+                        return;
+                    }
+                    // Account created + signed in. Refresh brand session state.
+                    if (typeof loadBrandAccountSession === 'function') { try { await loadBrandAccountSession(); } catch(_){} }
+                    // Fallback: stamp a minimal profile so downstream logic treats them as signed in
+                    if (!window._brandProfile) window._brandProfile = { email: contactEmail, company_name: brandName, contact_name: contactName, phone: contactPhone };
+                    btn.disabled = false; btn.textContent = orig;
+                } catch (e) {
+                    errMsg.textContent = 'Network error creating account. Try again.';
+                    errMsg.style.display = 'block';
+                    btn.disabled = false; btn.textContent = orig;
+                    return;
+                }
+            }
+
+            // Agreement pre-flight (unchanged)
             if (!window._pendingSignedName) {
                 const check = await ensureAgreementOrPrompt(contactEmail);
                 if (check.needsSigning) return;
