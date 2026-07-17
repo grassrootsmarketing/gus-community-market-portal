@@ -713,7 +713,7 @@ export default async function handler(req, res) {
       }
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions') {
       return await handleOwnerAction(action, req, res, body);
     }
 
