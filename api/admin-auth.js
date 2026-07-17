@@ -713,7 +713,7 @@ export default async function handler(req, res) {
       }
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1014,9 +1014,18 @@ async function handleOwnerAction(action, req, res, body) {
     if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
     const retailer_id = String((body && body.retailer_id) || '');
     if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
-    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email`);
+    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rArr) ? rArr[0] : null;
     if (!r) return res.status(404).json({ error: 'Retailer not found' });
+    // Level 3: gate on retailer's customer-approved access toggle.
+    // If toggle is OFF or expired, refuse impersonation with clear message.
+    const accessExpired = r.support_access_expires_at && new Date(r.support_access_expires_at).getTime() < Date.now();
+    if (!r.allow_support_access || accessExpired) {
+      return res.status(403).json({
+        error: 'support_access_not_granted',
+        message: `Support access is not enabled for ${r.name}. Ask them to toggle 'Allow Demohub support access' in their Settings before signing in as their admin.`,
+      });
+    }
     // Create the impersonation session with a 4-hour expiry
     const impersonationExpires = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     const sessions = await sb('admin_sessions', {
@@ -1065,16 +1074,62 @@ async function handleOwnerAction(action, req, res, body) {
   // ---- OWNER-END-IMPERSONATION: clear the impersonation session + cookies ----
   if (action === 'owner-end-impersonation') {
     const sid = getSessionIdFromReq(req, body);
+    let summaryRow = null;
+    let retailerInfo = null;
     if (sid) {
-      // Mark the support_sessions row as ended
+      // Fetch the support_sessions row + retailer info BEFORE marking ended so we can
+      // include duration + writes_count in the summary email.
+      try {
+        const rows = await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&ended_at=is.null&select=id,owner_email,started_at,writes_count,target_retailer_id&limit=1`);
+        summaryRow = Array.isArray(rows) ? rows[0] : null;
+        if (summaryRow) {
+          const retRows = await sb(`retailers?id=eq.${encodeURIComponent(summaryRow.target_retailer_id)}&select=name,billing_email`);
+          retailerInfo = Array.isArray(retRows) ? retRows[0] : null;
+        }
+      } catch (_) {}
+      // Mark ended
       try { await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&ended_at=is.null`, {
         method: 'PATCH',
         body: JSON.stringify({ ended_at: new Date().toISOString() }),
       }); } catch (_) {}
       try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' }); } catch (_) {}
     }
+    // Fire-and-forget summary email to retailer
+    if (summaryRow && retailerInfo && retailerInfo.billing_email) {
+      const startedAt = new Date(summaryRow.started_at);
+      const endedAt = new Date();
+      const mins = Math.max(1, Math.round((endedAt - startedAt) / 60000));
+      const writes = summaryRow.writes_count || 0;
+      const RESEND_API_KEY = process.env.RESEND_API_KEY;
+      if (RESEND_API_KEY) {
+        const html = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,sans-serif;color:#1c1c1a;">
+          <div style="max-width:520px;margin:0 auto;background:white;border-radius:16px;padding:32px;border:1px solid rgba(15,44,23,0.08);">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">Support session ended</div>
+            <h1 style="font-family:Georgia,serif;font-size:22px;font-weight:500;color:#0f2c17;margin:0 0 14px;">Demohub support just accessed your account.</h1>
+            <p style="font-size:15px;color:#3a3a36;margin:0 0 16px;line-height:1.55;"><strong>${summaryRow.owner_email}</strong> signed in to <strong>${retailerInfo.name}</strong> as your admin.</p>
+            <table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
+              <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Duration</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-weight:600;font-size:14px;">${mins} min</td></tr>
+              <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Changes made</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-weight:600;font-size:14px;border-top:1px solid #ede3d0;">${writes}</td></tr>
+              <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Started</td><td style="padding:12px 16px;text-align:right;color:#3a3a36;font-size:13px;border-top:1px solid #ede3d0;">${startedAt.toLocaleString('en-US')}</td></tr>
+            </table>
+            <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 8px;">Full activity log is in your admin under Settings &rarr; Demohub support activity.</p>
+            <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;">To prevent future support access, toggle 'Allow Demohub support access' OFF in Settings.</p>
+          </div>
+        </body></html>`;
+        fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: 'Demohub <support@demohubhq.com>',
+            to: retailerInfo.billing_email,
+            reply_to: 'david@demohubhq.com',
+            subject: `Demohub support just accessed ${retailerInfo.name}`,
+            html,
+          }),
+        }).catch(e => console.warn('support summary email failed:', e?.message || e));
+      }
+    }
     clearSessionCookie(res);
-    // Clear the marker cookie
     const clearMarker = `dh_support=; Path=/; Max-Age=0; Secure; SameSite=Lax`;
     const existing = res.getHeader('Set-Cookie');
     if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, clearMarker] : [existing, clearMarker]);
@@ -1090,6 +1145,39 @@ async function handleOwnerAction(action, req, res, body) {
     if (!v.ok) return res.status(401).json({ error: v.error });
     const rows = await sb(`support_sessions?target_retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id,owner_email,started_at,ended_at,writes_count&order=started_at.desc&limit=50`);
     return res.status(200).json({ ok: true, sessions: rows || [] });
+  }
+
+  // ---- SUPPORT-ACCESS-TOGGLE: retailer flips their own allow_support_access flag ----
+  // ON sets a 24-hour auto-expire. OFF clears expires_at and blocks future impersonation.
+  if (action === 'support-access-toggle') {
+    const sid = getSessionIdFromReq(req, body);
+    const v = await verifyAdminSession(sid);
+    if (!v.ok) return res.status(401).json({ error: v.error });
+    const enabled = body && body.enabled === true;
+    const patch = enabled
+      ? { allow_support_access: true, support_access_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
+      : { allow_support_access: false, support_access_expires_at: null };
+    await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    });
+    return res.status(200).json({ ok: true, allow_support_access: enabled, expires_at: patch.support_access_expires_at });
+  }
+
+  // ---- SUPPORT-ACCESS-STATUS: retailer reads their own toggle state (for the UI toggle) ----
+  if (action === 'support-access-status') {
+    const sid = getSessionIdFromReq(req, body);
+    const v = await verifyAdminSession(sid);
+    if (!v.ok) return res.status(401).json({ error: v.error });
+    const rows = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=allow_support_access,support_access_expires_at`);
+    const r = Array.isArray(rows) ? rows[0] : null;
+    const expired = r && r.support_access_expires_at && new Date(r.support_access_expires_at).getTime() < Date.now();
+    return res.status(200).json({
+      ok: true,
+      allow_support_access: !!(r && r.allow_support_access) && !expired,
+      expires_at: r && r.support_access_expires_at,
+      expired,
+    });
   }
 
   return res.status(400).json({ error: 'Unknown owner action' });
