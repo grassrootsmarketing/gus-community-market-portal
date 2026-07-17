@@ -1158,6 +1158,24 @@
                         <div class="settings-card-header"><h3>Demohub support activity</h3></div>
                         <div class="settings-card-body">
                             <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
+
+                            <!-- Level 3: Customer-approved access toggle -->
+                            <div id="supportAccessToggleWrap" style="background:#fbf7f0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
+                                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
+                                    <div style="flex:1;">
+                                        <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem; margin-bottom:4px;">Allow Demohub support access</div>
+                                        <div style="font-size:0.8rem; color:var(--ink-500); line-height:1.5;" id="supportAccessSubtitle">Loading…</div>
+                                    </div>
+                                    <label class="switch" style="position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0;">
+                                        <input type="checkbox" id="supportAccessToggle" onchange="toggleSupportAccess(this.checked)" style="opacity:0; width:0; height:0;">
+                                        <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#c4c1b8; border-radius:24px; transition:0.2s;" id="supportAccessSlider">
+                                            <span style="position:absolute; content:''; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.15);" id="supportAccessKnob"></span>
+                                        </span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Recent sessions</div>
                             <div id="supportSessionsList" style="font-size:0.88rem;">
                                 <div style="color:var(--ink-500);">Loading…</div>
                             </div>
@@ -5775,7 +5793,62 @@ END:VEVENT
                 el.innerHTML = '<div style="color:var(--ink-500);">Could not load support activity.</div>';
             }
         }
-        document.addEventListener('DOMContentLoaded', () => setTimeout(_loadSupportSessions, 2000));
+        // Load support-access toggle state
+        async function _loadSupportAccessStatus() {
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'support-access-status' }),
+                    credentials: 'same-origin',
+                });
+                if (!r.ok) return;
+                const j = await r.json();
+                const cb = document.getElementById('supportAccessToggle');
+                const slider = document.getElementById('supportAccessSlider');
+                const knob = document.getElementById('supportAccessKnob');
+                const subtitle = document.getElementById('supportAccessSubtitle');
+                const isOn = !!j.allow_support_access;
+                if (cb) cb.checked = isOn;
+                if (slider) slider.style.background = isOn ? '#2a5b32' : '#c4c1b8';
+                if (knob) knob.style.transform = isOn ? 'translateX(20px)' : 'translateX(0)';
+                if (subtitle) {
+                    if (isOn && j.expires_at) {
+                        const exp = new Date(j.expires_at);
+                        const hours = Math.max(0, Math.round((exp - Date.now()) / 3600000));
+                        subtitle.textContent = `ON. Auto-turns-off in about ${hours} hour${hours === 1 ? '' : 's'}. When ON, Demohub owner can sign in as your admin to debug or fix things.`;
+                    } else if (j.expired) {
+                        subtitle.textContent = 'Auto-expired. Toggle ON to allow Demohub support to sign in as your admin for the next 24 hours.';
+                    } else {
+                        subtitle.textContent = 'OFF. Demohub cannot sign in to your account. Toggle ON to allow support access for 24 hours (auto-turns-off after).';
+                    }
+                }
+            } catch (_) {}
+        }
+
+        async function toggleSupportAccess(enabled) {
+            const subtitle = document.getElementById('supportAccessSubtitle');
+            if (subtitle) subtitle.textContent = 'Saving…';
+            try {
+                const r = await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'support-access-toggle', enabled }),
+                    credentials: 'same-origin',
+                });
+                if (!r.ok) throw new Error('save failed');
+                // Refresh the toggle UI to reflect the new state
+                _loadSupportAccessStatus();
+            } catch (e) {
+                if (typeof toast === 'function') toast('Could not save. Try again.', 'err');
+                // Revert the checkbox
+                const cb = document.getElementById('supportAccessToggle');
+                if (cb) cb.checked = !enabled;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(_loadSupportSessions, 2000);
+            setTimeout(_loadSupportAccessStatus, 2100);
+        });
         // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
         // our DB. Rescue path for any retailer whose billing_tier didn't update because a
         // webhook was missed (e.g. before the webhook secret was configured).
