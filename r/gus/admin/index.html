@@ -6114,30 +6114,57 @@ END:VEVENT
             }
             return map;
           }
-          window.showAdminTab = function(sectionId) {
-            if (!_tabMap) _tabMap = buildTabMap();
+          let _panesBuilt = false;
+          function buildPanes() {
+            if (_panesBuilt) return;
+            const container = document.querySelector('.main-scroll .container');
+            if (!container) return;
             const grid = document.querySelector('.settings-grid');
-            // Hide every mapped element + the grid
-            TABS.forEach(t => (_tabMap[t]||[]).forEach(el => { el.style.display = 'none'; }));
-            if (grid) grid.style.display = 'none';
-            // Show the target tab's elements
-            const target = _tabMap[sectionId] || [];
-            const gridCards = [];
-            target.forEach(el => {
-              if (el.classList && el.classList.contains('settings-card')) { gridCards.push(el); }
-              else { el.style.display = ''; }
+            // Determine each top-level child's tab via the same walk
+            const snapshot = Array.from(container.children);
+            const childTab = new Map();
+            let current = 'dashSection';
+            snapshot.forEach(child => {
+              if (child === grid) { childTab.set(child, '__grid__'); return; }
+              const id = child.id || '';
+              if (['calendarSection','demosSection','brandsSection','complianceSection','storesSection'].includes(id)) current = id;
+              else if (id === 'dashSection') current = 'dashSection';
+              if (id === 'billingSection' || id === 'settingsSection') { childTab.set(child, '__skip__'); return; }
+              childTab.set(child, current);
             });
-            if (gridCards.length && grid) {
-              grid.style.display = '';
-              gridCards.forEach(c => { c.style.display = ''; });
+            // Create a pane per tab
+            const panes = {};
+            TABS.forEach(t => {
+              const p = document.createElement('div');
+              p.className = 'admin-pane'; p.dataset.pane = t; p.style.display = 'none';
+              panes[t] = p;
+            });
+            // Move top-level children into their panes
+            snapshot.forEach(child => {
+              const t = childTab.get(child);
+              if (t === '__grid__' || t === '__skip__') return;
+              panes[t].appendChild(child);
+            });
+            // Split the settings grid: team/billing cards leave into their panes; settings cards stay in the grid
+            if (grid) {
+              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+                const t = card.dataset.tab || 'settingsSection';
+                if (t !== 'settingsSection') panes[t].appendChild(card);
+              });
+              panes['settingsSection'].appendChild(grid);
             }
-            // Update active states (desktop + mobile)
+            // Append all panes to the container in tab order
+            TABS.forEach(t => container.appendChild(panes[t]));
+            _panesBuilt = true;
+          }
+          window.showAdminTab = function(sectionId) {
+            buildPanes();
+            document.querySelectorAll('.admin-pane').forEach(p => { p.style.display = (p.dataset.pane === sectionId) ? '' : 'none'; });
             document.querySelectorAll('.subnav-link, .mobile-nav-item').forEach(a => {
               if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
             });
             const lbl = document.getElementById('mobileNavCurrent');
             if (lbl) { const active = document.querySelector('.subnav-link.active, .mobile-nav-item.active'); if (active) lbl.textContent = active.textContent.trim(); }
-            // Scroll to top of the pane
             const sc = getScroller(); if (sc) sc.scrollTo({ top: 0, behavior: 'auto' });
           };
           subnav.forEach(link => {
