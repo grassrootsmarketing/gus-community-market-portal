@@ -195,7 +195,7 @@ export default async function handler(req, res) {
     // ---- LOGIN: request a magic link ----
     // Multi-admin: matches against retailer_admins table (multiple users per retailer).
     if (action === 'login') {
-      const rl = await checkRateLimit(req, 'admin-login', 10);
+      const rl = await checkRateLimit(req, 'admin-login', 30);
       if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
       const { email, retailer_slug } = body || {};
       if (!email || !retailer_slug) return res.status(400).json({ error: 'email and retailer_slug required' });
@@ -243,7 +243,7 @@ export default async function handler(req, res) {
 
     // ---- EMAIL-LOGIN: send magic link(s) by email only — auto-routes to right retailer(s) ----
     if (action === 'email-login') {
-      const rl = await checkRateLimit(req, 'admin-email-login', 10);
+      const rl = await checkRateLimit(req, 'admin-email-login', 30);
       if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
       const { email } = body || {};
       if (!email) return res.status(400).json({ error: 'email required' });
@@ -317,7 +317,7 @@ export default async function handler(req, res) {
       const code = String(body?.code || '').replace(/\D/g, '').trim();
       if (!email || !code || code.length !== 6) return res.status(400).json({ error: 'Email and 6-digit code required' });
       // Rate limit code verification per IP (defense against brute force)
-      const rl = await checkRateLimit(req, 'verify-code', 30);
+      const rl = await checkRateLimit(req, 'verify-code', 60);
       if (!rl.allowed) {
         if (rl.error === 'rate_limit_unavailable') return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Try again in a moment.' });
         return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
