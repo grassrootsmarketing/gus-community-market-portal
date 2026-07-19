@@ -527,7 +527,10 @@ const main = document.getElementById('mainContent');
 const navAvatar = document.getElementById('navAvatar');
 const navName = document.getElementById('navName');
 
-if (!sessionToken) window.location.href = '/brand/signin';
+// Auth is cookie-based (HttpOnly dh_brand_session set at signup/booking). Do NOT gate on the
+// legacy localStorage token — a brand who just signed up during booking has the cookie but no
+// localStorage entry. loadData() verifies the cookie with the server and only redirects to
+// sign-in if that check actually returns 401. This is the post-payment "straight to dashboard" fix.
 
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(iso, fmt) {
@@ -619,7 +622,7 @@ let _calYear = new Date().getFullYear();
 // ===== Load data =====
 async function loadData() {
   try {
-    const r = await fetch('/api/brand-account?action=data&session_id=' + encodeURIComponent(sessionToken));
+    const r = await fetch('/api/brand-account?action=data' + (sessionToken ? '&session_id=' + encodeURIComponent(sessionToken) : ''), { credentials: 'same-origin' });
     if (r.status === 401) {
         try { localStorage.removeItem(SESSION_KEY); } catch(_){}
         // Ask server to clear the cookie (best-effort)
