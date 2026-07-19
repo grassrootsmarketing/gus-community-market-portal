@@ -537,10 +537,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     </select>
                 </div>
                 <div class="form-group">
-                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.95rem; color:var(--forest-900);">
-                        <input type="checkbox" id="bookNeedsElectricity" style="width:18px; height:18px; accent-color:var(--forest-700); cursor:pointer;">
-                        <span>My demo needs electricity <span style="color:var(--ink-500); font-weight:400;">(power outlet for a warmer, blender, etc.)</span></span>
-                    </label>
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:14px;">
+                        <span style="font-size:0.95rem; color:var(--forest-900);">Does your demo need electricity? <span style="color:var(--ink-500); font-weight:400; font-size:0.85rem;">(power outlet)</span></span>
+                        <label class="switch" style="position:relative; display:inline-block; width:46px; height:26px; flex-shrink:0;">
+                            <input type="checkbox" id="bookNeedsElectricity" style="opacity:0; width:0; height:0;" onchange="(function(cb){var s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob');if(s)s.style.background=cb.checked?'#2a5b32':'#c4c1b8';if(k)k.style.transform=cb.checked?'translateX(20px)':'translateX(0)';})(this)">
+                            <span id="bookElecSlider" style="position:absolute; cursor:pointer; inset:0; background:#c4c1b8; border-radius:26px; transition:0.2s;">
+                                <span id="bookElecKnob" style="position:absolute; height:20px; width:20px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.15);"></span>
+                            </span>
+                        </label>
+                    </div>
                 </div>
                 <div class="form-group"><label class="form-label">Notes (optional)</label><input type="text" class="form-input" id="bookNotes" placeholder="Any special requirements"></div>
                 <div id="bookErrorMsg" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:8px;"></div>
@@ -1293,7 +1298,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         
         function confirmBooking() {
             if (cart.length === 0) return;
-            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); { const ce = document.getElementById('bookNeedsElectricity'); if (ce) ce.checked = false; }
+            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); { const ce = document.getElementById('bookNeedsElectricity'); if (ce) { ce.checked = false; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#c4c1b8'; if(k)k.style.transform='translateX(0)'; } }
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
             const bp = window._brandProfile || null;
             const pwGroup = document.getElementById('bookPasswordGroup');
@@ -1308,7 +1313,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
-                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } } { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) ce.checked = true; }
+                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } } { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
