@@ -2410,6 +2410,7 @@ END:VEVENT
                     if (!r.ok) throw new Error(j.error || 'Rename failed');
                     restore(clean);
                     if (typeof window !== 'undefined') { window.RETAILER_DISPLAY_NAME = clean; }
+                    if (window.DhModal) DhModal.toast('Name updated', 'success');
                 } catch (err) {
                     restore(originalName);
                     // Tiny inline toast instead of alert
@@ -2729,6 +2730,7 @@ END:VEVENT
             try {
                 await bookingAction(id, 'confirm');
                 await refreshAll();
+                DhModal.toast('Booking confirmed', 'success');
             } catch (e) {
                 DhModal.toast('Could not confirm: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
@@ -2743,6 +2745,7 @@ END:VEVENT
             try {
                 await bookingAction(id, 'decline', reason || '');
                 await refreshAll();
+                DhModal.toast('Booking declined', 'success');
             } catch (e) {
                 DhModal.toast('Could not decline: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
@@ -3243,6 +3246,7 @@ END:VEVENT
                 // Refresh local cache
                 window.state.venues = window.state.venues.map(x => ({ ...x, availability: payload.availability, max_demos_per_slot: maxPerSlot }));
                 if (status) { status.textContent = `Applied to ${otherVenues.length + 1} stores ✓`; status.style.color = 'var(--forest-600)'; }
+                DhModal.toast(`Schedule applied to ${otherVenues.length + 1} stores`, 'success');
             } catch (e) {
                 if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
             } finally {
@@ -3432,6 +3436,7 @@ END:VEVENT
                     status.textContent = 'Saved ✓';
                     setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
                 }
+                DhModal.toast('Booking settings saved', 'success');
             } catch (e) {
                 if (status) status.textContent = 'Save failed: ' + (e.message || e);
             }
@@ -3706,6 +3711,7 @@ END:VEVENT
                 renderStores();
                 populateAvailabilityVenueSelect();
                 renderAvailabilityEditor();
+                DhModal.toast('Location saved', 'success');
             } catch (e) {
                 errBox.textContent = 'Error: ' + e.message;
                 errBox.style.display = 'block';
@@ -3727,6 +3733,7 @@ END:VEVENT
                 renderStores();
                 populateAvailabilityVenueSelect();
                 renderAvailabilityEditor();
+                DhModal.toast('Location deleted', 'success');
             } catch (e) {
                 errBox.textContent = 'Error: ' + e.message;
                 errBox.style.display = 'block';
@@ -4237,6 +4244,7 @@ END:VEVENT
                     }
                     renderDemoPolicyPdfState();
                     if (status) status.textContent = 'Uploaded ' + file.name + ' — brands will see this instead of the text.';
+                    DhModal.toast('Policy PDF uploaded', 'success');
                 } catch (e) {
                     if (status) status.textContent = 'Upload failed: ' + (e.message || e);
                 }
@@ -4261,6 +4269,7 @@ END:VEVENT
                 }
                 renderDemoPolicyPdfState();
                 if (status) status.textContent = 'Policy PDF removed. Text policy is now active.';
+                DhModal.toast('Policy PDF removed', 'success');
             } catch (e) {
                 if (status) status.textContent = 'Remove failed: ' + (e.message || e);
             }
@@ -4321,6 +4330,7 @@ END:VEVENT
                     status.textContent = cb.checked ? 'Monthly overviews on.' : 'Monthly overviews off.';
                     setTimeout(() => { if (status) status.textContent = ''; }, 2500);
                 }
+                DhModal.toast('Notification settings saved', 'success');
             } catch (e) {
                 if (status) { status.style.color = 'var(--clay-700)'; status.textContent = 'Save failed: ' + (e.message || e); }
             }
@@ -4383,6 +4393,7 @@ END:VEVENT
                     ta.style.background = '#f9f7f2';
                     btn.disabled = false; btn.textContent = 'Edit';
                     if (status) { status.style.color = 'var(--forest-700)'; status.textContent = 'Saved ✓'; setTimeout(() => { status.textContent = ''; }, 2000); }
+                    DhModal.toast('Demo policy saved', 'success');
                     window._demoPolicyIsDefault = (newVal.trim() === DEMO_POLICY_DEFAULT.trim());
                     if (typeof updatePolicyDefaultBadges === 'function') updatePolicyDefaultBadges();
                 }).catch(e => {
@@ -4434,6 +4445,7 @@ END:VEVENT
                     status.style.color = 'var(--forest-700)';
                     status.textContent = 'Saved ✓';
                     setTimeout(() => { status.textContent = ''; }, 2000);
+                    DhModal.toast('Cancellation policy saved', 'success');
                     window._cancelPolicyIsDefault = (newVal.trim() === CANCEL_POLICY_DEFAULT.trim());
                     if (typeof updatePolicyDefaultBadges === 'function') updatePolicyDefaultBadges();
                 }).catch(e => {
