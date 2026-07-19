@@ -470,7 +470,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone, password_hash, is_verified: true }),
         });
         const created = await createR.json();
-        if (!Array.isArray(created) || !created[0]) { console.error('booking-signup brand insert failed:', JSON.stringify(created)); return jsonResp(res, 500, { error: 'Could not create account.', detail: (created && created.message) || JSON.stringify(created) }); }
+        if (!Array.isArray(created) || !created[0]) { console.error('booking-signup brand insert failed:', JSON.stringify(created)); return jsonResp(res, 500, { error: 'Could not create account. Try again.' }); }
         brandId = created[0].id;
         try {
           await sb('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email, role: 'owner', name: contactName }) });
