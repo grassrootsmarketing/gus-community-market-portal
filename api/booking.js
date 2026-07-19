@@ -281,8 +281,12 @@ export default async function handler(req, res) {
     let brandId = null;
     let isNewBrand = false;  // flipped when we create the brand row on first booking
     try {
+      // MUST use SERVICE_KEY: `brands` is RLS-protected (it holds password_hash), so an anon
+      // lookup silently returns [] and the booking ends up with brand_id = NULL. That null
+      // breaks the brand dashboard (demos never link to the account), the COI warning in the
+      // confirmation email, and the COI enforcement cron (which skips bookings with no brand).
       const brandLookup = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       });
       const brandRows = await brandLookup.json();
       brandId = Array.isArray(brandRows) && brandRows[0] ? brandRows[0].id : null;
@@ -303,6 +307,14 @@ export default async function handler(req, res) {
           brandId = Array.isArray(created) ? created[0]?.id : null;
           if (brandId) isNewBrand = true;
         } catch (_) { /* fall through */ }
+        // The create fails if the brand already exists (unique email). Re-read so we still
+        // link the booking rather than saving a null brand_id.
+        if (!brandId) {
+          try {
+            const again = await svcCall(`brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`);
+            brandId = Array.isArray(again) && again[0] ? again[0].id : null;
+          } catch (_) { /* non-fatal */ }
+        }
       }
     } catch (_) { /* non-fatal */ }
 
