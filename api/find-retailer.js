@@ -111,7 +111,7 @@ export default async function handler(req, res) {
       const rid = retailer.id;
 
       // Venues: safe public columns only, active only, ordered for display
-      const venueCols = 'id,name,address,availability,max_demos_per_slot,display_order';
+      const venueCols = 'id,name,address,availability,max_demos_per_slot,display_order,demo_fee';
       const venues = await sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=${venueCols}&order=display_order`, true);
 
       // Capacity snapshot from bookings + demos — venue_id + demo_date + demo_time + status only,
