@@ -5638,12 +5638,24 @@ END:VEVENT
                 if (window.state.settings && window.state.settings.id) {
                     // Demo Fee is type=number - .value is a clean numeric string (or empty)
                     const feeNum = parseFloat(fee.value);
+                    const feeToApply = Number.isFinite(feeNum) && feeNum >= 0 ? feeNum : 30;
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
-                            demo_fee: Number.isFinite(feeNum) && feeNum > 0 ? feeNum : 30,
+                            demo_fee: feeToApply,
                             demo_duration: getDemoDurationValue(),          // dropdown or custom input
                             advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
                         });
+                        // One-price model: this fee is the master control, so push it to every store.
+                        // Billing charges per-venue demo_fee, so the stores must carry the same number
+                        // or the page price and the actual charge drift apart.
+                        const _venues = window.state.venues || [];
+                        if (_venues.length) {
+                            const results = await Promise.allSettled(
+                                _venues.map(v => adminUpdate('venues', v.id, { demo_fee: feeToApply }))
+                            );
+                            const failed = results.filter(r => r.status === 'rejected').length;
+                            if (failed) DhModal.toast(`Saved, but ${failed} store${failed===1?'':'s'} didn't update. Try again.`, 'warn');
+                        }
                         await refreshAll();
                     } catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); return; }
                 }
