@@ -166,8 +166,14 @@ export default async function handler(req, res) {
     for (const b of (bookings || [])) {
       log.checked++;
       try {
-        if (!b.brand_id) { log.skipped++; log.errors.push({ booking: b.id, reason: 'no brand_id' }); continue; }
-        const brandRows = await sb(`brands?id=eq.${encodeURIComponent(b.brand_id)}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires`);
+        // brand_id can be null on legacy bookings; fall back to contact_email so those still
+        // get enforced rather than silently skipped.
+        let brandRows = null;
+        if (b.brand_id) {
+          brandRows = await sb(`brands?id=eq.${encodeURIComponent(b.brand_id)}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires`);
+        } else if (b.contact_email) {
+          brandRows = await sb(`brands?email=eq.${encodeURIComponent(String(b.contact_email).toLowerCase())}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires`);
+        }
         const brand = brandRows && brandRows[0];
         if (!brand) { log.skipped++; log.errors.push({ booking: b.id, reason: 'brand not found' }); continue; }
 
