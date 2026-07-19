@@ -1558,6 +1558,25 @@ function renderAccount() {
   `;
 }
 
+// ===== Post-booking welcome =====
+// When a brand arrives straight from checkout (?booked=N), greet + confirm inside the product,
+// so the "You're booked" reassurance isn't lost by skipping the interstitial card.
+(function(){
+  try {
+    const bp = new URLSearchParams(location.search);
+    if (!bp.has('booked')) return;
+    const n = parseInt(bp.get('booked'), 10) || 0;
+    const banner = document.createElement('div');
+    banner.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:9998;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
+    banner.textContent = n > 1
+      ? `You're booked. ${n} demos are confirmed \u2014 welcome to your dashboard.`
+      : "You're booked. Welcome to your dashboard \u2014 everything for your demo lives here.";
+    document.body.insertBefore(banner, document.body.firstChild);
+    setTimeout(() => { banner.style.transition = 'opacity .6s ease'; banner.style.opacity = '0'; setTimeout(() => banner.remove(), 700); }, 6000);
+    history.replaceState({}, '', location.pathname + location.hash);
+  } catch(_){}
+})();
+
 // ===== Bootstrap =====
 loadData()
   .then(() => {
