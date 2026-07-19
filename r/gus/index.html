@@ -1209,7 +1209,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             demoCount.textContent = cart.length;
             // Compute per-demo fee (venue fee + platform fee bundled — shown as one number to brand)
             const venueFee = (window.state && window.state.settings && window.state.settings.demo_fee) || PRICE_PER_DEMO;
-            const perDemoFee = Number(venueFee) + PLATFORM_FEE_PER_DEMO;
+            // platform-keeps-all retailers (special deal): brand pays just the demo fee (no +$5 bundle).
+            const _pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
+            const perDemoFee = _pka ? Number(venueFee) : (Number(venueFee) + PLATFORM_FEE_PER_DEMO);
             const total = cart.length * perDemoFee;
             const priceEl = document.getElementById('pricePerDemo');
             if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
