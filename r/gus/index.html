@@ -507,7 +507,41 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
                 <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
-                <div class="form-group"><label class="form-label">Product</label><input type="text" class="form-input" id="bookProduct" placeholder="Organic Granola Line"></div>
+                <div class="form-group"><label class="form-label">What are you demoing? *</label>
+                    <select class="form-input" id="bookCategory" style="width:100%;">
+                        <option value="">Select a category…</option>
+                        <option>Beverages</option>
+                        <option>Coffee &amp; tea</option>
+                        <option>Wine, beer &amp; spirits</option>
+                        <option>Snacks &amp; chips</option>
+                        <option>Chocolate &amp; candy</option>
+                        <option>Bakery &amp; bread</option>
+                        <option>Cereal &amp; breakfast</option>
+                        <option>Pantry &amp; dry goods</option>
+                        <option>Sauces, oils &amp; condiments</option>
+                        <option>Spices &amp; seasonings</option>
+                        <option>Dairy &amp; cheese</option>
+                        <option>Plant-based &amp; vegan</option>
+                        <option>Frozen</option>
+                        <option>Produce</option>
+                        <option>Meat &amp; seafood</option>
+                        <option>Prepared foods &amp; deli</option>
+                        <option>Health, supplements &amp; wellness</option>
+                        <option>Protein, bars &amp; energy</option>
+                        <option>Personal care &amp; beauty</option>
+                        <option>Pet supplies</option>
+                        <option>Home &amp; household</option>
+                        <option>Baby &amp; kids</option>
+                        <option>CBD &amp; hemp</option>
+                        <option>Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer; font-size:0.95rem; color:var(--forest-900);">
+                        <input type="checkbox" id="bookNeedsElectricity" style="width:18px; height:18px; accent-color:var(--forest-700); cursor:pointer;">
+                        <span>My demo needs electricity <span style="color:var(--ink-500); font-weight:400;">(power outlet for a warmer, blender, etc.)</span></span>
+                    </label>
+                </div>
                 <div class="form-group"><label class="form-label">Notes (optional)</label><input type="text" class="form-input" id="bookNotes" placeholder="Any special requirements"></div>
                 <div id="bookErrorMsg" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:8px;"></div>
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
@@ -1259,7 +1293,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         
         function confirmBooking() {
             if (cart.length === 0) return;
-            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookProduct','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); { const ce = document.getElementById('bookNeedsElectricity'); if (ce) ce.checked = false; }
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
             const bp = window._brandProfile || null;
             const pwGroup = document.getElementById('bookPasswordGroup');
@@ -1274,7 +1308,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
-                setVal('bookProduct', bp.default_product_info);
+                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } } { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) ce.checked = true; }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
@@ -1345,7 +1379,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
-            const product      = document.getElementById('bookProduct').value.trim();
+            const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
+            const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
@@ -1403,7 +1438,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
-            const product      = document.getElementById('bookProduct').value.trim();
+            const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
+            const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
@@ -1432,7 +1468,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     venue: item.location,
                     demo_date: item.dateStr,
                     demo_time: item.time,
-                    notes: notes,
+                    notes: (notes || '') + (needsElectricity ? ' [⚡ Demo needs electricity]' : ''),
                     signed_name: window._pendingSignedName || null,
                 }),
             }).then(async resp => {
