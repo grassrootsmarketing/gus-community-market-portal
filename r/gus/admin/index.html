@@ -5624,6 +5624,10 @@ END:VEVENT
             const inputs = [fee, feeSlider2, dur, adv].filter(Boolean);
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
+                // Immediate visible reaction: disable + show working state.
+                btn.disabled = true;
+                btn.textContent = 'Saving…';
+                inputs.forEach(i => i.disabled = true);
                 if (window.state.settings && window.state.settings.id) {
                     // Demo Fee is type=number - .value is a clean numeric string (or empty)
                     const feeNum = parseFloat(fee.value);
@@ -5646,15 +5650,42 @@ END:VEVENT
                             if (failed) DhModal.toast(`Saved, but ${failed} store${failed===1?'':'s'} didn't update. Try again.`, 'warn');
                         }
                         await refreshAll();
-                    } catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); return; }
+                    } catch (e) {
+                        // Stay in edit mode so the user can retry without re-clicking Edit.
+                        DhModal.toast('Save failed: ' + e.message, 'error');
+                        inputs.forEach(i => i.disabled = false);
+                        btn.disabled = false;
+                        btn.textContent = 'Save';
+                        return;
+                    }
                 }
                 inputs.forEach(i => i.disabled = true);
-                btn.textContent = 'Edit';
+                // Success feedback: toast + a brief green "Saved" flash on the button, then back to Edit.
+                DhModal.toast('Settings saved', 'success');
+                btn.disabled = false;
+                flashSaved(btn);
             } else {
                 inputs.forEach(i => i.disabled = false);
                 btn.textContent = 'Save';
                 setTimeout(() => fee && fee.focus(), 50);
             }
+        }
+
+        // Reusable "Saved ✓" button flash for save actions that otherwise give no feedback.
+        function flashSaved(btn, revertLabel) {
+            if (!btn) return;
+            const label = revertLabel || 'Edit';
+            btn.textContent = 'Saved \u2713';
+            btn.style.transition = 'background 0.15s ease, color 0.15s ease';
+            btn.style.background = 'var(--forest-700, #2a5b32)';
+            btn.style.color = '#fff';
+            btn.style.borderColor = 'var(--forest-700, #2a5b32)';
+            setTimeout(() => {
+                btn.textContent = label;
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.style.borderColor = '';
+            }, 1400);
         }
         
         // ===== Plan & billing (Stripe Phase 1) =====
