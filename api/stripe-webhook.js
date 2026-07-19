@@ -250,7 +250,7 @@ async function createBrandMagicLink(brand_id, email) {
 
 // Brand "booking received" email — identical framing to api/booking.js emailBody,
 // but sent from the webhook AFTER payment succeeds so unpaid bookings never trigger it.
-function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl) {
+function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl, coiDeadline) {
   const contact_name = ctx.contact_name;
   const brand_name = ctx.brand_name;
   const product = ctx.product;
@@ -275,6 +275,7 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time)}</td></tr>
 </table>
+${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;border-left:4px solid #ed682f;border-radius:10px;padding:15px 18px;margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;margin-bottom:6px;">Action required &mdash; Certificate of Insurance</div><div style="font-size:14px;line-height:1.55;color:#a14e2a;">Your demo is <strong>automatically cancelled</strong> unless a current Certificate of Insurance is on file by <strong>${H(coiDeadline)}</strong> &mdash; that is 3 days (72 hours) before your demo, so the store can order product with confidence. Retailers require it to let you perform. <a href="https://demohubhq.com/brand/dashboard" style="color:#a14e2a;font-weight:700;text-decoration:underline;">Upload your COI now &rarr;</a></div></div>` : ''}
 <div style="text-align:center;margin:0 0 20px;">
 <a href="${manageBookingUrl || 'https://demohubhq.com/brand/signin'}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
 </div>
@@ -372,10 +373,24 @@ async function handlePaymentIntentSucceeded(event) {
             const slug = (ctx.retailers && ctx.retailers.slug) || '';
             const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
             const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
+            // COI: if the brand has no COI on file, the confirmation warns the demo is cancelled
+            // unless it's uploaded by the day before the demo.
+            let coiDeadline = null;
+            try {
+              if (ctx.brand_id) {
+                const _br = await sb(`brands?id=eq.${encodeURIComponent(ctx.brand_id)}&select=default_coi_url`);
+                const _hasCoi = Array.isArray(_br) && _br[0] && _br[0].default_coi_url;
+                if (!_hasCoi && ctx.demo_date) {
+                  const _dd = new Date(ctx.demo_date + 'T00:00:00Z');
+                  _dd.setUTCDate(_dd.getUTCDate() - 3);
+                  coiDeadline = _dd.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+                }
+              }
+            } catch (_) {}
             await sendResendEmail({
               to: ctx.contact_email,
               subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
-              html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl),
+              html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
             });
             await notifyStaffForBooking(ctx);
           }
