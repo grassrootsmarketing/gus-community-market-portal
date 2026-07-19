@@ -676,22 +676,9 @@
             function mobileNavGo(e, sectionId, label) {
                 e.preventDefault();
                 closeMobileNavDrawer();
-                // Update active state in both nav lists
-                document.querySelectorAll('.mobile-nav-item').forEach(function(a) {
-                    if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
-                });
-                document.querySelectorAll('.subnav-link').forEach(function(a) {
-                    if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
-                });
+                if (typeof window.showAdminTab === 'function') { window.showAdminTab(sectionId); }
                 var lbl = document.getElementById('mobileNavCurrent');
-                if (lbl) lbl.textContent = label;
-                // Scroll the target section into view - use .main-scroll container
-                var el = document.getElementById(sectionId);
-                var sc = document.querySelector('.main-scroll');
-                if (el && sc) {
-                    var top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - 20;
-                    sc.scrollTo({ top: top, behavior: 'smooth' });
-                }
+                if (lbl && label) lbl.textContent = label;
             }
             // Close drawer on escape
             document.addEventListener('keydown', function(e) {
@@ -1032,7 +1019,7 @@
                             <div id="demoPolicyStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:10px; min-height:1.2em;"></div>
                         </div>
                     </div>
-                    <div class="settings-card">
+                    <div class="settings-card" data-tab="teamSection">
                         <a id="teamSection"></a><div class="settings-card-header"><h3>Team<button type="button" class="section-info" aria-label="What is this section?" title="Invite teammates so multiple people can manage bookings, brands, and settings for this retailer." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3><button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="teamInviteBtn" onclick="openTeamInvite()">+ Invite</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">People with admin access to this store. Owners can invite others and change roles.</div>
@@ -1135,7 +1122,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="settings-card" id="payoutsCard">
+                    <div class="settings-card" id="payoutsCard" data-tab="billingSection">
                         <div class="settings-card-header"><h3>Bank &amp; payouts</h3></div>
                         <div class="settings-card-body" id="payoutsCardBody">
                             <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:12px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
@@ -1181,7 +1168,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="settings-card" id="billingCard">
+                    <div class="settings-card" id="billingCard" data-tab="billingSection">
                         <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
                             <div id="planFreeState" style="padding:14px 0;">
@@ -6095,24 +6082,76 @@ END:VEVENT
             window.loadSettings = function() { _origLoadSettingsForPayouts(); if (typeof renderPayouts === 'function') renderPayouts(); };
         }
 
-        // Section subnav: active state + smooth scroll (scrolls .main-scroll container, NOT window)
+        // ===== TAB CONTROLLER =====
+        // Converts the admin from one-long-scroll into real tabs. Each nav item shows ONE
+        // section pane and hides the rest. Kills the old scrollspy (and its off-by-one bug).
         (function(){
           const subnav = document.querySelectorAll('.subnav-link');
           function getScroller() { return document.querySelector('.main-scroll'); }
+          const TABS = ['dashSection','calendarSection','demosSection','brandsSection','complianceSection','storesSection','teamSection','billingSection','settingsSection'];
+          let _tabMap = null;
+          function buildTabMap() {
+            const container = document.querySelector('.main-scroll .container');
+            if (!container) return {};
+            const map = {}; TABS.forEach(t => map[t] = []);
+            const grid = document.querySelector('.settings-grid');
+            let current = 'dashSection';
+            Array.from(container.children).forEach(child => {
+              if (child === grid) return; // settings grid handled separately
+              const id = child.id || '';
+              if (['calendarSection','demosSection','brandsSection','complianceSection','storesSection'].includes(id)) current = id;
+              else if (id === 'dashSection') current = 'dashSection';
+              // Empty billing/settings anchors before the grid: park them anywhere harmless
+              if (id === 'billingSection' || id === 'settingsSection') return;
+              (map[current] = map[current] || []).push(child);
+            });
+            // Settings-grid cards routed by data-tab (default → settings)
+            if (grid) {
+              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+                const t = card.dataset.tab || 'settingsSection';
+                (map[t] = map[t] || []).push(card);
+              });
+            }
+            return map;
+          }
+          window.showAdminTab = function(sectionId) {
+            if (!_tabMap) _tabMap = buildTabMap();
+            const grid = document.querySelector('.settings-grid');
+            // Hide every mapped element + the grid
+            TABS.forEach(t => (_tabMap[t]||[]).forEach(el => { el.style.display = 'none'; }));
+            if (grid) grid.style.display = 'none';
+            // Show the target tab's elements
+            const target = _tabMap[sectionId] || [];
+            const gridCards = [];
+            target.forEach(el => {
+              if (el.classList && el.classList.contains('settings-card')) { gridCards.push(el); }
+              else { el.style.display = ''; }
+            });
+            if (gridCards.length && grid) {
+              grid.style.display = '';
+              gridCards.forEach(c => { c.style.display = ''; });
+            }
+            // Update active states (desktop + mobile)
+            document.querySelectorAll('.subnav-link, .mobile-nav-item').forEach(a => {
+              if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');
+            });
+            const lbl = document.getElementById('mobileNavCurrent');
+            if (lbl) { const active = document.querySelector('.subnav-link.active, .mobile-nav-item.active'); if (active) lbl.textContent = active.textContent.trim(); }
+            // Scroll to top of the pane
+            const sc = getScroller(); if (sc) sc.scrollTo({ top: 0, behavior: 'auto' });
+          };
           subnav.forEach(link => {
             link.addEventListener('click', (e) => {
               e.preventDefault();
-              const id = link.dataset.section;
-              const el = document.getElementById(id);
-              const sc = getScroller();
-              if (!el || !sc) return;
-              const headerOffset = 20;
-              const top = el.getBoundingClientRect().top - sc.getBoundingClientRect().top + sc.scrollTop - headerOffset;
-              sc.scrollTo({ top, behavior: 'smooth' });
-              subnav.forEach(l => l.classList.remove('active'));
-              link.classList.add('active');
+              window.showAdminTab(link.dataset.section);
             });
           });
+          // Default to Dashboard on load (once DOM is ready)
+          document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => { try { window.showAdminTab('dashSection'); } catch(_){} }, 300);
+          });
+          // -- old scrollspy disabled below (kept as no-op to avoid touching downstream refs) --
+          if (false) {
           // Highlight active section on .main-scroll scroll.
           // Uses bounding-rect math (relative to the scroll container) — the same coordinate
           // system as the click handler. The old code used el.offsetTop which measures from the
@@ -6147,6 +6186,7 @@ END:VEVENT
               _ticking = false;
             });
           });
+          } // end if(false) disabled scrollspy
         })();
 
         // Render calendar grid on page parse so it's visible even before data loads
