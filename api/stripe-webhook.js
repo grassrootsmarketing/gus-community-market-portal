@@ -377,8 +377,15 @@ async function handlePaymentIntentSucceeded(event) {
             // unless it's uploaded by the day before the demo.
             let coiDeadline = null;
             try {
+              // brand_id can be null on legacy/edge bookings; fall back to contact_email so the
+              // COI warning still renders. No brand row found also means no COI on file.
+              let _br = null;
               if (ctx.brand_id) {
-                const _br = await sb(`brands?id=eq.${encodeURIComponent(ctx.brand_id)}&select=default_coi_url`);
+                _br = await sb(`brands?id=eq.${encodeURIComponent(ctx.brand_id)}&select=default_coi_url`);
+              } else if (ctx.contact_email) {
+                _br = await sb(`brands?email=eq.${encodeURIComponent(String(ctx.contact_email).toLowerCase())}&select=default_coi_url`);
+              }
+              {
                 const _hasCoi = Array.isArray(_br) && _br[0] && _br[0].default_coi_url;
                 if (!_hasCoi && ctx.demo_date) {
                   const _dd = new Date(ctx.demo_date + 'T00:00:00Z');
