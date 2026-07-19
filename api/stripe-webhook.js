@@ -21,7 +21,7 @@
 // Important: Vercel serverless needs the raw body for signature verification, so we
 // disable the built-in body parser and read the stream manually.
 
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
 
 export const config = { api: { bodyParser: false } };
 
@@ -233,6 +233,103 @@ function bookingIdsFrom(metadata) {
 }
 
 // payment_intent.succeeded: brand's card charged successfully. Updates every booking in the batch.
+// Magic link so the confirmation email's "Manage your booking" CTA lands the brand
+// authenticated. Mirrors createBrandMagicLink in api/booking.js. Best-effort.
+async function createBrandMagicLink(brand_id, email) {
+  if (!SERVICE_KEY || !brand_id || !email) return null;
+  try {
+    const token = randomBytes(24).toString('hex');
+    const expires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
+    await sb('brand_account_tokens', {
+      method: 'POST',
+      body: JSON.stringify({ brand_id, email: String(email).toLowerCase(), token, expires_at: expires }),
+    });
+    return `https://demohubhq.com/brand/signin?token=${token}`;
+  } catch (_) { return null; }
+}
+
+// Brand "booking received" email — identical framing to api/booking.js emailBody,
+// but sent from the webhook AFTER payment succeeds so unpaid bookings never trigger it.
+function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl) {
+  const contact_name = ctx.contact_name;
+  const brand_name = ctx.brand_name;
+  const product = ctx.product;
+  const venue = (ctx.venues && ctx.venues.name) || '';
+  const retailerName = (ctx.retailers && ctx.retailers.name) || '';
+  const dateLabel = (() => {
+    try { return new Date(ctx.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
+    catch (_) { return ctx.demo_date; }
+  })();
+  const H = htmlEscape;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">${_brandHeaderHTML()}</td></tr>
+<tr><td style="padding:36px 36px 28px;">
+<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Demo booking confirmed</div>
+<h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">You're booked${contact_name ? ', ' + H(contact_name) : ''}!</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 24px;">Your payment went through and your demo at <strong style="color:#0f2c17;">${H(retailerName)}</strong> is confirmed. The store team will see it on their calendar.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:24px;">
+<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:14px 18px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${H(brand_name)}</td></tr>
+${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(product)}</td></tr>` : ''}
+<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(venue)}</td></tr>
+<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
+<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time)}</td></tr>
+</table>
+<div style="text-align:center;margin:0 0 20px;">
+<a href="${manageBookingUrl || 'https://demohubhq.com/brand/signin'}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
+</div>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
+</table></body></html>`;
+}
+
+// Notify assigned store staff after payment. Mirrors the Wave 8 block in api/booking.js.
+async function notifyStaffForBooking(ctx) {
+  try {
+    if (!RESEND_API_KEY || !ctx || !ctx.retailer_id) return;
+    const H = htmlEscape;
+    const retailerName = (ctx.retailers && ctx.retailers.name) || '';
+    const retailerSlug = (ctx.retailers && ctx.retailers.slug) || '';
+    const venueName = (ctx.venues && ctx.venues.name) || '';
+    const dateLabel = (() => {
+      try { return new Date(ctx.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
+      catch (_) { return ctx.demo_date; }
+    })();
+    const allStaff = await sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&select=id,name,email,notification_prefs,venue_ids`);
+    const targetStaff = (allStaff || []).filter(st => {
+      const prefs = st.notification_prefs || {};
+      if (!prefs.on_scheduled) return false;
+      const scopes = Array.isArray(st.venue_ids) ? st.venue_ids : [];
+      if (scopes.length === 0) return true;
+      if (ctx.venue_id && scopes.includes(ctx.venue_id)) return true;
+      return false;
+    }).filter(st => st.email);
+    if (targetStaff.length === 0) return;
+    const staffSubj = `New demo scheduled: ${ctx.brand_name || 'a brand'} on ${dateLabel}`;
+    const staffHtml = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;"><div style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</div></td></tr>
+<tr><td style="padding:32px 36px;">
+<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">New demo scheduled</div>
+<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo just landed on your calendar.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Make sure you've got enough product on hand — <strong>${H(ctx.brand_name || 'the brand')}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${H(ctx.brand_name || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.product || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(venueName || '—')}</td></tr>
+</table>
+<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${H(retailerSlug)}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
+</table></body></html>`;
+    await Promise.allSettled(targetStaff.map(st => sendResendEmail({ to: st.email, subject: staffSubj, html: staffHtml })));
+    console.log(`webhook staff-notify: sent to ${targetStaff.length} staff`);
+  } catch (e) { console.warn('webhook staff-notify skipped:', (e && e.message) || e); }
+}
+
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
   const bookingIds = bookingIdsFrom(pi.metadata);
@@ -266,6 +363,26 @@ async function handlePaymentIntentSucceeded(event) {
         method: 'PATCH',
         body: JSON.stringify(patch),
       });
+      // Only email on a real promotion (this booking was pending_payment and just got paid).
+      // This is where the brand confirmation + staff alert fire — never at unpaid creation time.
+      if (nextStatus) {
+        try {
+          const ctx = await fetchBookingContext(bookingId);
+          if (ctx && ctx.contact_email) {
+            const slug = (ctx.retailers && ctx.retailers.slug) || '';
+            const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
+            const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
+            await sendResendEmail({
+              to: ctx.contact_email,
+              subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
+              html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl),
+            });
+            await notifyStaffForBooking(ctx);
+          }
+        } catch (mailErr) {
+          console.warn('post-payment confirmation email skipped for', bookingId, ':', (mailErr && mailErr.message) || mailErr);
+        }
+      }
     } catch (e) {
       console.warn('booking', bookingId, 'paid PATCH failed:', (e && e.message) || e);
     }
