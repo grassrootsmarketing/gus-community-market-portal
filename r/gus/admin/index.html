@@ -1146,21 +1146,6 @@
                         <div class="settings-card-body">
                             <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
 
-                            <!-- Level 3: Customer-approved access toggle -->
-                            <div id="supportAccessToggleWrap" style="background:#fbf7f0; border-radius:10px; padding:14px 16px; margin-bottom:16px;">
-                                <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:12px;">
-                                    <div style="flex:1;">
-                                        <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem; margin-bottom:4px;">Allow Demohub support access</div>
-                                        <div style="font-size:0.8rem; color:var(--ink-500); line-height:1.5;" id="supportAccessSubtitle">Loading…</div>
-                                    </div>
-                                    <label class="switch" style="position:relative; display:inline-block; width:44px; height:24px; flex-shrink:0;">
-                                        <input type="checkbox" id="supportAccessToggle" onchange="toggleSupportAccess(this.checked)" style="opacity:0; width:0; height:0;">
-                                        <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:#c4c1b8; border-radius:24px; transition:0.2s;" id="supportAccessSlider">
-                                            <span style="position:absolute; content:''; height:18px; width:18px; left:3px; bottom:3px; background:white; border-radius:50%; transition:0.2s; box-shadow:0 1px 3px rgba(0,0,0,0.15);" id="supportAccessKnob"></span>
-                                        </span>
-                                    </label>
-                                </div>
-                            </div>
 
                             <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Recent sessions</div>
                             <div id="supportSessionsList" style="font-size:0.88rem;">
@@ -5853,7 +5838,7 @@ END:VEVENT
 
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(_loadSupportSessions, 2000);
-            setTimeout(_loadSupportAccessStatus, 2100);
+            /* support-access toggle removed: owner has direct access, no consent gate */
         });
         // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
         // our DB. Rescue path for any retailer whose billing_tier didn't update because a
