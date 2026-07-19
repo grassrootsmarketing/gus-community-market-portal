@@ -202,6 +202,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
             <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="recognizedCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
             <button type="button" id="recognizedCodeBtn" onclick="verifyRecognizedCode()" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
             <div class="error" id="recognizedCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
+            <a href="#" id="recognizedResend" onclick="event.preventDefault(); (function(el){ let p=null; try{p=JSON.parse(localStorage.getItem('demohub_signin_last_v1')||'null');}catch(_){} if(!p||!p.email)return; var ep=p.role==='brand'?'/api/brand-account':'/api/admin-auth'; var ac=p.role==='brand'?'login':'email-login'; resendLoginCode(el, p.email, ep, ac); })(this);" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
         </div>
     </div>
 </div>
@@ -226,6 +227,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
                 <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="retailerCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
                 <button type="button" id="retailerCodeBtn" onclick="verifyLoginCode('retailer')" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
                 <div class="error" id="retailerCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
+                <a href="#" id="retailerResend" onclick="event.preventDefault(); resendLoginCode(this, (document.getElementById('retailerEmail')||{}).value, '/api/admin-auth', 'email-login');" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
               </div>
             </div>
           </div>
@@ -255,6 +257,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
                 <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="brandCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
                 <button type="button" id="brandCodeBtn" onclick="verifyLoginCode('brand')" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
                 <div class="error" id="brandCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
+                <a href="#" id="brandResend" onclick="event.preventDefault(); resendLoginCode(this, (document.getElementById('brandEmail')||{}).value, '/api/brand-account', 'login');" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
               </div>
             </div>
           </div>
@@ -326,6 +329,26 @@ wireForm({
   btnId: 'brandBtn', errId: 'brandErr', checkId: 'brandCheck',
   sentToId: 'brandSentTo', endpoint: '/api/brand-account', action: 'login'
 });
+
+// ===== Resend login code (shared, with cooldown so it can't re-trip the rate limiter) =====
+window.resendLoginCode = function(linkEl, email, endpoint, action) {
+    if (!linkEl || linkEl.dataset.cooling === '1') return;
+    email = (email || '').trim().toLowerCase();
+    if (!email) return;
+    try {
+        fetch(endpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(action ? { action, email } : { email }) }).catch(()=>{});
+    } catch(_){}
+    let n = 30;
+    linkEl.dataset.cooling = '1';
+    linkEl.style.opacity = '0.55';
+    linkEl.style.pointerEvents = 'none';
+    linkEl.textContent = 'Code sent \u2014 resend in ' + n + 's';
+    const t = setInterval(() => {
+        n--;
+        if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend code'; }
+        else { linkEl.textContent = 'Code sent \u2014 resend in ' + n + 's'; }
+    }, 1000);
+};
 
 // ===== Verify 6-digit login code =====
 window.verifyLoginCode = async function(side) {
