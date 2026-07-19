@@ -634,14 +634,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 if (p.has('paid')) {
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
-                    // Ensure the brand session is loaded so we can show their real email
-                    // (they were signed in at booking; this cookie-backed call populates window._brandProfile).
-                    try { await loadBrandAccountSession(); } catch(_){}
-                    showPaidBanner(bookingIds);
-                    // Also clear the cart on the client so returning here shows a clean state
+                    // Clear the cart client-side before we leave.
                     try { cart = []; if (typeof updateCart === 'function') updateCart(); } catch(_){}
-                    // Clean the URL so a refresh doesn't re-fire
-                    history.replaceState({}, '', location.pathname);
+                    // SEAMLESS: the brand is signed in (cookie set at booking), so drop them straight
+                    // into their dashboard instead of showing an interstitial card. The dashboard shows
+                    // a welcome/confirmation banner via ?booked=N. Maximum booking→product stickiness.
+                    window.location.assign('/brand/dashboard?booked=' + (bookingIds.length || 0));
+                    return;
                 } else if (p.has('cancelled')) {
                     showCancelledBanner();
                     history.replaceState({}, '', location.pathname);
