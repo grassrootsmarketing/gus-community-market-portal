@@ -150,9 +150,18 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <h2>Check your email</h2>
     <p>We sent a link to <strong id="sentEmail">, </strong>.</p>
     <p style="margin-top:12px;font-size:0.88rem;">Open it on any device to sign in. The link expires in 30 minutes.</p>
+    <p style="margin-top:14px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend link</a></p>
   </div>
 </main>
 <script>
+function _dhResend(linkEl, sendFn) {
+  if (!linkEl || linkEl.dataset.cooling === '1') return;
+  try { sendFn(); } catch(_){}
+  let n = 30;
+  linkEl.dataset.cooling = '1'; linkEl.style.opacity = '0.55'; linkEl.style.pointerEvents = 'none';
+  linkEl.textContent = 'Sent \u2014 resend in ' + n + 's';
+  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend link'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
+}
 const tabs = document.querySelectorAll('.tab');
 const errBox = document.getElementById('errorBox');
 function setTab(name) {
@@ -198,6 +207,16 @@ async function submit(action, data, btn, btnText) {
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('successCard').style.display = 'block';
     document.getElementById('sentEmail').textContent = data.email;
+    window._lastBrandSend = { action, data };
+    const _brl = document.getElementById('brandResendLink');
+    if (_brl && !_brl.dataset.wired) {
+      _brl.dataset.wired = '1';
+      _brl.addEventListener('click', (ev) => {
+        ev.preventDefault();
+        const last = window._lastBrandSend; if (!last) return;
+        _dhResend(_brl, () => fetch('/api/brand-account?action=' + last.action, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(last.data) }).catch(()=>{}));
+      });
+    }
   } catch (err) {
     errBox.textContent = err.message; errBox.style.display = 'block';
     btn.disabled = false; btn.textContent = btnText;
