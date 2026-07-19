@@ -19,8 +19,13 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
   if (!paymentIntentId) return { ok: false, error: 'payment_intent_id required' };
   const params = new URLSearchParams();
   params.set('payment_intent', paymentIntentId);
-  params.set('refund_application_fee', 'true');
-  params.set('reverse_transfer', 'true');
+  // Keeps-all retailers (e.g. Gus) take a plain platform charge: no transfer, no application
+  // fee. Sending reverse_transfer / refund_application_fee on those charges makes Stripe reject
+  // the refund outright, so only send them for connected (destination-charge) retailers.
+  if (!opts.keepsAll) {
+    params.set('refund_application_fee', 'true');
+    params.set('reverse_transfer', 'true');
+  }
   if (opts.reason) params.set('reason', opts.reason);
   if (opts.metadata) {
     for (const [k, v] of Object.entries(opts.metadata)) params.set('metadata[' + k + ']', String(v));
@@ -231,7 +236,7 @@ export default async function handler(req, res) {
 
     const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
     const venue = Array.isArray(venues) ? venues[0] : null;
-    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode`);
+    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
 
     let newStatus;
@@ -254,6 +259,7 @@ export default async function handler(req, res) {
         refundStatus = 'not_paid';
       } else if (shouldRefund) {
         const r = await refundPaymentIntent(booking.payment_intent_id, {
+          keepsAll: !!(retailer && retailer.platform_keeps_all),
           reason: 'requested_by_customer',
           metadata: { booking_id, retailer_id: booking.retailer_id, mode, days_out: String(daysOut) },
         });
