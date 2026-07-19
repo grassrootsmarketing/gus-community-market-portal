@@ -1401,10 +1401,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 }
             }
 
+            // Instant feedback: the agreement pre-flight + booking + Stripe redirect take a
+            // couple seconds, so acknowledge the click immediately rather than leaving the
+            // button idle during the first network hop.
+            const _preBtn = document.getElementById('bookSubmitBtn');
+            if (_preBtn) { _preBtn.disabled = true; _preBtn.textContent = 'Processing…'; }
             // Agreement pre-flight (unchanged)
             if (!window._pendingSignedName) {
                 const check = await ensureAgreementOrPrompt(contactEmail);
-                if (check.needsSigning) return;
+                if (check.needsSigning) {
+                    if (_preBtn) { _preBtn.disabled = false; _preBtn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book'; }
+                    return;
+                }
             }
             await actuallySubmitBookings();
         }
@@ -1421,7 +1429,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             errMsg.textContent = '';
             const btn = document.getElementById('bookSubmitBtn');
             btn.disabled = true;
-            const origLabel = btn.textContent;
+            const origLabel = window._brandProfile ? 'Confirm booking' : 'Create account & book';
             btn.textContent = cart.length > 1 ? `Booking ${cart.length} demos…` : 'Booking…';
             let okAll = true;
             const errors = [];
