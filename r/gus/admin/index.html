@@ -2511,7 +2511,7 @@ END:VEVENT
                 populateVenueFilter();
                 restoreDemoFilters();
             }
-            if (document.getElementById('demosTableBody')) renderDemos();
+            if (document.getElementById('demosTableBody')) { renderDemos(); loadCoiPending(); }
             if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
             if (document.getElementById('complianceTableBody')) renderCompliance();
@@ -4138,6 +4138,49 @@ END:VEVENT
                 DhModal.toast('Cancel failed: ' + (e.message || e), 'error');
             }
         }
+        // ===== COI pending badges + waive (work order Phase 4) =====
+        // Fail-safe by design: any error leaves the map empty, so no badges render and the
+        // rest of the admin is completely unaffected.
+        window._coiPending = new Map();   // key `brand|date` -> booking_id
+        function _coiKey(brand, date) { return String(brand || '').trim().toLowerCase() + '|' + String(date || '').slice(0, 10); }
+        async function loadCoiPending() {
+            try {
+                const sid = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || '';
+                const r = await fetch('/api/coi-status' + (sid ? ('?session_id=' + encodeURIComponent(sid)) : ''), { credentials: 'same-origin' });
+                if (!r.ok) throw new Error('coi-status ' + r.status);
+                const j = await r.json();
+                const m = new Map();
+                for (const p of (j.pending || [])) m.set(_coiKey(p.brand_name, p.demo_date), p.booking_id);
+                window._coiPending = m;
+            } catch (_) {
+                window._coiPending = new Map();   // no badges, never block the admin
+                return;
+            }
+            try { if (document.getElementById('demosTableBody')) renderDemosTable(); } catch (_) {}
+        }
+        async function waiveCoi(bookingId) {
+            if (!bookingId) return;
+            const ok = await DhModal.confirm({
+                title: 'Waive COI for this demo?',
+                message: 'This demo will stay on the calendar without a Certificate of Insurance on file. You accept the insurance risk for this event.',
+                ok: 'Waive COI', danger: true,
+            });
+            if (!ok) return;
+            try {
+                const sid = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || '';
+                const r = await fetch('/api/coi-status?action=waive', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ action: 'waive', booking_id: bookingId, session_id: sid }),
+                });
+                const j = await r.json().catch(() => ({}));
+                if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                DhModal.toast('COI waived for this demo', 'success');
+                await loadCoiPending();
+            } catch (e) {
+                DhModal.toast('Could not waive: ' + (e.message || e), 'error');
+            }
+        }
+
         function renderDemos() {
             renderDemosTable();
             if (demoView === 'calendar') renderDemosCalendar();
@@ -4161,11 +4204,24 @@ END:VEVENT
                 + '<td>' + escapeHtml(d.company) + '</td>'
                 + '<td>' + escapeHtml(d.contact) + '</td>'
                 + '<td>' + escapeHtml(d.product) + '</td>'
-                + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span></td>'
+                + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span>' + _coiBadgeHtml(d) + '</td>'
                 + '<td style="text-align:right;">' + cancelBtn + '</td>'
                 + '</tr>';
             }).join('');
         }
+        // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
+        function _coiBadgeHtml(d) {
+            try {
+                const bk = window._coiPending && window._coiPending.get(_coiKey(d.company, d.date));
+                if (!bk) return '';
+                return '<div style="margin-top:5px;">'
+                    + '<span title="This brand has no current Certificate of Insurance on file. This demo is subject to automatic cancellation 72 hours before it runs." '
+                    + 'style="display:inline-block; background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55; font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">COI pending</span>'
+                    + ' <a onclick="waiveCoi(\'' + bk + '\')" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Waive</a>'
+                    + '</div>';
+            } catch (_) { return ''; }
+        }
+
         function setDemoView(view) {
             demoView = view;
             document.querySelectorAll('#demoViewToggle button').forEach(b => {
