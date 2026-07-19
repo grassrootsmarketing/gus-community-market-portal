@@ -1206,12 +1206,22 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
-            // Compute per-demo fee (venue fee + platform fee bundled — shown as one number to brand)
-            const venueFee = (window.state && window.state.settings && window.state.settings.demo_fee) || PRICE_PER_DEMO;
-            // platform-keeps-all retailers (special deal): brand pays just the demo fee (no +$5 bundle).
+            // Price each demo by its OWN venue fee — this MUST match what the server charges
+            // (checkout-session.js bills per booking.venue.demo_fee). Using the retailer-level
+            // settings.demo_fee here caused a display-vs-charge mismatch (page said $10, card hit $30).
             const _pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
-            const perDemoFee = _pka ? Number(venueFee) : (Number(venueFee) + PLATFORM_FEE_PER_DEMO);
-            const total = cart.length * perDemoFee;
+            const _venues = (window.state && window.state.venues) || [];
+            const _settingsFee = (window.state && window.state.settings && window.state.settings.demo_fee != null)
+                ? Number(window.state.settings.demo_fee) : PRICE_PER_DEMO;
+            function _venueFeeFor(loc) {
+                const v = _venues.find(x => x.name === loc);
+                const base = (v && v.demo_fee != null) ? Number(v.demo_fee) : _settingsFee;
+                return _pka ? base : base + PLATFORM_FEE_PER_DEMO;
+            }
+            const itemFees = cart.map(it => _venueFeeFor(it.location));
+            const total = itemFees.reduce((a, b) => a + b, 0);
+            // "Price per demo" summary: exact when all venues share a fee (the common case).
+            const perDemoFee = itemFees.length ? itemFees[0] : (_pka ? _settingsFee : _settingsFee + PLATFORM_FEE_PER_DEMO);
             const priceEl = document.getElementById('pricePerDemo');
             if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
             const subLine = document.getElementById('subtotalLine');
@@ -1243,7 +1253,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
                             '<div class="cart-item-time">' + escapeHtml(item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
-                        '<span class="cart-item-price">$' + Number(perDemoFee).toFixed(0) + '</span>' +
+                        '<span class="cart-item-price">$' + Number(itemFees[index]).toFixed(0) + '</span>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
                             '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
                         '</button>' +
