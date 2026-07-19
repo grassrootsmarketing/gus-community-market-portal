@@ -104,12 +104,18 @@ export default async function handler(req, res) {
       : [];
     const venuesById = new Map((venues || []).map(v => [v.id, v]));
 
-    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled`);
+    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,platform_keeps_all`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
 
-    // Skip Stripe entirely if the retailer hasn't finished Connect onboarding.
-    if (!retailer.stripe_account_id || !retailer.stripe_charges_enabled) {
+    // Special deal: some retailers (e.g. Gus's) let Demohub keep 100% of the fee.
+    // For them we charge the brand and route everything to the platform account —
+    // no Connect transfer, so the retailer doesn't need to be onboarded.
+    const platformKeepsAll = !!retailer.platform_keeps_all;
+
+    // Skip Stripe only if a NORMAL retailer hasn't finished Connect onboarding.
+    // platform-keeps-all retailers don't need Connect at all.
+    if (!platformKeepsAll && (!retailer.stripe_account_id || !retailer.stripe_charges_enabled)) {
       return res.status(200).json({
         ok: true,
         skip: true,
@@ -148,7 +154,8 @@ export default async function handler(req, res) {
       // per demo showing the total ($venue fee + $5). Platform still receives its
       // $5 cut via application_fee_amount below — invisible to the brand's checkout.
       const venueFeeCents = Math.max(0, Math.round(Number(v.demo_fee) * 100));
-      const bundledCents = venueFeeCents + PLATFORM_FEE_CENTS;
+      // platform-keeps-all: brand pays just the demo fee (Demohub keeps 100%). Otherwise bundle +$5.
+      const bundledCents = platformKeepsAll ? venueFeeCents : (venueFeeCents + PLATFORM_FEE_CENTS);
       demoTotalCents += venueFeeCents;
       const label = (v && v.name) ? `Demo at ${v.name}` : 'Demo';
       const sub = `${b.demo_date || ''} ${b.demo_time || ''}`.trim();
@@ -159,16 +166,18 @@ export default async function handler(req, res) {
       params[`line_items[${idx}][quantity]`] = 1;
       idx++;
     }
-    // Platform fee total — routed via application_fee_amount, NOT shown as a separate line.
-    // The brand sees clean per-demo pricing; Stripe still splits $5 to platform and $venueFee to retailer.
     const platformFeeCents = PLATFORM_FEE_CENTS * chargeable.length;
-
-    // Stripe Connect: route the demo_fee to retailer, keep the $5 fee on platform balance
-    params['payment_intent_data[application_fee_amount]'] = platformFeeCents;
-    params['payment_intent_data[transfer_data][destination]'] = retailer.stripe_account_id;
     params['payment_intent_data[metadata][booking_ids]'] = chargeable.map(b => b.id).join(',');
     params['payment_intent_data[metadata][retailer_id]'] = retailerId;
-    params['payment_intent_data[on_behalf_of]'] = retailer.stripe_account_id;
+    if (platformKeepsAll) {
+      // Everything stays on the Demohub platform balance. No Connect transfer, no app fee split.
+      // Retailer receives $0 (their arrangement). Nothing else to set.
+    } else {
+      // Standard: route the demo_fee to the retailer, keep the flat $5 on the platform balance.
+      params['payment_intent_data[application_fee_amount]'] = platformFeeCents;
+      params['payment_intent_data[transfer_data][destination]'] = retailer.stripe_account_id;
+      params['payment_intent_data[on_behalf_of]'] = retailer.stripe_account_id;
+    }
 
     const bodyStr = Object.entries(params)
       .filter(([, v]) => v !== undefined && v !== null)
