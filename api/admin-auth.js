@@ -1028,15 +1028,10 @@ async function handleOwnerAction(action, req, res, body) {
     const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rArr) ? rArr[0] : null;
     if (!r) return res.status(404).json({ error: 'Retailer not found' });
-    // Level 3: gate on retailer's customer-approved access toggle.
-    // If toggle is OFF or expired, refuse impersonation with clear message.
-    const accessExpired = r.support_access_expires_at && new Date(r.support_access_expires_at).getTime() < Date.now();
-    if (!r.allow_support_access || accessExpired) {
-      return res.status(403).json({
-        error: 'support_access_not_granted',
-        message: `Support access is not enabled for ${r.name}. Ask them to toggle 'Allow Demohub support access' in their Settings before signing in as their admin.`,
-      });
-    }
+    // Owner-override model: the platform owner (verified above via OWNER_EMAILS + owner
+    // session) can access any retailer's admin directly. No customer-consent toggle required
+    // at this stage. Access is still recorded in support_sessions below for transparency,
+    // so a per-customer consent gate can be layered back on later without re-plumbing.
     // Create the impersonation session with a 4-hour expiry
     const impersonationExpires = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     const sessions = await sb('admin_sessions', {
