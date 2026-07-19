@@ -3273,14 +3273,18 @@ END:VEVENT
         // This matches exactly what the public booking page charges.
         function _updateDemoFeeSplit(retailerFee) {
             const rf = Math.max(0, Math.min(50, Math.round(Number(retailerFee) || 0)));
-            const platformFee = _PLATFORM_FEE;         // flat $5 added on top
-            const brandPays = rf + platformFee;        // what the brand is charged
+            // keeps-all retailers (special deal): Demohub takes the whole demo fee, retailer keeps $0,
+            // and there's no separate +$5 bundled on top. Standard retailers: brand pays fee + $5.
+            const pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
+            const platformFee = pka ? rf : _PLATFORM_FEE;      // what Demohub keeps
+            const brandPays = pka ? rf : (rf + _PLATFORM_FEE);  // what the brand is charged
+            const retailerKeeps = pka ? 0 : rf;                 // what the retailer keeps
             const brandEl = document.getElementById('feeBrandPays');
             const platEl = document.getElementById('feePlatform');
             const keepEl = document.getElementById('feeRetailerKeeps');
             if (brandEl) brandEl.textContent = '$' + brandPays;
             if (platEl) platEl.textContent = '$' + platformFee;
-            if (keepEl) keepEl.textContent = '$' + rf;
+            if (keepEl) keepEl.textContent = '$' + retailerKeeps;
         }
         function onDemoFeeSlider(el) {
             const v = Math.max(0, Math.min(50, parseInt(el.value, 10) || 0));
