@@ -290,10 +290,19 @@
             box-shadow: 0 32px 80px rgba(15, 44, 23, 0.35), 0 8px 20px rgba(15, 44, 23, 0.15);
         }
         @media (max-width: 900px) {
-            .hero { min-height: auto; padding: 108px 0 60px; }
+            .hero { min-height: auto; padding: 96px 0 56px; }
             .hero-topbar { margin-bottom: 20px; }
-            .hero h1 { font-size: clamp(2.2rem, 9vw, 3.6rem); line-height: 1.05; }
-            .hero-product { margin-top: 36px; }
+            .hero-grid { padding-top: 8px; }
+            .hero h1 { font-size: clamp(2.2rem, 7.5vw, 3.4rem); line-height: 1.06; margin-bottom: 18px; }
+            .hero-sub { margin-bottom: 30px; max-width: 88%; }
+            .hero-product { margin-top: 40px; max-width: 620px; }
+        }
+        /* Half-desktop / tablet-landscape: keep the centered design but tighten the vertical
+           rhythm so it reads composed, not like a stretched mobile view. */
+        @media (max-width: 1024px) and (min-width: 641px) {
+            .hero { padding-top: 104px; }
+            .hero-sub { font-size: 1.12rem; }
+            .hero-product { margin-left: auto; margin-right: auto; }
         }
         /* Small phone tightening — nav compacts, URL bar shrinks */
         @media (max-width: 480px) {
