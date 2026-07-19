@@ -669,6 +669,16 @@ function renderBilling() {
   await loadData();
 })();
 
+// Shared resend with 30s cooldown (so a resend can't re-trip the rate limiter).
+function _dhResend(linkEl, sendFn) {
+  if (!linkEl || linkEl.dataset.cooling === '1') return;
+  try { sendFn(); } catch(_){}
+  let n = 30;
+  linkEl.dataset.cooling = '1'; linkEl.style.opacity = '0.55'; linkEl.style.pointerEvents = 'none';
+  linkEl.textContent = 'Sent \u2014 resend in ' + n + 's';
+  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend link'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
+}
+
 // Delegate submit on the login form (form is rendered by renderGate dynamically)
 document.addEventListener('submit', async (e) => {
   if (e.target.id !== 'ownerLoginForm') return;
@@ -692,9 +702,14 @@ document.addEventListener('submit', async (e) => {
       if (emailEl) emailEl.style.display = 'none';
       if (btn) btn.style.display = 'none';
       if (notice) {
-        notice.textContent = 'Check your inbox. The sign-in link expires in 24 hours.';
+        notice.innerHTML = 'Check your inbox. The sign-in link expires in 24 hours.<br><a href="#" id="ownerResendLink" style="display:inline-block; margin-top:10px; color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn\'t get it? Resend link</a>';
         notice.style.color = 'var(--forest-700)';
         notice.style.display = 'block';
+        const _rl = document.getElementById('ownerResendLink');
+        if (_rl) _rl.addEventListener('click', (ev) => {
+          ev.preventDefault();
+          _dhResend(_rl, () => fetch('/api/admin-auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'owner-login', email }) }).catch(()=>{}));
+        });
       }
     } else {
       if (btn) { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
