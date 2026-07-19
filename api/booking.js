@@ -462,6 +462,15 @@ export default async function handler(req, res) {
     // Anonymous inserts are blocked by design; this endpoint acts as the trusted
     // proxy for public brand booking submissions.
     if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+    // Payment-gated status computed once so we can also decide whether to send the
+    // brand confirmation email + notify staff NOW (free/auto-confirm bookings) or wait
+    // for the Stripe webhook to fire them AFTER payment (fee-based 'pending_payment').
+    const bookingStatus = (
+      (venueRow && Number(venueRow.demo_fee) > 0)
+        ? 'pending_payment'
+        : (retailer.auto_confirm_bookings ? 'confirmed' : 'pending')
+    );
+    const awaitingPayment = bookingStatus === 'pending_payment';
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
       headers: {
@@ -484,14 +493,7 @@ export default async function handler(req, res) {
         demo_date,
         demo_time,
         notes: notes || null,
-        // Payment-gated status: bookings with a fee cannot skip past 'pending_payment'
-        // until Stripe webhook fires. Only free-demo bookings (fee=0) honor auto_confirm.
-        // Server-side gate — client cannot bypass by faking a checkout success.
-        status: (
-          (venueRow && Number(venueRow.demo_fee) > 0)
-            ? 'pending_payment'
-            : (retailer.auto_confirm_bookings ? 'confirmed' : 'pending')
-        ),
+        status: bookingStatus,
         brand_id: brandId,
       }),
     });
@@ -516,8 +518,11 @@ export default async function handler(req, res) {
       // The booking row is already inserted; email is best-effort delivery to the brand.
       // Generate a magic link so the "Manage your booking" CTA in the email lands the brand
       // authenticated in their portal. Fire-and-forget; if it fails, email still sends.
-      const magicLinkPromise = createBrandMagicLink(brandId, contact_email);
-      magicLinkPromise.then(magicLink => {
+      // Only send the "booking received" email now for free / auto-confirm bookings.
+      // Fee-based bookings are 'pending_payment' — their confirmation email is sent by the
+      // Stripe webhook AFTER payment succeeds, so an unpaid/abandoned booking never emails.
+      const magicLinkPromise = awaitingPayment ? Promise.resolve(null) : createBrandMagicLink(brandId, contact_email);
+      if (!awaitingPayment) magicLinkPromise.then(magicLink => {
         fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -577,7 +582,8 @@ export default async function handler(req, res) {
     // Best-effort — doesn't block booking success.
     try {
       const RESEND_KEY = process.env.RESEND_API_KEY;
-      if (RESEND_KEY && bookingId) {
+      // Skip staff alerts for unpaid ('pending_payment') bookings — the webhook fires them after payment.
+      if (RESEND_KEY && bookingId && !awaitingPayment) {
         // Fetch staff whose prefs include on_scheduled and either no venue restriction or this venue
         const bookedVenueId = venue?.id || null;
         const staffUrl = `${SUPABASE_URL}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
