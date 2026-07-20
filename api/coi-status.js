@@ -76,10 +76,16 @@ export default async function handler(req, res) {
   const rows = (bookings || []).filter(b => !b.coi_waived_at && b.brand_id);
   const brandIds = [...new Set(rows.map(b => b.brand_id))];
   let brandsById = {};
+  const verifByBrand = {};
   if (brandIds.length) {
     const inList = brandIds.map(id => `"${id}"`).join(',');
     const brands = await sb(`brands?id=in.(${inList})&select=id,default_coi_url,default_coi_expires`);
     for (const br of (brands || [])) brandsById[br.id] = br;
+    // Latest verification per brand, so the retailer sees insurer/limits/flags, not just a link.
+    try {
+      const vs = await sb(`coi_verifications?brand_id=in.(${inList})&select=brand_id,status,insurer_name,insurer_naic,insured_name,gl_each_occurrence,policy_expiry,flags,created_at&order=created_at.desc`);
+      for (const v of (vs || [])) { if (!verifByBrand[v.brand_id]) verifByBrand[v.brand_id] = v; }
+    } catch (_) { /* table may not exist yet; degrade to link-only */ }
   }
   const pending = [];
   const docs = [];   // retailer-visible: the actual certificate on file, so staff can eyeball it
@@ -88,7 +94,16 @@ export default async function handler(req, res) {
     if (!brand) continue;
     if (hasCurrentCoi(brand, [], b.demo_date)) {
       if (brand.default_coi_url) {
-        docs.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url, coi_expires: brand.default_coi_expires || null });
+        const v = verifByBrand[b.brand_id] || null;
+        docs.push({
+          booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date,
+          coi_url: brand.default_coi_url, coi_expires: brand.default_coi_expires || null,
+          verification: v ? {
+            status: v.status || null, insurer: v.insurer_name || null, naic: v.insurer_naic || null,
+            insured_name: v.insured_name || null, gl_each_occurrence: v.gl_each_occurrence ?? null,
+            flags: Array.isArray(v.flags) ? v.flags : [],
+          } : null,
+        });
       }
       continue;
     }
