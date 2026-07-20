@@ -1226,16 +1226,33 @@ function renderProfile() {
       widget.innerHTML = `<div class="coi-empty" onclick="document.getElementById('coiFile').click()">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <div class="lbl">Upload your Certificate of Insurance</div>
-        <div class="sub">Click to choose a PDF, JPG, or PNG · up to 10MB</div>
+        <div class="sub">Accepted: PDF, JPG, PNG, WEBP · up to 10MB</div>
+        <div class="sub" style="margin-top:4px; font-size:0.78rem; opacity:0.85;">On iPhone, HEIC photos are not accepted &mdash; share as JPEG or upload a screenshot.</div>
       </div>`;
     }
   }
   renderCoiWidget();
 
+  // Inline notice under the COI widget. Replaces alert() so errors are readable on mobile
+  // and the specific reason (expired date, wrong format, etc) stays on screen.
+  function _coiNotice(msg, kind) {
+    const w = document.getElementById('coiWidget');
+    if (!w) return;
+    let n = document.getElementById('coiNotice');
+    if (!n) { n = document.createElement('div'); n.id = 'coiNotice'; w.parentNode.insertBefore(n, w.nextSibling); }
+    const ok = kind === 'ok';
+    n.style.cssText = 'margin-top:10px; padding:11px 14px; border-radius:9px; font-size:0.86rem; line-height:1.5;'
+      + (ok ? 'background:#eef7f0; color:#2a5b32; border:1px solid #2a5b3233;' : 'background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55;');
+    n.textContent = msg;
+    if (ok) setTimeout(() => { if (n) n.remove(); }, 4000);
+  }
+
   document.getElementById('coiFile').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { alert('File too large, max 10MB'); e.target.value = ''; return; }
+    if (file.size > 10 * 1024 * 1024) { _coiNotice('That file is over the 10MB limit. Try a PDF export or a smaller photo.', 'err'); e.target.value = ''; return; }
+    if (file.size < 3 * 1024) { _coiNotice('That file is too small to be a certificate. Please upload the actual document.', 'err'); e.target.value = ''; return; }
+    if (/\.(heic|heif)$/i.test(file.name || '')) { _coiNotice('iPhone HEIC photos are not supported. In Photos tap Share and choose JPEG, or upload a screenshot instead.', 'err'); e.target.value = ''; return; }
     // Show uploading state
     const widget = document.getElementById('coiWidget');
     widget.innerHTML = `<div class="coi-block"><div class="coi-uploading"><div class="spinner-sm"></div><div>Uploading <strong>${escapeHtml(file.name)}</strong>…</div></div></div>`;
@@ -1246,15 +1263,18 @@ function renderProfile() {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ file: reader.result, filename: file.name }),
         });
-        const j = await r.json();
-        if (!r.ok) throw new Error(j.error || 'Upload failed');
+        const j = await r.json().catch(() => ({}));
+        // Prefer the server's human message over the machine error code.
+        if (!r.ok) throw new Error(j.message || j.error || 'Upload failed. Please try again.');
         _data.profile.default_coi_url = j.coi_url;
         _data.profile.default_coi_filename = j.filename || file.name;
         _data.profile.default_coi_mime = j.mime || file.type;
+        if (j.expires) _data.profile.default_coi_expires = j.expires;
         renderCoiWidget();
+        _coiNotice('Certificate uploaded.', 'ok');
       } catch (err) {
-        alert('Upload failed: ' + (err.message || 'unknown error'));
         renderCoiWidget();
+        _coiNotice(err.message || 'Upload failed. Please try again.', 'err');
       }
     };
     reader.readAsDataURL(file);
@@ -1269,7 +1289,7 @@ async function _brandApi(action, payload, method) {
   if (payload !== undefined && m !== 'GET') opts.body = JSON.stringify(payload || {});
   const r = await fetch(url, opts);
   let j = null; try { j = await r.json(); } catch(_) {}
-  if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+  if (!r.ok) throw new Error((j && (j.message || j.error)) || ('HTTP ' + r.status));
   return j || {};
 }
 
@@ -1295,7 +1315,8 @@ async function saveProfile() {
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
     renderCoiWidget && renderCoiWidget();
   } catch (err) {
-    alert('Save failed: ' + (err.message || 'unknown'));
+    if (typeof _coiNotice === 'function' && /expiry|certificate|coi/i.test(err.message || '')) _coiNotice(err.message, 'err');
+    else alert(err.message || 'Save failed. Please try again.');
   } finally {
     btn.disabled = false; btn.textContent = 'Save changes';
   }
