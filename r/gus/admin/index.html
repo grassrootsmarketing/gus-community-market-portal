@@ -4150,8 +4150,12 @@ END:VEVENT
                 if (!r.ok) throw new Error('coi-status ' + r.status);
                 const j = await r.json();
                 const m = new Map();
-                for (const p of (j.pending || [])) m.set(_coiKey(p.brand_name, p.demo_date), p.booking_id);
+                for (const p of (j.pending || [])) m.set(_coiKey(p.brand_name, p.demo_date), { bk: p.booking_id, url: p.coi_url || null, expires: p.coi_expires || null });
                 window._coiPending = m;
+                // Certificates on file, so staff can open and eyeball the actual document.
+                const d = new Map();
+                for (const x of (j.docs || [])) d.set(_coiKey(x.brand_name, x.demo_date), { url: x.coi_url, expires: x.coi_expires || null });
+                window._coiDocs = d;
             } catch (_) {
                 window._coiPending = new Map();   // no badges, never block the admin
                 return;
@@ -4212,11 +4216,27 @@ END:VEVENT
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
         function _coiBadgeHtml(d) {
             try {
-                const bk = window._coiPending && window._coiPending.get(_coiKey(d.company, d.date));
-                if (!bk) return '';
+                const key = _coiKey(d.company, d.date);
+                // Certificate on file and current: let staff open the actual document.
+                const doc = window._coiDocs && window._coiDocs.get(key);
+                if (doc && doc.url) {
+                    const exp = doc.expires ? (' &middot; expires ' + escapeHtml(String(doc.expires))) : '';
+                    return '<div style="margin-top:5px;">'
+                        + '<span title="Certificate of Insurance on file" style="display:inline-block; background:var(--forest-100,#e6f0e4); color:var(--forest-700,#2a5b32); border:1px solid rgba(42,91,50,0.25); font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">COI on file</span>'
+                        + ' <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline;">View COI</a>'
+                        + '<span style="font-size:0.68rem; color:var(--ink-500);">' + exp + '</span>'
+                        + '</div>';
+                }
+                const p = window._coiPending && window._coiPending.get(key);
+                if (!p) return '';
+                const bk = (p && p.bk) ? p.bk : p;   // tolerate older shape
+                const viewOld = (p && p.url)
+                    ? ' <a href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:#a14e2a; text-decoration:underline;">View expired COI</a>'
+                    : '';
                 return '<div style="margin-top:5px;">'
                     + '<span title="This brand has no current Certificate of Insurance on file. This demo is subject to automatic cancellation 72 hours before it runs." '
                     + 'style="display:inline-block; background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55; font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">COI pending</span>'
+                    + viewOld
                     + ' <a onclick="waiveCoi(\'' + bk + '\')" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Waive</a>'
                     + '</div>';
             } catch (_) { return ''; }
