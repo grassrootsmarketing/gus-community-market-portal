@@ -47,7 +47,11 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limit — fail-closed. Denies on DB errors so a Supabase blip cannot turn
+// Rate limit — fail-closed. Denies on DB errors so a Supabase blip cannot
+// NOTE: these are OUR abuse controls, not Resend's quota. /login is unauthenticated and sends
+// email to any address submitted, so an uncapped endpoint lets anyone inbox-bomb a stranger.
+// Per-EMAIL caps are the real control; per-IP caps are deliberately loose because mobile
+// carriers and offices NAT many legitimate users behind one address. turn
 // into an unbounded magic-link-email spam window.
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
@@ -425,7 +429,7 @@ export default async function handler(req, res) {
     // No website required (the retailer already knows the brand; COI/website collected later).
     // If the email already has a password-protected account, tells them to sign in instead.
     if (action === 'booking-signup') {
-      const rl = await checkRateLimit(req, 'brand-booking-signup', 15);
+      const rl = await checkRateLimit(req, 'brand-booking-signup', 45);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many attempts. Try again shortly.' });
       const email = String(body.email || '').trim().toLowerCase();
       const companyName = String(body.company_name || '').trim();
@@ -489,7 +493,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'signup') {
-      const rl = await checkRateLimit(req, 'brand-signup', 10);
+      const rl = await checkRateLimit(req, 'brand-signup', 30);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many signup attempts. Try again in an hour.' });
       const email = String(body.email || '').trim().toLowerCase();
       const companyName = String(body.company_name || '').trim();
@@ -597,9 +601,9 @@ export default async function handler(req, res) {
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       if (!email) return jsonResp(res, 400, { error: 'Missing email' });
-      const rlIp = await checkRateLimit(req, 'brand-login-ip', 10);
+      const rlIp = await checkRateLimit(req, 'brand-login-ip', 40);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
-      const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 5);
+      const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 15);
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many sign-in requests for this email in the last hour.' });
       const member = await resolveBrandMemberByEmail(email);
       if (member) {
@@ -633,7 +637,7 @@ export default async function handler(req, res) {
       const email = String(body.email || '').trim().toLowerCase();
       const code = String(body.code || '').replace(/\D/g, '').trim();
       if (!email || !code || code.length !== 6) return jsonResp(res, 400, { error: 'Email and 6-digit code required' });
-      const rl = await checkRateLimit(req, 'brand-verify-code', 30);
+      const rl = await checkRateLimit(req, 'brand-verify-code', 60);
       if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
       // Look up by token = code AND email = email (scoped, so 6-digit collisions across brands don't matter)
       const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=ilike.${encodeURIComponent(email)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
@@ -963,9 +967,9 @@ export default async function handler(req, res) {
       const password = String(body.password || '');
       if (!email || !password) return jsonResp(res, 400, { error: 'Email and password required' });
       // Same rate limits as code login to prevent brute force
-      const rlIp = await checkRateLimit(req, 'brand-login-pw-ip', 30);
+      const rlIp = await checkRateLimit(req, 'brand-login-pw-ip', 60);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
-      const rlEmail = await checkRateLimit(req, 'brand-login-pw-email:' + email.slice(0, 64), 10);
+      const rlEmail = await checkRateLimit(req, 'brand-login-pw-email:' + email.slice(0, 64), 20);
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many attempts for this email.' });
       // Look up brand by email (via brand_members which is the shareable auth surface)
       const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
