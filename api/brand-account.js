@@ -573,6 +573,27 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
+    // Resolve a login identity by email. brand_members is the auth surface, but brands created
+    // via /api/booking (or where the member-row insert silently failed) have no member row. That
+    // silently locked those users out: no code was ever sent and login still returned ok:true.
+    // Fall back to brands and self-heal by creating the missing owner member row.
+    async function resolveBrandMemberByEmail(addr) {
+      try {
+        const mR = await sb(`brand_members?email=ilike.${encodeURIComponent(addr)}&select=brand_id,email`);
+        const m = (await mR.json())[0];
+        if (m) return m;
+      } catch (_) {}
+      try {
+        const bR = await sb(`brands?email=ilike.${encodeURIComponent(addr)}&select=id,email,contact_name`);
+        const brand = (await bR.json())[0];
+        if (!brand) return null;
+        try {
+          await sb('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brand.id, email: brand.email, role: 'owner', name: brand.contact_name || null }) });
+        } catch (_) { /* already exists or blocked; still let them in */ }
+        return { brand_id: brand.id, email: brand.email };
+      } catch (_) { return null; }
+    }
+
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
       if (!email) return jsonResp(res, 400, { error: 'Missing email' });
@@ -580,8 +601,7 @@ export default async function handler(req, res) {
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
       const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 5);
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many sign-in requests for this email in the last hour.' });
-      const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email`);
-      const member = (await lookupR.json())[0];
+      const member = await resolveBrandMemberByEmail(email);
       if (member) {
         const token = randomToken(24);
         const code = generateLoginCode();
@@ -949,8 +969,20 @@ export default async function handler(req, res) {
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many attempts for this email.' });
       // Look up brand by email (via brand_members which is the shareable auth surface)
       const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
-      const member = (await lookupR.json())[0];
-      const storedHash = member && member.brands && member.brands.password_hash;
+      let member = (await lookupR.json())[0];
+      let storedHash = member && member.brands && member.brands.password_hash;
+      if (!member) {
+        // No member row (e.g. brand auto-created by /api/booking). Self-heal, then read the hash.
+        const healed = await resolveBrandMemberByEmail(email);
+        if (healed) {
+          member = healed;
+          try {
+            const bR = await sb(`brands?id=eq.${encodeURIComponent(healed.brand_id)}&select=password_hash`);
+            const b = (await bR.json())[0];
+            storedHash = b && b.password_hash;
+          } catch (_) {}
+        }
+      }
       if (!storedHash) {
         // Don't reveal whether the email exists — return generic error
         return jsonResp(res, 401, { error: 'Invalid email or password' });
