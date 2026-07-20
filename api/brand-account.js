@@ -745,8 +745,27 @@ export default async function handler(req, res) {
       if (patch.website && typeof patch.website === 'string' && !/^https?:\/\//i.test(patch.website)) {
         patch.website = 'https://' + patch.website.trim();
       }
+      // Specific COI expiry errors instead of a generic "save failed".
+      if (Object.prototype.hasOwnProperty.call(patch, 'default_coi_expires')) {
+        const chk = validateCoiExpiry(patch.default_coi_expires);
+        if (!chk.ok) return jsonResp(res, 400, { error: chk.error, message: chk.message, field: 'default_coi_expires' });
+        patch.default_coi_expires = chk.value;
+        // Guard the hole where a file is uploaded with no expiry: a null expiry counts as
+        // "covered" downstream, so require a date whenever a certificate is on file.
+        if (!chk.value) {
+          const cur = await sb(`brands?id=eq.${brandId}&select=default_coi_url`);
+          const curRow = cur.ok ? (await cur.json())[0] : null;
+          if (curRow && curRow.default_coi_url) {
+            return jsonResp(res, 400, { error: 'coi_expiry_required', message: 'Add the expiry date printed on your certificate. Without it we cannot tell retailers your insurance is current.', field: 'default_coi_expires' });
+          }
+        }
+      }
       const r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) });
-      if (!r.ok) return jsonResp(res, 500, { error: 'Failed to update' });
+      if (!r.ok) {
+        const det = await r.text().catch(() => '');
+        console.error('profile-update failed for brand', brandId, det);
+        return jsonResp(res, 500, { error: 'profile_save_failed', message: 'We could not save those changes. Try again in a moment.' });
+      }
       return jsonResp(res, 200, { ok: true });
     }
 
@@ -768,8 +787,9 @@ export default async function handler(req, res) {
         body: bytes,
       });
       if (!uploadResp.ok) {
-        const errText = await uploadResp.text();
-        return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
+        const errText = await uploadResp.text().catch(() => '');
+        console.error('COI storage upload failed', uploadResp.status, errText);
+        return jsonResp(res, 502, { error: 'coi_storage_failed', message: 'We could not save that file to storage. Try again in a moment; if it keeps failing, email david@demohubhq.com.' });
       }
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
       await sb(`brands?id=eq.${brandId}`, {
@@ -779,17 +799,73 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true, logo_url: publicUrl });
     }
 
+    // Patch brands with optional/extra columns tolerated. sb() never throws and callers used to
+    // ignore the response, so a failed write (e.g. a column that does not exist) silently reported
+    // success while nothing saved. Try the full payload; on failure retry with just the core
+    // fields; report a real error only if the core write fails.
+    async function patchBrandResilient(id, core, extras) {
+      let r = await sb(`brands?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ ...core, ...extras }) });
+      if (r.ok) return { ok: true };
+      const firstErr = await r.text().catch(() => '');
+      r = await sb(`brands?id=eq.${id}`, { method: 'PATCH', body: JSON.stringify(core) });
+      if (r.ok) return { ok: true, degraded: true, detail: firstErr };
+      const coreErr = await r.text().catch(() => '');
+      return { ok: false, detail: coreErr || firstErr };
+    }
+
+    // Confirm the bytes really are the type the data URL claims. Stops renamed/garbage files.
+    function sniffMatchesMime(buf, mime) {
+      if (!buf || buf.length < 8) return false;
+      const b = buf;
+      if (mime === 'application/pdf') return b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46; // %PDF
+      if (mime === 'image/jpeg') return b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
+      if (mime === 'image/png') return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
+      if (mime === 'image/webp') return b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP';
+      return false;
+    }
+
+    // Shared expiry validation so upload and profile-save give identical, specific messages.
+    function validateCoiExpiry(v) {
+      if (v === null || v === undefined || v === '') return { ok: true, value: null };
+      const str = String(v).slice(0, 10);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return { ok: false, error: 'coi_expiry_invalid', message: "That expiry date is not a valid date. Use the date picker and choose the expiry printed on your certificate." };
+      const d = new Date(str + 'T00:00:00Z');
+      if (isNaN(d.getTime())) return { ok: false, error: 'coi_expiry_invalid', message: "That expiry date is not a valid date. Use the date picker and choose the expiry printed on your certificate." };
+      const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+      if (d < today) return { ok: false, error: 'coi_expiry_past', message: "That expiry date has already passed. A certificate that has expired will not be accepted, so enter the expiry date printed on a current certificate." };
+      const maxD = new Date(today.getTime() + 5 * 365 * 86400000);
+      if (d > maxD) return { ok: false, error: 'coi_expiry_far', message: "That expiry date is more than five years out. Please check the date printed on your certificate." };
+      return { ok: true, value: str };
+    }
+
     if (action === 'upload-coi') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const dataUrl = String(body.file || '');
+      if (!dataUrl) return jsonResp(res, 400, { error: 'no_file', message: 'No file was received. Pick a file and try again.' });
+      // Specific guidance for the formats people actually hit, especially iPhone HEIC photos.
+      const declared = (dataUrl.match(/^data:([^;]+);base64,/) || [])[1] || '';
       const m = dataUrl.match(/^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,(.+)$/);
-      if (!m) return jsonResp(res, 400, { error: 'Invalid file — must be PDF, JPG, PNG, or WEBP' });
+      if (!m) {
+        if (/hei[cf]/i.test(declared)) {
+          return jsonResp(res, 400, { error: 'coi_format_heic', message: 'iPhone HEIC photos are not supported. In Photos, tap Share then choose a format like JPEG, or take a screenshot of the certificate and upload that. PDF, JPG, PNG and WEBP all work.' });
+        }
+        return jsonResp(res, 400, { error: 'coi_format_unsupported', message: `That file type is not supported${declared ? ' (' + declared + ')' : ''}. Upload your certificate as a PDF, JPG, PNG or WEBP.` });
+      }
       const mime = m[1];
       const ext = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }[mime];
-      const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 10 * 1024 * 1024) return jsonResp(res, 400, { error: 'File too large — max 10MB' });
+      let bytes;
+      try { bytes = Buffer.from(m[2], 'base64'); }
+      catch (_) { return jsonResp(res, 400, { error: 'coi_unreadable', message: 'That file could not be read. Try uploading it again, or export it as a PDF.' }); }
+      if (bytes.length > 10 * 1024 * 1024) return jsonResp(res, 400, { error: 'coi_too_large', message: 'That file is over the 10MB limit. Try a PDF export or a smaller photo.' });
+      if (bytes.length < 3 * 1024) return jsonResp(res, 400, { error: 'coi_too_small', message: 'That file is too small to be a certificate (under 3KB). Please upload the actual certificate document.' });
+      if (!sniffMatchesMime(bytes, mime)) {
+        return jsonResp(res, 400, { error: 'coi_content_mismatch', message: 'That file does not appear to be a real ' + ext.toUpperCase() + '. It may be renamed or corrupted. Re-export the certificate and try again.' });
+      }
+      // Optional expiry supplied at upload time
+      const expChk = validateCoiExpiry(body.expires);
+      if (!expChk.ok) return jsonResp(res, 400, { error: expChk.error, message: expChk.message });
       const path = `brands/${brandId}.${ext}`;
       const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/coi-docs/${path}?upsert=true`, {
         method: 'POST',
@@ -802,38 +878,36 @@ export default async function handler(req, res) {
       }
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/coi-docs/${path}?v=${Date.now()}`;
       const originalName = String(body.filename || `certificate-of-insurance.${ext}`).slice(0, 120);
-      await sb(`brands?id=eq.${brandId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          default_coi_url: publicUrl,
-          coi_warn_30_sent_at: null,
-          coi_warn_14_sent_at: null,
-          coi_warn_3_sent_at: null,
-          default_coi_filename: originalName,
-          default_coi_mime: mime,
-          updated_at: new Date().toISOString(),
-        }),
-      });
-      return jsonResp(res, 200, { ok: true, coi_url: publicUrl, filename: originalName, mime });
+      const core = { default_coi_url: publicUrl };
+      if (expChk.value) core.default_coi_expires = expChk.value;
+      const extras = {
+        coi_warn_30_sent_at: null, coi_warn_14_sent_at: null, coi_warn_3_sent_at: null,
+        default_coi_filename: originalName, default_coi_mime: mime,
+        updated_at: new Date().toISOString(),
+      };
+      const wrote = await patchBrandResilient(brandId, core, extras);
+      if (!wrote.ok) {
+        console.error('COI DB write failed for brand', brandId, wrote.detail);
+        return jsonResp(res, 500, { error: 'coi_save_failed', message: 'Your file uploaded but we could not attach it to your account. Try again; if it keeps failing, email david@demohubhq.com.' });
+      }
+      if (wrote.degraded) console.warn('COI saved with reduced metadata for brand', brandId, wrote.detail);
+      return jsonResp(res, 200, { ok: true, coi_url: publicUrl, filename: originalName, mime, expires: expChk.value || null });
     }
 
     if (action === 'remove-coi') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      await sb(`brands?id=eq.${brandId}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          default_coi_url: null,
-          coi_warn_30_sent_at: null,
-          coi_warn_14_sent_at: null,
-          coi_warn_3_sent_at: null,
-          default_coi_filename: null,
-          default_coi_mime: null,
-          default_coi_expires: null,
-          updated_at: new Date().toISOString(),
-        }),
-      });
+      const removed = await patchBrandResilient(
+        brandId,
+        { default_coi_url: null, default_coi_expires: null },
+        { coi_warn_30_sent_at: null, coi_warn_14_sent_at: null, coi_warn_3_sent_at: null,
+          default_coi_filename: null, default_coi_mime: null, updated_at: new Date().toISOString() },
+      );
+      if (!removed.ok) {
+        console.error('COI remove failed for brand', brandId, removed.detail);
+        return jsonResp(res, 500, { error: 'coi_remove_failed', message: 'We could not remove that certificate. Try again in a moment.' });
+      }
       return jsonResp(res, 200, { ok: true });
     }
 
