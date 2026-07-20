@@ -306,6 +306,17 @@ export default async function handler(req, res) {
           });
           brandId = Array.isArray(created) ? created[0]?.id : null;
           if (brandId) isNewBrand = true;
+          // Brand login authenticates against brand_members. Without this row the user can
+          // never sign in and no login code is ever sent (the API returns ok:true regardless),
+          // so they are silently locked out of the account we just made for them.
+          if (brandId) {
+            try {
+              await svcCall('brand_members', {
+                method: 'POST',
+                body: JSON.stringify({ brand_id: brandId, email: String(contact_email).toLowerCase(), role: 'owner', name: contact_name || null }),
+              });
+            } catch (_) { /* non-fatal */ }
+          }
         } catch (_) { /* fall through */ }
         // The create fails if the brand already exists (unique email). Re-read so we still
         // link the booking rather than saving a null brand_id.
