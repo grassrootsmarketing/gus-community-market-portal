@@ -171,16 +171,16 @@ async function sendMagicLink(email, link, isNew, code) {
       <div style="background:#fbf7f0;border:1.5px solid #ede3d0;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:8px;">Your sign-in code</div>
         <div style="font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div>
-        <div style="font-size:12px;color:#6b6a64;margin-top:10px;">Type this into the sign-in modal on any Demohub booking page.</div>
+        <div style="font-size:12px;color:#6b6a64;margin-top:10px;">Enter this on the screen where you asked to sign in. Best on a phone, where a link can open in the wrong browser.</div>
       </div>
       <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">— or —</p>
   ` : '';
   const body = `
     <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
       <h1 style="font-family:Georgia,serif;font-weight:400;font-size:28px;margin:0 0 12px;">${isNew ? 'Welcome to Demohub.' : 'Sign in to your brand account.'}</h1>
-      <p style="font-size:16px;line-height:1.5;margin:0 0 24px;color:#3a3a36;">${isNew ? 'One profile that follows you to every Demohub retailer.' : 'Enter the code below on the sign-in modal, or click the link.'} ${code ? 'Code expires in 30 minutes.' : 'Link expires in 30 minutes.'}</p>
+      <p style="font-size:16px;line-height:1.5;margin:0 0 24px;color:#3a3a36;">${code ? 'Type this code into the tab you already have open. Expires in 30 minutes.' : (isNew ? 'One profile that follows you to every Demohub retailer.' : 'Use the link below to sign in.')} ${code ? '' : 'Link expires in 30 minutes.'}</p>
       ${codeBlock}
-      <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 28px;border-radius:99px;text-decoration:none;font-weight:600;font-size:15px;">${isNew ? 'Verify and continue' : 'Sign in via link'}</a>
+      <a href="${link}" style="display:inline-block;background:${code ? 'transparent' : '#0f2c17'};color:${code ? '#2a5b32' : 'white'};${code ? 'border:1.5px solid rgba(15,44,23,0.2);' : ''}padding:${code ? '11px 22px' : '14px 28px'};border-radius:99px;text-decoration:none;font-weight:600;font-size:${code ? '14px' : '15px'};">${code ? 'Or sign in with this link' : (isNew ? 'Verify and continue' : 'Sign in via link')}</a>
       <p style="font-size:13px;color:#6b6a64;margin-top:32px;">If you didn't request this, you can safely ignore the email.</p>
     </div>
   `;
@@ -546,13 +546,24 @@ export default async function handler(req, res) {
       }
 
       const token = randomToken(24);
+      const code = generateLoginCode();
       const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      await sb('brand_account_tokens', {
-        method: 'POST',
-        body: JSON.stringify({ brand_id: brandId, token, expires_at: expires }),
-      });
+      // Insert the magic-link token AND a 6-digit code, same as the login path. Without the
+      // code, a new signup got a link-only email; tapping that link on a phone opens the mail
+      // app's in-app browser, so the session lands in a different browser than the one they
+      // started in. The code lets them finish in the tab they already have open.
+      await Promise.all([
+        sb('brand_account_tokens', {
+          method: 'POST',
+          body: JSON.stringify({ brand_id: brandId, email, token, expires_at: expires }),
+        }),
+        sb('brand_account_tokens', {
+          method: 'POST',
+          body: JSON.stringify({ brand_id: brandId, email, token: code, expires_at: expires }),
+        }),
+      ]);
       const link = `https://demohubhq.com/brand/verify?t=${token}`;
-      await sendMagicLink(email, link, !existing);
+      await sendMagicLink(email, link, !existing, code);
 
       // Day-0 welcome — only on a brand-new signup. Best-effort, never blocks signup.
       if (!existing) {
