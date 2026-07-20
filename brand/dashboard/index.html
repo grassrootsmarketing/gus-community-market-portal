@@ -686,7 +686,7 @@ function updatePersistentCoiNudge() {
   const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
   banner.innerHTML = `<div style="display:flex; align-items:center; gap:14px; padding:16px 24px; background:#fff3ed; border-bottom:2px solid #ed682f55;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> A current COI is <strong>required to confirm your demos</strong>. Without one on file, your events are <strong>subject to cancellation</strong> and retailers cannot accept your bookings. <a href="#profile" onclick="setTimeout(updatePersistentCoiNudge,300)" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> A current COI is <strong>required to confirm your demos</strong>. Without one on file, your events are <strong>subject to cancellation</strong> and retailers cannot accept your bookings. <a href="#profile" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
   </div>`;
   banner.style.display = 'block';
 }
@@ -754,7 +754,9 @@ function renderOverview() {
       : '<div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;border:2px solid rgba(15,44,23,0.28);margin-top:1px;"></div>';
     const titleStyle = it.done ? 'color:var(--ink-500);text-decoration:line-through;' : 'color:var(--forest-900);';
     const reqBadge = (it.req && !it.done) ? ' <span style="display:inline-block;background:#f7dfd4;color:#a14e2a;font-size:0.66rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">Required to book</span>' : '';
-    const cta = it.done ? '' : ' <a href="' + it.href + '" style="color:var(--forest-700);font-weight:700;text-decoration:underline;white-space:nowrap;">' + it.cta + ' \u2192</a>';
+    // COI items deep-link into the Compliance sub-tab; others just switch tab.
+    const onclick = it.href === '#profile' ? ' onclick="goToCoiUpload(); return false;"' : '';
+    const cta = it.done ? '' : ' <a href="' + it.href + '"' + onclick + ' style="color:var(--forest-700);font-weight:700;text-decoration:underline;white-space:nowrap;">' + it.cta + ' \u2192</a>';
     return '<div style="display:flex;gap:13px;align-items:flex-start;padding:13px 0;border-top:1px solid rgba(15,44,23,0.07);">' +
       circle +
       '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:0.96rem;' + titleStyle + '">' + it.title + reqBadge + '</div>' +
@@ -1157,6 +1159,28 @@ function renderProfile() {
   `;
 
   renderAvatar(document.getElementById('profileAvatar'), profile.logo_url);
+
+  // Deep-link into the Compliance sub-tab. The COI banner's "Upload now" used to only
+  // switch to Profile, dropping people on the Contact tab with no COI field in sight.
+  window.goToCoiUpload = function () {
+    try {
+      if (typeof switchTab === 'function') switchTab('profile');
+      else window.location.hash = '#profile';
+    } catch (_) { window.location.hash = '#profile'; }
+    setTimeout(() => {
+      const btn = document.querySelector('.tab-bar button[data-tab="compliance"]');
+      if (btn) btn.click();
+      const w = document.getElementById('coiWidget');
+      if (w && w.scrollIntoView) {
+        w.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // brief highlight so it is obvious what they were sent here for
+        w.style.transition = 'box-shadow .3s ease';
+        w.style.boxShadow = '0 0 0 3px rgba(237,104,47,0.45)';
+        setTimeout(() => { w.style.boxShadow = ''; }, 2200);
+      }
+    }, 220);
+    return false;
+  };
 
   // Tab switching
   document.querySelectorAll('.tab-bar button').forEach(b => {
