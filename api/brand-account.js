@@ -838,6 +838,111 @@ export default async function handler(req, res) {
       return { ok: true, value: str };
     }
 
+    // ===== COI content verification (Claude Haiku vision) =====
+    // Extracts structured fields from the certificate and applies the check matrix.
+    // Never blocks an upload on our own failure: any error/timeout returns status 'pending'.
+    async function verifyCoiWithClaude(bytes, mime, brandCompanyName) {
+      const key = process.env.ANTHROPIC_API_KEY;
+      if (!key) return { status: 'pending', reason: 'no_api_key' };
+      const schema = {
+        type: 'object',
+        properties: {
+          is_coi: { type: 'boolean', description: 'True only if this is a certificate of insurance (ACORD 25 or equivalent).' },
+          confidence: { type: 'number', description: '0 to 1 confidence that is_coi is correct.' },
+          form_type: { type: 'string', description: 'e.g. "ACORD 25", "ACORD 27", "other", "not_a_certificate".' },
+          acord_markers_present: { type: 'boolean', description: 'ACORD logo and/or the text "ACORD 25" visible on the form.' },
+          insured_name: { type: ['string', 'null'], description: 'Name in the INSURED box.' },
+          producer_name: { type: ['string', 'null'] },
+          insurer_name: { type: ['string', 'null'], description: 'Primary carrier affording general liability.' },
+          insurer_naic: { type: ['string', 'null'], description: '5-digit NAIC number for that carrier, digits only.' },
+          policy_number: { type: ['string', 'null'] },
+          earliest_expiry: { type: ['string', 'null'], description: 'Earliest policy expiration date, YYYY-MM-DD.' },
+          gl_each_occurrence: { type: ['number', 'null'], description: 'General liability each-occurrence limit in dollars.' },
+          gl_general_aggregate: { type: ['number', 'null'] },
+          certificate_holder: { type: ['string', 'null'] },
+          tampering_signals: { type: 'array', items: { type: 'string' }, description: 'Mismatched fonts, off-center dates, handwriting, visible edits. Empty if none.' },
+        },
+        required: ['is_coi', 'confidence', 'acord_markers_present', 'tampering_signals'],
+      };
+      const isPdf = mime === 'application/pdf';
+      const docBlock = isPdf
+        ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: bytes.toString('base64') } }
+        : { type: 'image', source: { type: 'base64', media_type: mime, data: bytes.toString('base64') } };
+      const prompt = 'You are checking a document a brand uploaded as proof of insurance.\n'
+        + 'Report exactly what the document shows. Do not guess or fill in plausible values.\n'
+        + 'If a field is not visible, return null for it.\n'
+        + (brandCompanyName ? ('The brand claims to be: "' + brandCompanyName + '". Report the INSURED name exactly as printed; do not correct it to match.\n') : '')
+        + 'Set is_coi false for anything that is not an insurance certificate (screenshots, invoices, licenses, photos, blank pages).';
+      const payload = {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        tools: [{ name: 'report_coi', description: 'Report the fields found on the certificate.', input_schema: schema }],
+        tool_choice: { type: 'tool', name: 'report_coi' },
+        messages: [{ role: 'user', content: [docBlock, { type: 'text', text: prompt }] }],
+      };
+      try {
+        const ctl = new AbortController();
+        const t = setTimeout(() => ctl.abort(), 20000);
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: ctl.signal,
+        });
+        clearTimeout(t);
+        if (!r.ok) {
+          const errTxt = await r.text().catch(() => '');
+          console.warn('COI verify API error', r.status, errTxt.slice(0, 300));
+          return { status: 'pending', reason: 'api_error_' + r.status };
+        }
+        const j = await r.json();
+        const block = (j.content || []).find(c => c.type === 'tool_use');
+        if (!block || !block.input) return { status: 'pending', reason: 'no_tool_output' };
+        return { status: 'ok', data: block.input };
+      } catch (e) {
+        console.warn('COI verify failed:', (e && e.message) || e);
+        return { status: 'pending', reason: 'exception' };
+      }
+    }
+
+    // Loose name match: ignores case, punctuation and common company suffixes.
+    function namesRoughlyMatch(a, b) {
+      const norm = (x) => String(x || '').toLowerCase()
+        .replace(/\b(llc|l\.l\.c\.|inc|incorporated|corp|corporation|co|company|ltd|limited|lp|llp|the)\b/g, '')
+        .replace(/[^a-z0-9]/g, '');
+      const A = norm(a), B = norm(b);
+      if (!A || !B) return false;
+      return A === B || A.includes(B) || B.includes(A);
+    }
+
+    // Apply the check matrix. Returns { decision: 'block'|'flag'|'pass', message, flags[] }
+    function evaluateCoi(d, brandCompanyName) {
+      const flags = [];
+      if (!d) return { decision: 'flag', flags: ['verification_unavailable'] };
+      const conf = typeof d.confidence === 'number' ? d.confidence : 0;
+      // --- hard blocks ---
+      if (d.is_coi === false && conf > 0.85) {
+        return { decision: 'block', flags: ['not_a_coi'], message: 'That document does not look like a Certificate of Insurance. Upload the certificate your insurance broker issued (usually an ACORD 25).' };
+      }
+      if (d.is_coi === false && d.acord_markers_present === false) {
+        return { decision: 'block', flags: ['not_a_coi_no_markers'], message: 'We could not find any certificate of insurance markings on that document. Upload the ACORD certificate from your broker.' };
+      }
+      if (d.earliest_expiry && /^\d{4}-\d{2}-\d{2}$/.test(d.earliest_expiry)) {
+        const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
+        if (new Date(d.earliest_expiry + 'T00:00:00Z') < today) {
+          return { decision: 'block', flags: ['expired'], message: 'That certificate expired on ' + d.earliest_expiry + '. Upload a current certificate.' };
+        }
+      }
+      // --- flags (upload still accepted) ---
+      if (conf > 0 && conf <= 0.85) flags.push('low_confidence');
+      if (Array.isArray(d.tampering_signals) && d.tampering_signals.length) flags.push('possible_tampering');
+      if (brandCompanyName && d.insured_name && !namesRoughlyMatch(d.insured_name, brandCompanyName)) flags.push('insured_name_mismatch');
+      if (d.gl_each_occurrence != null && d.gl_each_occurrence < 1000000) flags.push('low_gl_limit');
+      if (!d.insurer_naic) flags.push('no_naic');
+      if (d.acord_markers_present === false) flags.push('no_acord_markers');
+      return { decision: flags.length ? 'flag' : 'pass', flags };
+    }
+
     if (action === 'upload-coi') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
@@ -878,11 +983,32 @@ export default async function handler(req, res) {
       }
       const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/coi-docs/${path}?v=${Date.now()}`;
       const originalName = String(body.filename || `certificate-of-insurance.${ext}`).slice(0, 120);
+
+      // --- content verification (Claude Haiku). Degrades to 'pending', never blocks on our failure. ---
+      let brandRow = null;
+      try {
+        const bR = await sb(`brands?id=eq.${brandId}&select=company_name`);
+        if (bR.ok) brandRow = (await bR.json())[0] || null;
+      } catch (_) {}
+      const vres = await verifyCoiWithClaude(bytes, mime, brandRow && brandRow.company_name);
+      const vdata = vres.status === 'ok' ? vres.data : null;
+      const verdict = vdata ? evaluateCoi(vdata, brandRow && brandRow.company_name) : { decision: 'pending', flags: ['verification_pending'] };
+      if (verdict.decision === 'block') {
+        return jsonResp(res, 400, { error: 'coi_rejected', message: verdict.message, flags: verdict.flags });
+      }
+      const verificationStatus = verdict.decision === 'pass' ? 'passed'
+        : verdict.decision === 'flag' ? 'flagged' : 'pending';
+      // Trust the printed expiry over anything typed. Falls back to the typed value when
+      // verification could not read one.
+      const docExpiry = (vdata && vdata.earliest_expiry && /^\d{4}-\d{2}-\d{2}$/.test(vdata.earliest_expiry)) ? vdata.earliest_expiry : null;
+
       const core = { default_coi_url: publicUrl };
-      if (expChk.value) core.default_coi_expires = expChk.value;
+      const effectiveExpiry = docExpiry || expChk.value;
+      if (effectiveExpiry) core.default_coi_expires = effectiveExpiry;
       const extras = {
         coi_warn_30_sent_at: null, coi_warn_14_sent_at: null, coi_warn_3_sent_at: null,
         default_coi_filename: originalName, default_coi_mime: mime,
+        coi_verification_status: verificationStatus,
         updated_at: new Date().toISOString(),
       };
       const wrote = await patchBrandResilient(brandId, core, extras);
@@ -891,7 +1017,40 @@ export default async function handler(req, res) {
         return jsonResp(res, 500, { error: 'coi_save_failed', message: 'Your file uploaded but we could not attach it to your account. Try again; if it keeps failing, email david@demohubhq.com.' });
       }
       if (wrote.degraded) console.warn('COI saved with reduced metadata for brand', brandId, wrote.detail);
-      return jsonResp(res, 200, { ok: true, coi_url: publicUrl, filename: originalName, mime, expires: expChk.value || null });
+
+      // Audit row for the retailer view. Best-effort: never fail the upload over it.
+      try {
+        await sb('coi_verifications', {
+          method: 'POST',
+          body: JSON.stringify({
+            brand_id: brandId,
+            coi_url: publicUrl,
+            status: verificationStatus,
+            confidence: vdata && typeof vdata.confidence === 'number' ? vdata.confidence : null,
+            is_coi: vdata ? !!vdata.is_coi : null,
+            insured_name: vdata ? (vdata.insured_name || null) : null,
+            insurer_name: vdata ? (vdata.insurer_name || null) : null,
+            insurer_naic: vdata ? (vdata.insurer_naic || null) : null,
+            policy_expiry: docExpiry,
+            gl_each_occurrence: vdata ? (vdata.gl_each_occurrence ?? null) : null,
+            gl_general_aggregate: vdata ? (vdata.gl_general_aggregate ?? null) : null,
+            flags: verdict.flags || [],
+            raw: vdata || { reason: vres.reason || null },
+          }),
+        });
+      } catch (_) {}
+
+      return jsonResp(res, 200, {
+        ok: true, coi_url: publicUrl, filename: originalName, mime,
+        expires: effectiveExpiry || null,
+        verification: {
+          status: verificationStatus,
+          flags: verdict.flags || [],
+          insurer: vdata ? (vdata.insurer_name || null) : null,
+          insured_name: vdata ? (vdata.insured_name || null) : null,
+          expiry_from_document: docExpiry,
+        },
+      });
     }
 
     if (action === 'remove-coi') {
