@@ -1271,7 +1271,18 @@ function renderProfile() {
         _data.profile.default_coi_mime = j.mime || file.type;
         if (j.expires) _data.profile.default_coi_expires = j.expires;
         renderCoiWidget();
-        _coiNotice('Certificate uploaded.', 'ok');
+        // Report what verification found so the brand knows the expiry came from their document.
+        const v = j.verification || {};
+        if (v.status === 'passed') {
+          const bits = [];
+          if (v.insurer) bits.push(v.insurer);
+          if (v.expiry_from_document) bits.push('expires ' + v.expiry_from_document);
+          _coiNotice('Certificate verified' + (bits.length ? ' (' + bits.join(', ') + ').' : '.'), 'ok');
+        } else if (v.status === 'flagged') {
+          _coiNotice('Certificate uploaded. A couple of details need a human look, so the retailer will review it. Nothing more for you to do right now.', 'err');
+        } else {
+          _coiNotice('Certificate uploaded. We could not auto-check it just now, so the retailer will review it.', 'err');
+        }
       } catch (err) {
         renderCoiWidget();
         _coiNotice(err.message || 'Upload failed. Please try again.', 'err');
