@@ -82,11 +82,18 @@ export default async function handler(req, res) {
     for (const br of (brands || [])) brandsById[br.id] = br;
   }
   const pending = [];
+  const docs = [];   // retailer-visible: the actual certificate on file, so staff can eyeball it
   for (const b of rows) {
     const brand = brandsById[b.brand_id];
     if (!brand) continue;
-    if (hasCurrentCoi(brand, [], b.demo_date)) continue;
-    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date });
+    if (hasCurrentCoi(brand, [], b.demo_date)) {
+      if (brand.default_coi_url) {
+        docs.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url, coi_expires: brand.default_coi_expires || null });
+      }
+      continue;
+    }
+    // Not covered for this demo, but they may still have an expired document worth seeing.
+    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url || null, coi_expires: brand.default_coi_expires || null });
   }
-  return res.status(200).json({ ok: true, pending, pending_booking_ids: pending.map(p => p.booking_id) });
+  return res.status(200).json({ ok: true, pending, docs, pending_booking_ids: pending.map(p => p.booking_id) });
 }
