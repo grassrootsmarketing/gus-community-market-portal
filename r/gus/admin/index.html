@@ -4154,7 +4154,7 @@ END:VEVENT
                 window._coiPending = m;
                 // Certificates on file, so staff can open and eyeball the actual document.
                 const d = new Map();
-                for (const x of (j.docs || [])) d.set(_coiKey(x.brand_name, x.demo_date), { url: x.coi_url, expires: x.coi_expires || null });
+                for (const x of (j.docs || [])) d.set(_coiKey(x.brand_name, x.demo_date), { url: x.coi_url, expires: x.coi_expires || null, v: x.verification || null });
                 window._coiDocs = d;
             } catch (_) {
                 window._coiPending = new Map();   // no badges, never block the admin
@@ -4221,10 +4221,36 @@ END:VEVENT
                 const doc = window._coiDocs && window._coiDocs.get(key);
                 if (doc && doc.url) {
                     const exp = doc.expires ? (' &middot; expires ' + escapeHtml(String(doc.expires))) : '';
+                    const v = doc.v || null;
+                    const flagged = v && v.status === 'flagged';
+                    const badgeTxt = flagged ? 'COI needs review' : (v && v.status === 'passed' ? 'COI verified' : 'COI on file');
+                    const badgeCss = flagged
+                        ? 'background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55;'
+                        : 'background:var(--forest-100,#e6f0e4); color:var(--forest-700,#2a5b32); border:1px solid rgba(42,91,50,0.25);';
+                    // Human-readable reasons so staff know what to look at.
+                    const FLAG_TXT = {
+                        insured_name_mismatch: 'insured name does not match the brand',
+                        possible_tampering: 'possible edits to the document',
+                        low_gl_limit: 'liability limit under $1M',
+                        low_confidence: 'could not read it clearly',
+                        no_naic: 'no carrier NAIC number found',
+                        no_acord_markers: 'no ACORD markings',
+                        verification_pending: 'not auto-checked yet',
+                    };
+                    const reasons = (v && Array.isArray(v.flags) && v.flags.length)
+                        ? '<div style="font-size:0.68rem; color:#a14e2a; margin-top:2px;">' + escapeHtml(v.flags.map(fl => FLAG_TXT[fl] || fl).join(' &middot; ')) + '</div>'
+                        : '';
+                    const detail = (v && (v.insurer || v.gl_each_occurrence))
+                        ? '<div style="font-size:0.68rem; color:var(--ink-500); margin-top:2px;">'
+                          + (v.insurer ? escapeHtml(v.insurer) : '')
+                          + (v.gl_each_occurrence ? ' &middot; $' + Number(v.gl_each_occurrence).toLocaleString() + ' each occurrence' : '')
+                          + '</div>'
+                        : '';
                     return '<div style="margin-top:5px;">'
-                        + '<span title="Certificate of Insurance on file" style="display:inline-block; background:var(--forest-100,#e6f0e4); color:var(--forest-700,#2a5b32); border:1px solid rgba(42,91,50,0.25); font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">COI on file</span>'
+                        + '<span title="Certificate of Insurance on file" style="display:inline-block; ' + badgeCss + ' font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">' + badgeTxt + '</span>'
                         + ' <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline;">View COI</a>'
                         + '<span style="font-size:0.68rem; color:var(--ink-500);">' + exp + '</span>'
+                        + detail + reasons
                         + '</div>';
                 }
                 const p = window._coiPending && window._coiPending.get(key);
