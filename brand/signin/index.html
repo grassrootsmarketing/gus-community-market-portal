@@ -148,19 +148,65 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="card success" id="successCard">
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
-    <p>We sent a link to <strong id="sentEmail">, </strong>.</p>
-    <p style="margin-top:12px;font-size:0.88rem;">Open it on any device to sign in. The link expires in 30 minutes.</p>
-    <p style="margin-top:14px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend link</a></p>
+    <p>We sent a 6-digit code to <strong id="sentEmail">, </strong>.</p>
+    <p style="margin-top:10px;font-size:0.9rem;">Enter it below to finish signing in. Expires in 30 minutes.</p>
+    <div style="margin-top:16px;">
+      <input id="brandCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
+             placeholder="000000"
+             style="width:100%; padding:14px; border:1.5px solid rgba(15,44,23,0.18); border-radius:10px; font-size:1.5rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.18em; text-align:center; box-sizing:border-box;">
+      <div id="brandCodeErr" style="display:none; color:#a14e2a; font-size:0.86rem; margin-top:8px;"></div>
+      <button type="button" id="brandCodeBtn"
+              style="width:100%; margin-top:10px; padding:13px; background:#0f2c17; color:#fff; border:none; border-radius:10px; font-size:1rem; font-weight:700; font-family:inherit; cursor:pointer;">Sign in</button>
+    </div>
+    <p style="margin-top:14px;font-size:0.84rem;color:#6b6a64;">On a phone, use the code. Tapping the email link can open a different browser and lose your place.</p>
+    <p style="margin-top:10px;"><a href="#" id="brandResendLink" style="color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn't get it? Resend code</a></p>
   </div>
 </main>
 <script>
+// Verify the 6-digit code without leaving this tab. This is the primary path on mobile,
+// where tapping the emailed link opens the mail app's in-app browser and the session
+// lands in a different cookie jar than the one the user started in.
+async function _brandVerifyCode() {
+  const inp = document.getElementById('brandCodeInput');
+  const err = document.getElementById('brandCodeErr');
+  const btn = document.getElementById('brandCodeBtn');
+  if (!inp || !btn) return;
+  const email = (window._lastBrandSend && window._lastBrandSend.data && window._lastBrandSend.data.email)
+    || (document.getElementById('sentEmail') || {}).textContent || '';
+  const code = (inp.value || '').replace(/\D/g, '').trim();
+  if (err) { err.style.display = 'none'; err.textContent = ''; }
+  if (code.length !== 6) {
+    if (err) { err.textContent = 'Enter the 6-digit code from your email.'; err.style.display = 'block'; }
+    return;
+  }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Signing in...';
+  try {
+    const r = await fetch('/api/brand-account?action=verify-code', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ email: String(email).trim(), code }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.message || j.error || 'That code did not work.');
+    window.location.href = '/brand/dashboard';
+  } catch (e) {
+    if (err) { err.textContent = (e && e.message) || 'That code did not work. Check it and try again.'; err.style.display = 'block'; }
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+document.addEventListener('click', (e) => { if (e.target && e.target.id === 'brandCodeBtn') _brandVerifyCode(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.activeElement && document.activeElement.id === 'brandCodeInput') { e.preventDefault(); _brandVerifyCode(); }
+});
+
 function _dhResend(linkEl, sendFn) {
   if (!linkEl || linkEl.dataset.cooling === '1') return;
   try { sendFn(); } catch(_){}
   let n = 30;
   linkEl.dataset.cooling = '1'; linkEl.style.opacity = '0.55'; linkEl.style.pointerEvents = 'none';
   linkEl.textContent = 'Sent \u2014 resend in ' + n + 's';
-  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend link'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
+  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend code'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
 }
 const tabs = document.querySelectorAll('.tab');
 const errBox = document.getElementById('errorBox');
