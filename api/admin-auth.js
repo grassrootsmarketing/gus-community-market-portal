@@ -159,9 +159,30 @@ function magicLinkEmail({ retailerName, link, code }) {
 }
 
 
+// Rate limit keyed on an explicit identifier (email) rather than the IP. Used to cap
+// login-code guesses per account, which IP-based limits cannot do once IPs are spoofed.
+async function checkRateLimitByKey(fullKey, maxPerHour) {
+  try {
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(fullKey)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: fullKey, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('per-key rate limit failed — denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
+}
+
 async function checkRateLimit(req, bucketKey, maxPerHour) {
   try {
-    const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
+    // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
+    // the one Vercel appends. Never trust cf-connecting-ip here — we are not behind Cloudflare,
+    // so it is purely attacker-supplied and was a complete rate-limit bypass.
+    const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
+    const ip = req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
     const key = bucketKey + ':' + ip;
     const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
     const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
@@ -316,10 +337,14 @@ export default async function handler(req, res) {
       const email = String(body?.email || '').trim().toLowerCase();
       const code = String(body?.code || '').replace(/\D/g, '').trim();
       if (!email || !code || code.length !== 6) return res.status(400).json({ error: 'Email and 6-digit code required' });
-      // Rate limit code verification per IP (defense against brute force)
-      const rl = await checkRateLimit(req, 'verify-code', 60);
-      if (!rl.allowed) {
-        if (rl.error === 'rate_limit_unavailable') return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Try again in a moment.' });
+      // Two independent caps. The per-EMAIL one is the real defense: it cannot be bypassed
+      // by forging IPs, so it caps guesses against any single account.
+      const rlIp = await checkRateLimit(req, 'verify-code', 60);
+      const rlEmail = await checkRateLimitByKey('verify-code-email:' + email, 12);
+      if (!rlIp.allowed || !rlEmail.allowed) {
+        if (rlIp.error === 'rate_limit_unavailable' || rlEmail.error === 'rate_limit_unavailable') {
+          return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Try again in a moment.' });
+        }
         return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
       }
       const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
@@ -922,7 +947,6 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-login') {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
-    const debug = body.debug === true && OWNER_EMAILS.includes(email);
     const diag = { allowlisted: false, system_retailer_id: null, insert_ok: false, insert_error: null, insert_response: null, token_found: false, resend_ok: false, resend_error: null, resend_response: null };
     if (OWNER_EMAILS.includes(email)) {
       diag.allowlisted = true;
@@ -960,11 +984,10 @@ async function handleOwnerAction(action, req, res, body) {
         } else {
           diag.resend_error = 'RESEND_API_KEY not set';
         }
-        if (debug) return res.status(200).json({ ok: true, link, diag });
-      } else if (debug) {
-        return res.status(200).json({ ok: true, diag });
       }
     }
+    // Always return the same opaque response — never a token, link, or diagnostics.
+    // (A previous debug branch returned a valid owner login link to any caller.)
     return res.status(200).json({ ok: true });
   }
 
