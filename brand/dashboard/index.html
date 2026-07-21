@@ -1130,6 +1130,7 @@ function renderProfile() {
         <div class="form-row">
           <label class="label">COI expires</label>
           <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}">
+          <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">Filled in automatically from your certificate when you upload it. Edit only if it reads wrong.</div>
         </div>
       </div>
       <div class="tab-pane" id="tabProduct">
@@ -1300,7 +1301,20 @@ function renderProfile() {
         _data.profile.default_coi_url = j.coi_url;
         _data.profile.default_coi_filename = j.filename || file.name;
         _data.profile.default_coi_mime = j.mime || file.type;
-        if (j.expires) _data.profile.default_coi_expires = j.expires;
+        if (j.expires) {
+          _data.profile.default_coi_expires = j.expires;
+          // The expiry input is rendered once at page load, so without this it keeps
+          // showing the old/empty value even though the date was read off the document
+          // and already saved. Worse, a later "Save changes" would post that empty value
+          // back and trip the coi_expiry_required guard.
+          const expInput = document.getElementById('f_default_coi_expires');
+          if (expInput && expInput.value !== j.expires) {
+            expInput.value = j.expires;
+            expInput.style.transition = 'background-color .4s ease';
+            expInput.style.backgroundColor = '#eef7f0';
+            setTimeout(() => { expInput.style.backgroundColor = ''; }, 2500);
+          }
+        }
         renderCoiWidget();
         // Report what verification found so the brand knows the expiry came from their document.
         const v = j.verification || {};
@@ -1308,7 +1322,8 @@ function renderProfile() {
           const bits = [];
           if (v.insurer) bits.push(v.insurer);
           if (v.expiry_from_document) bits.push('expires ' + v.expiry_from_document);
-          _coiNotice('Certificate verified' + (bits.length ? ' (' + bits.join(', ') + ').' : '.'), 'ok');
+          _coiNotice('Certificate verified' + (bits.length ? ' (' + bits.join(', ') + ').' : '.')
+            + (j.expires ? ' We filled in the expiry date from the document — no need to type it.' : ''), 'ok');
         } else if (v.status === 'flagged') {
           _coiNotice('Certificate uploaded. A couple of details need a human look, so the retailer will review it. Nothing more for you to do right now.', 'err');
         } else {
