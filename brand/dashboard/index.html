@@ -1143,6 +1143,36 @@ function renderOverview() {
     ${activityHtml}
     ${demosListHtml}
   `;
+  if (typeof countUpStats === 'function') countUpStats();
+}
+
+// Animate the headline stat numbers from 0 to their value. Parses the rendered text so
+// it keeps any $ prefix or % suffix, and preserves decimals. Reduced-motion: no-op.
+function countUpStats() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const els = document.querySelectorAll('.stat-num, .perf-stat .val');
+  els.forEach(function (el) {
+    const raw = (el.textContent || '').trim();
+    const m = raw.match(/^([^0-9-]*)(-?[0-9][0-9,]*(?:\.[0-9]+)?)(.*)$/);
+    if (!m) return;                                  // non-numeric (e.g. a dash) — leave it
+    const prefix = m[1], suffix = m[3];
+    const target = parseFloat(m[2].replace(/,/g, ''));
+    if (!isFinite(target) || target === 0) return;   // nothing to count to
+    const decimals = (m[2].split('.')[1] || '').length;
+    const dur = 850, start = performance.now();
+    function fmt(v) {
+      const n = decimals ? v.toFixed(decimals) : Math.round(v).toLocaleString();
+      return prefix + n + suffix;
+    }
+    function step(now) {
+      const t = Math.min(1, (now - start) / dur);
+      const eased = 1 - Math.pow(1 - t, 3);          // ease-out cubic
+      el.textContent = fmt(target * eased);
+      if (t < 1) requestAnimationFrame(step); else el.textContent = fmt(target);
+    }
+    el.textContent = fmt(0);
+    requestAnimationFrame(step);
+  });
 }
 
 window.dismissWelcome = function(key) {
