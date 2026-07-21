@@ -1040,8 +1040,13 @@ function renderOverview() {
   const isVerified = _bs.verified;
   const hasLogo = _bs.hasLogo;
 
+  // The "Get your verified badge" checklist and the "Almost verified" panel were both
+  // rendering on Overview, saying the same thing twice. Show the checklist while it's up;
+  // the panel is the fallback for people who dismissed it.
   let verifiedPanelHtml = '';
-  if (isVerified) {
+  if (!isVerified && showWelcome) {
+    verifiedPanelHtml = '';
+  } else if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong> &mdash; worth renewing now` : ''}.` : ''}</p></div>
