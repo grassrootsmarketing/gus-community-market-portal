@@ -1224,6 +1224,64 @@ window.copyCalsyncUrl = function(btn) {
 };
 
 // ===== Profile =====
+// ===== SKU editor =====
+// Rows live in the DOM and are collected on save. Declared at top level because
+// saveProfile() reads them, and a scope-local helper is how we got
+// "renderCoiWidget is not defined" earlier.
+function skuRowHtml(p) {
+  const v = (x) => escapeHtml(x || '');
+  return '<div class="sku-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'
+    + '<input class="input sku-name" placeholder="Item name" value="' + v(p.name) + '" style="flex:3;min-width:0;">'
+    + '<input class="input sku-size" placeholder="Size" value="' + v(p.size) + '" style="flex:1;min-width:70px;">'
+    + '<input class="input sku-code" placeholder="SKU / UPC" value="' + v(p.sku) + '" style="flex:1.4;min-width:90px;">'
+    + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button>'
+    + '</div>';
+}
+
+function renderSkuList(products) {
+  const wrap = document.getElementById('skuList');
+  if (!wrap) return;
+  const list = (products && products.length) ? products : [{ name: '', size: '', sku: '' }];
+  wrap.innerHTML = list.map(skuRowHtml).join('');
+  wrap.querySelectorAll('.sku-del').forEach(btn => {
+    btn.addEventListener('click', () => {
+      btn.closest('.sku-row').remove();
+      // Never leave an empty editor - people read that as "the feature is gone".
+      if (!wrap.querySelector('.sku-row')) addSkuRow();
+    });
+  });
+}
+
+function addSkuRow() {
+  const wrap = document.getElementById('skuList');
+  if (!wrap) return;
+  wrap.insertAdjacentHTML('beforeend', skuRowHtml({}));
+  const row = wrap.lastElementChild;
+  row.querySelector('.sku-del').addEventListener('click', () => {
+    row.remove();
+    if (!wrap.querySelector('.sku-row')) addSkuRow();
+  });
+  const nameInput = row.querySelector('.sku-name');
+  if (nameInput) nameInput.focus();
+}
+
+// Rows with no name are blank placeholders, not items - drop them silently.
+function collectSkus() {
+  const wrap = document.getElementById('skuList');
+  if (!wrap) return null;
+  const out = [];
+  wrap.querySelectorAll('.sku-row').forEach(row => {
+    const name = (row.querySelector('.sku-name')?.value || '').trim();
+    if (!name) return;
+    out.push({
+      name,
+      size: (row.querySelector('.sku-size')?.value || '').trim(),
+      sku: (row.querySelector('.sku-code')?.value || '').trim(),
+    });
+  });
+  return out;
+}
+
 // ===== Profile (identity only) =====
 // Split out of the old three-tab Profile page: Compliance and Products are now
 // their own top-level sections. Each section saves independently.
@@ -1316,9 +1374,14 @@ function renderProducts() {
         <input type="hidden" id="f_default_categories" value="${escapeHtml(profile.default_categories || '')}">
       </div>
       <div class="form-row">
-        <label class="label">Default product info</label>
-        <textarea class="textarea" id="f_default_product_info" placeholder="What you typically demo">${escapeHtml(profile.default_product_info || '')}</textarea>
-        <div class="help">Auto-fills the "Product" field when you book at any Demohub retailer.</div>
+        <label class="label">Items you sample</label>
+        <div class="help" style="margin:0 0 10px;">The specific products you bring to a demo. Retailers use this to make sure they have stock on hand, so be precise.</div>
+        <div id="skuList"></div>
+        <button type="button" class="btn btn-ghost" id="skuAddBtn" style="margin-top:10px;">+ Add item</button>
+      </div>
+      <div class="form-row">
+        <label class="label">Notes for retailers <span style="font-weight:400;color:var(--ink-500);">(optional)</span></label>
+        <textarea class="textarea" id="f_default_product_info" placeholder="Anything a store should know about your demos">${escapeHtml(profile.default_product_info || '')}</textarea>
       </div>
       <div class="form-row">
         <label class="label" style="display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
@@ -1333,6 +1396,10 @@ function renderProducts() {
       </div>
     </div>
   `;
+  renderSkuList(Array.isArray(profile.products) ? profile.products : []);
+  const _addBtn = document.getElementById('skuAddBtn');
+  if (_addBtn) _addBtn.addEventListener('click', () => { addSkuRow(); });
+
   const initial = (profile.default_categories || '').split(',').map(s => s.trim()).filter(Boolean);
   initCatPicker({
     pickerEl: document.getElementById('dashCatPicker'),
@@ -1596,7 +1663,13 @@ async function saveProfile() {
     put('default_product_info', 'f_default_product_info', el => el.value.trim());
     put('default_categories', 'f_default_categories', el => el.value);
     put('needs_electricity', 'f_needs_electricity', el => !!el.checked);
-    await _brandApi('profile-update', payload);
+    const _skus = collectSkus();
+    if (_skus !== null) payload.products = _skus;
+    const _resp = await _brandApi('profile-update', payload);
+    if (_resp && _resp.degraded) {
+      const dropped = (_resp.dropped || []).join(', ');
+      throw new Error('Saved, but these did not persist: ' + (dropped || 'some fields') + '. Email david@demohubhq.com.');
+    }
     Object.assign(_data.profile, payload);
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
     if (typeof renderCoiWidget === 'function') renderCoiWidget();
