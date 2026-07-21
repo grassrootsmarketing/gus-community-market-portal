@@ -1291,6 +1291,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
+                // Their saved product notes, pre-filled into the booking notes. Without this
+                // the field is labelled "Notes for retailers" and reaches no retailer.
+                { const nEl = document.getElementById('bookNotes'); if (nEl && !nEl.value && bp.default_product_info) nEl.value = bp.default_product_info; }
                 if (bp.default_categories) {
                     const firstCat = String(bp.default_categories).split(',')[0].trim();
                     const sel = document.getElementById('bookCategory');
