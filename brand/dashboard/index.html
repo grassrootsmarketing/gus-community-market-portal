@@ -644,9 +644,13 @@ async function loadData() {
   navName.textContent = profile.company_name || profile.email || '';
   // Add inline verified mark next to brand name in nav if verified
   const navVerifyMark = document.getElementById('navVerifyMark');
-  const _coiOk = !!profile.default_coi_url && (!profile.default_coi_expires || new Date(profile.default_coi_expires + 'T00:00:00') > new Date());
-  const _profOk = !!(profile.company_name && profile.contact_name && profile.email);
-  if (navVerifyMark) navVerifyMark.style.display = (_coiOk && _profOk) ? 'inline-flex' : 'none';
+  const _st = getBrandStatus(profile);
+  if (navVerifyMark) {
+    navVerifyMark.style.display = _st.verified ? 'inline-flex' : 'none';
+    navVerifyMark.title = _st.verified
+      ? ('Verified brand' + (_st.expiryLabel ? ' \u2014 COI current through ' + _st.expiryLabel : ''))
+      : '';
+  }
   renderAvatar(navAvatar, profile.logo_url);
   // Re-append the upload overlay after renderAvatar sets innerHTML
   if (navAvatar && !navAvatar.querySelector('.avatar-upload-overlay')) {
@@ -698,6 +702,63 @@ function markChecklistDone(key) {
     const done = document.querySelectorAll('[data-check] svg polyline').length;
     counter.textContent = done + ' of ' + total + ' done. Complete these so retailers accept your demos.';
   }
+}
+
+// One definition of "verified", used by the nav checkmark, the Overview panel, and the
+// Compliance status strip. These used to disagree: the nav mark ignored `website`, so a
+// brand could show the checkmark while Overview still said "Almost verified".
+function getBrandStatus(profile) {
+  profile = profile || {};
+  const exp = profile.default_coi_expires ? new Date(profile.default_coi_expires + 'T00:00:00') : null;
+  const now = new Date();
+  const days = exp ? Math.ceil((exp - now) / 86400000) : null;
+
+  let coi = 'none';
+  if (profile.default_coi_url) {
+    if (!exp) coi = 'no_date';
+    else if (exp <= now) coi = 'expired';
+    else if (days <= 30) coi = 'expiring';
+    else coi = 'current';
+  }
+  const coiOk = coi === 'current' || coi === 'expiring';
+
+  const missing = [];
+  if (coi === 'none') missing.push('Upload a current Certificate of Insurance');
+  else if (coi === 'expired') missing.push('Replace your expired Certificate of Insurance');
+  else if (coi === 'no_date') missing.push('Add the expiry date from your certificate');
+  if (!profile.company_name) missing.push('Add your brand / company name');
+  if (!profile.contact_name) missing.push('Add a dedicated point of contact');
+  if (!profile.email) missing.push('Add a contact email');
+  if (!(profile.website && profile.website.trim().length > 4)) missing.push('Add your business website (verifies your identity)');
+
+  return {
+    verified: missing.length === 0,
+    coi, daysLeft: days, expiryDate: exp, missing,
+    hasLogo: !!profile.logo_url,
+    expiryLabel: exp ? exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null,
+  };
+}
+
+// Colour-coded strip: green when everything is done, amber when the COI is running out,
+// red when it has lapsed. Shown on Compliance and reused on Overview.
+function coiStatusStripHtml(st) {
+  const map = {
+    current:  ['#eef7f0', '#2a5b32', 'Covered', 'Your certificate is current through ' + (st.expiryLabel || 'its expiry date') + '.'],
+    expiring: ['#fff8ed', '#8a6114', 'Expiring soon', 'Your certificate expires ' + (st.expiryLabel || 'soon') + ' — that is ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' away. Ask your broker for the renewal now so your demos are not affected.'],
+    expired:  ['#fff3ed', '#a14e2a', 'Expired', 'Your certificate expired' + (st.expiryLabel ? ' on ' + st.expiryLabel : '') + '. Retailers cannot confirm demos until you upload a current one.'],
+    no_date:  ['#fff8ed', '#8a6114', 'Missing expiry date', 'We could not read an expiry date from your certificate. Add it below so retailers know your insurance is current.'],
+    none:     ['#fff3ed', '#a14e2a', 'No certificate on file', 'Retailers cannot confirm your demos until a current COI is uploaded.'],
+  };
+  const [bg, fg, title, body] = map[st.coi] || map.none;
+  const tick = (st.coi === 'current' || st.coi === 'expiring');
+  return '<div style="display:flex;gap:13px;align-items:flex-start;padding:15px 18px;border-radius:11px;background:' + bg + ';border:1px solid ' + fg + '33;margin-bottom:20px;">'
+    + '<svg width="22" height="22" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:1px;">'
+    + (tick
+        ? '<circle cx="12" cy="12" r="11" fill="' + fg + '"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+        : '<circle cx="12" cy="12" r="10" fill="none" stroke="' + fg + '" stroke-width="2.2"/><line x1="12" y1="7" x2="12" y2="13" stroke="' + fg + '" stroke-width="2.2" stroke-linecap="round"/><line x1="12" y1="16" x2="12.01" y2="16" stroke="' + fg + '" stroke-width="2.2" stroke-linecap="round"/>')
+    + '</svg>'
+    + '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:0.98rem;color:' + fg + ';margin-bottom:2px;">' + title + '</div>'
+    + '<div style="font-size:0.87rem;line-height:1.5;color:var(--ink-700);">' + body + '</div></div></div>';
 }
 
 function updatePersistentCoiNudge() {
@@ -915,29 +976,19 @@ function renderOverview() {
     }
   }
 
-  // Verified status: COI valid + business identity (website) + dedicated point of contact + email
-  const coiOk = !!profile.default_coi_url && (!profile.default_coi_expires || new Date(profile.default_coi_expires + 'T00:00:00') > new Date());
-  const nameOk = !!profile.company_name;
-  const pocOk = !!profile.contact_name;
-  const emailOk = !!profile.email;
-  const websiteOk = !!(profile.website && profile.website.trim().length > 4);
-  const isVerified = coiOk && nameOk && pocOk && emailOk && websiteOk;
-  const hasLogo = !!profile.logo_url;
+  // Verified status comes from getBrandStatus() so nav, Overview and Compliance agree.
+  const _bs = getBrandStatus(profile);
+  const isVerified = _bs.verified;
+  const hasLogo = _bs.hasLogo;
 
   let verifiedPanelHtml = '';
   if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${!hasLogo ? ' <strong><a href="#profile" style="color:var(--forest-700);">Add a profile picture</a></strong> to look even more credible.' : ''}</p></div>
+      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? ` &mdash; <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} left</strong>, time to renew` : ''}.` : ''}${!hasLogo ? ' <strong><a href="#profile" style="color:var(--forest-700);">Add a profile picture</a></strong> to look even more credible.' : ''}</p></div>
     </div>`;
   } else {
-    const missing = [];
-    if (!profile.default_coi_url) missing.push('Upload a current Certificate of Insurance');
-    else if (profile.default_coi_expires && new Date(profile.default_coi_expires + 'T00:00:00') <= new Date()) missing.push('Replace your expired COI');
-    if (!nameOk) missing.push('Add your brand / company name');
-    if (!pocOk) missing.push('Add a dedicated point of contact');
-    if (!emailOk) missing.push('Add a contact email');
-    if (!websiteOk) missing.push('Add your business website (verifies your identity)');
+    const missing = _bs.missing;
     verifiedPanelHtml = `<div class="verified-panel pending">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge muted"><circle cx="12" cy="12" r="11" fill="#d3d1c7"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
       <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);"><em>Recommended:</em> <a href="#profile" style="color:var(--forest-700);font-weight:600;">Add a profile picture</a> so retailers recognize your brand at a glance.</p>' : ''}</div>
@@ -1162,6 +1213,7 @@ function renderCompliance() {
       <div class="sub">Your Certificate of Insurance. Required before a retailer can confirm a demo.</div>
     </div></div>
     <div class="card">
+      ${coiStatusStripHtml(getBrandStatus(profile))}
       <div class="form-row">
         <label class="label">Certificate of Insurance</label>
         <div id="coiWidget"></div>
