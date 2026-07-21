@@ -1278,6 +1278,8 @@ function renderProfile() {
       </div>`;
     }
   }
+  // Exposed because top-level callers (saveProfile, window.removeCoi) need it.
+  window.renderCoiWidget = renderCoiWidget;
   renderCoiWidget();
 
   // Inline notice under the COI widget. Replaces alert() so errors are readable on mobile
@@ -1293,6 +1295,9 @@ function renderProfile() {
     n.textContent = msg;
     if (ok) setTimeout(() => { if (n) n.remove(); }, 4000);
   }
+  // saveProfile() is top-level and wants to show COI errors inline instead of an
+  // alert(); without this the typeof guard there always fell through.
+  window._coiNotice = _coiNotice;
 
   // Shared by the file picker AND drag-and-drop. Anything that produces a File lands here.
   async function handleCoiFile(file) {
@@ -1450,7 +1455,7 @@ async function saveProfile() {
     await _brandApi('profile-update', payload);
     Object.assign(_data.profile, payload);
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
-    renderCoiWidget && renderCoiWidget();
+    if (typeof renderCoiWidget === 'function') renderCoiWidget();
   } catch (err) {
     if (typeof _coiNotice === 'function' && /expiry|certificate|coi/i.test(err.message || '')) _coiNotice(err.message, 'err');
     else alert(err.message || 'Save failed. Please try again.');
