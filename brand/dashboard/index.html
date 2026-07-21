@@ -191,6 +191,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .coi-block { padding:14px 16px; background:#f9f7f2; border:1px solid rgba(15,44,23,0.08); border-radius:10px; }
 .coi-empty { padding:22px; text-align:center; border:1.5px dashed rgba(15,44,23,0.18); border-radius:10px; background:white; transition:all 0.15s; cursor:pointer; }
 .coi-empty:hover { border-color:var(--forest-500); background:var(--forest-50); }
+.coi-empty.coi-dragover { border-color:var(--forest-500); border-style:solid; background:var(--forest-50); transform:scale(1.01); box-shadow:0 0 0 3px rgba(15,44,23,0.08); }
+.coi-empty.coi-dragover .icon { opacity:1; transform:translateY(-2px); transition:transform 0.15s; }
+.coi-block.coi-dragover { outline:2px dashed var(--forest-500); outline-offset:3px; border-radius:10px; }
 .coi-empty .icon { width:36px; height:36px; margin:0 auto 10px; opacity:0.6; }
 .coi-empty .lbl { font-weight:600; font-size:0.95rem; color:var(--forest-900); margin-bottom:4px; }
 .coi-empty .sub { font-size:0.82rem; color:var(--ink-500); }
@@ -1249,7 +1252,7 @@ function renderProfile() {
     } else {
       widget.innerHTML = `<div class="coi-empty" onclick="document.getElementById('coiFile').click()">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        <div class="lbl">Upload your Certificate of Insurance</div>
+        <div class="lbl">Drag and drop your Certificate of Insurance, or click to browse</div>
         <div class="sub">Accepted: PDF, JPG, PNG, WEBP · up to 10MB</div>
         <div class="sub" style="margin-top:4px; font-size:0.78rem; opacity:0.85;">On iPhone, HEIC photos are not accepted &mdash; share as JPEG or upload a screenshot.</div>
       </div>`;
@@ -1271,12 +1274,16 @@ function renderProfile() {
     if (ok) setTimeout(() => { if (n) n.remove(); }, 4000);
   }
 
-  document.getElementById('coiFile').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+  // Shared by the file picker AND drag-and-drop. Anything that produces a File lands here.
+  async function handleCoiFile(file) {
+    const reset = () => { const el = document.getElementById('coiFile'); if (el) el.value = ''; };
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { _coiNotice('That file is over the 10MB limit. Try a PDF export or a smaller photo.', 'err'); e.target.value = ''; return; }
-    if (file.size < 3 * 1024) { _coiNotice('That file is too small to be a certificate. Please upload the actual document.', 'err'); e.target.value = ''; return; }
-    if (/\.(heic|heif)$/i.test(file.name || '')) { _coiNotice('iPhone HEIC photos are not supported. In Photos tap Share and choose JPEG, or upload a screenshot instead.', 'err'); e.target.value = ''; return; }
+    const okExt = /\.(pdf|jpe?g|png|webp)$/i.test(file.name || '');
+    const okMime = /^(application\/pdf|image\/(jpeg|png|webp))$/i.test(file.type || '');
+    if (/\.(heic|heif)$/i.test(file.name || '')) { _coiNotice('iPhone HEIC photos are not supported. In Photos tap Share and choose JPEG, or upload a screenshot instead.', 'err'); reset(); return; }
+    if (!okExt && !okMime) { _coiNotice('That file type is not accepted. Please use a PDF, JPG, PNG, or WEBP.', 'err'); reset(); return; }
+    if (file.size > 10 * 1024 * 1024) { _coiNotice('That file is over the 10MB limit. Try a PDF export or a smaller photo.', 'err'); reset(); return; }
+    if (file.size < 3 * 1024) { _coiNotice('That file is too small to be a certificate. Please upload the actual document.', 'err'); reset(); return; }
     // Show uploading state
     const widget = document.getElementById('coiWidget');
     widget.innerHTML = `<div class="coi-block"><div class="coi-uploading"><div class="spinner-sm"></div><div>Uploading <strong>${escapeHtml(file.name)}</strong>…</div></div></div>`;
@@ -1313,7 +1320,50 @@ function renderProfile() {
       }
     };
     reader.readAsDataURL(file);
-  });
+  }
+
+  document.getElementById('coiFile').addEventListener('change', (e) => handleCoiFile(e.target.files[0]));
+
+  // ---- Drag and drop ----
+  // The empty widget is styled as a dashed dropzone, so people expect to drop on it.
+  // Listeners live on the container (not the inner box) because renderCoiWidget()
+  // replaces the inner HTML on every state change, which would discard them.
+  const _coiDrop = document.getElementById('coiWidget');
+  if (_coiDrop) {
+    let _dragDepth = 0;
+    const setDrag = (on) => {
+      const box = _coiDrop.querySelector('.coi-empty, .coi-block');
+      if (box) box.classList.toggle('coi-dragover', !!on);
+    };
+    const stop = (e) => { e.preventDefault(); e.stopPropagation(); };
+
+    _coiDrop.addEventListener('dragenter', (e) => { stop(e); _dragDepth++; setDrag(true); });
+    _coiDrop.addEventListener('dragover',  (e) => { stop(e); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; setDrag(true); });
+    _coiDrop.addEventListener('dragleave', (e) => { stop(e); _dragDepth = Math.max(0, _dragDepth - 1); if (!_dragDepth) setDrag(false); });
+    _coiDrop.addEventListener('drop', (e) => {
+      stop(e);
+      _dragDepth = 0; setDrag(false);
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      let file = null;
+      if (dt.files && dt.files.length) file = dt.files[0];
+      else if (dt.items && dt.items.length) {
+        for (const it of dt.items) { if (it.kind === 'file') { file = it.getAsFile(); break; } }
+      }
+      if (!file) { _coiNotice('That did not come through as a file. Try dragging the document from a folder, or click to browse.', 'err'); return; }
+      if (dt.files && dt.files.length > 1) _coiNotice('Only one certificate at a time — using the first file.', 'err');
+      handleCoiFile(file);
+    });
+
+    // Dropping a file anywhere else would make the browser navigate away from the
+    // dashboard and silently lose whatever they were doing. Swallow it.
+    ['dragover', 'drop'].forEach((evt) => {
+      window.addEventListener(evt, (e) => {
+        if (_coiDrop.contains(e.target)) return;
+        if (e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')) e.preventDefault();
+      });
+    });
+  }
 }
 
 // ===== Brand portal write actions (save profile, remove COI/avatar, sign out, team) =====
