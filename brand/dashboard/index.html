@@ -351,6 +351,44 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
         /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
         label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
         button, .btn { cursor: pointer; }
+
+/* ============ Delight & micro-interaction polish ============ */
+@keyframes dhBadgePop { 0%{transform:scale(.4);opacity:0} 55%{transform:scale(1.18)} 100%{transform:scale(1);opacity:1} }
+@keyframes dhCheckDraw { to { stroke-dashoffset:0 } }
+@keyframes dhStripIn { from{opacity:0;transform:translateY(-6px)} to{opacity:1;transform:translateY(0)} }
+@keyframes dhConfetti { to { transform:translate3d(var(--dx,0),110vh,0) rotate(var(--dr,360deg)); } }
+@keyframes dhGlow { 0%,100%{box-shadow:0 0 0 0 rgba(42,91,50,0)} 50%{box-shadow:0 0 0 5px rgba(42,91,50,.10)} }
+
+/* verified badge: pops in when earned, then a slow, quiet glow so it reads as a prize */
+.vbadge{ border-radius:50%; animation:dhBadgePop .55s cubic-bezier(.2,.9,.3,1.35) both, dhGlow 4.5s ease-in-out 1s infinite; }
+.verified-panel .vbadge path{ stroke-dasharray:26; stroke-dashoffset:26; animation:dhCheckDraw .5s .2s ease forwards; }
+#navVerifyMark{ border-radius:50%; transition:transform .2s ease; }
+#navVerifyMark:hover{ transform:scale(1.15); }
+
+/* COI status strip slides in */
+.coi-status-strip{ animation:dhStripIn .35s ease both; }
+
+/* buttons: tactile press + subtle hover lift */
+.btn{ transition:transform .12s ease, box-shadow .18s ease, background .15s ease, opacity .15s ease, filter .15s ease; }
+.btn:not(:disabled):hover{ transform:translateY(-1px); filter:brightness(1.03); }
+.btn:not(:disabled):active{ transform:translateY(0) scale(.97); }
+
+/* cards: gentle hover elevation (shadow only — no layout shift) */
+.card{ transition:box-shadow .28s ease; }
+.card:hover{ box-shadow:0 8px 30px rgba(15,44,23,.08); }
+
+/* the setup checklist checkmark circles pop as they complete */
+[data-check] svg polyline{ }
+
+/* confetti */
+.dh-confetti-wrap{ position:fixed; inset:0; pointer-events:none; z-index:9999; overflow:hidden; }
+.dh-confetti{ position:absolute; top:-14px; width:9px; height:14px; border-radius:2px; will-change:transform,opacity; animation:dhConfetti var(--dur,2.4s) cubic-bezier(.15,.5,.4,1) forwards; }
+
+@media (prefers-reduced-motion: reduce){
+  .vbadge,#navVerifyMark,.coi-status-strip{ animation:none !important; }
+  .btn:hover,.btn:active,.card:hover{ transform:none !important; }
+  .dh-confetti-wrap{ display:none !important; }
+}
 </style>
 <!-- PostHog -->
 <script>
@@ -712,10 +750,37 @@ function markChecklistDone(key) {
 
 // The banner used to just vanish the moment the last item landed, which reads as
 // "something broke" rather than "you finished". Confirm, then fade.
+// A short, tasteful confetti burst in the brand palette. Reduced-motion users get nothing.
+function dhConfettiBurst(count) {
+  try {
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const colors = ['#3a7142', '#ed682f', '#87b08e', '#f6c453', '#0f2c17'];
+    const wrap = document.createElement('div');
+    wrap.className = 'dh-confetti-wrap';
+    const N = count || (window.innerWidth < 640 ? 42 : 70);
+    for (let i = 0; i < N; i++) {
+      const p = document.createElement('i');
+      p.className = 'dh-confetti';
+      p.style.left = (Math.random() * 100) + '%';
+      p.style.background = colors[i % colors.length];
+      p.style.setProperty('--dx', (Math.random() * 220 - 110) + 'px');
+      p.style.setProperty('--dr', (Math.random() * 720 - 360) + 'deg');
+      p.style.setProperty('--dur', (1.8 + Math.random() * 1.6) + 's');
+      p.style.opacity = String(0.7 + Math.random() * 0.3);
+      p.style.animationDelay = (Math.random() * 0.25) + 's';
+      if (i % 3 === 0) p.style.borderRadius = '50%';   // mix confetti circles + rectangles
+      wrap.appendChild(p);
+    }
+    document.body.appendChild(wrap);
+    setTimeout(function () { wrap.remove(); }, 3800);
+  } catch (_) {}
+}
+
 function celebrateChecklistComplete() {
   const banner = document.getElementById('welcomeBanner');
   if (!banner || banner.dataset.celebrated === '1') return;
   banner.dataset.celebrated = '1';
+  dhConfettiBurst();
   const st = getBrandStatus(_data && _data.profile);
   banner.innerHTML = '<div style="display:flex;gap:14px;align-items:flex-start;padding:4px 0;">'
     + '<svg width="30" height="30" viewBox="0 0 24 24" style="flex-shrink:0;"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
@@ -787,7 +852,7 @@ function coiStatusStripHtml(st) {
   };
   const [bg, fg, title, body] = map[st.coi] || map.none;
   const tick = (st.coi === 'current' || st.coi === 'expiring');
-  return '<div style="display:flex;gap:13px;align-items:flex-start;padding:15px 18px;border-radius:11px;background:' + bg + ';border:1px solid ' + fg + '33;margin-bottom:20px;">'
+  return '<div class="coi-status-strip" style="display:flex;gap:13px;align-items:flex-start;padding:15px 18px;border-radius:11px;background:' + bg + ';border:1px solid ' + fg + '33;margin-bottom:20px;">'
     + '<svg width="22" height="22" viewBox="0 0 24 24" style="flex-shrink:0;margin-top:1px;">'
     + (tick
         ? '<circle cx="12" cy="12" r="11" fill="' + fg + '"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
