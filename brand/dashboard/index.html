@@ -718,7 +718,6 @@ function celebrateChecklistComplete() {
     + '<div><div style="font-weight:700;font-size:1.05rem;color:var(--forest-900);margin-bottom:3px;">You are all set.</div>'
     + '<div style="font-size:0.89rem;color:var(--ink-700);line-height:1.55;">Your brand is verified and retailers can accept your bookings.'
     + (st.expiryLabel ? ' Your COI is current through <strong>' + st.expiryLabel + '</strong>.' : '')
-    + (!st.hasLogo ? ' Optional: <a href="#profile" style="color:var(--forest-700);font-weight:600;">add a logo</a> so retailers recognise you at a glance.' : '')
     + '</div></div></div>';
   banner.style.transition = 'opacity .5s ease';
   setTimeout(function () { banner.style.opacity = '0'; setTimeout(function () { banner.style.display = 'none'; }, 550); }, 7000);
@@ -749,11 +748,19 @@ function getBrandStatus(profile) {
   if (!profile.company_name) missing.push('Add your brand / company name');
   if (!profile.contact_name) missing.push('Add a dedicated point of contact');
   if (!profile.email) missing.push('Add a contact email');
+  if (!profile.phone) missing.push('Add a contact phone number');
   if (!(profile.website && profile.website.trim().length > 4)) missing.push('Add your business website (verifies your identity)');
+  if (!profile.logo_url) missing.push('Add your brand logo');
+
+  // Sub-groupings so the setup checklist reads off the same rule rather than
+  // re-deriving it (which is how the counter and the badge drifted apart before).
+  const profileDone = !!(profile.company_name && profile.contact_name && profile.email
+    && profile.phone && profile.website && profile.website.trim().length > 4);
 
   return {
     verified: missing.length === 0,
     coi, daysLeft: days, expiryDate: exp, missing,
+    coiOk, profileDone,
     hasLogo: !!profile.logo_url,
     expiryLabel: exp ? exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null,
   };
@@ -843,13 +850,14 @@ function renderOverview() {
 
   // Setup checklist — checks off as the brand completes each item (COI is required to book).
   const welcomeDismissedKey = 'demohub_brand_welcome_dismissed_' + (profile.id || 'none');
-  const _coiDone = !!profile.default_coi_url && (!profile.default_coi_expires || new Date(profile.default_coi_expires + 'T00:00:00') > new Date());
-  const _profileDone = !!(profile.company_name && profile.contact_name && profile.email && profile.website && profile.phone);
-  const _logoDone = !!profile.logo_url;
+  const _st = getBrandStatus(profile);
+  const _coiDone = _st.coiOk;
+  const _profileDone = _st.profileDone;
+  const _logoDone = _st.hasLogo;
   const _checkItems = [
     { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Required to book demos \u2014 retailers won't accept bookings without a current COI.", href: '#compliance', cta: 'Upload COI' },
     { key: 'profile', core: true, done: _profileDone, req: false, title: 'Complete your brand profile', sub: 'Company, contact, website, and phone so retailer booking forms pre-fill for you.', href: '#profile', cta: 'Edit profile' },
-    { key: 'logo', core: false, done: _logoDone, req: false, opt: true, title: 'Add your logo', sub: 'So retailers recognize your brand at a glance on every booking page.', href: '#profile', cta: 'Add logo' },
+    { key: 'logo', core: true, done: _logoDone, req: false, title: 'Add your brand logo', sub: 'Retailers see it on every booking page. Brands without one look unfinished.', href: '#profile', cta: 'Add logo' },
   ];
   // Only core items count toward the total, because only core items gate the banner.
   const _coreItems = _checkItems.filter(i => i.core);
@@ -1008,13 +1016,13 @@ function renderOverview() {
   if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong> &mdash; worth renewing now` : ''}.` : ''}</p>${!hasLogo ? '<p class="vnote">Optional: <a href="#profile">add a brand logo</a> so retailers recognise you at a glance.</p>' : ''}</div>
+      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong> &mdash; worth renewing now` : ''}.` : ''}</p></div>
     </div>`;
   } else {
     const missing = _bs.missing;
     verifiedPanelHtml = `<div class="verified-panel pending">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge muted"><circle cx="12" cy="12" r="11" fill="#d3d1c7"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);">Optional: <a href="#profile" style="color:var(--forest-700);font-weight:600;">add a brand logo</a> so retailers recognise you at a glance.</p>' : ''}</div>
+      <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul></div>
     </div>`;
   }
 
