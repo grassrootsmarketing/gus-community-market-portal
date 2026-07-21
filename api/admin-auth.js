@@ -221,6 +221,8 @@ export default async function handler(req, res) {
       const { email, retailer_slug } = body || {};
       if (!email || !retailer_slug) return res.status(400).json({ error: 'email and retailer_slug required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
+      const rlLoginEmail = await checkRateLimitByKey('admin-login-email:' + String(email).toLowerCase().slice(0, 64), 20);
+      if (!rlLoginEmail.allowed) return res.status(429).json({ error: 'Too many magic-link requests for this email. Try again later.' });
 
       const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`);
       const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -269,6 +271,8 @@ export default async function handler(req, res) {
       const { email } = body || {};
       if (!email) return res.status(400).json({ error: 'email required' });
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Invalid email' });
+      const rlEmailLoginHard = await checkRateLimitByKey('admin-email-login-email:' + String(email).toLowerCase().slice(0, 64), 20);
+      if (!rlEmailLoginHard.allowed) return res.status(429).json({ error: 'Too many magic-link requests for this email. Try again later.' });
 
       const normalizedEmail = email.toLowerCase().trim();
 
