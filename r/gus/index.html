@@ -507,6 +507,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
                 <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
+                <div class="form-group" id="bookCoiGroup" style="display:none;">
+                    <div style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
+                        <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
+                        <div id="bookCoiMsg" style="font-size:0.88rem; line-height:1.5; color:#a14e2a; margin-bottom:10px;">Stores need proof of insurance before you can demo. Upload yours here and you can book straight away.</div>
+                        <input type="file" id="bookCoiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
+                        <button type="button" class="btn" id="bookCoiBtn" style="font-size:0.88rem; padding:9px 16px;">Upload certificate</button>
+                        <div style="font-size:0.76rem; color:#a14e2a; opacity:0.85; margin-top:7px;">PDF, JPG, PNG or WEBP, up to 10MB.</div>
+                    </div>
+                </div>
                 <div class="form-group" id="bookSkuGroup" style="display:none;">
                     <label class="form-label">Which items are you sampling?</label>
                     <div id="bookSkuList" style="border:1px solid rgba(15,44,23,0.14); border-radius:10px; padding:6px 4px; max-height:190px; overflow-y:auto;"></div>
@@ -657,6 +666,89 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // Phase B: full-page success card shown when a brand returns from Stripe Checkout with paid=1.
         // The brand already has an account (created + signed in at the booking step), so this
         // screen just confirms the booking and points them to their dashboard. No password capture here.
+        // Top-level so every handler can use it. A block-scoped copy inside the prefill
+        // function is not visible to the booking error handler, which is how this broke once.
+        // Does the signed-in brand hold a certificate valid on every date in the cart?
+        // Mirrors coiCoverageState() server-side; the server gate is authoritative.
+        function _brandCoiOk() {
+            const bp = window._brandProfile;
+            if (!bp || !bp.default_coi_url) return false;
+            if (!bp.default_coi_expires) return false;   // no readable expiry is not proof
+            const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
+            const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
+            return String(bp.default_coi_expires).slice(0, 10) >= latest;
+        }
+
+        // Shows/hides the inline uploader. Returns true when booking may proceed.
+        function _updateBookCoiGate() {
+            const grp = document.getElementById('bookCoiGroup');
+            if (!grp) return true;
+            const signedIn = !!window._brandProfile;
+            const ok = signedIn ? _brandCoiOk() : true;   // not signed in yet: signup happens first
+            grp.style.display = (signedIn && !ok) ? 'block' : 'none';
+            if (signedIn && !ok) {
+                const bp = window._brandProfile;
+                const msg = document.getElementById('bookCoiMsg');
+                if (msg && bp.default_coi_url && !bp.default_coi_expires) {
+                    msg.textContent = 'We could not read an expiry date from the certificate on your profile. Upload a clearer copy and you can book straight away.';
+                } else if (msg && bp.default_coi_url) {
+                    msg.textContent = 'The certificate on your profile has expired. Upload a current one and you can book straight away.';
+                }
+            }
+            return !(signedIn && !ok);
+        }
+
+        // Delegated so it survives the modal being re-rendered.
+        document.addEventListener('click', function (e) {
+            if (e.target && e.target.id === 'bookCoiBtn') {
+                const f = document.getElementById('bookCoiFile');
+                if (f) f.click();
+            }
+        });
+        document.addEventListener('change', async function (e) {
+            if (!e.target || e.target.id !== 'bookCoiFile') return;
+            const file = e.target.files && e.target.files[0];
+            if (!file) return;
+            const btn = document.getElementById('bookCoiBtn');
+            const msg = document.getElementById('bookCoiMsg');
+            const orig = btn ? btn.textContent : 'Upload certificate';
+            if (btn) { btn.disabled = true; btn.textContent = 'Uploading\u2026'; }
+            try {
+                const dataUrl = await new Promise(function (res, rej) {
+                    const r = new FileReader();
+                    r.onload = function () { res(r.result); };
+                    r.onerror = rej;
+                    r.readAsDataURL(file);
+                });
+                const resp = await fetch('/api/brand-account?action=upload-coi', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ file: dataUrl, filename: file.name }),
+                });
+                const j = await resp.json().catch(function () { return {}; });
+                if (!resp.ok) throw new Error(j.message || j.error || 'Upload failed.');
+                if (window._brandProfile) {
+                    window._brandProfile.default_coi_url = j.coi_url;
+                    if (j.expires) window._brandProfile.default_coi_expires = j.expires;
+                }
+                if (_updateBookCoiGate()) {
+                    if (msg) msg.textContent = 'Certificate accepted. You can book now.';
+                } else if (msg) {
+                    msg.textContent = 'Uploaded, but we still could not confirm a current expiry date. Check the date on your profile.';
+                }
+            } catch (err) {
+                if (msg) msg.textContent = (err && err.message) || 'Upload failed. Please try again.';
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
+                e.target.value = '';
+            }
+        });
+
+        function _esc(x) {
+          return String(x == null ? '' : x).replace(/[&<>"']/g, function (c) {
+            return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+          });
+        }
+
         function showPaidBanner(bookingIds) {
             const count = Array.isArray(bookingIds) && bookingIds.length ? bookingIds.length : 0;
             const email = (window._brandProfile && window._brandProfile.email) || '';
@@ -1304,10 +1396,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     const grp = document.getElementById('bookCategoryGroup');
                     if (grp && matched) grp.style.display = 'none';
                 }
-                        // Local HTML escaper. Was referenced without ever being defined, which threw
-                // a ReferenceError for any brand that had saved products.
-                const _esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-        // Their saved items, as checkboxes. Hidden entirely if they have none,
+                // Their saved items, as checkboxes. Hidden entirely if they have none,
                 // so a brand who never filled this in sees no empty box.
                 (function () {
                     const grp = document.getElementById('bookSkuGroup');
@@ -1325,6 +1414,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     }).join('');
                     grp.style.display = 'block';
                     window._bookSkuSource = items;
+                })();
+                _updateBookCoiGate();
+                (function () {
                 })(); { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
@@ -1415,6 +1507,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             errMsg.textContent = '';
             if (!brandName || !contactEmail) { errMsg.textContent = 'Brand name and email are required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
+
+            // COI gate. Convenience only - api/booking enforces this server-side, so a
+            // console-edited page still cannot book uninsured.
+            if (window._brandProfile && !_updateBookCoiGate()) {
+                errMsg.textContent = 'Upload your Certificate of Insurance above to book.';
+                errMsg.style.display = 'block';
+                const g = document.getElementById('bookCoiGroup');
+                if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                return;
+            }
 
             // HARD GATE: if not signed in, they must create an account (password) before booking.
             if (!window._brandProfile) {
@@ -1513,12 +1615,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 return { resp, json };
             }).catch(e => ({ error: e.message || String(e) })));
             const results = await Promise.all(bookingPromises);
+            let coiBlocked = false;
             for (const r of results) {
                 if (r.error) { okAll = false; errors.push(r.error); continue; }
                 const { resp, json } = r;
                 if (!resp.ok || !json.success) {
                     okAll = false;
-                    errors.push(json.error || ('HTTP ' + resp.status));
+                    errors.push(json.message || json.error || ('HTTP ' + resp.status));
+                    if (json.error === 'coi_required') coiBlocked = true;
                 } else {
                     if (json.booking_id) successBookingIds.push(json.booking_id);
                     if (!json.email_sent && !emailWarned) {
@@ -1530,7 +1634,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             btn.disabled = false;
             btn.textContent = origLabel;
             if (!okAll) {
-                errMsg.textContent = 'Some bookings failed: ' + errors.join('; ');
+                const uniq = [...new Set(errors)];
+                if (coiBlocked) {
+                    errMsg.innerHTML = _esc(uniq[0])
+                        + ' <a href="/brand/dashboard#compliance" target="_blank" style="color:inherit; font-weight:700; text-decoration:underline;">Upload it here</a>, then book again.';
+                } else {
+                    errMsg.textContent = uniq.length === 1 ? uniq[0] : ('Some bookings failed: ' + uniq.join('; '));
+                }
                 errMsg.style.display = 'block';
                 window._pendingSignedName = null;
                 return;
