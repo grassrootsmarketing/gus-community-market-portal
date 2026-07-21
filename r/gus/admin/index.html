@@ -535,6 +535,20 @@
             .settings-card { padding: 16px 16px !important; }
         }
 
+
+/* ============ Delight & micro-interaction polish (admin parity) ============ */
+@keyframes dhBadgePop { 0%{transform:scale(.4);opacity:0} 55%{transform:scale(1.15)} 100%{transform:scale(1);opacity:1} }
+.btn, .btn-primary, .btn-secondary { transition:transform .12s ease, box-shadow .18s ease, filter .15s ease, background .15s ease !important; }
+.btn:not(:disabled):hover, .btn-primary:not(:disabled):hover, .btn-secondary:not(:disabled):hover { transform:translateY(-1px); filter:brightness(1.04); }
+.btn:not(:disabled):active, .btn-primary:not(:disabled):active, .btn-secondary:not(:disabled):active { transform:translateY(0) scale(.97); }
+.settings-card, .card { transition:box-shadow .28s ease; }
+.settings-card:hover, .card:hover { box-shadow:0 8px 30px rgba(15,44,23,.07); }
+/* the Verified brand chip pops in when a brand's row renders */
+[style*="Verified brand"] { animation:dhBadgePop .4s cubic-bezier(.2,.9,.3,1.3) both; }
+@media (prefers-reduced-motion: reduce){
+  .btn:hover,.btn:active,.settings-card:hover,.card:hover{ transform:none !important; }
+  [style*="Verified brand"] { animation:none !important; }
+}
 </style>
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
