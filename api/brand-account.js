@@ -771,13 +771,39 @@ export default async function handler(req, res) {
           }
         }
       }
-      const r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      // Retry without the optional columns if the full payload is rejected. A single
+      // missing/renamed column used to fail the entire save with a generic message,
+      // which is the same shape of bug that made COI uploads silently no-op.
+      const CORE_COLS = ['company_name', 'contact_name', 'phone', 'website', 'default_coi_expires', 'updated_at'];
+      let r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      let degraded = null;
       if (!r.ok) {
-        const det = await r.text().catch(() => '');
-        console.error('profile-update failed for brand', brandId, det);
-        return jsonResp(res, 500, { error: 'profile_save_failed', message: 'We could not save those changes. Try again in a moment.' });
+        const firstErr = await r.text().catch(() => '');
+        console.error('profile-update full payload failed for brand', brandId, firstErr);
+        const corePatch = {};
+        for (const k of CORE_COLS) if (patch[k] !== undefined) corePatch[k] = patch[k];
+        r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(corePatch) });
+        if (r.ok) {
+          degraded = firstErr;
+          console.warn('profile-update saved core fields only for brand', brandId, firstErr);
+        } else {
+          const coreErr = await r.text().catch(() => '');
+          console.error('profile-update core payload also failed for brand', brandId, coreErr);
+          // Pre-launch: surface the real reason. Guessing at this from a generic
+          // "try again" message costs a round trip every time.
+          let hint = '';
+          try {
+            const j = JSON.parse(coreErr || firstErr || '{}');
+            if (j.message) hint = ' (' + String(j.message).slice(0, 160) + ')';
+          } catch (_) { if (coreErr) hint = ' (' + String(coreErr).slice(0, 160) + ')'; }
+          return jsonResp(res, 500, {
+            error: 'profile_save_failed',
+            message: 'We could not save those changes.' + hint,
+            detail: (coreErr || firstErr || '').slice(0, 400),
+          });
+        }
       }
-      return jsonResp(res, 200, { ok: true });
+      return jsonResp(res, 200, degraded ? { ok: true, degraded: true, detail: String(degraded).slice(0, 400) } : { ok: true });
     }
 
     if (action === 'upload-avatar' || action === 'upload-logo') {
