@@ -29,11 +29,11 @@ async function sb(path, opts = {}) {
 }
 
 function clientIpForRateLimit(req) {
-  return req.headers['cf-connecting-ip']
-    || req.headers['x-real-ip']
-    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
-    || req.socket?.remoteAddress
-    || 'unknown';
+  // cf-connecting-ip is attacker-supplied (not behind Cloudflare); x-real-ip is Vercel-set,
+  // and the LAST x-forwarded-for hop is Vercel's. Trusting the client-controlled header let
+  // every rate limit be bypassed by forging a fresh IP per request.
+  const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
+  return req.headers['x-real-ip'] || _xff[_xff.length - 1] || req.socket?.remoteAddress || 'unknown';
 }
 
 // Fail-closed rate limit — prevents abuse of the Stripe API path via bulk POSTs.
