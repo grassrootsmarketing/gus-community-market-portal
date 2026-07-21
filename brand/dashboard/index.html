@@ -389,6 +389,11 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
   .btn:hover,.btn:active,.card:hover{ transform:none !important; }
   .dh-confetti-wrap{ display:none !important; }
 }
+
+.dh-empty{ text-align:center; padding:34px 20px; animation:dhStripIn .4s ease both; }
+.dh-empty-icon{ width:56px; height:56px; margin:0 auto 14px; background:var(--cream-100); border-radius:50%; display:flex; align-items:center; justify-content:center; }
+.dh-empty-title{ font-weight:700; font-size:1rem; color:var(--forest-900); margin-bottom:5px; }
+.dh-empty-sub{ font-size:0.88rem; color:var(--ink-500); line-height:1.55; max-width:340px; margin:0 auto; }
 </style>
 <!-- PostHog -->
 <script>
@@ -1067,7 +1072,11 @@ function renderOverview() {
     <div class="card">
       <h2>Recent demos</h2>
       <div class="sub">Confirmed and pending across all retailers you've booked with.</div>
-      ${demos.length === 0 ? `<div class="empty">No demos yet. When you book at a Demohub retailer, your demos show up here.</div>` : demos.slice(0, 10).map(d => {
+      ${demos.length === 0 ? `<div class="dh-empty">
+        <div class="dh-empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <div class="dh-empty-title">Your demos will show up here</div>
+        <div class="dh-empty-sub">Book at any Demohub retailer using their link and it lands on your calendar automatically.</div>
+      </div>` : demos.slice(0, 10).map(d => {
         const f = fmtDate(d.demo_date) || {};
         return `<div class="demos-row">
           <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
