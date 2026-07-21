@@ -10,6 +10,7 @@
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;  // server-side reads must bypass RLS
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function toICSDate(d) {
@@ -65,7 +66,7 @@ export default async function handler(req, res) {
   try {
     // Look up retailer
     const rR = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
     });
     const retailers = await rR.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -74,10 +75,10 @@ export default async function handler(req, res) {
     // Get all confirmed/completed demos for this retailer + their venue names
     const [dR, vR] = await Promise.all([
       fetch(`${SUPABASE_URL}/rest/v1/demos?retailer_id=eq.${encodeURIComponent(retailer.id)}&status=in.(confirmed,completed)&select=*&order=demo_date`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       }),
       fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=id,name,address`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       }),
     ]);
     let demos = await dR.json();
