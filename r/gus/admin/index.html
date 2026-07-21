@@ -536,8 +536,7 @@
         }
 
 </style>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
@@ -5319,16 +5318,33 @@ END:VEVENT
 
         // ===== Demos per month chart =====
         let demosChart = null;
+        // Load Chart.js (~70KB) on demand instead of blocking first paint. Resolves once,
+        // caches the promise, and is a no-op if already present.
+        let _chartJsPromise = null;
+        function ensureChartJs() {
+            if (window.Chart) return Promise.resolve();
+            if (_chartJsPromise) return _chartJsPromise;
+            _chartJsPromise = new Promise((resolve, reject) => {
+                const el = document.createElement('script');
+                el.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
+                el.async = true;
+                el.onload = () => resolve();
+                el.onerror = () => { _chartJsPromise = null; reject(new Error('chartjs load failed')); };
+                document.head.appendChild(el);
+            });
+            return _chartJsPromise;
+        }
+
         function renderMonthlyChart() {
             const canvas = document.getElementById('demosMonthlyChart');
             if (!canvas) return;
-            // If Chart.js failed to load (CDN blocked, slow network, etc.), show a placeholder
-            // instead of leaving the canvas area blank — David's PDF caught this empty state.
+            // Chart.js is loaded lazily. If it's not here yet, kick off the load and
+            // re-render when it arrives — the rest of the page is already interactive.
             if (!window.Chart) {
-                const wrap = canvas.closest('.chart-wrap');
-                if (wrap) {
-                    wrap.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:180px; padding:24px; text-align:center; color: var(--ink-500); font-size:0.85rem; line-height:1.5; font-style:italic;">Chart loading… if this persists, refresh the page or check your network connection.</div>';
-                }
+                ensureChartJs().then(renderMonthlyChart).catch(() => {
+                    const wrap = canvas.closest('.chart-wrap');
+                    if (wrap) wrap.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:180px; padding:24px; text-align:center; color: var(--ink-500); font-size:0.85rem; line-height:1.5; font-style:italic;">Chart unavailable — check your network connection.</div>';
+                });
                 return;
             }
             const now = new Date();
