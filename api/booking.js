@@ -527,8 +527,12 @@ export default async function handler(req, res) {
     // A brand cannot pay for a demo it is not insured to perform. Runs BEFORE the
     // booking row is created, so nothing reaches Stripe without a current certificate.
     // Retailer admins are exempt: they use this same endpoint to enter phone bookings.
+    // No exceptions. The admin used to be exempt on the assumption a retailer might hold
+    // a certificate outside the system; everything is digital, so the exemption only ever
+    // fired when a brand had NO COI - exactly the case this gate exists to stop.
+    // _isAdminBooking is still computed so the message can tell the right person what to do.
     const _isAdminBooking = await isRetailerAdminRequest(req);
-    if (!_isAdminBooking) {
+    {
       let coiState = 'missing';
       try {
         if (brandId && SERVICE_KEY) {
@@ -551,9 +555,13 @@ export default async function handler(req, res) {
         return res.status(400).json({
           error: 'coi_required',
           coi_state: coiState,
-          message: coiState === 'unknown'
-            ? 'We could not read an expiry date from your certificate. Add the expiry on your profile, then book.'
-            : 'A current Certificate of Insurance is required before you can book a demo. Upload yours and you can book straight away.',
+          message: _isAdminBooking
+            ? (coiState === 'unknown'
+                ? 'That brand has a certificate on file but no readable expiry date, so this booking cannot be created. Ask them to re-upload a clearer copy.'
+                : 'That brand has no current Certificate of Insurance on file. Send them your booking link so they can upload one and book.')
+            : (coiState === 'unknown'
+                ? 'We could not read an expiry date from your certificate. Add the expiry on your profile, then book.'
+                : 'A current Certificate of Insurance is required before you can book a demo. Upload yours and you can book straight away.'),
         });
       }
     }
