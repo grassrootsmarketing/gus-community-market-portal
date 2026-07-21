@@ -740,7 +740,7 @@ export default async function handler(req, res) {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity'];
+      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) {
@@ -748,6 +748,8 @@ export default async function handler(req, res) {
             patch[k] = body[k] && typeof body[k] === 'object' ? body[k] : null;
           } else if (k === 'needs_electricity') {
             patch[k] = !!body[k];
+          } else if (k === 'products') {
+            patch[k] = Array.isArray(body[k]) ? sanitizeProducts(body[k]) : [];
           } else {
             patch[k] = body[k] === '' ? null : body[k];
           }
@@ -785,6 +787,7 @@ export default async function handler(req, res) {
         r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(corePatch) });
         if (r.ok) {
           degraded = firstErr;
+          console.warn('profile-update dropped optional columns for brand', brandId, firstErr);
           console.warn('profile-update saved core fields only for brand', brandId, firstErr);
         } else {
           const coreErr = await r.text().catch(() => '');
@@ -803,7 +806,12 @@ export default async function handler(req, res) {
           });
         }
       }
-      return jsonResp(res, 200, degraded ? { ok: true, degraded: true, detail: String(degraded).slice(0, 400) } : { ok: true });
+      if (degraded) {
+        // Name the fields that did not persist so the UI can stop claiming success.
+        const dropped = Object.keys(patch).filter(k => !CORE_COLS.includes(k));
+        return jsonResp(res, 200, { ok: true, degraded: true, dropped, detail: String(degraded).slice(0, 400) });
+      }
+      return jsonResp(res, 200, { ok: true });
     }
 
     if (action === 'upload-avatar' || action === 'upload-logo') {
@@ -859,6 +867,24 @@ export default async function handler(req, res) {
       if (mime === 'image/png') return b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47;
       if (mime === 'image/webp') return b.slice(0, 4).toString('ascii') === 'RIFF' && b.slice(8, 12).toString('ascii') === 'WEBP';
       return false;
+    }
+
+    // Normalise the SKU list. Caps size and length so a brand cannot paste a novel
+    // into the field or push a huge payload into every booking snapshot.
+    function sanitizeProducts(arr) {
+      const clean = [];
+      for (const raw of (Array.isArray(arr) ? arr : []).slice(0, 60)) {
+        if (!raw || typeof raw !== 'object') continue;
+        const name = String(raw.name || '').trim().slice(0, 120);
+        if (!name) continue;                       // an item with no name is not an item
+        clean.push({
+          id: String(raw.id || '').slice(0, 40) || ('p' + Math.random().toString(36).slice(2, 10)),
+          name,
+          size: String(raw.size || '').trim().slice(0, 40),
+          sku: String(raw.sku || '').trim().slice(0, 60),
+        });
+      }
+      return clean;
     }
 
     // Shared expiry validation so upload and profile-save give identical, specific messages.
