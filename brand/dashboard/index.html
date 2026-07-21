@@ -697,11 +697,28 @@ function markChecklistDone(key) {
   if (title) { title.style.color = 'var(--ink-500)'; title.style.textDecoration = 'line-through'; }
   row.querySelectorAll('span, a').forEach(el => el.remove());  // drop "Required to book" + CTA
   const counter = document.getElementById('checklistCounter');
-  if (counter) {
-    const total = document.querySelectorAll('[data-check]').length || 3;
-    const done = document.querySelectorAll('[data-check] svg polyline').length;
-    counter.textContent = done + ' of ' + total + ' done. Complete these so retailers accept your demos.';
-  }
+  const coreRows = document.querySelectorAll('[data-core="1"]');
+  const coreDone = document.querySelectorAll('[data-core="1"] svg polyline').length;
+  if (counter) counter.textContent = coreDone + ' of ' + coreRows.length + ' done. Finish these so retailers accept your demos.';
+  if (coreRows.length && coreDone === coreRows.length) celebrateChecklistComplete();
+}
+
+// The banner used to just vanish the moment the last item landed, which reads as
+// "something broke" rather than "you finished". Confirm, then fade.
+function celebrateChecklistComplete() {
+  const banner = document.getElementById('welcomeBanner');
+  if (!banner || banner.dataset.celebrated === '1') return;
+  banner.dataset.celebrated = '1';
+  const st = getBrandStatus(_data && _data.profile);
+  banner.innerHTML = '<div style="display:flex;gap:14px;align-items:flex-start;padding:4px 0;">'
+    + '<svg width="30" height="30" viewBox="0 0 24 24" style="flex-shrink:0;"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>'
+    + '<div><div style="font-weight:700;font-size:1.05rem;color:var(--forest-900);margin-bottom:3px;">You are all set.</div>'
+    + '<div style="font-size:0.89rem;color:var(--ink-700);line-height:1.55;">Your brand is verified and retailers can accept your bookings.'
+    + (st.expiryLabel ? ' Your COI is current through <strong>' + st.expiryLabel + '</strong>.' : '')
+    + (!st.hasLogo ? ' Optional: <a href="#profile" style="color:var(--forest-700);font-weight:600;">add a logo</a> so retailers recognise you at a glance.' : '')
+    + '</div></div></div>';
+  banner.style.transition = 'opacity .5s ease';
+  setTimeout(function () { banner.style.opacity = '0'; setTimeout(function () { banner.style.display = 'none'; }, 550); }, 7000);
 }
 
 // One definition of "verified", used by the nav checkmark, the Overview panel, and the
@@ -827,12 +844,14 @@ function renderOverview() {
   const _profileDone = !!(profile.company_name && profile.contact_name && profile.email && profile.website && profile.phone);
   const _logoDone = !!profile.logo_url;
   const _checkItems = [
-    { key: 'coi', done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Required to book demos \u2014 retailers won't accept bookings without a current COI.", href: '#compliance', cta: 'Upload COI' },
-    { done: _profileDone, req: false, title: 'Complete your brand profile', sub: 'Company, contact, website, and phone so retailer booking forms pre-fill for you.', href: '#profile', cta: 'Edit profile' },
-    { done: _logoDone, req: false, title: 'Add your logo', sub: 'So retailers recognize your brand at a glance on every booking page.', href: '#profile', cta: 'Add logo' },
+    { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Required to book demos \u2014 retailers won't accept bookings without a current COI.", href: '#compliance', cta: 'Upload COI' },
+    { key: 'profile', core: true, done: _profileDone, req: false, title: 'Complete your brand profile', sub: 'Company, contact, website, and phone so retailer booking forms pre-fill for you.', href: '#profile', cta: 'Edit profile' },
+    { key: 'logo', core: false, done: _logoDone, req: false, opt: true, title: 'Add your logo', sub: 'So retailers recognize your brand at a glance on every booking page.', href: '#profile', cta: 'Add logo' },
   ];
-  const _doneCount = _checkItems.filter(i => i.done).length;
-  const _allCoreDone = _coiDone && _profileDone;
+  // Only core items count toward the total, because only core items gate the banner.
+  const _coreItems = _checkItems.filter(i => i.core);
+  const _doneCount = _coreItems.filter(i => i.done).length;
+  const _allCoreDone = _doneCount === _coreItems.length;
   // Show until the required + core items are done (so brands can't breeze past setup), unless dismissed.
   const showWelcome = !_allCoreDone && !localStorage.getItem(welcomeDismissedKey);
   const _rowHtml = (it) => {
@@ -840,11 +859,12 @@ function renderOverview() {
       ? '<div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;background:#2a5b32;display:flex;align-items:center;justify-content:center;margin-top:1px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg></div>'
       : '<div style="flex-shrink:0;width:24px;height:24px;border-radius:50%;border:2px solid rgba(15,44,23,0.28);margin-top:1px;"></div>';
     const titleStyle = it.done ? 'color:var(--ink-500);text-decoration:line-through;' : 'color:var(--forest-900);';
-    const reqBadge = (it.req && !it.done) ? ' <span style="display:inline-block;background:#f7dfd4;color:#a14e2a;font-size:0.66rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">Required to book</span>' : '';
+    const reqBadge = (it.req && !it.done) ? ' <span style="display:inline-block;background:#f7dfd4;color:#a14e2a;font-size:0.66rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">Required to book</span>'
+      : ((it.opt && !it.done) ? ' <span style="display:inline-block;background:rgba(15,44,23,0.07);color:var(--ink-500);font-size:0.66rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;margin-left:6px;vertical-align:middle;">Optional</span>' : '');
     // COI items deep-link into the Compliance sub-tab; others just switch tab.
     const onclick = it.href === '#compliance' ? ' onclick="goToCoiUpload(); return false;"' : '';
     const cta = it.done ? '' : ' <a href="' + it.href + '"' + onclick + ' style="color:var(--forest-700);font-weight:700;text-decoration:underline;white-space:nowrap;">' + it.cta + ' \u2192</a>';
-    return '<div data-check="' + (it.key || '') + '" style="display:flex;gap:13px;align-items:flex-start;padding:13px 0;border-top:1px solid rgba(15,44,23,0.07);">' +
+    return '<div data-check="' + (it.key || '') + '" data-core="' + (it.core ? '1' : '0') + '" style="display:flex;gap:13px;align-items:flex-start;padding:13px 0;border-top:1px solid rgba(15,44,23,0.07);">' +
       circle +
       '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:0.96rem;' + titleStyle + '">' + it.title + reqBadge + '</div>' +
       '<div style="font-size:0.85rem;color:var(--ink-500);line-height:1.5;margin-top:3px;">' + it.sub + cta + '</div></div></div>';
@@ -854,7 +874,7 @@ function renderOverview() {
       <button class="dismiss" onclick="dismissWelcome('${welcomeDismissedKey}')">&times;</button>
       <div class="eyebrow">Finish setting up</div>
       <h3>Your setup checklist</h3>
-      <p id="checklistCounter" style="margin:2px 0 8px;font-size:0.88rem;color:var(--ink-500);">${_doneCount} of ${_checkItems.length} done. Complete these so retailers accept your demos.</p>
+      <p id="checklistCounter" style="margin:2px 0 8px;font-size:0.88rem;color:var(--ink-500);">${_doneCount} of ${_coreItems.length} done. Finish these so retailers accept your demos.</p>
       ${_checkItems.map(_rowHtml).join('')}
     </div>` : '';
 
