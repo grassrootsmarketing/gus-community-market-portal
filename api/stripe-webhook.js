@@ -254,6 +254,12 @@ function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl, coiDeadl
   const contact_name = ctx.contact_name;
   const brand_name = ctx.brand_name;
   const product = ctx.product;
+  // The items actually being sampled. This is the whole point of the feature for the
+  // store: they cannot order stock against a category, only against real items.
+  const skuList = Array.isArray(ctx.product_skus) ? ctx.product_skus.filter(p => p && p.name) : [];
+  const skuRowsHtml = (labelColour) => skuList.length
+    ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;vertical-align:top;">Items</td><td style="padding:14px 18px;text-align:right;color:${labelColour};font-size:14px;border-top:1px solid #ede3d0;">${skuList.map(p => `${H(p.name)}${p.size ? ' <span style="color:#6b6a64;">' + H(p.size) + '</span>' : ''}${p.sku ? ' <span style="color:#6b6a64;">#' + H(p.sku) + '</span>' : ''}`).join('<br>')}</td></tr>`
+    : '';
   const venue = (ctx.venues && ctx.venues.name) || '';
   const retailerName = (ctx.retailers && ctx.retailers.name) || '';
   const dateLabel = (() => {
@@ -271,6 +277,7 @@ function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl, coiDeadl
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f4f7ef;border-radius:10px;margin-bottom:24px;">
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:14px 18px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${H(brand_name)}</td></tr>
 ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(product)}</td></tr>` : ''}
+${skuRowsHtml('#0f2c17')}
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(venue)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time)}</td></tr>
@@ -290,6 +297,9 @@ async function notifyStaffForBooking(ctx) {
   try {
     if (!RESEND_API_KEY || !ctx || !ctx.retailer_id) return;
     const H = htmlEscape;
+    // Declared here, not borrowed from the brand-email scope - a bare reference
+    // across functions throws and would kill the staff notification entirely.
+    const skuList = Array.isArray(ctx.product_skus) ? ctx.product_skus.filter(p => p && p.name) : [];
     const retailerName = (ctx.retailers && ctx.retailers.name) || '';
     const retailerSlug = (ctx.retailers && ctx.retailers.slug) || '';
     const venueName = (ctx.venues && ctx.venues.name) || '';
@@ -315,6 +325,7 @@ async function notifyStaffForBooking(ctx) {
 <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">New demo scheduled</div>
 <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo just landed on your calendar.</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Make sure you've got enough product on hand — <strong>${H(ctx.brand_name || 'the brand')}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.</p>
+${skuList.length ? `<div style="background:#f4f7ef;border:1px solid #2a5b3222;border-left:4px solid #2a5b32;border-radius:10px;padding:15px 18px;margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin-bottom:8px;">Items being sampled</div><div style="font-size:14px;line-height:1.7;color:#1c1c1a;">${skuList.map(p => `&bull; ${H(p.name)}${p.size ? ' <span style="color:#6b6a64;">(' + H(p.size) + ')</span>' : ''}${p.sku ? ' <span style="color:#6b6a64;">SKU ' + H(p.sku) + '</span>' : ''}`).join('<br>')}</div></div>` : ''}
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${H(ctx.brand_name || '—')}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.product || '—')}</td></tr>
