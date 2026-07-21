@@ -233,7 +233,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, current_agreement: a, policies });
     }
 
-    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, venue, demo_date, demo_time, notes, signed_name } = body || {};
+    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name } = body || {};
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -494,6 +494,20 @@ export default async function handler(req, res) {
         : (retailer.auto_confirm_bookings ? 'confirmed' : 'pending')
     );
     const awaitingPayment = bookingStatus === 'pending_payment';
+    // Snapshot of the items being sampled. Cosmetic data on a money path, so it is
+    // capped, optional, and must never be able to fail the booking.
+    const skuSnapshot = (function () {
+      if (!Array.isArray(product_skus) || !product_skus.length) return null;
+      const out = [];
+      for (const p of product_skus.slice(0, 40)) {
+        if (!p || typeof p !== 'object') continue;
+        const name = String(p.name || '').trim().slice(0, 120);
+        if (!name) continue;
+        out.push({ name, size: String(p.size || '').trim().slice(0, 40), sku: String(p.sku || '').trim().slice(0, 60) });
+      }
+      return out.length ? out : null;
+    })();
+
     const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
       method: 'POST',
       headers: {
@@ -518,14 +532,47 @@ export default async function handler(req, res) {
         notes: notes || null,
         status: bookingStatus,
         brand_id: brandId,
+        ...(skuSnapshot ? { product_skus: skuSnapshot } : {}),
       }),
     });
 
-    if (!insertResp.ok) {
-      const detail = await insertResp.text();
+    // If the insert failed only because product_skus is not in the schema, retry
+    // without it. Losing the item list is annoying; losing the booking is not
+    // acceptable, and this runs before payment.
+    let finalInsertResp = insertResp;
+    if (!insertResp.ok && skuSnapshot) {
+      const firstDetail = await insertResp.text().catch(() => '');
+      console.warn('booking insert failed with product_skus, retrying without:', firstDetail.slice(0, 300));
+      finalInsertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+        method: 'POST',
+        headers: {
+          apikey: SERVICE_KEY,
+          Authorization: `Bearer ${SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=representation',
+        },
+        body: JSON.stringify({
+          retailer_id: RETAILER_ID,
+          venue_id: venueRow ? venueRow.id : null,
+          brand_name,
+          contact_name: contact_name || null,
+          contact_email,
+          contact_phone: contact_phone || null,
+          product: product || null,
+          demo_date,
+          demo_time,
+          notes: notes || null,
+          status: bookingStatus,
+          brand_id: brandId,
+        }),
+      });
+    }
+
+    if (!finalInsertResp.ok) {
+      const detail = await finalInsertResp.text();
       return res.status(502).json({ error: 'DB insert failed', detail });
     }
-    const inserted = await insertResp.json();
+    const inserted = await finalInsertResp.json();
     const bookingId = Array.isArray(inserted) ? inserted[0]?.id : null;
 
     // Send confirmation email
