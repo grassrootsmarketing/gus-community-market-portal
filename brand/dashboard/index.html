@@ -314,7 +314,10 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .verified-panel.pending { background:#fbf7f0; border-color:rgba(15,44,23,0.10); }
 .verified-panel .vbadge { flex-shrink:0; margin-top:2px; }
 .verified-panel .vmsg { flex:1; min-width:0; }
-.verified-panel .vmsg strong { display:block; color:var(--forest-900); font-size:1rem; font-weight:700; margin-bottom:2px; }
+.verified-panel .vmsg > strong:first-child { display:block; color:var(--forest-900); font-size:1rem; font-weight:700; margin-bottom:2px; }
+.verified-panel .vmsg p strong { font-weight:700; color:var(--forest-900); }
+.verified-panel .vnote { margin:9px 0 0; font-size:0.83rem; color:var(--ink-500); line-height:1.5; }
+.verified-panel .vnote a { color:var(--forest-700); font-weight:600; }
 .verified-panel .vmsg p { font-size:0.88rem; color:var(--ink-700); line-height:1.5; margin:0; }
 .verified-panel .vmsg ul { margin:8px 0 0 0; padding-left:18px; font-size:0.85rem; color:var(--ink-700); line-height:1.6; }
 .verified-panel .vmsg ul li { margin-bottom:2px; }
@@ -1005,13 +1008,13 @@ function renderOverview() {
   if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? ` &mdash; <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} left</strong>, time to renew` : ''}.` : ''}${!hasLogo ? ' <strong><a href="#profile" style="color:var(--forest-700);">Add a profile picture</a></strong> to look even more credible.' : ''}</p></div>
+      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong> &mdash; worth renewing now` : ''}.` : ''}</p>${!hasLogo ? '<p class="vnote">Optional: <a href="#profile">add a brand logo</a> so retailers recognise you at a glance.</p>' : ''}</div>
     </div>`;
   } else {
     const missing = _bs.missing;
     verifiedPanelHtml = `<div class="verified-panel pending">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge muted"><circle cx="12" cy="12" r="11" fill="#d3d1c7"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);"><em>Recommended:</em> <a href="#profile" style="color:var(--forest-700);font-weight:600;">Add a profile picture</a> so retailers recognize your brand at a glance.</p>' : ''}</div>
+      <div class="vmsg"><strong>Almost verified</strong><p style="margin:6px 0 0;font-size:0.86rem;color:var(--ink-500);">The verified badge shows on your profile in every retailer's booking page once these are done. It's the trust signal that gets your demos accepted faster.</p><p style="margin:14px 0 6px;font-size:0.85rem;color:var(--ink-700);font-weight:600;">Still to do:</p><ul>${missing.map(m => '<li>' + escapeHtml(m) + '</li>').join('')}</ul>${!hasLogo ? '<p style="margin-top:10px;font-size:0.85rem;color:var(--ink-500);">Optional: <a href="#profile" style="color:var(--forest-700);font-weight:600;">add a brand logo</a> so retailers recognise you at a glance.</p>' : ''}</div>
     </div>`;
   }
 
