@@ -1,6 +1,8 @@
 // /api/booking — Vercel serverless function
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
+import { coiCoverageState } from './_coi-lib.js';
+
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -172,6 +174,31 @@ async function createBrandMagicLink(brand_id, email) {
   } catch (e) {
     console.warn('createBrandMagicLink failed (non-fatal):', e?.message || e);
     return null;
+  }
+}
+
+
+// True when this request carries a valid retailer admin session. The admin creates
+// bookings through this same endpoint (phone/walk-in bookings), so the COI gate below
+// must not apply to it. Cookie-based, so a brand cannot spoof it from the booking page.
+async function isRetailerAdminRequest(req) {
+  try {
+    if (!SERVICE_KEY) return false;
+    const raw = (req.headers && req.headers.cookie) || '';
+    const m = raw.match(/(?:^|;\s*)dh_session=([^;]+)/);
+    if (!m) return false;
+    const sid = decodeURIComponent(m[1]);
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/admin_sessions?session_id=eq.${encodeURIComponent(sid)}&select=session_id,expires_at`, {
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    const sess = Array.isArray(rows) ? rows[0] : null;
+    if (!sess) return false;
+    if (sess.expires_at && new Date(sess.expires_at).getTime() < Date.now()) return false;
+    return true;
+  } catch (_) {
+    return false;   // fail closed: an unreadable session is not an admin
   }
 }
 
@@ -496,6 +523,41 @@ export default async function handler(req, res) {
     const awaitingPayment = bookingStatus === 'pending_payment';
     // Snapshot of the items being sampled. Cosmetic data on a money path, so it is
     // capped, optional, and must never be able to fail the booking.
+    // ---- COI hard gate --------------------------------------------------------
+    // A brand cannot pay for a demo it is not insured to perform. Runs BEFORE the
+    // booking row is created, so nothing reaches Stripe without a current certificate.
+    // Retailer admins are exempt: they use this same endpoint to enter phone bookings.
+    const _isAdminBooking = await isRetailerAdminRequest(req);
+    if (!_isAdminBooking) {
+      let coiState = 'missing';
+      try {
+        if (brandId && SERVICE_KEY) {
+          const cr = await fetch(`${SUPABASE_URL}/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires`, {
+            headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+          });
+          if (cr.ok) {
+            const brow = (await cr.json())[0] || null;
+            if (brow) coiState = coiCoverageState(brow, [], demo_date);
+          }
+        }
+      } catch (err) {
+        // Never fail a booking because we could not read the COI. Falling through as
+        // 'missing' would block a paying customer over our own outage, so allow it and
+        // let the enforcement cron catch a genuinely uninsured demo later.
+        console.error('COI gate read failed, allowing booking:', err && err.message);
+        coiState = 'covered';
+      }
+      if (coiState !== 'covered') {
+        return res.status(400).json({
+          error: 'coi_required',
+          coi_state: coiState,
+          message: coiState === 'unknown'
+            ? 'We could not read an expiry date from your certificate. Add the expiry on your profile, then book.'
+            : 'A current Certificate of Insurance is required before you can book a demo. Upload yours and you can book straight away.',
+        });
+      }
+    }
+
     const skuSnapshot = (function () {
       if (!Array.isArray(product_skus) || !product_skus.length) return null;
       const out = [];
