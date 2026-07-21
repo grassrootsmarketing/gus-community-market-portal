@@ -512,7 +512,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <div id="bookSkuList" style="border:1px solid rgba(15,44,23,0.14); border-radius:10px; padding:6px 4px; max-height:190px; overflow-y:auto;"></div>
                     <div style="font-size:0.78rem; color:#6b6a64; margin-top:6px;">The store uses this to make sure they have stock on hand.</div>
                 </div>
-                <div class="form-group"><label class="form-label">What are you demoing? *</label>
+                <div class="form-group" id="bookCategoryGroup"><label class="form-label">What are you demoing? *</label>
                     <select class="form-input" id="bookCategory" style="width:100%;">
                         <option value="">Select a category…</option>
                         <option>Beverages</option>
@@ -1273,7 +1273,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         
         function confirmBooking() {
             if (cart.length === 0) return;
-            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; }); { const ce = document.getElementById('bookNeedsElectricity'); if (ce) { ce.checked = false; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#c4c1b8'; if(k)k.style.transform='translateX(0)'; } }
+            ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+            { const cg = document.getElementById('bookCategoryGroup'); if (cg) cg.style.display = ''; }
+            { const sg = document.getElementById('bookSkuGroup'); if (sg) sg.style.display = 'none'; }
+            window._bookSkuSource = null; { const ce = document.getElementById('bookNeedsElectricity'); if (ce) { ce.checked = false; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#c4c1b8'; if(k)k.style.transform='translateX(0)'; } }
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
             const bp = window._brandProfile || null;
             const pwGroup = document.getElementById('bookPasswordGroup');
@@ -1288,7 +1291,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
-                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } }
+                if (bp.default_categories) {
+                    const firstCat = String(bp.default_categories).split(',')[0].trim();
+                    const sel = document.getElementById('bookCategory');
+                    let matched = false;
+                    if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; matched = true; break; } } }
+                    // Only hide it once we know a real value is selected, otherwise we would
+                    // silently post an empty category with no way for them to set it.
+                    const grp = document.getElementById('bookCategoryGroup');
+                    if (grp && matched) grp.style.display = 'none';
+                }
                 // Their saved items, as checkboxes. Hidden entirely if they have none,
                 // so a brand who never filled this in sees no empty box.
                 (function () {
