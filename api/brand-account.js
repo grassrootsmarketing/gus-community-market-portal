@@ -927,6 +927,15 @@ export default async function handler(req, res) {
     }
 
     // Apply the check matrix. Returns { decision: 'block'|'flag'|'pass', message, flags[] }
+    // Brand-facing dates should read like a person wrote them, not like a database row.
+    function prettyDate(iso) {
+      if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso || '';
+      try {
+        return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US',
+          { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+      } catch (_) { return iso; }
+    }
+
     function evaluateCoi(d, brandCompanyName) {
       const flags = [];
       if (!d) return { decision: 'flag', flags: ['verification_unavailable'] };
@@ -941,7 +950,10 @@ export default async function handler(req, res) {
       if (d.earliest_expiry && /^\d{4}-\d{2}-\d{2}$/.test(d.earliest_expiry)) {
         const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z');
         if (new Date(d.earliest_expiry + 'T00:00:00Z') < today) {
-          return { decision: 'block', flags: ['expired'], message: 'That certificate expired on ' + d.earliest_expiry + '. Upload a current certificate.' };
+          const _days = Math.round((today - new Date(d.earliest_expiry + 'T00:00:00Z')) / 86400000);
+          return { decision: 'block', flags: ['expired'], message: 'That certificate expired on ' + prettyDate(d.earliest_expiry)
+            + (_days > 0 ? ' (' + _days + ' day' + (_days === 1 ? '' : 's') + ' ago)' : '')
+            + '. Ask your broker for the renewed certificate and upload that one — most can re-issue the same day.' };
         }
       }
       // --- flags (upload still accepted) ---
