@@ -6,9 +6,10 @@
 // Modes: off (default) | dry_run | warn_only | live   (work order Part D rollout ladder)
 //
 // SAFETY: fail-closed on any COI-status uncertainty (never cancel a demo we're not certain
-// lacks coverage). Idempotent: re-running produces zero duplicate emails/cancels/refunds.
+// lacks coverage). A certificate with no readable expiry is 'unknown', not 'covered' and
+// not 'missing': the brand still gets warned, but nothing is ever auto-cancelled on it. Idempotent: re-running produces zero duplicate emails/cancels/refunds.
 
-import { hasCurrentCoi, coiCutoff, localMidnightUtc } from './_coi-lib.js';
+import { coiCoverageState, coiCutoff, localMidnightUtc } from './_coi-lib.js';
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -178,12 +179,17 @@ export default async function handler(req, res) {
         if (!brand) { log.skipped++; log.errors.push({ booking: b.id, reason: 'brand not found' }); continue; }
 
         // Covered by brand-level default COI? (certain source)
-        if (hasCurrentCoi(brand, [], b.demo_date)) { log.covered++; continue; }
+        let coverage = coiCoverageState(brand, [], b.demo_date);
+        if (coverage === 'covered') { log.covered++; continue; }
 
         // Not covered at brand level: check compliance_records. Fail-safe: if unreadable, skip.
         const comp = await fetchComplianceCoi(brand.email);
         if (!comp.ok) { log.skipped++; log.errors.push({ booking: b.id, reason: 'compliance read failed, fail-safe skip' }); continue; }
-        if (hasCurrentCoi(brand, comp.records, b.demo_date)) { log.covered++; continue; }
+        const withRecords = coiCoverageState(brand, comp.records, b.demo_date);
+        if (withRecords === 'covered') { log.covered++; continue; }
+        // 'unknown' from either source wins over 'missing': a certificate we cannot
+        // read the expiry off is not the same as no certificate at all.
+        coverage = (coverage === 'unknown' || withRecords === 'unknown') ? 'unknown' : 'missing';
 
         // NOT covered by any source -> reminder / final / cancel
         const tz = (b.retailers && b.retailers.timezone) || 'America/Los_Angeles';
@@ -198,7 +204,7 @@ export default async function handler(req, res) {
         else if (now >= new Date(cutoff.getTime() - 24 * 3600000) && !b.coi_final_warn_sent_at) action = 'final';
         else if (created <= reminderTime && now >= reminderTime && now < cutoff && !b.coi_reminder_sent_at) action = 'reminder';
 
-        log.decisions.push({ booking: b.id, brand: brand.company_name, demo_date: b.demo_date, cutoff: cutoff.toISOString(), action });
+        log.decisions.push({ booking: b.id, brand: brand.company_name, demo_date: b.demo_date, cutoff: cutoff.toISOString(), action, coverage });
         if (action === 'none') continue;
 
         const r = b.retailers || {}; const v = b.venues || {};
@@ -216,6 +222,15 @@ export default async function handler(req, res) {
           }
           log.finalWarns++;
         } else if (action === 'cancel') {
+          // A certificate is on file but we could not read an expiry off it. The brand
+          // is probably insured; cancelling and refunding on a failed extraction would
+          // take money back from someone who did nothing wrong. Warn, log, leave it for
+          // a human - the retailer sees the COI on the booking either way.
+          if (coverage === 'unknown') {
+            log.decisions[log.decisions.length - 1].note = 'cancel suppressed: certificate on file with no readable expiry - needs human review';
+            log.unreadableExpiry = (log.unreadableExpiry || 0) + 1;
+            continue;
+          }
           if (!canCancel) { log.decisions[log.decisions.length - 1].note = 'cancel suppressed (mode ' + mode + ')'; continue; }
           // idempotency guard: re-read
           const freshRows = await sb(`bookings?id=eq.${encodeURIComponent(b.id)}&select=id,status,payment_status,payment_intent_id`);
