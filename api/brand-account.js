@@ -634,6 +634,10 @@ export default async function handler(req, res) {
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
       const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 15);
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many sign-in requests for this email in the last hour.' });
+      // Unspoofable ceiling (no IP in the key): caps login-code emails per address so a
+      // forged-IP attacker cannot email-bomb a victim or run up the Resend bill.
+      const rlEmailHard = await checkRateLimitByKey('brand-login-email-hard:' + email.slice(0, 64), 20);
+      if (!rlEmailHard.allowed) return jsonResp(res, rlEmailHard.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmailHard.error || 'too_many_requests', message: 'Too many sign-in requests for this email in the last hour.' });
       const member = await resolveBrandMemberByEmail(email);
       if (member) {
         const token = randomToken(24);
