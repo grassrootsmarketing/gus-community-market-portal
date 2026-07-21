@@ -507,6 +507,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
                 <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
+                <div class="form-group" id="bookSkuGroup" style="display:none;">
+                    <label class="form-label">Which items are you sampling?</label>
+                    <div id="bookSkuList" style="border:1px solid rgba(15,44,23,0.14); border-radius:10px; padding:6px 4px; max-height:190px; overflow-y:auto;"></div>
+                    <div style="font-size:0.78rem; color:#6b6a64; margin-top:6px;">The store uses this to make sure they have stock on hand.</div>
+                </div>
                 <div class="form-group"><label class="form-label">What are you demoing? *</label>
                     <select class="form-input" id="bookCategory" style="width:100%;">
                         <option value="">Select a category…</option>
@@ -1283,7 +1288,26 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
-                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } } { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
+                if (bp.default_categories) { const firstCat = String(bp.default_categories).split(',')[0].trim(); const sel = document.getElementById('bookCategory'); if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; break; } } } }
+                // Their saved items, as checkboxes. Hidden entirely if they have none,
+                // so a brand who never filled this in sees no empty box.
+                (function () {
+                    const grp = document.getElementById('bookSkuGroup');
+                    const list = document.getElementById('bookSkuList');
+                    const items = Array.isArray(bp.products) ? bp.products.filter(p => p && p.name) : [];
+                    if (!grp || !list) return;
+                    if (!items.length) { grp.style.display = 'none'; list.innerHTML = ''; return; }
+                    list.innerHTML = items.map(function (p, i) {
+                        const meta = [p.size, p.sku].filter(Boolean).join(' \u00b7 ');
+                        return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
+                            + '<input type="checkbox" class="book-sku" data-i="' + i + '" checked style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
+                            + '<span style="font-size:0.9rem;color:#1c1c19;">' + _esc(p.name)
+                            + (meta ? ' <span style="color:#6b6a64;font-size:0.82rem;">' + _esc(meta) + '</span>' : '')
+                            + '</span></label>';
+                    }).join('');
+                    grp.style.display = 'block';
+                    window._bookSkuSource = items;
+                })(); { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
                 if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
@@ -1356,6 +1380,17 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
             const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
+            // Snapshot the chosen items. Optional by design: never block a booking on it.
+            const productSkus = (function () {
+                const src = window._bookSkuSource || [];
+                if (!src.length) return null;
+                const picked = [];
+                document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
+                    const p = src[Number(cb.dataset.i)];
+                    if (p && p.name) picked.push({ name: p.name, size: p.size || '', sku: p.sku || '' });
+                });
+                return picked.length ? picked : null;
+            })();
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
@@ -1448,6 +1483,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     contact_email: contactEmail,
                     contact_phone: contactPhone,
                     product: product,
+                    product_skus: productSkus,
                     venue: item.location,
                     demo_date: item.dateStr,
                     demo_time: item.time,
