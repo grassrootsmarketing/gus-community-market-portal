@@ -9,7 +9,7 @@
 // NOTE: references bookings.coi_waived_at, which does not exist until the Phase 1 migration is
 // applied. Callers (the admin badge) must fail-safe: on any error, show no badges.
 
-import { hasCurrentCoi } from './_coi-lib.js';
+import { hasCurrentCoi, brandVerifiedState } from './_coi-lib.js';
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -79,7 +79,7 @@ export default async function handler(req, res) {
   const verifByBrand = {};
   if (brandIds.length) {
     const inList = brandIds.map(id => `"${id}"`).join(',');
-    const brands = await sb(`brands?id=in.(${inList})&select=id,default_coi_url,default_coi_expires`);
+    const brands = await sb(`brands?id=in.(${inList})&select=id,default_coi_url,default_coi_expires,company_name,contact_name,email,phone,website,logo_url`);
     for (const br of (brands || [])) brandsById[br.id] = br;
     // Latest verification per brand, so the retailer sees insurer/limits/flags, not just a link.
     try {
@@ -98,6 +98,7 @@ export default async function handler(req, res) {
         docs.push({
           booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date,
           coi_url: brand.default_coi_url, coi_expires: brand.default_coi_expires || null,
+          verified: brandVerifiedState(brand, b.demo_date).verified,
           verification: v ? {
             status: v.status || null, insurer: v.insurer_name || null, naic: v.insurer_naic || null,
             insured_name: v.insured_name || null, gl_each_occurrence: v.gl_each_occurrence ?? null,
@@ -108,7 +109,7 @@ export default async function handler(req, res) {
       continue;
     }
     // Not covered for this demo, but they may still have an expired document worth seeing.
-    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url || null, coi_expires: brand.default_coi_expires || null });
+    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url || null, coi_expires: brand.default_coi_expires || null, verified: false });
   }
   return res.status(200).json({ ok: true, pending, docs, pending_booking_ids: pending.map(p => p.booking_id) });
 }
