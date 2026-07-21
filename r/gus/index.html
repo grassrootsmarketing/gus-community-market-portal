@@ -1304,7 +1304,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     const grp = document.getElementById('bookCategoryGroup');
                     if (grp && matched) grp.style.display = 'none';
                 }
-                // Their saved items, as checkboxes. Hidden entirely if they have none,
+                        // Local HTML escaper. Was referenced without ever being defined, which threw
+                // a ReferenceError for any brand that had saved products.
+                const _esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+        // Their saved items, as checkboxes. Hidden entirely if they have none,
                 // so a brand who never filled this in sees no empty box.
                 (function () {
                     const grp = document.getElementById('bookSkuGroup');
