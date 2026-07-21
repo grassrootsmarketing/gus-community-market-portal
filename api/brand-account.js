@@ -1131,14 +1131,14 @@ export default async function handler(req, res) {
     }
 
     if (action === 'team-list') {
-      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
       const members = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&select=*&order=created_at`)).json();
       return jsonResp(res, 200, { ok: true, members, your_email: v.email });
     }
 
     if (action === 'team-invite') {
-      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
       const email = String(body.email || '').trim().toLowerCase();
       const name = String(body.name || '').trim() || null;
@@ -1186,7 +1186,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'team-remove') {
-      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
       const memberId = String(body.member_id || '');
       const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
@@ -1202,7 +1202,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'team-update-role') {
-      const v = await verifySessionFull((req.query?.session_id || body.session_id || '').toString());
+      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
       const memberId = String(body.member_id || '');
       const role = body.role === 'viewer' ? 'viewer' : 'admin';
