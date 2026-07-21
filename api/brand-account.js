@@ -55,11 +55,29 @@ async function sb(path, opts = {}) {
 // into an unbounded magic-link-email spam window.
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
-  return req.headers['cf-connecting-ip']
-    || req.headers['x-real-ip']
-    || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim()
-    || req.socket?.remoteAddress
-    || 'unknown';
+  // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
+  // Vercel's. cf-connecting-ip is NOT trusted — we are not behind Cloudflare, so it is
+  // purely attacker-supplied and previously let every rate limit be bypassed.
+  const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
+  return req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
+}
+
+// Rate limit keyed ONLY on the given identifier (no IP). This is the unspoofable cap on
+// login-code guesses per account — the IP-appended checkRateLimit below cannot provide it.
+async function checkRateLimitByKey(fullKey, maxPerHour) {
+  try {
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existingResp = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(fullKey)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const existing = await existingResp.json().catch(() => []);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: fullKey, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('brand per-key rate limit failed - denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
 }
 
 async function checkRateLimit(req, bucketKey, maxPerHour) {
@@ -648,8 +666,15 @@ export default async function handler(req, res) {
       const email = String(body.email || '').trim().toLowerCase();
       const code = String(body.code || '').replace(/\D/g, '').trim();
       if (!email || !code || code.length !== 6) return jsonResp(res, 400, { error: 'Email and 6-digit code required' });
-      const rl = await checkRateLimit(req, 'brand-verify-code', 60);
-      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
+      // Per-IP cap AND an unspoofable per-email cap. The email cap is the real defense:
+      // 12 guesses/hour against a 1,000,000 code space with 30-minute codes is hopeless,
+      // and it holds no matter how many IPs an attacker forges.
+      const rlIp = await checkRateLimit(req, 'brand-verify-code', 60);
+      const rlEmail = await checkRateLimitByKey('brand-verify-code-email:' + email.slice(0, 64), 12);
+      if (!rlIp.allowed || !rlEmail.allowed) {
+        const unavailable = rlIp.error === 'rate_limit_unavailable' || rlEmail.error === 'rate_limit_unavailable';
+        return jsonResp(res, unavailable ? 503 : 429, { error: unavailable ? 'rate_limit_unavailable' : 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
+      }
       // Look up by token = code AND email = email (scoped, so 6-digit collisions across brands don't matter)
       const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=ilike.${encodeURIComponent(email)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
       const tok = (await tR.json())[0];
