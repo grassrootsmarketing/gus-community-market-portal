@@ -30,6 +30,21 @@ async function sb(path, opts = {}) {
 
 
 // === Rate limit: max 10 signups per IP per hour (conservative; bumps for trusted IPs later) ===
+async function checkRateLimitByKey(fullKey, maxPerHour) {
+  try {
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const existing = await sb(`rate_limit?bucket_key=eq.${encodeURIComponent(fullKey)}&window_start=eq.${encodeURIComponent(windowStart)}&select=id,count`);
+    const row = Array.isArray(existing) && existing[0];
+    if (row && row.count >= maxPerHour) return { allowed: false };
+    if (row) await sb(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) });
+    else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: fullKey, window_start: windowStart, count: 1 }) });
+    return { allowed: true };
+  } catch (e) {
+    console.error('signup per-key rate limit failed - denying:', e?.message || e);
+    return { allowed: false, error: 'rate_limit_unavailable' };
+  }
+}
+
 async function checkRateLimit(req, bucketKey, maxPerHour) {
   try {
     const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
@@ -147,6 +162,10 @@ export default async function handler(req, res) {
     if (!/^[^@]+@[^@]+\.[^@]+$/.test(billing_email)) {
       return res.status(400).json({ error: 'Invalid billing_email' });
     }
+    // Unspoofable per-email cap: stops one address being used to mass-create retailers
+    // (and mass-send welcome emails) from rotating forged IPs.
+    const rlSignupEmail = await checkRateLimitByKey('signup-email:' + String(billing_email).toLowerCase().slice(0, 64), 5);
+    if (!rlSignupEmail.allowed) return res.status(429).json({ error: rlSignupEmail.error === 'rate_limit_unavailable' ? 'rate_limit_unavailable' : 'too_many_requests', message: 'Too many signups for this email. Try again later.' });
 
     // Normalize email once — DB has a unique index on lower(billing_email)
     const normalizedEmail = billing_email.toLowerCase().trim();
