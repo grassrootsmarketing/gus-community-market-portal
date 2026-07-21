@@ -1069,7 +1069,8 @@ async function handleOwnerAction(action, req, res, body) {
     if (!session) return res.status(500).json({ error: 'Failed to create impersonation session' });
     // Log to support_sessions audit table (best-effort — don't fail the impersonation if this errors)
     try {
-      const ip = req.headers['cf-connecting-ip'] || req.headers['x-real-ip'] || (req.headers['x-forwarded-for'] || '').toString().split(',')[0].trim() || null;
+      const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
+      const ip = req.headers['x-real-ip'] || _xff[_xff.length - 1] || null;  // audit log; not cf-connecting-ip
       const ua = String(req.headers['user-agent'] || '').slice(0, 500);
       await sb('support_sessions', {
         method: 'POST',
