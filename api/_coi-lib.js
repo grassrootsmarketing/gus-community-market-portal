@@ -6,23 +6,43 @@
 //  (b) any compliance COI record whose expires_at >= demoDate (null expiry counts as covered).
 // This function only evaluates the data it is handed; the caller owns fail-safe behavior
 // on unreadable/ambiguous data (never cancel on uncertainty).
-export function hasCurrentCoi(brand, coiRecords, demoDate) {
+// Three states, not two. A certificate with no readable expiry is NOT proof of
+// current insurance, but it is also not proof of absence - refunding a demo
+// because our OCR failed would be wrong. 'unknown' keeps those two apart so the
+// caller can warn without cancelling.
+//
+//   'covered' - certificate on file and valid on the demo date
+//   'unknown' - certificate on file but no expiry we can trust
+//   'missing' - nothing on file
+export function coiCoverageState(brand, coiRecords, demoDate) {
   const dd = String(demoDate || '').slice(0, 10);
-  if (!dd) return false;
+  if (!dd) return 'missing';
+  let sawUndated = false;
+
   if (brand && brand.default_coi_url) {
     const exp = brand.default_coi_expires ? String(brand.default_coi_expires).slice(0, 10) : null;
-    if (!exp || exp >= dd) return true;
+    if (!exp) sawUndated = true;
+    else if (exp >= dd) return 'covered';
   }
+
   if (Array.isArray(coiRecords)) {
     for (const r of coiRecords) {
       if (!r) continue;
       const dt = String(r.doc_type || '').toLowerCase();
       if (dt !== 'coi' && dt !== 'certificate_of_insurance' && dt !== 'insurance') continue;
       const exp = r.expires_at ? String(r.expires_at).slice(0, 10) : null;
-      if (!exp || exp >= dd) return true;
+      if (!exp) { sawUndated = true; continue; }
+      if (exp >= dd) return 'covered';
     }
   }
-  return false;
+
+  return sawUndated ? 'unknown' : 'missing';
+}
+
+// Kept for callers that only need a yes/no. Deliberately strict: 'unknown' is
+// not 'covered'. Anything that can cancel a demo must use coiCoverageState().
+export function hasCurrentCoi(brand, coiRecords, demoDate) {
+  return coiCoverageState(brand, coiRecords, demoDate) === 'covered';
 }
 
 // A2: cutoff = 00:00 on demoDate in the retailer's timezone, minus 72h. Returns a UTC Date.
