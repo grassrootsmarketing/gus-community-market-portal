@@ -330,7 +330,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
     14: `2 weeks until your COI expires`,
     3:  `${days_left} day${days_left === 1 ? '' : 's'} until your COI expires`,
   };
-  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: https://demohubhq.com/brand/dashboard#profile\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
+  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: https://demohubhq.com/brand/dashboard#compliance\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
@@ -348,7 +348,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
           <li>You're done — every Demohub retailer sees the new doc instantly.</li>
         </ol>
       </div>
-      <a href="https://demohubhq.com/brand/dashboard#profile" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
+      <a href="https://demohubhq.com/brand/dashboard#compliance" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
       <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email — a human reads everything.</p>
     </div>
   </body></html>`;
