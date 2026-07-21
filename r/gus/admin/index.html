@@ -2521,6 +2521,23 @@ END:VEVENT
             renderMonthlyChart();
             renderBigCalendar();
             populateBillingMonths();
+            // Keeps-all retailers see this as a record of activity, not a payout statement.
+            if (_isKeepsAll()) {
+                document.querySelectorAll('[data-section="billingSection"]').forEach(el => {
+                    if (el.textContent.trim() === 'Billing') el.textContent = 'Demo activity';
+                });
+                const card = document.getElementById('billingSectionCard');
+                if (card) {
+                    const h = card.querySelector('h2, h3');
+                    if (h && /billing/i.test(h.textContent)) h.textContent = 'Demo activity';
+                    card.querySelectorAll('th').forEach(th => {
+                        const t = th.textContent.trim();
+                        if (t === 'Brand paid' || t === 'Platform fee' || t === 'You receive') th.style.display = 'none';
+                    });
+                }
+                const po = document.getElementById('payoutsCard');
+                if (po) po.style.display = 'none';
+            }
             renderBilling();
             populateAvailabilityVenueSelect();
             renderAvailabilityEditor();
@@ -5559,6 +5576,13 @@ END:VEVENT
             if (prev && months.includes(prev)) sel.value = prev;
             else if (months.includes('2026-02')) sel.value = '2026-02';
         }
+        // True when this retailer receives nothing through the platform (special deal).
+        // Settings already respected this; Billing did not, and showed Gus a "You receive"
+        // column of money that does not exist. One helper now, used by both.
+        function _isKeepsAll() {
+            return !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
+        }
+
         function renderBilling() {
             const sel = document.getElementById('billingMonthSelect');
             if (!sel) return;
@@ -5578,6 +5602,15 @@ END:VEVENT
             const ytd = ytdDemos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
             // Render summary
             const summary = document.getElementById('billingSummary');
+            if (_isKeepsAll()) {
+                const brandCount = new Set(demos.map(d => d.company).filter(Boolean)).size;
+                const locCount = new Set(demos.map(d => (window.state.brandContacts || []).find(b => b.company === d.company)?.venue).filter(Boolean)).size;
+                summary.innerHTML =
+                    '<div class="billing-stat"><div class="billing-stat-num">' + count + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' demos</div><div class="billing-stat-sub">Hosted at your stores</div></div>'
+                  + '<div class="billing-stat"><div class="billing-stat-num">' + brandCount + '</div><div class="billing-stat-lbl">Brands</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>'
+                  + '<div class="billing-stat"><div class="billing-stat-num">' + locCount + '</div><div class="billing-stat-lbl">Locations used</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>'
+                  + '<div class="billing-stat"><div class="billing-stat-num">' + ytdDemos.length + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Demos hosted</div></div>';
+            } else
             summary.innerHTML =
                 '<div class="billing-stat"><div class="billing-stat-num">$' + total.toFixed(0) + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' total</div><div class="billing-stat-sub">' + count + ' demo' + (count===1?'':'s') + '</div></div>'
                 + '<div class="billing-stat"><div class="billing-stat-num">$' + ytd.toFixed(0) + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Through ' + monthLabel(ym) + '</div></div>'
@@ -5588,6 +5621,18 @@ END:VEVENT
             const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
             if (demos.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">No demos billed for ' + monthLabel(ym) + '.</td></tr>';
+                return;
+            }
+            if (_isKeepsAll()) {
+                tbody.innerHTML = demos.map(d => {
+                    const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
+                    const v = brandsByCompany[d.company]?.venue || '—';
+                    return '<tr><td>' + escapeHtml(dl) + (d.time ? ' &middot; ' + escapeHtml(d.time) : '') + '</td>'
+                        + '<td>' + escapeHtml(d.company || '—') + '</td>'
+                        + '<td>' + escapeHtml(d.product || '—') + '</td>'
+                        + '<td>' + escapeHtml(v) + '</td>'
+                        + '<td colspan="3"></td></tr>';
+                }).join('');
                 return;
             }
             tbody.innerHTML = demos.map(d => {
@@ -5610,6 +5655,12 @@ END:VEVENT
         function openStatement() {
             const sel = document.getElementById('billingMonthSelect');
             if (!sel || !sel.value) { DhModal.toast('Select a month first', 'info'); return; }
+            // A statement implies money owed. For keeps-all retailers nothing is owed,
+            // so producing one would be a misleading financial document.
+            if (_isKeepsAll()) {
+                DhModal.toast('Demo records are shown above. No payout statement applies to your plan.', 'info');
+                return;
+            }
             const ym = sel.value;
             const [yy, mm] = ym.split('-').map(Number);
             const demos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt.getMonth() === (mm - 1); }).sort((a,b) => a.date.localeCompare(b.date));
