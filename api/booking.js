@@ -221,7 +221,7 @@ export default async function handler(req, res) {
       const { brand_email, retailer_slug: rs } = body;
       if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
       const retResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       });
       const rets = await retResp.json();
       const ret = Array.isArray(rets) ? rets[0] : null;
@@ -239,14 +239,14 @@ export default async function handler(req, res) {
       };
       if (!brand_email) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_email', policies });
       const brResp = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(brand_email).toLowerCase())}&select=id`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       });
       const brs = await brResp.json();
       const br = Array.isArray(brs) ? brs[0] : null;
       if (!br) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_brand_account', policies });
       // Active agreement?
       const aResp = await fetch(`${SUPABASE_URL}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(br.id)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=*&order=signed_at.desc&limit=1`, {
-        headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       });
       const as = await aResp.json();
       const a = Array.isArray(as) ? as[0] : null;
@@ -286,7 +286,7 @@ export default async function handler(req, res) {
 
     // Look up retailer by slug, get id, name, and cancellation policy
     const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
     });
     const retailers = await retailerResp.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -298,7 +298,7 @@ export default async function handler(req, res) {
 
     // Look up venue by retailer + name (for venue_id on the row)
     const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee`, {
-      headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
     });
     const venues = await venueResp.json();
     const venueRow = Array.isArray(venues) ? venues[0] : null;
@@ -727,7 +727,7 @@ export default async function handler(req, res) {
         // Fetch staff whose prefs include on_scheduled and either no venue restriction or this venue
         const bookedVenueId = venue?.id || null;
         const staffUrl = `${SUPABASE_URL}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
-        const staffResp = await fetch(staffUrl, { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } });
+        const staffResp = await fetch(staffUrl, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
         if (staffResp.ok) {
           const allStaff = await staffResp.json();
           const targetStaff = (allStaff || []).filter(s => {
