@@ -809,7 +809,7 @@ function updatePersistentCoiNudge() {
   const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
   banner.innerHTML = `<div style="display:flex; align-items:center; gap:14px; padding:16px 24px; background:#fff3ed; border-bottom:2px solid #ed682f55;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> A current COI is <strong>required to confirm your demos</strong>. Without one on file, your events are <strong>subject to cancellation</strong> and retailers cannot accept your bookings. <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> Stores require proof of insurance to let you demo. Without a current one on file, your demos are <strong>at risk of cancellation</strong>. <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
   </div>`;
   banner.style.display = 'block';
 }
@@ -864,7 +864,7 @@ function renderOverview() {
   const _profileDone = _st.profileDone;
   const _logoDone = _st.hasLogo;
   const _checkItems = [
-    { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Required to book demos \u2014 retailers won't accept bookings without a current COI.", href: '#compliance', cta: 'Upload COI' },
+    { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Stores require proof of insurance before you can demo. Upload it once and every retailer you book with can see it.", href: '#compliance', cta: 'Upload COI' },
     { key: 'profile', core: true, done: _profileDone, req: false, title: 'Add your contact information',
       sub: _profileDone
         ? 'Company name, your name, phone, email, and website.'
@@ -1340,7 +1340,7 @@ function renderCompliance() {
         <label class="label">Certificate of Insurance</label>
         <div id="coiWidget"></div>
         <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
-        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Attaches automatically to every new demo booking.</div>
+        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Retailers can view it against every demo you book.</div>
       </div>
       <div class="form-row">
         <label class="label">COI expires</label>
@@ -1382,7 +1382,7 @@ function renderProducts() {
       </div>
       <div class="form-row">
         <label class="label">Notes for retailers <span style="font-weight:400;color:var(--ink-500);">(optional)</span></label>
-        <textarea class="textarea" id="f_default_product_info" placeholder="Anything a store should know about your demos">${escapeHtml(profile.default_product_info || '')}</textarea>
+        <textarea class="textarea" id="f_default_product_info" placeholder="Anything a store should know \u2014 added to your booking notes">${escapeHtml(profile.default_product_info || '')}</textarea>
       </div>
       <div class="form-row">
         <label class="label" style="display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
