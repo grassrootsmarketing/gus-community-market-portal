@@ -758,13 +758,18 @@ function getBrandStatus(profile) {
 
   // Sub-groupings so the setup checklist reads off the same rule rather than
   // re-deriving it (which is how the counter and the badge drifted apart before).
-  const profileDone = !!(profile.company_name && profile.contact_name && profile.email
-    && profile.phone && profile.website && profile.website.trim().length > 4);
+  const profileMissing = [];
+  if (!profile.company_name) profileMissing.push('company name');
+  if (!profile.contact_name) profileMissing.push('your name');
+  if (!profile.phone) profileMissing.push('phone number');
+  if (!profile.email) profileMissing.push('email');
+  if (!(profile.website && profile.website.trim().length > 4)) profileMissing.push('website');
+  const profileDone = profileMissing.length === 0;
 
   return {
     verified: missing.length === 0,
     coi, daysLeft: days, expiryDate: exp, missing,
-    coiOk, profileDone,
+    coiOk, profileDone, profileMissing,
     hasLogo: !!profile.logo_url,
     expiryLabel: exp ? exp.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : null,
   };
@@ -860,7 +865,11 @@ function renderOverview() {
   const _logoDone = _st.hasLogo;
   const _checkItems = [
     { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Required to book demos \u2014 retailers won't accept bookings without a current COI.", href: '#compliance', cta: 'Upload COI' },
-    { key: 'profile', core: true, done: _profileDone, req: false, title: 'Complete your brand profile', sub: 'Company, contact, website, and phone so retailer booking forms pre-fill for you.', href: '#profile', cta: 'Edit profile' },
+    { key: 'profile', core: true, done: _profileDone, req: false, title: 'Add your contact information',
+      sub: _profileDone
+        ? 'Company name, your name, phone, email, and website.'
+        : 'Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>. Retailers see these on every booking.',
+      href: '#profile', cta: 'Add details' },
     { key: 'logo', core: true, done: _logoDone, req: false, title: 'Add your brand logo', sub: 'Retailers see it on every booking page. Brands without one look unfinished.', href: '#profile', cta: 'Add logo' },
   ];
   // Only core items count toward the total, because only core items gate the banner.
