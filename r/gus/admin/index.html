@@ -2698,7 +2698,7 @@ END:VEVENT
                     <td>${escapeHtml(venueById[b.venue_id] || '—')}</td>
                     <td><strong>${escapeHtml(b.brand_name || '—')}</strong></td>
                     <td>${escapeHtml(b.contact_name || '')}${b.contact_email ? ('<div style="font-size:0.8rem;color:var(--ink-500);">' + escapeHtml(b.contact_email) + '</div>') : ''}</td>
-                    <td>${escapeHtml(b.product || '—')}</td>
+                    <td>${escapeHtml(b.product || '—')}${(Array.isArray(b.product_skus) && b.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + b.product_skus.filter(p => p \&\& p.name).map(p => escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '')).join('<br>') + '</div>') : ''}</td>
                     <td style="text-align:right; white-space:nowrap;">
                         <button class="btn btn-secondary" style="padding:6px 12px; font-size:0.85rem; margin-right:6px;" onclick="declineBooking('${b.id}')">Decline</button>
                         <button class="btn" style="padding:6px 14px; font-size:0.85rem; background:var(--forest-600); color:white;" onclick="confirmBooking('${b.id}')">Confirm</button>
