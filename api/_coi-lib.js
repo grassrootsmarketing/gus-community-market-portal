@@ -77,3 +77,20 @@ function tzParts(utcMs, tz) {
   if (hour === 24) hour = 0;
   return { year: +p.year, month: +p.month, day: +p.day, hour, minute: +p.minute, second: +p.second };
 }
+
+// Canonical definition of a "verified" brand. The brand portal shows this to the
+// brand and the retailer admin shows it to the store, so it must be one rule.
+// Verified = current COI + the identity fields a store needs to trust a stranger.
+export function brandVerifiedState(brand, demoDate) {
+  const b = brand || {};
+  const missing = [];
+  const coverage = coiCoverageState(b, [], demoDate || new Date().toISOString().slice(0, 10));
+  if (coverage !== 'covered') missing.push('current Certificate of Insurance');
+  if (!b.company_name) missing.push('company name');
+  if (!b.contact_name) missing.push('contact name');
+  if (!b.email) missing.push('email');
+  if (!b.phone) missing.push('phone');
+  if (!(b.website && String(b.website).trim().length > 4)) missing.push('website');
+  if (!b.logo_url) missing.push('logo');
+  return { verified: missing.length === 0, missing };
+}
