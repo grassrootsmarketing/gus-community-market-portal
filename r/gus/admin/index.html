@@ -4237,6 +4237,12 @@ END:VEVENT
                 // Certificate on file and current: let staff open the actual document.
                 const doc = window._coiDocs && window._coiDocs.get(key);
                 if (doc && doc.url) {
+                    // Verified = the brand completed everything a store needs to trust them
+                    // (current COI + contact details + logo). Computed server-side in
+                    // _coi-lib.js so this badge and the brand portal cannot disagree.
+                    const verifiedMark = doc.verified
+                        ? '<span title="Verified brand — current COI, complete contact details and logo on file" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:0.74rem;font-weight:700;color:#2a5b32;background:#eef7f0;border:1px solid #2a5b3233;border-radius:6px;padding:2px 7px;vertical-align:middle;"><svg width="11" height="11" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>Verified</span>'
+                        : '';
                     const exp = doc.expires ? (' &middot; expires ' + escapeHtml(String(doc.expires))) : '';
                     const v = doc.v || null;
                     const flagged = v && v.status === 'flagged';
@@ -4264,7 +4270,7 @@ END:VEVENT
                           + '</div>'
                         : '';
                     return '<div style="margin-top:5px;">'
-                        + '<span title="Certificate of Insurance on file" style="display:inline-block; ' + badgeCss + ' font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">' + badgeTxt + '</span>'
+                        + '<span title="Certificate of Insurance on file" style="display:inline-block; ' + badgeCss + ' font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">' + badgeTxt + '</span>' + verifiedMark
                         + ' <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline;">View COI</a>'
                         + '<span style="font-size:0.68rem; color:var(--ink-500);">' + exp + '</span>'
                         + detail + reasons
