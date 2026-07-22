@@ -209,8 +209,10 @@ export default async function handler(req, res) {
       url: session.url,
       session_id: session.id,
       demo_total_cents: demoTotalCents,
-      platform_fee_cents: platformFeeCents,
-      total_cents: demoTotalCents + platformFeeCents,
+      // DH-24: for keeps-all retailers the $5 is NOT added to the charge (Demohub keeps the whole
+      // demo fee), so the reported fee/total must match what Stripe actually charges.
+      platform_fee_cents: platformKeepsAll ? 0 : platformFeeCents,
+      total_cents: platformKeepsAll ? demoTotalCents : (demoTotalCents + platformFeeCents),
       booking_ids: chargeable.map(b => b.id),
     });
   } catch (e) {
