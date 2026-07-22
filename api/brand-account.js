@@ -1374,6 +1374,10 @@ export default async function handler(req, res) {
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
       const rlEmail = await checkRateLimit(req, 'brand-login-pw-email:' + email.slice(0, 64), 20);
       if (!rlEmail.allowed) return jsonResp(res, rlEmail.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlEmail.error || 'too_many_requests', message: 'Too many attempts for this email.' });
+      // R2-08: account-wide hard cap (IP-independent) so a distributed attacker can't get 20
+      // password guesses per IP against one account. checkRateLimitByKey does NOT append the IP.
+      const rlAccount = await checkRateLimitByKey('brand-login-pw-account:' + email.slice(0, 64), 50);
+      if (!rlAccount.allowed) return jsonResp(res, rlAccount.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlAccount.error || 'too_many_requests', message: 'Too many attempts for this account. Try again later.' });
       // Look up brand by email (via brand_members which is the shareable auth surface)
       const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
       let member = (await lookupR.json())[0];
