@@ -2509,6 +2509,9 @@ END:VEVENT
                 time: d.demo_time,
                 company: d.company_name,
                 contact: d.contact_name,
+                contact_email: d.contact_email || '',
+                contact_phone: d.contact_phone || '',
+                product_skus: Array.isArray(d.product_skus) ? d.product_skus : null,
                 product: d.product,
                 status: (d.status || 'confirmed').replace(/^./, ch => ch.toUpperCase()),
                 // lowercase status retained for filtering; status field above stays title-case for badge display
@@ -4237,7 +4240,7 @@ END:VEVENT
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
                 + '<td>' + escapeHtml(d.contact) + '</td>'
-                + '<td>' + escapeHtml(d.product) + '</td>'
+                + '<td>' + escapeHtml(d.product) + ((d.product_skus && d.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + d.product_skus.filter(function(p){return p && p.name;}).map(function(p){return escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '');}).join('<br>') + '</div>') : '') + '</td>'
                 + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span>' + _coiBadgeHtml(d) + '</td>'
                 + '<td style="text-align:right;">' + cancelBtn + '</td>'
                 + '</tr>';
