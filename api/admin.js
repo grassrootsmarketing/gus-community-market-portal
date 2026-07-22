@@ -12,15 +12,21 @@
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
+// WS1 (P1): the generic proxy is being retired in favor of named commands in /api/commands.js.
+// As an immediate containment step, it now serves ONLY the two tables the admin UI actually uses
+// (retailers, venues). The other six tables it used to expose (brand_contacts, internal_contacts,
+// demos, compliance_records, settings, bookings) were never called by any client and were pure
+// attack surface — removed. Both remaining tables have field allowlists below.
 const ALLOWED_TABLES = new Set([
-  'brand_contacts',
-  'internal_contacts',
-  'demos',
-  'compliance_records',
-  'settings',
-  'venues',
-  'bookings',
-  'retailers',  // PATCH only, id must equal session.retailer_id
+  'venues',     // create/update/delete via field allowlist (VENUE_WRITE_WHITELIST)
+  'retailers',  // PATCH only, id must equal session.retailer_id (RETAILER_PATCH_WHITELIST)
+]);
+
+// Fields the proxy will accept on a venues write. Everything else (id, retailer_id, timestamps,
+// server-owned counters) is dropped; the server owns tenancy via the sanitize pass below.
+const VENUE_WRITE_WHITELIST = new Set([
+  'name', 'address', 'city', 'state', 'zip', 'demo_fee', 'display_order',
+  'max_demos_per_slot', 'notes', 'timezone', 'phone', 'hours', 'description', 'active', 'slug',
 ]);
 
 // Fields that can be patched on the retailers table via /api/admin
@@ -336,26 +342,23 @@ export default async function handler(req, res) {
         });
       }
     }
-    // For new compliance_records rows, reset COI warn timestamps so the cron will pick them up cleanly
-    if (table === 'compliance_records') {
-      body.coi_warn_30_sent_at = null;
-      body.coi_warn_14_sent_at = null;
-      body.coi_warn_3_sent_at = null;
+    // WS1: venues field allowlist on create.
+    if (table === 'venues') {
+      for (const k of Object.keys(body)) {
+        if (k !== 'retailer_id' && !VENUE_WRITE_WHITELIST.has(k)) delete body[k];
+      }
     }
     req.body = JSON.stringify(body);
   }
 
-  // When PATCHing a compliance_records row's expires_at, reset the warn-sent timestamps
-  // so the new expiry triggers a fresh warning cycle.
-  if (req.method === 'PATCH' && table === 'compliance_records') {
+  // WS1: venues field allowlist on update.
+  if (req.method === 'PATCH' && table === 'venues') {
     try {
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-      if (Object.prototype.hasOwnProperty.call(body, 'expires_at')) {
-        body.coi_warn_30_sent_at = null;
-        body.coi_warn_14_sent_at = null;
-        body.coi_warn_3_sent_at = null;
-        req.body = JSON.stringify(body);
+      for (const k of Object.keys(body)) {
+        if (k !== 'retailer_id' && !VENUE_WRITE_WHITELIST.has(k)) delete body[k];
       }
+      req.body = JSON.stringify(body);
     } catch (_) { /* fall through */ }
   }
 
