@@ -751,6 +751,57 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { profile, demos, contacts, pending_bookings });
     }
 
+    // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
+    if (action === 'reschedule-respond') {
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const demoId = String(body.demo_id || '');
+      const decision = String(body.decision || '');
+      if (!/^[0-9a-f-]{36}$/i.test(demoId)) return jsonResp(res, 400, { error: 'Invalid demo_id' });
+      if (!['accept', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'decision must be accept or decline' });
+
+      const dRows = await (await sb(`demos?id=eq.${encodeURIComponent(demoId)}&select=*,retailers(name,billing_email)`)).json();
+      const demo = Array.isArray(dRows) ? dRows[0] : null;
+      if (!demo) return jsonResp(res, 404, { error: 'Demo not found' });
+      if (demo.brand_id !== brandId) return jsonResp(res, 403, { error: 'Not your demo' });
+      if (!demo.reschedule_to_date) return jsonResp(res, 409, { error: 'no_pending_reschedule', message: 'There is no reschedule to respond to.' });
+
+      const clear = { reschedule_to_date: null, reschedule_to_time: null, reschedule_requested_at: null };
+      let patch = clear;
+      let movedTo = null;
+      if (decision === 'accept') {
+        movedTo = { date: demo.reschedule_to_date, time: demo.reschedule_to_time || demo.demo_time };
+        patch = { demo_date: movedTo.date, demo_time: movedTo.time, ...clear };
+      }
+      try {
+        await sb(`demos?id=eq.${encodeURIComponent(demoId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      } catch (e) {
+        return jsonResp(res, 500, { error: 'reschedule_save_failed', message: 'We could not save that. Try again in a moment.' });
+      }
+
+      // Tell the retailer the outcome.
+      const retailerEmail = demo.retailers && demo.retailers.billing_email;
+      if (retailerEmail && RESEND_API_KEY) {
+        try {
+          const brandName = demo.company_name || 'A brand';
+          const subject = decision === 'accept'
+            ? `${brandName} accepted the new date`
+            : `${brandName} kept their original demo date`;
+          const line = decision === 'accept'
+            ? `${escapeHtml(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeHtml(String(movedTo.date))}${movedTo.time ? ' at ' + escapeHtml(String(movedTo.time)) : ''}</strong>.`
+            : `${escapeHtml(brandName)} declined the new date, so their demo stays on <strong>${escapeHtml(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeHtml(String(demo.demo_time)) : ''}</strong>.`;
+          await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ from: FROM_BOOKINGS, to: retailerEmail, reply_to: 'david@demohubhq.com', subject,
+              html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">&mdash; Demohub</p></div>` }),
+          });
+        } catch (_) {}
+      }
+      return jsonResp(res, 200, { ok: true, decision, moved_to: movedTo });
+    }
+
     if (action === 'agreement-list') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
