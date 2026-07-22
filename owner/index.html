@@ -132,6 +132,29 @@ table.simple tr:last-child td { border-bottom:0; }
         /* Prevent phantom text-cursor over non-editable UI (labels, headings, buttons) */
         label, h1, h2, h3, h4, h5, h6, button, .btn, .eyebrow, .updated { user-select: none; }
         button, .btn { cursor: pointer; }
+
+/* ===== Growth dashboard upgrade ===== */
+@keyframes dhBadgePop{0%{transform:scale(.4);opacity:0}55%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+@keyframes dhGrowDraw{to{stroke-dashoffset:0}}
+@keyframes dhFadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.growth-hero{background:linear-gradient(160deg,#0f2c17 0%,#1f4a26 100%);border-radius:18px;padding:26px 28px 18px;color:#fbf7f0;margin-bottom:22px;position:relative;overflow:hidden;animation:dhFadeUp .5s ease both}
+.growth-hero .gh-eyebrow{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:#87b08e;margin-bottom:8px}
+.growth-hero .gh-title{font-family:'Plus Jakarta Sans',sans-serif;font-size:2.6rem;line-height:1;font-weight:400;margin-bottom:8px}
+.growth-hero .gh-title span{font-weight:600}
+.growth-hero .gh-sub{font-size:.92rem;color:#cfe0d0;margin-bottom:6px}
+.growth-hero .gh-sub .up{color:#9ad3a0;font-weight:600}
+.growth-hero .gh-chart{margin-top:10px}
+.growth-hero .gh-legend{display:flex;gap:18px;font-size:.8rem;color:#cfe0d0;margin-top:6px;align-items:center}
+.growth-hero .gh-legend .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.growth-hero .gh-legend .dot.forest{background:#87b08e}
+.growth-hero .gh-legend .dot.clay{background:#ed682f}
+.gh-path{stroke-dasharray:1400;stroke-dashoffset:1400;animation:dhGrowDraw 1.3s .2s cubic-bezier(.3,.7,.4,1) forwards}
+.gh-area{opacity:0;animation:dhFadeUp .8s .7s ease forwards}
+.gh-dot{opacity:0;animation:dhBadgePop .5s 1.2s cubic-bezier(.2,.9,.3,1.4) both}
+.stat-num[data-count]{transition:none}
+.stat, .kpi-card, .card{transition:box-shadow .28s ease,transform .28s ease}
+.stat:hover, .kpi-card:hover{box-shadow:0 8px 30px rgba(15,44,23,.09)}
+@media (prefers-reduced-motion:reduce){.growth-hero,.gh-path,.gh-area,.gh-dot{animation:none!important;stroke-dashoffset:0!important;opacity:1!important}.stat:hover,.kpi-card:hover{transform:none!important}}
 </style>
 </head>
 <body>
@@ -259,6 +282,53 @@ async function loadData() {
 }
 
 // ----- Tiny SVG bar chart helper -----
+// Cumulative growth chart: retailers + brands accumulating month over month.
+// The whole point is the up-and-to-the-right — the network getting bigger.
+function renderGrowthChart(retailerSeries, brandSeries) {
+  const W = 700, H = 210, padL = 8, padR = 54, padT = 14, padB = 22;
+  const iW = W - padL - padR, iH = H - padT - padB;
+  const cum = (arr) => { let t = 0; return (arr || []).map(p => ({ label: p.label, v: (t += (p.count || 0)) })); };
+  const R = cum(retailerSeries), B = cum(brandSeries);
+  const n = Math.max(R.length, B.length, 2);
+  const max = Math.max(1, ...R.map(p => p.v), ...B.map(p => p.v));
+  const x = (i) => padL + (iW * i) / (n - 1);
+  const y = (v) => padT + iH - (iH * v) / max;
+  const line = (S) => S.map((p, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.v).toFixed(1)).join(' ');
+  const area = (S) => 'M' + x(0) + ' ' + (padT + iH) + ' ' + S.map((p, i) => 'L' + x(i).toFixed(1) + ' ' + y(p.v).toFixed(1)).join(' ') + ' L' + x(S.length - 1) + ' ' + (padT + iH) + ' Z';
+  const grid = [0, .5, 1].map(f => { const yy = padT + iH - iH * f; return '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (padL + iW) + '" y2="' + yy.toFixed(1) + '" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>'; }).join('');
+  const labels = R.map((p, i) => (i % 2 === 0) ? '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">' + (p.label || '') + '</text>' : '').join('');
+  const endR = R[R.length - 1] || { v: 0 }, endB = B[B.length - 1] || { v: 0 };
+  return '<svg class="gh-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="width:100%;height:210px;overflow:visible">'
+    + grid
+    + '<path class="gh-area" d="' + area(B) + '" fill="rgba(237,104,47,0.16)"/>'
+    + '<path class="gh-area" d="' + area(R) + '" fill="rgba(135,176,142,0.20)"/>'
+    + '<path class="gh-path" d="' + line(B) + '" fill="none" stroke="#ed682f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<path class="gh-path" d="' + line(R) + '" fill="none" stroke="#87b08e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<circle class="gh-dot" cx="' + x(B.length - 1).toFixed(1) + '" cy="' + y(endB.v).toFixed(1) + '" r="4.5" fill="#ed682f"/>'
+    + '<circle class="gh-dot" cx="' + x(R.length - 1).toFixed(1) + '" cy="' + y(endR.v).toFixed(1) + '" r="4.5" fill="#87b08e"/>'
+    + '<text class="gh-dot" x="' + (x(B.length - 1) + 8).toFixed(1) + '" y="' + (y(endB.v) + 4).toFixed(1) + '" font-size="12" font-weight="700" fill="#ed682f">' + endB.v + '</text>'
+    + '<text class="gh-dot" x="' + (x(R.length - 1) + 8).toFixed(1) + '" y="' + (y(endR.v) + 4).toFixed(1) + '" font-size="12" font-weight="700" fill="#87b08e">' + endR.v + '</text>'
+    + labels + '</svg>';
+}
+
+// Count the headline numbers up from zero. Preserves $ prefix and , grouping.
+function ownerCountUp() {
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  document.querySelectorAll('[data-count]').forEach(function (el) {
+    const target = parseFloat(el.getAttribute('data-count'));
+    if (!isFinite(target) || target === 0) return;
+    const prefix = el.getAttribute('data-prefix') || '';
+    const dur = 900, start = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - t, 3);
+      el.textContent = prefix + Math.round(target * e).toLocaleString();
+      if (t < 1) requestAnimationFrame(step); else el.textContent = prefix + Math.round(target).toLocaleString();
+    }
+    el.textContent = prefix + '0';
+    requestAnimationFrame(step);
+  });
+}
+
 function renderBars(svg, series) {
   const w = 700, h = 180;
   const padL = 28, padR = 12, padT = 16, padB = 24;
@@ -296,27 +366,40 @@ function renderDashboard(d) {
   const tb = d.tables || {};
   const w = d.watchlist || {};
 
+  // Network north-star + cumulative growth curve
+  const _netTotal = (h.total_retailers || 0) + (h.total_brands || 0);
+  const _rs = t.retailer_signups || [], _bs = t.brand_signups || [];
+  const _newThisMonth = ((_rs[_rs.length - 1] || {}).count || 0) + ((_bs[_bs.length - 1] || {}).count || 0);
+  const growthHero = `
+    <div class="growth-hero">
+      <div class="gh-eyebrow">The network</div>
+      <div class="gh-title"><span data-count="${_netTotal}">0</span> on Demohub</div>
+      <div class="gh-sub">${h.total_retailers || 0} retailers &middot; ${h.total_brands || 0} brands${_newThisMonth > 0 ? ' &middot; <span class="up">+' + _newThisMonth + ' this month</span>' : ''}</div>
+      <div class="gh-chart">${renderGrowthChart(_rs, _bs)}</div>
+      <div class="gh-legend"><span><span class="dot forest"></span>Retailers</span><span><span class="dot clay"></span>Brands</span></div>
+    </div>`;
+
   // Stat row
   const stats = `
     <div class="stat-row">
       <div class="stat">
         <div class="stat-lbl">Total retailers</div>
-        <div class="stat-num">${h.total_retailers || 0}</div>
+        <div class="stat-num" data-count="${h.total_retailers || 0}">0</div>
         <div class="stat-sub">${h.active_retailers_30d || 0} active in last 30d</div>
       </div>
       <div class="stat">
         <div class="stat-lbl">Total brands</div>
-        <div class="stat-num">${h.total_brands || 0}</div>
+        <div class="stat-num" data-count="${h.total_brands || 0}">0</div>
         <div class="stat-sub">across every Demohub retailer</div>
       </div>
       <div class="stat">
         <div class="stat-lbl">Demos this month</div>
-        <div class="stat-num">${h.demos_this_month || 0}</div>
+        <div class="stat-num" data-count="${h.demos_this_month || 0}">0</div>
         ${deltaPill(h.demos_delta_pct)}
       </div>
       <div class="stat">
         <div class="stat-lbl">Est. MRR</div>
-        <div class="stat-num">$${(h.mrr_projection || 0).toLocaleString()}</div>
+        <div class="stat-num" data-count="${h.mrr_projection || 0}" data-prefix="$">$0</div>
         <div class="stat-sub">subs $${(h.mrr_subs || 0).toLocaleString()} · per-demo $${(h.mrr_per_demo || 0).toLocaleString()}</div>
       </div>
     </div>`;
@@ -327,22 +410,10 @@ function renderDashboard(d) {
   const demosSeries = t.demos_per_month || [];
   // Merge signup series (stack would be nicer but keep simple, show retailers only, with brands separately)
   const trends = `
-    <div class="trends-row">
-      <div class="chart">
-        <h3>Retailer signups</h3>
-        <div class="csub">Last 12 months</div>
-        ${renderBars(null, retailerSeries)}
-      </div>
-      <div class="chart">
-        <h3>Brand signups</h3>
-        <div class="csub">Last 12 months</div>
-        ${renderBars(null, brandSeries)}
-      </div>
-      <div class="chart">
-        <h3>Demos per month</h3>
-        <div class="csub">Last 12 months (by demo date)</div>
-        ${renderBars(null, demosSeries)}
-      </div>
+    <div class="chart" style="margin-bottom:22px;">
+      <h3>Demos per month</h3>
+      <div class="csub">Last 12 months, by demo date</div>
+      ${renderBars(null, demosSeries)}
     </div>`;
 
   // Tables
@@ -417,6 +488,7 @@ function renderDashboard(d) {
       <button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
+      ${growthHero}
       ${stats}
       <div id="supportToolsCard"></div>
       ${trends}
@@ -430,6 +502,7 @@ function renderDashboard(d) {
 
   // Support tools card (Level 1: impersonation, Level 2: audit link)
   loadSupportTools();
+  ownerCountUp();
 
   wireTabs();
 }
