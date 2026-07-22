@@ -18,15 +18,21 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 // demos, compliance_records, settings, bookings) were never called by any client and were pure
 // attack surface — removed. Both remaining tables have field allowlists below.
 const ALLOWED_TABLES = new Set([
-  'venues',     // create/update/delete via field allowlist (VENUE_WRITE_WHITELIST)
-  'retailers',  // PATCH only, id must equal session.retailer_id (RETAILER_PATCH_WHITELIST)
+  'venues',             // field allowlist (VENUE_WRITE_WHITELIST)
+  'retailers',          // PATCH only, id == session.retailer_id (RETAILER_PATCH_WHITELIST)
+  'brand_contacts',     // WS1-01: written by the admin UI via adminInsert/Update/Delete
+  'internal_contacts',  // WS1-01: same
+  'compliance_records', // WS1-01: same (launch-critical COI writes)
+  'settings',           // WS1-01: written by the admin UI (settings save)
+  // 'demos' and 'bookings' remain OUT: verified they are read-only via action=data; all
+  // lifecycle writes go through dedicated endpoints (booking-action, etc.).
 ]);
 
 // Fields the proxy will accept on a venues write. Everything else (id, retailer_id, timestamps,
 // server-owned counters) is dropped; the server owns tenancy via the sanitize pass below.
 const VENUE_WRITE_WHITELIST = new Set([
   'name', 'address', 'city', 'state', 'zip', 'demo_fee', 'display_order',
-  'max_demos_per_slot', 'notes', 'timezone', 'phone', 'hours', 'description', 'active', 'slug',
+  'max_demos_per_slot', 'notes', 'timezone', 'phone', 'hours', 'description', 'active', 'availability', 'slug',
 ]);
 
 // Fields that can be patched on the retailers table via /api/admin
@@ -342,6 +348,12 @@ export default async function handler(req, res) {
         });
       }
     }
+    // For new compliance_records rows, reset COI warn timestamps so the cron picks them up cleanly.
+    if (table === 'compliance_records') {
+      body.coi_warn_30_sent_at = null;
+      body.coi_warn_14_sent_at = null;
+      body.coi_warn_3_sent_at = null;
+    }
     // WS1: venues field allowlist on create.
     if (table === 'venues') {
       for (const k of Object.keys(body)) {
@@ -351,6 +363,18 @@ export default async function handler(req, res) {
     req.body = JSON.stringify(body);
   }
 
+  // When PATCHing a compliance_records row's expires_at, reset the warn-sent timestamps.
+  if (req.method === 'PATCH' && table === 'compliance_records') {
+    try {
+      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      if (Object.prototype.hasOwnProperty.call(body, 'expires_at')) {
+        body.coi_warn_30_sent_at = null;
+        body.coi_warn_14_sent_at = null;
+        body.coi_warn_3_sent_at = null;
+        req.body = JSON.stringify(body);
+      }
+    } catch (_) { /* fall through */ }
+  }
   // WS1: venues field allowlist on update.
   if (req.method === 'PATCH' && table === 'venues') {
     try {
