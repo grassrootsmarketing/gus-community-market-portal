@@ -203,19 +203,29 @@ export default async function handler(req, res) {
 
     // 1) Create retailer
     let retailers;
+    // Private iCal feed key (secret; the feed requires it). Unguessable per retailer.
+    const _calFeedKey = require('crypto').randomBytes(16).toString('hex');
+    const _retailerPayload = {
+      slug,
+      name: retailer_name,
+      billing_email: normalizedEmail,
+      branding: { contact_name: contact_name || '' },
+      // Default to automatic approvals + 14-day refund per David
+      auto_confirm_bookings: true,
+      cancellation_mode: '14_day_refund',
+      cal_feed_key: _calFeedKey,
+    };
     try {
-      retailers = await sb(`retailers`, {
-        method: 'POST',
-        body: JSON.stringify({
-          slug,
-          name: retailer_name,
-          billing_email: normalizedEmail,
-          branding: { contact_name: contact_name || '' },
-          // Default to automatic approvals + 14-day refund per David
-          auto_confirm_bookings: true,
-          cancellation_mode: '14_day_refund',
-        }),
-      });
+      try {
+        retailers = await sb(`retailers`, { method: 'POST', body: JSON.stringify(_retailerPayload) });
+      } catch (colErr) {
+        // If cal_feed_key column isn't there yet (migration not run), create without it.
+        const cmsg = String((colErr && colErr.message) || '');
+        if (/cal_feed_key|column/i.test(cmsg) && !/duplicate|unique|23505/i.test(cmsg)) {
+          const { cal_feed_key, ..._rest } = _retailerPayload;
+          retailers = await sb(`retailers`, { method: 'POST', body: JSON.stringify(_rest) });
+        } else { throw colErr; }
+      }
     } catch (createErr) {
       // Catch unique-index violation (race between our lookup and insert)
       const msg = String(createErr && createErr.message || '');
