@@ -117,6 +117,48 @@ async function fetchBookingContext(bookingId) {
   } catch (_) { return null; }
 }
 
+// When a booking AUTO-confirms on payment, create its demo row so it appears on the
+// brand dashboard AND the retailer calendar immediately (the manual-confirm path does
+// this via /api/booking-action; auto-confirm had no equivalent, leaving demos invisible).
+// Idempotent (skips if a confirmed demo already exists for the slot) and resilient
+// (falls back to core columns if the demos-carry-fields migration has not run).
+async function createDemoForConfirmedBooking(ctx) {
+  if (!ctx || !ctx.retailer_id || !ctx.venue_id) return;
+  try {
+    const existing = await sb(`demos?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&venue_id=eq.${encodeURIComponent(ctx.venue_id)}&demo_date=eq.${encodeURIComponent(ctx.demo_date)}&demo_time=eq.${encodeURIComponent(ctx.demo_time || '')}&status=in.(confirmed,completed)&select=id&limit=1`);
+    if (Array.isArray(existing) && existing.length) return;   // already created — don't duplicate
+  } catch (_) { /* if the check fails, fall through and rely on the transition guard */ }
+  let fee = null;
+  try {
+    const v = await sb(`venues?id=eq.${encodeURIComponent(ctx.venue_id)}&select=demo_fee`);
+    fee = (Array.isArray(v) && v[0] && v[0].demo_fee != null) ? v[0].demo_fee : null;
+  } catch (_) {}
+  const payload = {
+    retailer_id: ctx.retailer_id,
+    venue_id: ctx.venue_id,
+    company_name: ctx.brand_name || 'Unknown',
+    contact_name: ctx.contact_name || null,
+    contact_email: ctx.contact_email || null,
+    contact_phone: ctx.contact_phone || null,
+    product: ctx.product || null,
+    product_skus: (Array.isArray(ctx.product_skus) && ctx.product_skus.length) ? ctx.product_skus : null,
+    demo_date: ctx.demo_date,
+    demo_time: ctx.demo_time,
+    duration_hours: 3,
+    status: 'confirmed',
+    confirmed_at: new Date().toISOString(),
+    demo_fee: fee,
+    notes: ctx.notes || null,
+    brand_id: ctx.brand_id || null,
+  };
+  try {
+    await sb('demos', { method: 'POST', body: JSON.stringify(payload) });
+  } catch (e) {
+    const { confirmed_at, product_skus, contact_email, contact_phone, ...core } = payload;
+    await sb('demos', { method: 'POST', body: JSON.stringify(core) });
+  }
+}
+
 async function sendResendEmail({ to, subject, html }) {
   if (!RESEND_API_KEY || !to) return { ok: false, reason: 'not_configured_or_no_to' };
   try {
@@ -380,6 +422,11 @@ async function handlePaymentIntentSucceeded(event) {
       if (nextStatus) {
         try {
           const ctx = await fetchBookingContext(bookingId);
+          // Auto-confirm: materialise the demo so it's visible to brand + retailer right away.
+          if (nextStatus === 'confirmed' && ctx) {
+            try { await createDemoForConfirmedBooking(ctx); }
+            catch (demoErr) { console.warn('auto-confirm demo create failed for', bookingId, ':', (demoErr && demoErr.message) || demoErr); }
+          }
           if (ctx && ctx.contact_email) {
             const slug = (ctx.retailers && ctx.retailers.slug) || '';
             const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
