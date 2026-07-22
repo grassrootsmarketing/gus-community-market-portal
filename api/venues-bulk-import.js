@@ -116,12 +116,25 @@ export const config = {
   },
 };
 
+// DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
+// accounts exist yet; failing closed would risk locking out the owner).
+async function callerRole(retailerId, email) {
+  if (!email) return null;
+  try {
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
+  } catch (_) { return null; }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
 
   const sessionId = (req.query?.session_id || '').toString();
   const session = await verifySession(sessionId);
   if (!session) return jsonResp(res, 401, { error: 'Invalid session' });
+  if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
+    return jsonResp(res, 403, { error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+  }
   if (!session.retailer_id) return jsonResp(res, 403, { error: 'Session has no retailer_id' });
 
   let csvText, filename;
