@@ -951,6 +951,11 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-login') {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
+    // DH-14: rate-limit before doing any work or sending mail — otherwise a caller can drain the
+    // Resend quota and flood the owner inbox. Uniform 200 either way to avoid leaking the cap.
+    const rlOwnerIp = await checkRateLimit(req, 'owner-login-ip', 10);
+    const rlOwnerEmail = await checkRateLimitByKey('owner-login-email:' + email.slice(0, 64), 10);
+    if (!rlOwnerIp.allowed || !rlOwnerEmail.allowed) return res.status(200).json({ ok: true });
     const diag = { allowlisted: false, system_retailer_id: null, insert_ok: false, insert_error: null, insert_response: null, token_found: false, resend_ok: false, resend_error: null, resend_response: null };
     if (OWNER_EMAILS.includes(email)) {
       diag.allowlisted = true;
