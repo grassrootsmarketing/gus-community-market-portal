@@ -144,10 +144,11 @@ async function notifyStaff(booking) {
 
 export default async function handler(req, res) {
   // ---- auth ----
+  // DH-07: require a signed cron identity in EVERY environment. Never fall back to trusting the
+  // presence of x-vercel-cron (client-spoofable). If CRON_SECRET is unset, deny — enforcement
+  // stays inert rather than becoming a header-triggerable refund/cancel engine.
   const secret = process.env.CRON_SECRET;
-  const authOk = secret
-    ? (req.headers['authorization'] || '') === 'Bearer ' + secret
-    : !!req.headers['x-vercel-cron'];
+  const authOk = !!secret && (req.headers['authorization'] || '') === 'Bearer ' + secret;
   if (!authOk) return res.status(401).json({ error: 'unauthorized' });
 
   const mode = String(process.env.COI_ENFORCEMENT_MODE || 'off').toLowerCase();
