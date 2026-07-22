@@ -205,11 +205,13 @@ export default async function handler(req, res) {
       const rid = session.retailer_id;
       // Phase D: check if this session's user is a scoped viewer.
       let viewerVenueIds = null;
+      let callerIsViewer = false;
       try {
         const meArr = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(rid)}&email=ilike.${encodeURIComponent((session.email || '').toLowerCase())}&select=role,venue_ids`);
         const me = Array.isArray(meArr) ? meArr[0] : null;
-        if (me && me.role === 'viewer' && Array.isArray(me.venue_ids) && me.venue_ids.length > 0) {
-          viewerVenueIds = me.venue_ids;
+        if (me && me.role === 'viewer') {
+          callerIsViewer = true;
+          if (Array.isArray(me.venue_ids) && me.venue_ids.length > 0) viewerVenueIds = me.venue_ids;
         }
       } catch (_) {}
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
@@ -232,9 +234,12 @@ export default async function handler(req, res) {
         filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
         filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
       }
+      const retailerObj = Array.isArray(retailerArr) ? retailerArr[0] : null;
+      // R2-09: the calendar feed key unlocks the whole-tenant calendar; never hand it to a viewer.
+      if (callerIsViewer && retailerObj && 'cal_feed_key' in retailerObj) delete retailerObj.cal_feed_key;
       return send(res, 200, {
         ok: true,
-        retailer: Array.isArray(retailerArr) ? retailerArr[0] : null,
+        retailer: retailerObj,
         venues: filteredVenues,
         brand_contacts: brandContacts || [],
         internal_contacts: internalContacts || [],
@@ -269,10 +274,17 @@ export default async function handler(req, res) {
         if (RETAILER_PATCH_WHITELIST.has(k)) safe[k] = body[k];
       }
       if (Object.keys(safe).length === 0) return send(res, 400, { error: 'No allowed fields in body' });
-      // DH-06: reject non-http(s) schemes before logo_url/website reach an <img src>/anchor sink.
+      // DH-06/R2-06: reject non-http(s) schemes AND attribute-breakout characters (quote, space,
+      // angle brackets, backtick, backslash) before logo_url/website reach an <img src> template.
+      // A real URL never contains those raw, so this blocks `...png" onerror=...` style payloads.
       for (const uk of ['logo_url', 'website']) {
         const val = typeof safe[uk] === 'string' ? safe[uk].trim() : '';
-        if (val && !/^https?:\/\//i.test(val)) return send(res, 400, { error: 'invalid_url', message: uk + ' must be an http(s) URL.' });
+        if (!val) continue;
+        if (/[\s"'<>`\\]/.test(val) || !/^https?:\/\//i.test(val)) {
+          return send(res, 400, { error: 'invalid_url', message: uk + ' must be a plain http(s) URL.' });
+        }
+        try { const u = new URL(val); if (!/^https?:$/.test(u.protocol)) throw new Error('scheme'); }
+        catch (_) { return send(res, 400, { error: 'invalid_url', message: uk + ' must be a valid http(s) URL.' }); }
       }
       req.body = JSON.stringify(safe);
     } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
@@ -355,6 +367,10 @@ export default async function handler(req, res) {
       let touched = false;
       for (const k of Object.keys(b)) { if (SERVER_OWNED_FIELDS.has(k)) { delete b[k]; touched = true; } }
       if (typeof b.status === 'string' && !/^[a-z0-9_-]{1,40}$/i.test(b.status)) { delete b.status; touched = true; }
+      // R2-04: pin retailer_id to the session and drop the immutable id, so a generic PATCH can't
+      // move a row into another (publicly-discoverable) tenant or relink it by primary key.
+      if ('retailer_id' in b) { b.retailer_id = session.retailer_id; touched = true; }
+      if ('id' in b) { delete b.id; touched = true; }
       if (touched) req.body = JSON.stringify(b);
     } catch (_) { /* leave body as-is if unparseable */ }
   }
