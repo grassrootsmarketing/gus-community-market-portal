@@ -78,6 +78,25 @@ const COMMANDS = {
     return { status: 200, body: { ok: true, venue: Array.isArray(updated) ? updated[0] : updated } };
   },
 
+  // Create a venue for the caller's own retailer (server forces retailer_id).
+  async createVenue(auth, input) {
+    const row = pick(input, ['name', 'address', 'city', 'state', 'zip', 'demo_fee', 'display_order', 'max_demos_per_slot', 'notes', 'timezone', 'phone', 'hours', 'description', 'active', 'slug']);
+    if (!row.name) return { status: 400, body: { error: 'venue name required' } };
+    if (row.demo_fee != null && !(Number(row.demo_fee) >= 0)) return { status: 400, body: { error: 'demo_fee must be >= 0' } };
+    row.retailer_id = auth.retailerId; // SERVER owns tenancy — never from the client
+    const created = await sbWrite('POST', 'venues', row);
+    return { status: 201, body: { ok: true, venue: Array.isArray(created) ? created[0] : created } };
+  },
+
+  // Delete a venue the caller owns.
+  async deleteVenue(auth, input) {
+    if (!input || !isUuid(input.id)) return { status: 400, body: { error: 'venue id required' } };
+    const owned = await ownedRow('venues', input.id, auth.retailerId);
+    if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
+    await sbWrite('DELETE', `venues?id=eq.${encodeURIComponent(input.id)}`, null);
+    return { status: 200, body: { ok: true, deleted: input.id } };
+  },
+
   // Update the caller's own retailer profile (never another retailer's).
   async updateRetailerProfile(auth, input) {
     let logo_url, website;
@@ -93,7 +112,7 @@ const COMMANDS = {
   },
 };
 
-const CAPABILITY = { updateVenue: 'venue.manage', updateRetailerProfile: 'write' };
+const CAPABILITY = { updateVenue: 'venue.manage', createVenue: 'venue.manage', deleteVenue: 'venue.manage', updateRetailerProfile: 'write' };
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
