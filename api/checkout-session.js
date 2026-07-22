@@ -124,7 +124,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+    // R2-11: build Stripe success/cancel redirects from a fixed, configured origin — never from
+    // client-controllable forwarded-host headers (which could redirect payment flow off-domain).
+    const origin = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
     const retailerSlug = retailer.slug || '';
 
     // Build one line item per booking + one flat $5 fee line item per booking
