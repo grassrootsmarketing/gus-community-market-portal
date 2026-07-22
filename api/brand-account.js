@@ -441,6 +441,13 @@ export default async function handler(req, res) {
   const body = await readBody(req);
   const action = (req.query?.action || body.action || '').toString();
 
+  // DH-12: block GET-triggered mutations. Cookie-authenticated state changes must be POST so a
+  // cross-site top-level navigation can't remove a COI/avatar or nuke sessions via the Lax cookie.
+  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere']);
+  if (MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
+    return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
+  }
+
   try {
     // ---- BOOKING-SIGNUP: hard-gate account creation at booking time ----
     // Purpose-built for the booking flow. Creates the brand + password + session in one shot.
@@ -826,7 +833,9 @@ export default async function handler(req, res) {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_url', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
+      // DH-03: 'default_coi_url' intentionally NOT allowlisted — a COI URL is only ever set by the
+      // verified upload handler, never self-declared through a profile save.
+      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) {
