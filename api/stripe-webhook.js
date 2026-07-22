@@ -701,6 +701,24 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'signature invalid' });
   }
 
+  // DH-17: durable idempotency. Record this event.id; if it is already recorded, this is a
+  // Stripe retry/replay — acknowledge without re-processing. Resilient: if the dedup table is
+  // missing (migration not run) we log and process as before — a real payment is never blocked.
+  try {
+    const ins = await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events`, {
+      method: 'POST',
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ event_id: event.id, event_type: event.type }),
+    });
+    if (ins.status === 409) {
+      console.log('duplicate webhook event ignored:', event.id);
+      return res.status(200).json({ received: true, duplicate: true });
+    }
+    if (!ins.ok) console.warn('event-dedup insert non-ok (continuing):', ins.status);
+  } catch (e) {
+    console.warn('event-dedup unavailable (continuing):', String(e?.message || e).slice(0, 160));
+  }
+
   try {
     switch (event.type) {
       case 'account.updated':
