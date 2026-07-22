@@ -682,6 +682,25 @@ async function loadData() {
         window.location.href = '/brand/signin'; return;
     }
     _data = await r.json();
+    // Merge paid-but-unconfirmed bookings into the demos list as "awaiting confirmation"
+    // rows, so a brand who just paid sees their demo right away instead of a blank page.
+    if (_data && Array.isArray(_data.pending_bookings) && _data.pending_bookings.length) {
+      const _pb = _data.pending_bookings.map(function (b) {
+        return {
+          id: 'pb_' + b.id,
+          demo_date: b.demo_date,
+          demo_time: b.demo_time,
+          status: 'pending',
+          product: b.product,
+          product_skus: Array.isArray(b.product_skus) ? b.product_skus : null,
+          retailers: b.retailers,
+          venues: b.venues,
+          demo_fee: null,
+          _awaitingConfirmation: true,
+        };
+      });
+      _data.demos = _pb.concat(_data.demos || []);
+    }
   } catch (e) {
     main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
     throw e;
@@ -1085,7 +1104,7 @@ function renderOverview() {
             <div class="demos-venue">${escapeHtml(d.venues?.name || '')} · ${escapeHtml(d.demo_time || '')}</div>
             ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
-          <div class="demos-status ${d.status}">${d.status}</div>
+          <div class="demos-status ${d.status}">${d._awaitingConfirmation ? "Awaiting confirmation" : d.status}</div>
         </div>`;
       }).join('')}
     </div>`;
