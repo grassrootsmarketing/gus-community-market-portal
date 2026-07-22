@@ -734,15 +734,21 @@ export default async function handler(req, res) {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const [profileR, demosR, contactsR] = await Promise.all([
+      const [profileR, demosR, contactsR, pendingR] = await Promise.all([
         sb(`brands?id=eq.${brandId}&select=*`),
         sb(`demos?brand_id=eq.${brandId}&select=*,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
         sb(`brand_contacts?brand_id=eq.${brandId}&select=retailer_id,created_at,retailers(id,name,slug)`),
+        // Paid bookings the retailer has not confirmed yet. Without these a brand who just
+        // paid sees an empty dashboard until the store acts on it (a demo row only exists
+        // after confirmation). Surfacing them closes that blind window.
+        sb(`bookings?brand_id=eq.${brandId}&status=eq.pending&payment_status=eq.paid&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
       const profile = (await profileR.json())[0] || null;
       const demos = await demosR.json();
       const contacts = await contactsR.json();
-      return jsonResp(res, 200, { profile, demos, contacts });
+      let pending_bookings = [];
+      try { pending_bookings = await pendingR.json(); } catch (_) {}
+      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings });
     }
 
     if (action === 'agreement-list') {
