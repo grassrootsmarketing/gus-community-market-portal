@@ -48,6 +48,16 @@ async function readBody(req) {
   return await new Promise((resolve) => { let d = ''; req.on('data', c => d += c); req.on('end', () => { try { resolve(JSON.parse(d || '{}')); } catch (_) { resolve({}); } }); });
 }
 
+// DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
+// accounts exist yet; failing closed would risk locking out the owner).
+async function callerRole(retailerId, email) {
+  if (!email) return null;
+  try {
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
+  } catch (_) { return null; }
+}
+
 export default async function handler(req, res) {
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
   const cookies = parseCookies(req);
@@ -56,6 +66,9 @@ export default async function handler(req, res) {
   const session = await verifySession(sid);
   if (!session) return res.status(401).json({ error: 'Not authenticated' });
   const retailerId = session.retailer_id;
+  if (req.method === 'POST' && (await callerRole(retailerId, session.email)) === 'viewer') {
+    return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+  }
 
   // ---- Waive ----
   const action = (req.query && req.query.action) || (body && body.action);
