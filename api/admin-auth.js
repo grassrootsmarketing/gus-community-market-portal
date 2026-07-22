@@ -7,6 +7,21 @@
 
 const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+
+// R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin
+// — never from client-controllable forwarded-host headers. Defaults to the canonical www host.
+const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
+
+// R2-05: viewer-role staff accounts are read-only. Uses the shared sb() helper (throws on error,
+// so a lookup failure lands in the caller's try/deny path). Owner has no retailer_admins row.
+async function callerRoleAuth(retailerId, email) {
+  if (!email || !retailerId) return null;
+  try {
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
+  } catch (_) { return null; }
+}
+
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -248,7 +263,7 @@ export default async function handler(req, res) {
             });
           }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-          const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+          const origin = SITE_ORIGIN;
           const link = `${origin}/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`;
           if (RESEND_API_KEY && token) {
             try {
@@ -298,7 +313,7 @@ export default async function handler(req, res) {
             }
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
             if (!token) continue;
-            const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+            const origin = SITE_ORIGIN;
             const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
             if (RESEND_API_KEY) {
               try {
@@ -519,7 +534,7 @@ export default async function handler(req, res) {
             });
           }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-          const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+          const origin = SITE_ORIGIN;
           const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
           const roleName = (role === 'viewer') ? 'viewer' : 'admin';
           await fetch('https://api.resend.com/emails', {
@@ -633,6 +648,7 @@ export default async function handler(req, res) {
       const { session_id, image } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
+      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(image || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
       if (!m) return res.status(400).json({ error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
@@ -659,6 +675,7 @@ export default async function handler(req, res) {
       const { session_id, file, filename } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
+      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(file || '').match(/^data:(application\/pdf|image\/(?:png|jpeg));base64,(.+)$/);
       if (!m) return res.status(400).json({ error: 'Invalid file — must be a PDF, PNG, or JPEG data URL' });
       const mime = m[1];
@@ -689,6 +706,7 @@ export default async function handler(req, res) {
       const { session_id } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
+      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ demo_policy_url: null, demo_policy_filename: null }),
@@ -701,6 +719,7 @@ export default async function handler(req, res) {
       const { session_id } = body || {};
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
+      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: null }) });
       return res.status(200).json({ ok: true });
     }
@@ -976,7 +995,7 @@ async function handleOwnerAction(action, req, res, body) {
       }
       diag.token_found = !!token;
       if (token) {
-        const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
+        const origin = SITE_ORIGIN;
         const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
         if (RESEND_API_KEY) {
           try {
@@ -1192,6 +1211,7 @@ async function handleOwnerAction(action, req, res, body) {
     const sid = getSessionIdFromReq(req, body);
     const v = await verifyAdminSession(sid);
     if (!v.ok) return res.status(401).json({ error: v.error });
+    if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
     const enabled = body && body.enabled === true;
     const patch = enabled
       ? { allow_support_access: true, support_access_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
