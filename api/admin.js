@@ -37,6 +37,16 @@ const RETAILER_PATCH_WHITELIST = new Set([
   'branding',
 ]);
 
+// DH-05: fields the DB/Stripe own. The generic proxy must never let a tenant client write
+// these — they are set only by verified Stripe webhooks and server jobs. Stripped from every
+// POST/PATCH body below regardless of table.
+const SERVER_OWNED_FIELDS = new Set([
+  'payment_status','payment_intent_id','stripe_session_id','checkout_session_id',
+  'refund_id','refunded_at','amount_paid','amount_refunded','amount_cents','charge_id',
+  'transfer_id','application_fee_cents','application_fee_amount','billing_status','billing_tier',
+  'is_demo','platform_keeps_all','cal_feed_key','coi_verification_status','password_hash',
+]);
+
 function send(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json').send(typeof body === 'string' ? body : JSON.stringify(body));
 }
@@ -141,6 +151,17 @@ async function isDemoTenantRetailer(retailerId) {
   } catch (_) { return false; }
 }
 
+// DH-01: a viewer-role staff account is read-only. Look up the caller's role for this retailer.
+// Fail-open on lookup error: no viewer accounts exist yet, and failing closed would lock out
+// the primary owner (who has no retailer_admins row) on a transient DB blip.
+async function callerRole(retailerId, email) {
+  if (!email) return null;
+  try {
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
+  } catch (_) { return null; }
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -168,6 +189,10 @@ export default async function handler(req, res) {
         message: 'This is the live Demohub demo. Writes are disabled here, sign up at demohubhq.com/signup to try it for real.',
         is_demo: true,
       });
+    }
+    // DH-01: viewers are read-only. Enforced server-side — hiding buttons is not authorization.
+    if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
+      return send(res, 403, { error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
     }
   }
 
@@ -244,6 +269,11 @@ export default async function handler(req, res) {
         if (RETAILER_PATCH_WHITELIST.has(k)) safe[k] = body[k];
       }
       if (Object.keys(safe).length === 0) return send(res, 400, { error: 'No allowed fields in body' });
+      // DH-06: reject non-http(s) schemes before logo_url/website reach an <img src>/anchor sink.
+      for (const uk of ['logo_url', 'website']) {
+        const val = typeof safe[uk] === 'string' ? safe[uk].trim() : '';
+        if (val && !/^https?:\/\//i.test(val)) return send(res, 400, { error: 'invalid_url', message: uk + ' must be an http(s) URL.' });
+      }
       req.body = JSON.stringify(safe);
     } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
   } else if (req.method === 'PATCH' || req.method === 'DELETE') {
@@ -315,6 +345,18 @@ export default async function handler(req, res) {
         req.body = JSON.stringify(body);
       }
     } catch (_) { /* fall through */ }
+  }
+
+  // DH-05/DH-06: strip server-owned fields from any write body, and keep status to a simple
+  // token so a crafted demo.status can't carry HTML into the brand dashboard.
+  if (['POST', 'PATCH', 'PUT'].includes(req.method)) {
+    try {
+      const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      let touched = false;
+      for (const k of Object.keys(b)) { if (SERVER_OWNED_FIELDS.has(k)) { delete b[k]; touched = true; } }
+      if (typeof b.status === 'string' && !/^[a-z0-9_-]{1,40}$/i.test(b.status)) { delete b.status; touched = true; }
+      if (touched) req.body = JSON.stringify(b);
+    } catch (_) { /* leave body as-is if unparseable */ }
   }
 
   const baseUrl = `${SUPABASE_URL}/rest/v1/${table}`;
