@@ -89,7 +89,7 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 </table></body></html>`;
 }
 
-function declinedEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason }) {
+function declinedEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">${brandHeader()}</td></tr>
@@ -98,6 +98,7 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
+${refundStatus === 'issued' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>You've been fully refunded.</strong> The charge for this demo has been reversed and will appear back on your card in 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
@@ -246,8 +247,24 @@ export default async function handler(req, res) {
 
     let refundStatus = 'not_paid';
     let refundInfo = null;
-    if (action === 'cancel') {
-      const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+    const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+    if (action === 'decline') {
+      // Declining an un-hosted demo ALWAYS refunds in full. The retailer chose not to host
+      // it; the brand did nothing wrong, so we never keep their money. (Distinct from cancel,
+      // which can respect a cancellation policy / cutoff.)
+      if (!wasPaid) {
+        refundStatus = 'not_paid';
+      } else {
+        const r = await refundPaymentIntent(booking.payment_intent_id, {
+          keepsAll: !!(retailer && retailer.platform_keeps_all),
+          reason: 'requested_by_customer',
+          metadata: { booking_id, retailer_id: booking.retailer_id, action: 'decline' },
+        });
+        refundInfo = r;
+        refundStatus = r.ok ? 'issued' : 'refund_failed';
+        if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
+      }
+    } else if (action === 'cancel') {
       const mode = (retailer && retailer.cancellation_mode) || 'refundable';
       const daysOut = daysUntilDemo(booking.demo_date);
       const shouldRefund = wasPaid && (
@@ -273,8 +290,9 @@ export default async function handler(req, res) {
 
     // 1) Update booking row
     const patch = { status: newStatus };
-    if (action === 'decline' && reason) {
-      patch.notes = (booking.notes ? booking.notes + '\n\n' : '') + 'Declined: ' + reason;
+    if (action === 'decline') {
+      if (reason) patch.notes = (booking.notes ? booking.notes + '\n\n' : '') + 'Declined: ' + reason;
+      if (refundInfo && refundInfo.refund_id) patch.refund_id = refundInfo.refund_id;
     }
     if (action === 'cancel') {
       patch.cancelled_at = new Date().toISOString();
@@ -371,7 +389,7 @@ export default async function handler(req, res) {
         htmlBody = confirmedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, product: booking.product });
       } else if (action === 'decline') {
         subject = `Update on your ${retailer?.name || 'demo'} request`;
-        htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason });
+        htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
         subject = `Your ${retailer?.name || 'demo'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
