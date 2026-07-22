@@ -545,17 +545,19 @@ export default async function handler(req, res) {
           }
         }
       } catch (err) {
-        // Never fail a booking because we could not read the COI. Falling through as
-        // 'missing' would block a paying customer over our own outage, so allow it and
-        // let the enforcement cron catch a genuinely uninsured demo later.
-        console.error('COI gate read failed, allowing booking:', err && err.message);
-        coiState = 'covered';
+        // R2-02: fail CLOSED. A read outage must not let an uninsured brand pay/book — that is
+        // exactly the state this gate exists to stop. Block with a transient "try again" message
+        // instead of silently marking the brand covered.
+        console.error('COI gate read failed, blocking booking (fail-closed):', err && err.message);
+        coiState = 'error';
       }
       if (coiState !== 'covered') {
-        return res.status(400).json({
-          error: 'coi_required',
+        return res.status(coiState === 'error' ? 503 : 400).json({
+          error: coiState === 'error' ? 'coi_check_unavailable' : 'coi_required',
           coi_state: coiState,
-          message: _isAdminBooking
+          message: coiState === 'error'
+            ? 'We could not verify insurance just now. Please try again in a moment.'
+            : _isAdminBooking
             ? (coiState === 'unknown'
                 ? 'That brand has a certificate on file but no readable expiry date, so this booking cannot be created. Ask them to re-upload a clearer copy.'
                 : 'That brand has no current Certificate of Insurance on file. Send them your booking link so they can upload one and book.')
