@@ -359,6 +359,7 @@ function deltaPill(pct) {
 }
 
 function renderDashboard(d) {
+  window._ownerMetrics = d;
   topnav.style.display = 'flex';
   document.getElementById('ownerEmail').textContent = d.email || '';
   const h = d.headline || {};
@@ -608,127 +609,181 @@ async function resolveIncident(id) {
 }
 
 // Generate plausible sample analytics data for a time range
-function generateAnalyticsSample(rangeKey) {
-  const ranges = { '7d': 7, '30d': 30, '90d': 90, 'ytd': Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime())/86400000), 'all': 365 };
-  const days = ranges[rangeKey] || 30;
-  const series = [];
-  let seed = 0; for (let i = 0; i < rangeKey.length; i++) seed += rangeKey.charCodeAt(i);
-  const rng = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
-  let totalDemos = 0, totalRevenue = 0, newBrands = 0, newRetailers = 0;
-  const today = new Date();
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(today); d.setDate(d.getDate() - i);
-    const baseDemos = Math.max(0, Math.round(2 + rng() * 8 + (i < days/2 ? 1.5 : 0)));
-    const demoFees = baseDemos * (25 + Math.round(rng() * 15));
-    const platformRev = Math.floor(demoFees / 10);
-    totalDemos += baseDemos;
-    totalRevenue += platformRev;
-    if (rng() > 0.85) newBrands++;
-    if (rng() > 0.96) newRetailers++;
-    series.push({ date: d.toISOString().slice(0,10), demos: baseDemos, revenue: platformRev });
-  }
-  const subRev = 8 * 99 + 4 * 199 + 12 * 49; // Sample MRR mix
-  totalRevenue += Math.round(subRev * (days / 30));
-  const priorTotalDemos = Math.round(totalDemos * (0.7 + rng() * 0.5));
-  const demoDelta = priorTotalDemos === 0 ? 100 : Math.round(((totalDemos - priorTotalDemos) / priorTotalDemos) * 100);
-  return { series, totalDemos, totalRevenue, newBrands, newRetailers, demoDelta };
+// A small horizontal-bar breakdown (tiers, MRR composition).
+function hBars(rows, colorFor) {
+  const max = Math.max(1, ...rows.map(r => r.value));
+  return rows.map(function (r) {
+    const pct = Math.round((r.value / max) * 100);
+    return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">'
+      + '<div style="width:96px;font-size:0.82rem;color:var(--ink-700);flex-shrink:0;">' + escapeHtml(r.label) + '</div>'
+      + '<div style="flex:1;background:rgba(15,44,23,0.06);border-radius:6px;height:14px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + (colorFor ? colorFor(r) : '#3a7142') + ';border-radius:6px;transition:width .8s cubic-bezier(.3,.7,.4,1);"></div></div>'
+      + '<div style="width:52px;text-align:right;font-size:0.85rem;font-weight:600;color:var(--forest-900);">' + (r.display != null ? r.display : r.value) + '</div></div>';
+  }).join('');
 }
 
-function renderAnalytics(rangeKey) {
+function renderAnalytics() {
   const pane = document.getElementById('analyticsPane');
   if (!pane) return;
-  const data = generateAnalyticsSample(rangeKey);
-  const maxDemos = Math.max(...data.series.map(s => s.demos), 1);
-  const maxRev = Math.max(...data.series.map(s => s.revenue), 1);
-  const barW = data.series.length > 60 ? 4 : (data.series.length > 30 ? 8 : 14);
-  const gap = data.series.length > 60 ? 1 : 3;
-  const svgW = data.series.length * (barW + gap);
-  const demoBars = data.series.map((s, i) => `<rect x="${i*(barW+gap)}" y="${160 - (s.demos/maxDemos*140)}" width="${barW}" height="${s.demos/maxDemos*140}" rx="2" fill="#1f4a26"/>`).join('');
-  const revBars = data.series.map((s, i) => `<rect x="${i*(barW+gap)}" y="${160 - (s.revenue/maxRev*140)}" width="${barW}" height="${s.revenue/maxRev*140}" rx="2" fill="#ed682f"/>`).join('');
-  pane.innerHTML = `
-    <div class="range-bar">
-      <span class="range-label">Time range</span>
-      ${['7d','30d','90d','ytd','all'].map(r => `<button class="range-btn${r===rangeKey?' active':''}" data-range="${r}">${r==='ytd'?'YTD':r==='all'?'All time':r}</button>`).join('')}
-    </div>
-    <div class="analytics-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">Total demos</div>
-        <div class="kpi-value">${data.totalDemos.toLocaleString()}</div>
-        <div class="kpi-delta ${data.demoDelta >= 0 ? 'up' : 'down'}">${data.demoDelta >= 0 ? '▲' : '▼'} ${Math.abs(data.demoDelta)}% vs prior period</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Platform revenue</div>
-        <div class="kpi-value">$${data.totalRevenue.toLocaleString()}</div>
-        <div class="kpi-delta up">▲ 23% vs prior period</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">New brands</div>
-        <div class="kpi-value">${data.newBrands}</div>
-        <div class="kpi-delta up">▲ 12% vs prior period</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">New retailers</div>
-        <div class="kpi-value">${data.newRetailers}</div>
-        <div class="kpi-delta up">▲ 8% vs prior period</div>
-      </div>
-    </div>
-    <div class="chart-grid">
-      <div class="chart-card">
-        <h3>Demos by day</h3>
-        <div class="chart-sub">Daily confirmed demos across all retailers.</div>
-        <svg class="chart-svg" viewBox="0 0 ${svgW} 160" preserveAspectRatio="none">${demoBars}</svg>
-      </div>
-      <div class="chart-card">
-        <h3>Platform revenue by day</h3>
-        <div class="chart-sub">Per-demo fee + prorated subscription share.</div>
-        <svg class="chart-svg" viewBox="0 0 ${svgW} 160" preserveAspectRatio="none">${revBars}</svg>
-      </div>
-    </div>
-    <p style="font-size:0.8rem;color:var(--ink-500);margin-top:16px;font-style:italic;">Sample data shown for demo purposes. Live data wiring after Stripe integration.</p>
-  `;
-  pane.querySelectorAll('.range-btn').forEach(btn => {
-    btn.addEventListener('click', () => renderAnalytics(btn.dataset.range));
+  const d = window._ownerMetrics || {};
+  const h = d.headline || {}, t = d.trends || {}, w = d.watchlist || {};
+  const demosSeries = t.demos_per_month || [];
+  const totalDemos = demosSeries.reduce(function (a, p) { return a + (p.count || 0); }, 0);
+  const totalBrands = h.total_brands || 0;
+  const withoutCoi = (w.brands_without_coi || []).length;
+  const withCoi = Math.max(0, totalBrands - withoutCoi);
+  const coiPct = totalBrands ? Math.round((withCoi / totalBrands) * 100) : 0;
+  const totalRet = h.total_retailers || 0, activeRet = h.active_retailers_30d || 0;
+  const tiers = h.tier_counts || {};
+  const tierRows = ['enterprise', 'growth', 'starter', 'free']
+    .filter(function (k) { return (tiers[k] || 0) > 0 || k === 'free'; })
+    .map(function (k) { return { label: k.charAt(0).toUpperCase() + k.slice(1), value: tiers[k] || 0 }; });
+  const mrrRows = [
+    { label: 'Subscriptions', value: h.mrr_subs || 0, display: '$' + (h.mrr_subs || 0).toLocaleString() },
+    { label: 'Per-demo', value: h.mrr_per_demo || 0, display: '$' + (h.mrr_per_demo || 0).toLocaleString() },
+  ];
+
+  pane.innerHTML = '' +
+    '<div class="stat-row">' +
+      '<div class="stat"><div class="stat-lbl">Total demos</div><div class="stat-num" data-count="' + totalDemos + '">0</div><div class="stat-sub">across all retailers, last 12 mo</div></div>' +
+      '<div class="stat"><div class="stat-lbl">Est. MRR</div><div class="stat-num" data-count="' + (h.mrr_projection || 0) + '" data-prefix="$">$0</div><div class="stat-sub">subs + per-demo</div></div>' +
+      '<div class="stat"><div class="stat-lbl">Brands insured</div><div class="stat-num" data-count="' + withCoi + '">0</div><div class="stat-sub">' + coiPct + '% of ' + totalBrands + ' have a COI</div></div>' +
+      '<div class="stat"><div class="stat-lbl">Active retailers</div><div class="stat-num" data-count="' + activeRet + '">0</div><div class="stat-sub">of ' + totalRet + ' in last 30d</div></div>' +
+    '</div>' +
+    '<div class="chart" style="margin-bottom:22px;"><h3>Network growth</h3><div class="csub">Cumulative retailers + brands, last 12 months</div>' + renderGrowthChart(t.retailer_signups || [], t.brand_signups || []) + '</div>' +
+    '<div class="chart" style="margin-bottom:22px;"><h3>Demos per month</h3><div class="csub">By demo date</div>' + renderBars(null, demosSeries) + '</div>' +
+    '<div class="trends-row">' +
+      '<div class="chart"><h3>Revenue mix</h3><div class="csub">Monthly recurring, by source</div><div style="margin-top:12px;">' + hBars(mrrRows, function (r) { return r.label === 'Subscriptions' ? '#3a7142' : '#ed682f'; }) + '</div></div>' +
+      '<div class="chart"><h3>Plan mix</h3><div class="csub">Retailers by billing tier</div><div style="margin-top:12px;">' + hBars(tierRows) + '</div></div>' +
+    '</div>';
+  if (typeof ownerCountUp === 'function') ownerCountUp();
+}
+
+// Tab switching + lazy-render analytics/billing
+function wireTabs() {
+  document.querySelectorAll('.owner-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.tab;
+      document.querySelectorAll('.owner-tab').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
+      if (tab === 'analytics') renderAnalytics('30d');
+      if (tab === 'billing') renderBilling();
+      if (tab === 'status') renderStatusManager();
+    });
   });
 }
+
+// Status incidents management (owner panel)
+async function renderStatusManager() {
+  const pane = document.getElementById('statusPane');
+  if (!pane) return;
+  pane.innerHTML = '<div style="padding:20px; color:var(--ink-500);">Loading incidents…</div>';
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  if (!sessionId) { pane.innerHTML = '<div style="padding:20px; color:var(--clay-700);">Owner session not found.</div>'; return; }
+  let incidents = [];
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-list', sessionId }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed to load');
+    incidents = j.incidents || [];
+  } catch (e) {
+    pane.innerHTML = '<div style="padding:20px; color:var(--clay-700);">Could not load: ' + e.message + '</div>';
+    return;
+  }
+  const active = incidents.filter(i => !i.resolved_at);
+  const resolved = incidents.filter(i => i.resolved_at).slice(0, 10);
+  pane.innerHTML = `
+    <div class="card">
+      <h2>Post new incident</h2>
+      <div class="sub" style="margin-bottom:14px;">Posts to public /status page immediately. Choose major to flag as outage, minor for degraded, maintenance for planned work.</div>
+      <input id="incTitle" type="text" placeholder="Short title (e.g. Bookings page slow loading)" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; margin-bottom:10px;">
+      <textarea id="incBody" placeholder="Optional detail / what's affected / what we're doing" rows="3" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; margin-bottom:10px;"></textarea>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <select id="incSeverity" style="padding:10px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit;">
+          <option value="minor">Minor (degraded)</option>
+          <option value="major">Major (outage)</option>
+          <option value="maintenance">Maintenance</option>
+        </select>
+        <button onclick="postIncident()" style="background:#0f2c17; color:white; border:none; padding:11px 22px; border-radius:8px; font-weight:700; cursor:pointer;">Post incident</button>
+        <span id="incStatus" style="font-size:0.85rem; color:var(--ink-500);"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Active incidents (${active.length})</h2>
+      ${active.length === 0 ? '<div class="sub">No active incidents. /status shows operational.</div>' : active.map(i => `
+        <div style="background:white; border-left:4px solid ${i.severity==='major'?'#c93030':i.severity==='maintenance'?'#3a7142':'#ed682f'}; padding:14px 18px; border-radius:0 10px 10px 0; margin-bottom:10px; border:1px solid rgba(15,44,23,0.06);">
+          <div style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
+            <div style="flex:1;">
+              <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(i.title)}</div>
+              ${i.body ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-top:4px;">${escapeHtml(i.body)}</div>` : ''}
+              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${i.severity.toUpperCase()} · started ${new Date(i.started_at).toLocaleString()}</div>
+            </div>
+            <button onclick="resolveIncident('${i.id}')" style="background:#2a5b32; color:white; border:none; padding:7px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:0.85rem;">Resolve</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+    <div class="card" style="margin-top:18px;">
+      <h2>Recently resolved</h2>
+      ${resolved.length === 0 ? '<div class="sub">No resolved incidents in history.</div>' : resolved.map(i => `
+        <div style="padding:10px 14px; border-bottom:1px solid rgba(15,44,23,0.06); font-size:0.88rem;">
+          <strong>${escapeHtml(i.title)}</strong> · ${i.severity} · ${new Date(i.started_at).toLocaleDateString()} – ${new Date(i.resolved_at).toLocaleDateString()}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+async function postIncident() {
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  const title = document.getElementById('incTitle').value.trim();
+  const body = document.getElementById('incBody').value.trim();
+  const severity = document.getElementById('incSeverity').value;
+  const status = document.getElementById('incStatus');
+  if (!title) { status.textContent = 'Title required.'; status.style.color = '#c93030'; return; }
+  status.textContent = 'Posting…'; status.style.color = '#6b6a64';
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-post', sessionId, title, body, severity }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed');
+    status.textContent = 'Posted ✓'; status.style.color = '#2a5b32';
+    setTimeout(renderStatusManager, 600);
+  } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#c93030'; }
+}
+async function resolveIncident(id) {
+  const sessionId = localStorage.getItem('demohub_owner_session') || '';
+  try {
+    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-resolve', sessionId, incident_id: id }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'Failed');
+    renderStatusManager();
+  } catch (e) { alert('Resolve failed: ' + e.message); }
+}
+
+// Generate plausible sample analytics data for a time range
+
 
 function renderBilling() {
   const pane = document.getElementById('billingPane');
   if (!pane) return;
-  pane.innerHTML = `
-    <div class="analytics-grid">
-      <div class="kpi-card">
-        <div class="kpi-label">MRR</div>
-        <div class="kpi-value">$2,184</div>
-        <div class="kpi-delta up">▲ from new signups</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Subscriptions active</div>
-        <div class="kpi-value">24</div>
-        <div class="kpi-delta up">12 Solo · 8 Starter · 4 Growth</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Pending payouts</div>
-        <div class="kpi-value">$3,420</div>
-        <div class="kpi-delta">To 18 retailer accounts</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Platform fees (30d)</div>
-        <div class="kpi-value">$842</div>
-        <div class="kpi-delta up">$1/$10 per-demo cut</div>
-      </div>
-    </div>
-    <div class="chart-card" style="margin-top:16px;">
-      <h3>Stripe Connect status</h3>
-      <div class="chart-sub">Wire Stripe to enable: subscription billing, brand payments, retailer payouts.</div>
-      <p style="margin-top:14px;font-size:0.92rem;color:var(--ink-700);line-height:1.5;">
-        Three flows pending: <strong>(1)</strong> Subscription billing for retailer tiers (Solo/Starter/Growth).
-        <strong>(2)</strong> Brand checkout for per-demo payment.
-        <strong>(3)</strong> Stripe Connect Express for retailer payouts.
-        Add <code>STRIPE_SECRET_KEY</code> + <code>STRIPE_WEBHOOK_SECRET</code> in Vercel, then we wire all three. See <code>STRIPE-NEXT-STEPS.md</code>.
-      </p>
-    </div>
-    <p style="font-size:0.8rem;color:var(--ink-500);margin-top:16px;font-style:italic;">Sample data shown. Live numbers populate once Stripe is wired.</p>
-  `;
+  const h = (window._ownerMetrics || {}).headline || {};
+  const tiers = h.tier_counts || {};
+  const paidSubs = (tiers.starter || 0) + (tiers.growth || 0) + (tiers.enterprise || 0);
+  const subBreak = ['starter', 'growth', 'enterprise'].filter(function (k) { return (tiers[k] || 0) > 0; })
+    .map(function (k) { return (tiers[k]) + ' ' + k.charAt(0).toUpperCase() + k.slice(1); }).join(' \u00b7 ') || 'none yet';
+  pane.innerHTML = ''
+    + '<div class="stat-row">'
+    + '<div class="stat"><div class="stat-lbl">Est. MRR</div><div class="stat-num" data-count="' + (h.mrr_projection || 0) + '" data-prefix="$">$0</div><div class="stat-sub">subs $' + (h.mrr_subs || 0).toLocaleString() + ' \u00b7 per-demo $' + (h.mrr_per_demo || 0).toLocaleString() + '</div></div>'
+    + '<div class="stat"><div class="stat-lbl">Paid subscriptions</div><div class="stat-num" data-count="' + paidSubs + '">0</div><div class="stat-sub">' + subBreak + '</div></div>'
+    + '<div class="stat"><div class="stat-lbl">Demos this month</div><div class="stat-num" data-count="' + (h.demos_this_month || 0) + '">0</div><div class="stat-sub">the per-demo revenue driver</div></div>'
+    + '<div class="stat"><div class="stat-lbl">Per-demo revenue</div><div class="stat-num" data-count="' + (h.mrr_per_demo || 0) + '" data-prefix="$">$0</div><div class="stat-sub">platform cut, this month</div></div>'
+    + '</div>'
+    + '<div class="card"><h2>Stripe Connect status</h2>'
+    + '<div class="sub">What is live vs pending on the money rails.</div>'
+    + '<p style="margin-top:12px;font-size:0.92rem;color:var(--ink-700);line-height:1.6;">'
+    + '<strong>Live:</strong> brand checkout for per-demo payment (the numbers above are real).<br>'
+    + '<strong>Pending:</strong> subscription billing for retailer tiers, and Stripe Connect Express payouts to connected retailers. '
+    + 'Pending-payout totals will populate here once a connected (non keeps-all) retailer is onboarded. See <code>STRIPE-NEXT-STEPS.md</code>.'
+    + '</p></div>';
+  if (typeof ownerCountUp === 'function') ownerCountUp();
 }
 
 // ----- Init -----
