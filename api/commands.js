@@ -61,6 +61,12 @@ function vNumber(val, field, min, max) {
   if (n < min || n > max) throw badInput(`${field} must be between ${min} and ${max}`);
   return n;
 }
+function vDate(val, field) {
+  if (val === undefined || val === null || val === '') return null;
+  const s = String(val).trim();
+  if (!/^\d{4}-\d{2}-\d{2}/.test(s) || !Number.isFinite(Date.parse(s))) throw badInput(`${field} must be a valid date (YYYY-MM-DD)`);
+  return s.slice(0, 10);
+}
 function vHttps(val, field) {
   if (val === undefined) return undefined;
   if (val === null || val === '') return null;
@@ -200,9 +206,97 @@ const COMMANDS = {
     if (count !== 1) return { status: 409, body: { error: 'update_scope_mismatch' } };
     return { status: 200, body: { ok: true, retailer: rows[0] } };
   },
+
+  // ---- contacts (brand_contacts / internal_contacts) --------------------------------------
+  async upsertContact(auth, input) {
+    const kind = input.kind === 'internal' ? 'internal' : 'brand';
+    const table = kind === 'internal' ? 'internal_contacts' : 'brand_contacts';
+    const companyField = kind === 'internal' ? 'role' : 'company';
+    const fields = {};
+    if (input.name !== undefined || input.id === undefined) { const n = vString(input.name, 'name', 160); if (!n) throw badInput('name is required'); fields.name = n; }
+    for (const k of ['venue', 'email', 'phone']) if (input[k] !== undefined) fields[k] = vString(input[k], k, 200, { optional: true });
+    if (input.company !== undefined) fields[companyField] = vString(input.company, 'company', 200, { optional: true });
+    if (kind === 'brand' && input.address !== undefined) fields.address = vString(input.address, 'address', 300, { optional: true });
+    if (input.id !== undefined) {
+      if (!isUuid(input.id)) throw badInput('invalid id');
+      const owned = await ownedRow(table, input.id, auth.retailerId);
+      if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
+      const { rows, count } = await sbWrite('PATCH', `${table}?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, fields);
+      if (count !== 1) return { status: 409, body: { error: 'update_scope_mismatch' } };
+      return { status: 200, body: { ok: true, contact: rows[0] } };
+    }
+    fields.retailer_id = auth.retailerId;
+    const { rows, count } = await sbWrite('POST', table, fields);
+    if (count !== 1) return { status: 500, body: { error: 'create_failed' } };
+    return { status: 201, body: { ok: true, contact: rows[0] } };
+  },
+
+  async deleteContact(auth, input) {
+    const table = input.kind === 'internal' ? 'internal_contacts' : 'brand_contacts';
+    if (!input || !isUuid(input.id)) throw badInput('contact id required');
+    const owned = await ownedRow(table, input.id, auth.retailerId);
+    if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
+    const { count } = await sbWrite('DELETE', `${table}?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, null);
+    if (count !== 1) return { status: 409, body: { error: 'delete_scope_mismatch' } };
+    return { status: 200, body: { ok: true, deleted: input.id } };
+  },
+
+  // ---- compliance records (retailer's own COI/insurance tracking) --------------------------
+  async upsertComplianceRecord(auth, input) {
+    const fields = {};
+    if (input.brand_contact_id !== undefined) { if (input.brand_contact_id && !isUuid(input.brand_contact_id)) throw badInput('invalid brand_contact_id'); fields.brand_contact_id = input.brand_contact_id || null; }
+    if (input.doc_type !== undefined) fields.doc_type = vString(input.doc_type, 'doc_type', 80, { optional: true });
+    if (input.doc_number !== undefined) fields.doc_number = vString(input.doc_number, 'doc_number', 120, { optional: true });
+    if (input.issued_at !== undefined) fields.issued_at = vDate(input.issued_at, 'issued_at');
+    if (input.expires_at !== undefined) fields.expires_at = vDate(input.expires_at, 'expires_at');
+    if (input.file_url !== undefined) fields.file_url = vHttps(input.file_url, 'file_url');
+    if (input.verified !== undefined) fields.verified = vBool(input.verified, 'verified');
+    // Reset warn timestamps on create or expiry change (mirror the server-side cron reset).
+    if (input.id === undefined || input.expires_at !== undefined) {
+      fields.coi_warn_30_sent_at = null; fields.coi_warn_14_sent_at = null; fields.coi_warn_3_sent_at = null;
+    }
+    if (input.id !== undefined) {
+      if (!isUuid(input.id)) throw badInput('invalid id');
+      const owned = await ownedRow('compliance_records', input.id, auth.retailerId);
+      if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
+      const { rows, count } = await sbWrite('PATCH', `compliance_records?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, fields);
+      if (count !== 1) return { status: 409, body: { error: 'update_scope_mismatch' } };
+      return { status: 200, body: { ok: true, record: rows[0] } };
+    }
+    fields.retailer_id = auth.retailerId;
+    const { rows, count } = await sbWrite('POST', 'compliance_records', fields);
+    if (count !== 1) return { status: 500, body: { error: 'create_failed' } };
+    return { status: 201, body: { ok: true, record: rows[0] } };
+  },
+
+  async deleteComplianceRecord(auth, input) {
+    if (!input || !isUuid(input.id)) throw badInput('record id required');
+    const owned = await ownedRow('compliance_records', input.id, auth.retailerId);
+    if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
+    const { count } = await sbWrite('DELETE', `compliance_records?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, null);
+    if (count !== 1) return { status: 409, body: { error: 'delete_scope_mismatch' } };
+    return { status: 200, body: { ok: true, deleted: input.id } };
+  },
+
+  // ---- settings (one row per retailer; self-scoped by retailer_id) -------------------------
+  async updateSettings(auth, input) {
+    const fields = {};
+    if (input.demo_fee !== undefined) fields.demo_fee = vNumber(input.demo_fee, 'demo_fee', 0, 100000);
+    if (input.demo_duration !== undefined) fields.demo_duration = vNumber(input.demo_duration, 'demo_duration', 0, 1440);
+    if (input.advance_booking_days !== undefined) fields.advance_booking_days = vInt(input.advance_booking_days, 'advance_booking_days', 0, 3650);
+    if (Object.keys(fields).length === 0) throw badInput('no updatable fields');
+    const { rows, count } = await sbWrite('PATCH', `settings?retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, fields);
+    if (count < 1) return { status: 404, body: { error: 'settings_not_found' } };
+    return { status: 200, body: { ok: true, settings: rows[0] } };
+  },
 };
 
-const CAPABILITY = { updateVenue: 'venue.manage', createVenue: 'venue.manage', deleteVenue: 'venue.manage', updateRetailerProfile: 'write' };
+const CAPABILITY = {
+  updateVenue: 'venue.manage', createVenue: 'venue.manage', deleteVenue: 'venue.manage',
+  updateRetailerProfile: 'write', updateSettings: 'write',
+  upsertContact: 'write', deleteContact: 'write',
+  upsertComplianceRecord: 'coi.waive', deleteComplianceRecord: 'coi.waive',
+};
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
