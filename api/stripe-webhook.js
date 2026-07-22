@@ -701,22 +701,52 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'signature invalid' });
   }
 
-  // DH-17: durable idempotency. Record this event.id; if it is already recorded, this is a
-  // Stripe retry/replay — acknowledge without re-processing. Resilient: if the dedup table is
-  // missing (migration not run) we log and process as before — a real payment is never blocked.
+  // DH-17 / R2-01: durable event inbox. Claim the event as 'processing'. ONLY a row already
+  // marked 'completed' is a true duplicate to skip; a 'processing'/'failed' row is a prior
+  // attempt that did not finish, so we re-process (a duplicate side effect is far better than a
+  // permanently lost payment — the earlier "insert before processing" logic could drop an event
+  // whose handler threw). We mark 'completed' only AFTER the handler succeeds, and release to
+  // 'failed' on error so Stripe's retry can reclaim it. Resilient: if the table/columns are
+  // missing we process as before and never block a real payment.
+  let _inboxClaimed = false;
   try {
     const ins = await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events`, {
       method: 'POST',
       headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({ event_id: event.id, event_type: event.type }),
+      body: JSON.stringify({ event_id: event.id, event_type: event.type, status: 'processing' }),
     });
-    if (ins.status === 409) {
-      console.log('duplicate webhook event ignored:', event.id);
-      return res.status(200).json({ received: true, duplicate: true });
+    if (ins.ok) {
+      _inboxClaimed = true;
+    } else if (ins.status === 409) {
+      let st = null;
+      try {
+        const q = await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events?event_id=eq.${encodeURIComponent(event.id)}&select=status`, {
+          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+        });
+        const rows = q.ok ? await q.json() : [];
+        st = (Array.isArray(rows) && rows[0]) ? rows[0].status : null;
+      } catch (_) {}
+      if (st === 'completed') {
+        console.log('duplicate webhook event ignored (already completed):', event.id);
+        return res.status(200).json({ received: true, duplicate: true });
+      }
+      _inboxClaimed = true; // prior unfinished attempt -> reclaim and re-process
+    } else {
+      console.warn('event-inbox claim non-ok (continuing):', ins.status);
     }
-    if (!ins.ok) console.warn('event-dedup insert non-ok (continuing):', ins.status);
   } catch (e) {
-    console.warn('event-dedup unavailable (continuing):', String(e?.message || e).slice(0, 160));
+    console.warn('event-inbox unavailable (continuing):', String(e?.message || e).slice(0, 160));
+  }
+
+  async function _markInbox(status, extra) {
+    if (!_inboxClaimed) return;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events?event_id=eq.${encodeURIComponent(event.id)}`, {
+        method: 'PATCH',
+        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(Object.assign({ status }, extra || {})),
+      });
+    } catch (_) {}
   }
 
   try {
@@ -745,9 +775,12 @@ export default async function handler(req, res) {
         // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
         console.log(`ignored event: ${event.type}`);
     }
+    // R2-01: mark completed ONLY after the handler succeeded.
+    await _markInbox('completed', { processed_at: new Date().toISOString() });
     return res.status(200).json({ received: true });
   } catch (e) {
-    // Return 500 so Stripe will retry — but log so we can diagnose
+    // Return 500 so Stripe will retry — release the claim so the retry can re-process.
+    await _markInbox('failed', { last_error: String((e && e.message) || e).slice(0, 300) });
     console.error(`webhook handler error for ${event.type}:`, e.message);
     return res.status(500).json({ error: e.message });
   }
