@@ -36,12 +36,16 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
     for (const [k, v] of Object.entries(opts.metadata)) params.set('metadata[' + k + ']', String(v));
   }
   try {
+    const _headers = {
+      Authorization: 'Bearer ' + STRIPE_SECRET_KEY,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    };
+    // R2-03: idempotency key so two concurrent decline/cancel requests can't double-refund the
+    // same booking. Keyed on the booking + operation, stable across Stripe/our own retries.
+    if (opts.idempotencyKey) _headers['Idempotency-Key'] = String(opts.idempotencyKey).slice(0, 255);
     const r = await fetch('https://api.stripe.com/v1/refunds', {
       method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + STRIPE_SECRET_KEY,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
+      headers: _headers,
       body: params.toString(),
     });
     const json = await r.json();
@@ -379,6 +383,7 @@ export default async function handler(req, res) {
         const r = await refundPaymentIntent(booking.payment_intent_id, {
           keepsAll: !!(retailer && retailer.platform_keeps_all),
           amountCents: await bookingRefundCents(booking, venue, retailer),
+          idempotencyKey: 'refund-' + booking_id + '-decline',
           reason: 'requested_by_customer',
           metadata: { booking_id, retailer_id: booking.retailer_id, action: 'decline' },
         });
@@ -400,6 +405,7 @@ export default async function handler(req, res) {
         const r = await refundPaymentIntent(booking.payment_intent_id, {
           keepsAll: !!(retailer && retailer.platform_keeps_all),
           amountCents: await bookingRefundCents(booking, venue, retailer),
+          idempotencyKey: 'refund-' + booking_id + '-cancel',
           reason: 'requested_by_customer',
           metadata: { booking_id, retailer_id: booking.retailer_id, mode, days_out: String(daysOut) },
         });
