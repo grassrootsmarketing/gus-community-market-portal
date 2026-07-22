@@ -145,6 +145,13 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
 
+  // LG-10 (launch gate): public retailer self-signup is DISABLED for the invite-only pilot.
+  // It issued an owner session with no email-ownership proof and accepted up to 999 stores.
+  // Re-enable only after email-ownership + entitlement enforcement, by setting ALLOW_PUBLIC_SIGNUP=1.
+  if (process.env.ALLOW_PUBLIC_SIGNUP !== '1') {
+    return res.status(403).json({ error: 'signups_closed', message: 'Demohub is invite-only right now. Contact us to get set up.' });
+  }
+
   // Rate limit: 10 signups per IP per hour (signup is unauthenticated, prevents bulk abuse)
   const rl = await checkRateLimit(req, 'signup', 10);
   if (!rl.allowed) {
