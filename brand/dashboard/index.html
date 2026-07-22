@@ -394,6 +394,14 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .dh-empty-icon{ width:56px; height:56px; margin:0 auto 14px; background:var(--cream-100); border-radius:50%; display:flex; align-items:center; justify-content:center; }
 .dh-empty-title{ font-weight:700; font-size:1rem; color:var(--forest-900); margin-bottom:5px; }
 .dh-empty-sub{ font-size:0.88rem; color:var(--ink-500); line-height:1.55; max-width:340px; margin:0 auto; }
+
+.resched-banner{background:#fff8ed;border:1px solid #e0b56a55;border-radius:10px;padding:12px 14px;margin:8px 0 0;}
+.resched-banner .resched-msg{font-size:0.86rem;line-height:1.5;color:#7a5a12;margin-bottom:10px;}
+.resched-banner .resched-actions{display:flex;gap:8px;flex-wrap:wrap;}
+.resched-accept{background:var(--forest-900);color:#fff;border:none;border-radius:8px;padding:8px 15px;font-weight:700;font-size:0.85rem;cursor:pointer;transition:transform .12s ease,filter .15s ease;}
+.resched-accept:hover{transform:translateY(-1px);filter:brightness(1.08);}
+.resched-decline{background:#fff;color:var(--ink-700);border:1.5px solid rgba(15,44,23,.15);border-radius:8px;padding:8px 15px;font-weight:600;font-size:0.85rem;cursor:pointer;}
+.resched-accept:disabled,.resched-decline:disabled{opacity:.6;cursor:default;}
 </style>
 <!-- PostHog -->
 <script>
@@ -774,6 +782,44 @@ function markChecklistDone(key) {
 
 // The banner used to just vanish the moment the last item landed, which reads as
 // "something broke" rather than "you finished". Confirm, then fade.
+// Reschedule proposal banner shown on a demo when the retailer wants a new date.
+// The brand accepts (moves the demo) or declines (keeps the original) in one click.
+function rescheduleBannerHtml(d) {
+  const _fmt = function (dt, tm) {
+    if (!dt) return '';
+    try { return new Date(dt + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (tm ? ' at ' + tm : ''); }
+    catch (_) { return dt + (tm ? ' at ' + tm : ''); }
+  };
+  const store = escapeHtml(d.retailers && d.retailers.name || 'The store');
+  const toLabel = escapeHtml(_fmt(d.reschedule_to_date, d.reschedule_to_time));
+  const fromLabel = escapeHtml(_fmt(d.demo_date, d.demo_time));
+  return '<div class="resched-banner" title="The store asked to move this demo to a new date. Accepting changes only the date \u2014 your booking and payment stay the same. Declining keeps the original date.">'
+    + '<div class="resched-msg"><strong>' + store + ' proposed a new date.</strong> Move from <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span> to <strong>' + toLabel + '</strong>? Your booking and payment stay the same.</div>'
+    + '<div class="resched-actions">'
+    + '<button class="resched-accept" title="Move your demo to the proposed date. Nothing else changes." onclick="respondReschedule(\'' + escapeHtml(String(d.id)) + '\',\'accept\',this)">Accept new date</button>'
+    + '<button class="resched-decline" title="Keep your demo on the original date." onclick="respondReschedule(\'' + escapeHtml(String(d.id)) + '\',\'decline\',this)">Decline</button>'
+    + '</div></div>';
+}
+
+window.respondReschedule = async function (demoId, decision, btn) {
+  const wrap = btn && btn.closest('.resched-banner');
+  if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  if (btn) btn.textContent = decision === 'accept' ? 'Moving\u2026' : 'Updating\u2026';
+  try {
+    const r = await fetch('/api/brand-account?action=reschedule-respond', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ demo_id: demoId, decision: decision }),
+    });
+    const j = await r.json().catch(function () { return {}; });
+    if (!r.ok) throw new Error(j.message || j.error || 'Could not update.');
+    if (decision === 'accept') { try { dhConfettiBurst(40); } catch (_) {} }
+    await loadData();   // re-render with the moved/kept demo
+  } catch (e) {
+    if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    alert((e && e.message) || 'Could not update. Please try again.');
+  }
+};
+
 // A short, tasteful confetti burst in the brand palette. Reduced-motion users get nothing.
 function dhConfettiBurst(count) {
   try {
@@ -1105,7 +1151,7 @@ function renderOverview() {
             ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
           <div class="demos-status ${d.status}">${d._awaitingConfirmation ? "Awaiting confirmation" : d.status}</div>
-        </div>`;
+        </div>${d.reschedule_to_date ? rescheduleBannerHtml(d) : ''}`;
       }).join('')}
     </div>`;
 
