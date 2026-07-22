@@ -835,7 +835,9 @@ export default async function handler(req, res) {
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       // DH-03: 'default_coi_url' intentionally NOT allowlisted — a COI URL is only ever set by the
       // verified upload handler, never self-declared through a profile save.
-      const allowed = ['company_name', 'contact_name', 'phone', 'default_coi_expires', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
+      // LG-11: 'default_coi_expires' removed — a brand must NOT be able to self-extend the coverage
+      // date used by the booking gate. Expiry is server-owned, set only by the verified upload flow.
+      const allowed = ['company_name', 'contact_name', 'phone', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
       const patch = { updated_at: new Date().toISOString() };
       for (const k of allowed) {
         if (body[k] !== undefined) {
