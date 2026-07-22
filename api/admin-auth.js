@@ -5,7 +5,7 @@
 //   POST { action: "logout", session_id }                 → invalidates the session
 // Uses service_role; never exposes whether an email is registered (anti-enumeration).
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin

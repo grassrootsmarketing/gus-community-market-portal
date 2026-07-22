@@ -3,7 +3,7 @@
 
 import { coiCoverageState } from './_coi-lib.js';
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';

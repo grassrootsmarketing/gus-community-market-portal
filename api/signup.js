@@ -3,7 +3,7 @@
 // settings, and a starter availability schedule. Returns the new admin URL.
 // Uses service_role.
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';

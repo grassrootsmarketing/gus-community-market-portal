@@ -9,7 +9,7 @@
 //   session_id=<uuid>           — required
 // Body (for POST/PATCH): JSON; must include retailer_id for POST.
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 // WS1 (P1): the generic proxy is being retired in favor of named commands in /api/commands.js.

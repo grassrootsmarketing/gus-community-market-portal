@@ -15,7 +15,7 @@
 // Not yet wired into live endpoints — adoption happens after membership backfill + tests.
 // -----------------------------------------------------------------------------
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
 const OWNER_RETAILER_SLUG = '__owner__';

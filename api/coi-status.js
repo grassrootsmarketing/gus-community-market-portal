@@ -11,7 +11,7 @@
 
 import { hasCurrentCoi, brandVerifiedState } from './_coi-lib.js';
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // WS1-R2-03: env-driven; a preview must set SUPABASE_URL and never silently falls back to prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SESSION_COOKIE = 'dh_session';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
