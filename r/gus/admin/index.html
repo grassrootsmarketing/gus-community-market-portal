@@ -2509,6 +2509,8 @@ END:VEVENT
                 time: d.demo_time,
                 company: d.company_name,
                 contact: d.contact_name,
+                reschedule_to_date: d.reschedule_to_date || null,
+                reschedule_to_time: d.reschedule_to_time || null,
                 contact_email: d.contact_email || '',
                 contact_phone: d.contact_phone || '',
                 product_skus: Array.isArray(d.product_skus) ? d.product_skus : null,
@@ -4140,6 +4142,57 @@ END:VEVENT
 
         // Phase G: cancel a demo — confirmation modal, fires POST /api/booking-action with action=cancel.
         // Response tells us the refund status; toast reflects what happened.
+        // ===== Reschedule: propose a new date to the brand (no money moves) =====
+        function openRescheduleModal(demoId, brandName, curDate, curTime) {
+            const existing = document.getElementById('reschedModal');
+            if (existing) existing.remove();
+            const today = new Date().toISOString().slice(0, 10);
+            const wrap = document.createElement('div');
+            wrap.id = 'reschedModal';
+            wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
+            wrap.innerHTML =
+                '<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">'
+                + '<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin-bottom:8px;">Propose a new date</div>'
+                + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">Reschedule ' + escapeHtml(brandName) + '</h3>'
+                + '<p title="The brand accepts or declines from their dashboard. Nothing is charged or refunded \u2014 only the date changes." style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. Pick a new date and we\'ll ask the brand to accept it. No money moves.</p>'
+                + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
+                + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
+                + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time <span style="font-weight:400;color:var(--ink-500);">(optional \u2014 keeps current if blank)</span></label>'
+                + '<input type="text" id="reschedTime" placeholder="' + escapeHtml(curTime || '11:00 AM') + '" value="' + escapeHtml(curTime || '') + '" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;">'
+                + '<div id="reschedErr" style="display:none;font-size:0.82rem;color:var(--clay-700);margin:6px 0 0;"></div>'
+                + '<div style="display:flex;gap:10px;margin-top:20px;">'
+                + '<button onclick="document.getElementById(\'reschedModal\').remove()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
+                + '<button id="reschedSubmit" title="Send this proposed date to the brand for approval." onclick="submitReschedule(\'' + demoId + '\')" style="flex:1;background:var(--forest-900);color:#fff;border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;">Propose to brand</button>'
+                + '</div></div>';
+            wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+            document.body.appendChild(wrap);
+        }
+
+        async function submitReschedule(demoId) {
+            const dateEl = document.getElementById('reschedDate');
+            const timeEl = document.getElementById('reschedTime');
+            const err = document.getElementById('reschedErr');
+            const btn = document.getElementById('reschedSubmit');
+            const newDate = dateEl ? dateEl.value : '';
+            const newTime = timeEl ? timeEl.value.trim() : '';
+            if (!newDate) { if (err) { err.textContent = 'Pick a new date.'; err.style.display = 'block'; } return; }
+            if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+            try {
+                const r = await fetch('/api/booking-action', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ action: 'reschedule', demo_id: demoId, new_date: newDate, new_time: newTime || undefined }),
+                });
+                const j = await r.json().catch(function () { return {}; });
+                if (!r.ok) throw new Error(j.message || j.error || 'Could not send the proposal.');
+                const m = document.getElementById('reschedModal'); if (m) m.remove();
+                if (window.DhModal && DhModal.toast) DhModal.toast('New date proposed \u2014 the brand has been emailed.', 'success');
+                if (typeof refreshAll === 'function') refreshAll(); else location.reload();
+            } catch (e) {
+                if (err) { err.textContent = (e && e.message) || 'Could not send. Try again.'; err.style.display = 'block'; }
+                if (btn) { btn.disabled = false; btn.textContent = 'Propose to brand'; }
+            }
+        }
+
         async function cancelDemoConfirm(demoId, brandName, dateStr, timeStr) {
             if (!demoId) { DhModal.toast('Missing demo id', 'error'); return; }
             const label = brandName + ' on ' + dateStr + ' at ' + timeStr;
@@ -4236,13 +4289,18 @@ END:VEVENT
                 const cancelBtn = cancelled
                     ? '<span style="font-size:0.72rem; color:var(--ink-500);">—</span>'
                     : '<button onclick="cancelDemoConfirm(\'' + (d.id || d.booking_id || '') + '\', ' + JSON.stringify(String(d.company || '')) + ', ' + JSON.stringify(String(d.date || '')) + ', ' + JSON.stringify(String(d.time || '')) + ')" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>';
+                // Reschedule: propose a new date instead of cancelling (keeps the booking + payment).
+                const canResched = status === 'confirmed' && d.id;
+                const rescheduleBtn = d.reschedule_to_date
+                    ? '<span title="You proposed a new date. Waiting on the brand to accept or decline." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Reschedule proposed</span>'
+                    : (canResched ? '<button title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." onclick="openRescheduleModal(\'' + d.id + '\', ' + JSON.stringify(String(d.company || '')) + ', ' + JSON.stringify(String(d.date || '')) + ', ' + JSON.stringify(String(d.time || '')) + ')" style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
                 return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
                 + '<td>' + escapeHtml(d.contact) + '</td>'
                 + '<td>' + escapeHtml(d.product) + ((d.product_skus && d.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + d.product_skus.filter(function(p){return p && p.name;}).map(function(p){return escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '');}).join('<br>') + '</div>') : '') + '</td>'
                 + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span>' + _coiBadgeHtml(d) + '</td>'
-                + '<td style="text-align:right;">' + cancelBtn + '</td>'
+                + '<td style="text-align:right; white-space:nowrap;">' + rescheduleBtn + cancelBtn + '</td>'
                 + '</tr>';
             }).join('');
         }
