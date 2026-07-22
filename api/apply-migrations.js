@@ -124,6 +124,13 @@ function jsonResp(res, code, body) {
 }
 
 export default async function handler(req, res) {
+  // R2-20/DH-20: this browser-reachable schema-migration route is retired. Migrations are run
+  // directly in Supabase / reviewed SQL, so there is no reason to expose DDL over the web. It was
+  // also mis-authenticated for the sentinel-owner session design and used a TLS-relaxed client.
+  // Return 410 Gone for everything rather than leave the surface deployed.
+  return res.status(410).json({ error: 'gone', message: 'This endpoint has been retired. Run migrations directly in Supabase.' });
+
+  /* eslint-disable no-unreachable */
   if (req.method === 'GET') {
     // GET returns the pending vs. applied status without running anything
     return await getStatus(req, res);
