@@ -175,6 +175,88 @@ function getSessionIdFromReq(req, body) {
 }
 
 
+// Retailer proposes moving a confirmed demo to a new date. Sets the proposal on the
+// demo and emails the brand to accept/decline. Resilient if the reschedule migration
+// has not run (reports that plainly instead of 500ing).
+async function handleReschedulePropose(req, res, body) {
+  const { demo_id, new_date, new_time } = body || {};
+  if (!demo_id || !isUuid(demo_id)) return res.status(400).json({ error: 'Invalid demo_id' });
+  if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date)) return res.status(400).json({ error: 'new_date (YYYY-MM-DD) required' });
+  if (new_date < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'The new date must be in the future.' });
+
+  const session_id = getSessionIdFromReq(req, body);
+  if (!session_id || !isUuid(session_id)) return res.status(401).json({ error: 'Invalid or missing admin session' });
+  let sess;
+  try { const rows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`); sess = Array.isArray(rows) ? rows[0] : null; }
+  catch (_) { return res.status(401).json({ error: 'Invalid admin session' }); }
+  if (!sess || new Date(sess.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
+
+  let demo;
+  try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=*,retailers(name,slug),venues(name)`); demo = Array.isArray(rows) ? rows[0] : null; }
+  catch (_) { return res.status(404).json({ error: 'Demo not found' }); }
+  if (!demo) return res.status(404).json({ error: 'Demo not found' });
+  if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+  if (demo.status !== 'confirmed') return res.status(409).json({ error: 'Only a confirmed demo can be rescheduled.' });
+
+  try {
+    await sb(`demos?id=eq.${encodeURIComponent(demo_id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reschedule_to_date: new_date, reschedule_to_time: new_time || demo.demo_time, reschedule_requested_at: new Date().toISOString() }),
+    });
+  } catch (e) {
+    return res.status(503).json({ error: 'reschedule_unavailable', message: 'Reschedule storage is not set up yet. Run demos-reschedule-migration.sql, then try again.' });
+  }
+
+  // Email the brand to accept/decline.
+  let brandEmail = demo.contact_email || null;
+  if (!brandEmail && demo.brand_id) {
+    try { const b = await sb(`brands?id=eq.${encodeURIComponent(demo.brand_id)}&select=email`); brandEmail = (Array.isArray(b) && b[0]) ? b[0].email : null; } catch (_) {}
+  }
+  if (brandEmail && RESEND_API_KEY) {
+    try {
+      const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
+      const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
+      const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: FROM_ADDRESS, to: brandEmail, reply_to: 'david@demohubhq.com',
+          subject: `${retailerName} proposed a new date for your demo`,
+          html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
+        }),
+      });
+    } catch (_) {}
+  }
+  return res.status(200).json({ ok: true, demo_id, new_date, new_time: new_time || demo.demo_time });
+}
+
+function dateLabelOf(d) {
+  if (!d) return '';
+  try { return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
+  catch (_) { return d; }
+}
+
+function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fromLabel, toLabel }) {
+  return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:28px 32px;background:#0f2c17;">${brandHeader()}</td></tr>
+<tr><td style="padding:36px 36px 28px;">
+<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">New date proposed</div>
+<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 16px;">${html(retailerName)} would like to move your demo for <strong>${html(brand_name)}</strong>${venueName ? ' at ' + html(venueName) : ''} to a new date.</p>
+<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin:0 0 20px;">
+<tr><td style="padding:12px 16px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#6b6a64;">From</td><td style="padding:12px 16px;text-align:right;color:#6b6a64;text-decoration:line-through;">${html(fromLabel)}</td></tr>
+<tr><td style="padding:12px 16px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#2a5b32;border-top:1px solid #ede3d0;">To</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-weight:700;border-top:1px solid #ede3d0;">${html(toLabel)}</td></tr>
+</table>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Your booking and payment stay exactly as they are &mdash; only the date changes if you accept.</p>
+<a href="https://demohubhq.com/brand/dashboard" style="display:inline-block;background:#0f2c17;color:white;padding:13px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">Review and respond &rarr;</a>
+<p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:18px 0 0;">Accept or decline from your dashboard. Decline and the demo stays on its original date.</p>
+</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+</table></body></html>`;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -187,6 +269,11 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    // ===== Reschedule proposal (retailer proposes a new date for a CONFIRMED demo) =====
+    // Distinct from cancel: no money moves. The brand accepts/declines from their dashboard.
+    if (body && body.action === 'reschedule') {
+      return await handleReschedulePropose(req, res, body);
+    }
     const { booking_id, action, reason, demo_fee, force_refund } = body || {};
     if (!booking_id || !['confirm', 'decline', 'cancel'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline|cancel required' });
