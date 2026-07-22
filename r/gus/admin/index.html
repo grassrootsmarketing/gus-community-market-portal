@@ -5783,8 +5783,8 @@ END:VEVENT
             const todayStr = today.toISOString().slice(0,10);
             // Index demos by date
             const demosByDay = {};
-            const showSample = !window.state.demos || window.state.demos.length === 0;
-            const demosForCal = showSample ? [getSampleDemoForCalendar()] : window.state.demos;
+            // No sample/example demos on the calendar — it only ever shows real bookings.
+            const demosForCal = window.state.demos || [];
             demosForCal.forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
