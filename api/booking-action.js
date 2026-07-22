@@ -308,7 +308,10 @@ export default async function handler(req, res) {
         venue_id: booking.venue_id,
         company_name: booking.brand_name || 'Unknown',
         contact_name: booking.contact_name || null,
+        contact_email: booking.contact_email || null,
+        contact_phone: booking.contact_phone || null,
         product: booking.product || null,
+        product_skus: (Array.isArray(booking.product_skus) && booking.product_skus.length) ? booking.product_skus : null,
         demo_date: booking.demo_date,
         demo_time: booking.demo_time,
         duration_hours: 3,
@@ -322,12 +325,12 @@ export default async function handler(req, res) {
       try {
         created = await sb(`demos`, { method: 'POST', body: JSON.stringify(demoPayload) });
       } catch (e) {
-        if (String(e?.message || e).match(/confirmed_at/i)) {
-          const { confirmed_at, ...rest } = demoPayload;
-          created = await sb(`demos`, { method: 'POST', body: JSON.stringify(rest) });
-        } else {
-          throw e;
-        }
+        // A confirmation must never fail because an OPTIONAL column is missing (migration
+        // not run yet). Retry with only the core columns; SKUs/email/phone simply won't
+        // carry until the migration lands. Losing metadata is fine; blocking a confirm is not.
+        console.warn('demos insert failed on full payload, retrying core-only:', String(e?.message || e).slice(0, 200));
+        const { confirmed_at, product_skus, contact_email, contact_phone, ...core } = demoPayload;
+        created = await sb(`demos`, { method: 'POST', body: JSON.stringify(core) });
       }
       demoId = Array.isArray(created) ? created[0]?.id : null;
 
