@@ -71,6 +71,11 @@ function magicLinkEmail({ contact_name, retailerName, link, expires_at }) {
 }
 
 export default async function handler(req, res) {
+  // LG-12 (launch gate): the legacy brand portal isolated demos by company_name (not brand_id),
+  // letting two contacts with the same/spoofed company name cross-read each other's demos.
+  // Retired. The current brand dashboard uses /api/brand-account (immutable brand_id).
+  return res.status(410).json({ error: 'gone', message: 'This portal has been retired. Use your brand dashboard link.' });
+  /* eslint-disable no-unreachable */
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
