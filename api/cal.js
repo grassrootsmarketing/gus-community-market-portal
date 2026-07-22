@@ -58,6 +58,7 @@ function parseDemoTime(dateStr, timeStr) {
 export default async function handler(req, res) {
   const slug = String((req.query && req.query.slug) || '').trim().toLowerCase();
   const venueParam = String((req.query && req.query.venue) || '').trim();
+  const feedKey = String((req.query && req.query.key) || '').trim();
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
     res.status(400).send('Missing or invalid ?slug= parameter');
     return;
@@ -65,12 +66,18 @@ export default async function handler(req, res) {
 
   try {
     // Look up retailer
-    const rR = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name`, {
+    const rR = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name,cal_feed_key`, {
       headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
     });
     const retailers = await rR.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) { res.status(404).send('Retailer not found'); return; }
+    // Secret feed key required. The slug is public (it's in booking links), so the key is
+    // what keeps this calendar private. Deny if the retailer has no key or it doesn't match.
+    const _expected = retailer.cal_feed_key || '';
+    const _match = _expected.length > 0 && feedKey.length === _expected.length &&
+      (function () { let d = 0; for (let i = 0; i < _expected.length; i++) d |= feedKey.charCodeAt(i) ^ _expected.charCodeAt(i); return d === 0; })();
+    if (!_match) { res.status(401).send('This calendar feed requires the private link from your Demohub admin (Settings -> Calendar feed).'); return; }
 
     // Get all confirmed/completed demos for this retailer + their venue names
     const [dR, vR] = await Promise.all([
