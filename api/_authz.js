@@ -1,22 +1,24 @@
 // api/_authz.js — SINGLE SOURCE OF TRUTH for authentication + authorization.
+// Revised per Codex WS1 review (findings WS1-02, 05, 06, 07, 08, 09).
 // -----------------------------------------------------------------------------
-// Kills the root cause behind the recurring audit findings: session + tenant + role
-// checks were hand-written inside ~18 serverless functions and drifted apart. Every
-// endpoint should import from here instead of re-deriving auth inline.
-//
-// Two phases, SAME interface (so endpoints migrate once):
-//   Phase 1 (WS1, now):  service-key backed, behavior-compatible, centralized, fail-CLOSED
-//                        with an explicit owner bypass.
-//   Phase 2 (WS4, RLS):  same functions also carry a Supabase-Auth identity so the DB
-//                        enforces isolation. (See Demohub-RLS-Replatform-Runbook.md.)
-//
-// Rules: deny by default; owner identified explicitly (never by "lookup failed");
-// dependency error => distinct 503, never a silent allow.
+// Rules now enforced:
+//   * FAIL CLOSED. Missing/unknown membership => 403. No implicit-admin fallback,
+//     no opt-in env flag. (WS1-02)  Backfill admin membership rows before wiring this in.
+//   * Owner is a SEPARATE authorization, matched against the REAL owner-session shape
+//     (system retailer whose slug is '__owner__', or a null retailer_id). (WS1-06)
+//   * Capabilities require an EXACT match. Generic 'write' is not a wildcard for named
+//     privileged capabilities, and unknown capability names are rejected. (WS1-05)
+//   * Expiry parsed once; missing/malformed => rejected. (WS1-07)
+//   * Membership matched by EXACT case-insensitive identity in JS, not an ilike pattern
+//     (email local-parts may legitimately contain % or _). (WS1-08)
+//   * Supabase URL comes from the environment so staging can point elsewhere. (WS1-09)
+// Not yet wired into live endpoints — adoption happens after membership backfill + tests.
 // -----------------------------------------------------------------------------
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
+const OWNER_RETAILER_SLUG = '__owner__';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
@@ -46,19 +48,37 @@ function parseCookies(req) {
 
 function deny(status, error) { return { ok: false, status, error }; }
 
-// role -> capabilities. owner/admin full; editor writes (not billing/waive); viewer read-only.
+// WS1-07: one robust expiry check for every session type.
+function sessionLive(expiresAt) {
+  const t = expiresAt ? Date.parse(expiresAt) : NaN;
+  return Number.isFinite(t) && t > Date.now();
+}
+
+// WS1-05: capability model. Known capabilities are explicit; each is granted per role. There is
+// NO wildcard — a command that needs 'coi.waive' requires exactly 'coi.waive'.
+const KNOWN_CAPS = new Set(['read', 'write', 'billing.manage', 'refund.issue', 'coi.waive', 'venue.manage', 'support.manage', 'team.manage']);
 const ROLE_CAPS = {
-  owner:  new Set(['read', 'write', 'billing.manage', 'refund.issue', 'coi.waive', 'venue.manage', 'support.manage', 'team.manage']),
+  owner:  KNOWN_CAPS,
   admin:  new Set(['read', 'write', 'billing.manage', 'refund.issue', 'coi.waive', 'venue.manage', 'support.manage', 'team.manage']),
+  manager:new Set(['read', 'write', 'venue.manage', 'coi.waive']),
   editor: new Set(['read', 'write', 'venue.manage']),
   viewer: new Set(['read']),
 };
 
+// WS1-08: exact, case-insensitive membership match done in JS over the retailer's (small) admin list.
+async function findMembership(retailerId, email) {
+  const rows = await sbGet(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&select=email,role,venue_ids`);
+  const want = String(email || '').trim().toLowerCase();
+  if (!Array.isArray(rows)) return null;
+  return rows.find(r => String(r.email || '').trim().toLowerCase() === want) || null;
+}
+
 /**
- * Retailer/owner auth + capability check.
+ * Retailer/owner auth + capability check. FAIL CLOSED.
  * @returns {ok, status?, error?, session, retailerId, email, role, isOwner, venueIds}
  */
 export async function authRetailer(req, body, need = 'read') {
+  if (!KNOWN_CAPS.has(need)) return deny(500, 'unknown capability requested'); // WS1-05: reject at the call site
   const c = parseCookies(req);
   const sid = c['dh_session'] || (body && body.session_id) || (req.query && req.query.session_id) || null;
   if (!sid || !isUuid(sid)) return deny(401, 'Invalid or missing admin session');
@@ -69,36 +89,37 @@ export async function authRetailer(req, body, need = 'read') {
     session = Array.isArray(rows) ? rows[0] : null;
   } catch (_) { return deny(503, 'Auth check unavailable — please retry'); }
   if (!session) return deny(401, 'Invalid admin session');
-  if (new Date(session.expires_at).getTime() < Date.now()) return deny(401, 'Session expired');
+  if (!sessionLive(session.expires_at)) return deny(401, 'Session expired');
 
-  const email = (session.email || '').toLowerCase();
-  const ownerFlag = OWNER_EMAILS.includes(email) && (!session.retailer_id || session.retailer_id === '__owner__');
-  if (ownerFlag) return { ok: true, session, retailerId: session.retailer_id, email, role: 'owner', isOwner: true, venueIds: null };
+  const email = String(session.email || '').trim().toLowerCase();
 
-  let role = null, venueIds = null, membershipKnown = false;
-  try {
-    const meArr = await sbGet(`retailer_admins?retailer_id=eq.${encodeURIComponent(session.retailer_id)}&email=ilike.${encodeURIComponent(email)}&select=role,venue_ids`);
-    const me = Array.isArray(meArr) ? meArr[0] : null;
-    if (me) { membershipKnown = true; role = me.role || null; venueIds = Array.isArray(me.venue_ids) && me.venue_ids.length ? me.venue_ids : null; }
-  } catch (_) { return deny(503, 'Auth check unavailable — please retry'); }
-
-  // Transitional compat: some legacy primary admins predate retailer_admins rows. Until every
-  // admin is backfilled and AUTHZ_STRICT_MEMBERSHIP=1, treat "no row" as implicit admin (today's
-  // behavior) so nobody is locked out. After backfill, missing membership becomes a hard 403.
-  if (!membershipKnown) {
-    if (process.env.AUTHZ_STRICT_MEMBERSHIP === '1') return deny(403, 'No access for this account');
-    role = 'admin';
+  // WS1-06: OWNER is matched against the real owner-session shape, not an impossible sentinel.
+  // Owner login stores the UUID of a system retailer whose slug is '__owner__' (or null).
+  if (OWNER_EMAILS.includes(email)) {
+    let isOwner = !session.retailer_id;
+    if (!isOwner && session.retailer_id) {
+      try {
+        const rr = await sbGet(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=slug`);
+        isOwner = Array.isArray(rr) && rr[0] && rr[0].slug === OWNER_RETAILER_SLUG;
+      } catch (_) { return deny(503, 'Auth check unavailable — please retry'); }
+    }
+    if (isOwner) return { ok: true, session, retailerId: session.retailer_id, email, role: 'owner', isOwner: true, venueIds: null };
+    // else: an owner-email that is also an ordinary retailer admin — fall through to membership.
   }
 
-  const caps = ROLE_CAPS[role] || new Set();
+  // WS1-02: ordinary retailer session REQUIRES a known membership row + known role. No fallback.
+  let membership;
+  try { membership = await findMembership(session.retailer_id, email); }
+  catch (_) { return deny(503, 'Auth check unavailable — please retry'); }
+  if (!membership) return deny(403, 'No access for this account');
+  const role = membership.role;
+  const caps = ROLE_CAPS[role];
+  if (!caps) return deny(403, 'Unknown role');           // unknown role => denied
   if (!caps.has('read')) return deny(403, 'No access for this account');
-  const needed = need === 'write' ? 'write' : need;
-  if (needed !== 'read' && !caps.has(needed) && !caps.has('write')) {
+  if (!caps.has(need)) {                                  // WS1-05: exact capability, no 'write' wildcard
     return deny(403, role === 'viewer' ? 'Your account has view-only access. Ask an admin to make changes.' : 'You do not have permission for this action.');
   }
-  if (['billing.manage', 'refund.issue', 'coi.waive', 'support.manage', 'team.manage'].includes(needed) && !caps.has(needed)) {
-    return deny(403, 'You do not have permission for this action.');
-  }
+  const venueIds = Array.isArray(membership.venue_ids) && membership.venue_ids.length ? membership.venue_ids : null;
   return { ok: true, session, retailerId: session.retailer_id, email, role, isOwner: false, venueIds };
 }
 
@@ -111,7 +132,7 @@ export async function authBrand(req, body) {
     const rows = await sbGet(`brand_account_sessions?session_token=eq.${encodeURIComponent(token)}&select=brand_id,email,expires_at`);
     const s = Array.isArray(rows) ? rows[0] : null;
     if (!s) return deny(401, 'Not authenticated');
-    if (s.expires_at && new Date(s.expires_at).getTime() < Date.now()) return deny(401, 'Session expired');
+    if (!sessionLive(s.expires_at)) return deny(401, 'Session expired');   // WS1-07
     return { ok: true, brandId: s.brand_id, email: s.email };
   } catch (_) { return deny(503, 'Auth check unavailable — please retry'); }
 }
