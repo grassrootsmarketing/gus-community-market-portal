@@ -461,19 +461,31 @@ export default async function handler(req, res) {
         demo_fee: fee,
         notes: booking.notes || null,
         brand_id: brandId,
+        booking_id: booking.id,  // DH-08: link demo->booking so a unique index enforces one demo per booking
       };
-      let created;
+      let created = null;
       try {
         created = await sb(`demos`, { method: 'POST', body: JSON.stringify(demoPayload) });
       } catch (e) {
-        // A confirmation must never fail because an OPTIONAL column is missing (migration
-        // not run yet). Retry with only the core columns; SKUs/email/phone simply won't
-        // carry until the migration lands. Losing metadata is fine; blocking a confirm is not.
-        console.warn('demos insert failed on full payload, retrying core-only:', String(e?.message || e).slice(0, 200));
-        const { confirmed_at, product_skus, contact_email, contact_phone, ...core } = demoPayload;
-        created = await sb(`demos`, { method: 'POST', body: JSON.stringify(core) });
+        const msg = String(e?.message || e);
+        if (/duplicate key|already exists|23505|demos_one_per_booking/i.test(msg)) {
+          // DH-08: a demo for this booking already exists (concurrent double-confirm). Reuse it
+          // instead of creating a second row. The DB unique index is the real guard; this makes
+          // confirm idempotent under a race.
+          console.warn('demos insert hit unique guard, reusing existing demo for booking', booking_id);
+          try {
+            const existing = await sb(`demos?booking_id=eq.${encodeURIComponent(booking_id)}&select=id&limit=1`);
+            demoId = (Array.isArray(existing) && existing[0]) ? existing[0].id : null;
+          } catch (_) {}
+        } else {
+          // A confirmation must never fail because an OPTIONAL column is missing (migration
+          // not run yet — including booking_id itself). Retry with only the core columns.
+          console.warn('demos insert failed on full payload, retrying core-only:', msg.slice(0, 200));
+          const { confirmed_at, product_skus, contact_email, contact_phone, booking_id: _bid, ...core } = demoPayload;
+          created = await sb(`demos`, { method: 'POST', body: JSON.stringify(core) });
+        }
       }
-      demoId = Array.isArray(created) ? created[0]?.id : null;
+      if (created) demoId = Array.isArray(created) ? created[0]?.id : null;
 
       // Ensure a brand_contacts row exists for this (retailer, email).
       if (booking.contact_email) {
