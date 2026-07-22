@@ -243,14 +243,18 @@ export default async function handler(req, res) {
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
   if (!SEED_SECRET) return res.status(500).json({ error: 'SEED_SECRET not configured' });
 
-  // Auth: either the SEED_SECRET in the body, or the Vercel cron header
+  // Auth: the SEED_SECRET (manual calls) OR a real Vercel cron identity. DH-07: the bare
+  // x-vercel-cron header is client-spoofable, so it is NO LONGER sufficient on its own. Vercel
+  // signs genuine cron invocations with `Authorization: Bearer <CRON_SECRET>` once CRON_SECRET
+  // is set in the project env — that is what we trust here.
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-  const cronHeader = req.headers['x-vercel-cron'];
+  const cronSecret = process.env.CRON_SECRET;
+  const isVercelCron = !!cronSecret && (req.headers['authorization'] || '') === 'Bearer ' + cronSecret;
   const bodySecret = body.secret || req.query?.secret;
-  const authorized = (bodySecret && bodySecret === SEED_SECRET) || !!cronHeader;
-  if (!authorized) return res.status(401).json({ error: 'Unauthorized (need secret or Vercel cron header)' });
+  const authorized = (bodySecret && bodySecret === SEED_SECRET) || isVercelCron;
+  if (!authorized) return res.status(401).json({ error: 'Unauthorized (need SEED_SECRET or a signed Vercel cron request)' });
 
-  const reset = body.reset === true || req.query?.reset === 'true' || !!cronHeader;
+  const reset = body.reset === true || req.query?.reset === 'true' || isVercelCron;
 
   try {
     let retailer = await findExistingDemo();
