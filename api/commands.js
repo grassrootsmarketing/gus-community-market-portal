@@ -1,26 +1,27 @@
 // api/commands.js — named, purpose-specific retailer commands (WS1, P1 fix).
-// Revised per Codex WS1 review (findings WS1-03, 04, 05, 09, 10).
+// Revised twice per Codex WS1 reviews. This rev addresses WS1-R2-01 (entitlement),
+// WS1-R2-02 (strict, non-coercive validation), WS1-R2-05 (deactivate-vs-delete).
 // -----------------------------------------------------------------------------
-// Each command: authz via _authz (exact capability), verifies tenant ownership, accepts ONLY an
-// allowlisted + type/range-validated input, lets the SERVER own tenancy/id/status, performs the
-// privileged write self-scoped by (id AND retailer_id) requiring exactly one affected row, and
-// returns the PERSISTED row (so the UI stops trusting optimistic local state).
+// Guarantees per command: exact-capability authz via _authz; tenant ownership verified;
+// STRICT input validation (types rejected, not coerced; oversize rejected, not truncated);
+// server owns tenancy/id/status/slug; writes self-scoped by (id AND retailer_id) requiring
+// exactly one affected row; persisted row returned.
 //
-// Additive: ships parallel to the shrinking generic proxy; the proxy is deleted only after every
-// write is a named command AND the frontend is cut over AND it's tested on staging.
-// Still service-key backed (WS1). WS4 moves these onto the authenticated non-bypass role + RLS.
+// Still additive + service-key backed (WS1). WS4 moves onto the authenticated role + RLS.
+// Atomic entitlement enforcement is backstopped by a DB trigger (see venue-limit migration);
+// the JS check here is a friendly pre-check, not the sole guard.
 // -----------------------------------------------------------------------------
 
 import { authRetailer, isUuid, sbGet } from './_authz.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ecapmcyumpjjgjwuokyv.supabase.co';  // WS1-09
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://ecapmcyumpjjgjwuokyv.supabase.co';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 function send(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json').send(JSON.stringify(body));
 }
+function badInput(msg) { const e = new Error(msg); e._client = true; return e; }
 
-// Low-level write. Returns { rows, count }. Callers pass a FULLY-scoped filter (id + retailer_id).
 async function sbWrite(method, path, bodyObj) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
     method,
@@ -34,41 +35,96 @@ async function sbWrite(method, path, bodyObj) {
   return { rows, count: rows.length };
 }
 
-// ---- validation helpers (WS1-10) -----------------------------------------
-function vStr(val, max) { const s = String(val == null ? '' : val).trim(); return s.slice(0, max); }
-function isPlainObject(o) { return o && typeof o === 'object' && !Array.isArray(o); }
-function requireHttps(val, field) {
-  if (val == null || val === '') return null;
-  const s = String(val).trim();
+// ---- STRICT validators (WS1-R2-02): reject wrong types / oversize; never coerce -------------
+function vString(val, field, max, { optional } = {}) {
+  if (val === undefined) { if (optional) return undefined; throw badInput(`${field} is required`); }
+  if (val === null) return null;
+  if (typeof val !== 'string') throw badInput(`${field} must be a string`);
+  if (val.length > max) throw badInput(`${field} must be at most ${max} characters`);
+  return val.trim();
+}
+function vBool(val, field) {
+  if (typeof val !== 'boolean') throw badInput(`${field} must be true or false`);
+  return val;
+}
+function vInt(val, field, min, max) {
+  let n = val;
+  if (typeof n === 'string' && /^-?\d+$/.test(n.trim())) n = parseInt(n.trim(), 10);
+  if (typeof n !== 'number' || !Number.isInteger(n)) throw badInput(`${field} must be an integer`);
+  if (n < min || n > max) throw badInput(`${field} must be between ${min} and ${max}`);
+  return n;
+}
+function vNumber(val, field, min, max) {
+  let n = val;
+  if (typeof n === 'string' && /^-?\d+(\.\d+)?$/.test(n.trim())) n = Number(n.trim());
+  if (typeof n !== 'number' || !Number.isFinite(n)) throw badInput(`${field} must be a number`);
+  if (n < min || n > max) throw badInput(`${field} must be between ${min} and ${max}`);
+  return n;
+}
+function vHttps(val, field) {
+  if (val === undefined) return undefined;
+  if (val === null || val === '') return null;
+  if (typeof val !== 'string') throw badInput(`${field} must be a string URL`);
+  const s = val.trim();
   if (/[\s"'<>`\\]/.test(s) || !/^https?:\/\//i.test(s)) throw badInput(`${field} must be a plain http(s) URL`);
   try { const u = new URL(s); if (!/^https?:$/.test(u.protocol)) throw 0; } catch (_) { throw badInput(`${field} must be a valid http(s) URL`); }
   return s;
 }
-function badInput(msg) { const e = new Error(msg); e._client = true; return e; }
+const PROTO_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
+// Conservative availability validator. NOTE (open): the EXACT nested schedule schema must be
+// pinned against the booking engine before the venue command replaces the proxy. For now: object
+// or null, bounded size, no prototype-polluting keys, array values only.
+function vAvailability(val, field) {
+  if (val === undefined) return undefined;
+  if (val === null) return null;
+  if (typeof val !== 'object' || Array.isArray(val)) throw badInput(`${field} must be an object or null`);
+  const keys = Object.keys(val);
+  if (keys.length > 40) throw badInput(`${field} has too many keys`);
+  for (const k of keys) {
+    if (PROTO_KEYS.has(k)) throw badInput(`${field} contains a disallowed key`);
+    if (!Array.isArray(val[k])) throw badInput(`${field}.${k} must be an array`);
+    if (val[k].length > 50) throw badInput(`${field}.${k} has too many entries`);
+  }
+  return val;
+}
 
-// Build a validated venue field set from raw input. Shared by create + update. (WS1-03)
-function venueFields(input, { partial }) {
+// ---- entitlement (WS1-R2-01): one authoritative tier→limit map; legacy + status aware --------
+const TIER_LIMITS = { solo: 1, free: 1, starter: 25, growth: 100, pro: 100000, enterprise: 100000 };
+const INACTIVE_STATUS = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
+async function resolveVenueLimit(retailerId) {
+  let tier = null, status = null;
+  // Legacy precedence: settings.billing_tier first, then retailers.billing_tier.
+  try {
+    const st = await sbGet(`settings?retailer_id=eq.${encodeURIComponent(retailerId)}&select=billing_tier&limit=1`);
+    if (Array.isArray(st) && st[0] && st[0].billing_tier) tier = String(st[0].billing_tier).toLowerCase();
+  } catch (_) { /* settings optional */ }
+  const rr = await sbGet(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=billing_tier,billing_status`);
+  if (Array.isArray(rr) && rr[0]) {
+    if (!tier && rr[0].billing_tier) tier = String(rr[0].billing_tier).toLowerCase();
+    status = rr[0].billing_status ? String(rr[0].billing_status).toLowerCase() : null;
+  }
+  tier = tier || 'solo';
+  // Unknown tier => most restrictive (fail safe). Inactive paid status => drop to Solo limit.
+  let limit = Object.prototype.hasOwnProperty.call(TIER_LIMITS, tier) ? TIER_LIMITS[tier] : 1;
+  if (limit > 1 && status && INACTIVE_STATUS.has(status)) limit = 1;
+  return { tier, status, limit };
+}
+
+// venue field builders (strict). Slug is SERVER-owned (not accepted from the client) pending a
+// server-side slug-generation + uniqueness policy (WS1-R2-02 open).
+function venueUpdateFields(input) {
   const out = {};
-  if (input.name !== undefined || !partial) { const n = vStr(input.name, 120); if (!n) throw badInput('venue name required'); out.name = n; }
-  for (const k of ['address', 'city', 'state', 'zip', 'notes', 'timezone', 'phone', 'hours', 'description', 'slug']) {
-    if (input[k] !== undefined) out[k] = input[k] === '' ? null : vStr(input[k], k === 'description' || k === 'hours' ? 2000 : 200);
-  }
-  if (input.demo_fee !== undefined) {
-    const f = Number(input.demo_fee);
-    if (!Number.isFinite(f) || f < 0 || f > 100000) throw badInput('demo_fee must be a number between 0 and 100000');
-    out.demo_fee = f;
-  }
-  if (input.display_order !== undefined) { const d = parseInt(input.display_order, 10); if (!Number.isFinite(d) || d < 0 || d > 100000) throw badInput('display_order out of range'); out.display_order = d; }
-  if (input.max_demos_per_slot !== undefined) { const m = parseInt(input.max_demos_per_slot, 10); if (!Number.isFinite(m) || m < 1 || m > 100) throw badInput('max_demos_per_slot must be 1..100'); out.max_demos_per_slot = m; }
-  if (input.active !== undefined) out.active = !!input.active;                 // WS1-03: preserve pause/activate
-  if (input.availability !== undefined) {                                      // WS1-03: preserve scheduling
-    if (input.availability !== null && !isPlainObject(input.availability) && !Array.isArray(input.availability)) throw badInput('availability must be an object/array or null');
-    out.availability = input.availability;
-  }
+  if (input.name !== undefined) out.name = (() => { const n = vString(input.name, 'name', 120); if (!n) throw badInput('name cannot be empty'); return n; })();
+  for (const k of ['address', 'city', 'state', 'zip', 'phone', 'timezone']) if (input[k] !== undefined) out[k] = vString(input[k], k, 200, { optional: true });
+  for (const k of ['notes', 'hours', 'description']) if (input[k] !== undefined) out[k] = vString(input[k], k, 2000, { optional: true });
+  if (input.demo_fee !== undefined) out.demo_fee = vNumber(input.demo_fee, 'demo_fee', 0, 100000);
+  if (input.display_order !== undefined) out.display_order = vInt(input.display_order, 'display_order', 0, 100000);
+  if (input.max_demos_per_slot !== undefined) out.max_demos_per_slot = vInt(input.max_demos_per_slot, 'max_demos_per_slot', 1, 100);
+  if (input.active !== undefined) out.active = vBool(input.active, 'active');
+  if (input.availability !== undefined) out.availability = vAvailability(input.availability, 'availability');
   return out;
 }
 
-// Verify a row exists AND belongs to the caller, before any write.
 async function ownedRow(table, id, retailerId) {
   if (!isUuid(id)) return { error: 'invalid id' };
   const rows = await sbGet(`${table}?id=eq.${encodeURIComponent(id)}&select=retailer_id`);
@@ -78,65 +134,64 @@ async function ownedRow(table, id, retailerId) {
   return { ok: true };
 }
 
-// WS1-03: working venue plan-limit (the existing proxy called two undefined functions and
-// silently 503'd). Solo=1 location, Pro=effectively unlimited. Fail closed on lookup error.
-async function venueLimitOk(retailerId) {
-  const rr = await sbGet(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=billing_tier,billing_status`);
-  const tier = (Array.isArray(rr) && rr[0] && rr[0].billing_tier) ? String(rr[0].billing_tier).toLowerCase() : 'solo';
-  const limit = tier === 'pro' ? 100000 : 1;
-  const existing = await sbGet(`venues?retailer_id=eq.${encodeURIComponent(retailerId)}&select=id`);
-  const count = Array.isArray(existing) ? existing.length : 0;
-  return { ok: count < limit, tier, limit, count };
-}
-
 const COMMANDS = {
   async updateVenue(auth, input) {
     if (!input || !isUuid(input.id)) throw badInput('venue id required');
     const owned = await ownedRow('venues', input.id, auth.retailerId);
     if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
-    const patch = venueFields(input, { partial: true });
+    const patch = venueUpdateFields(input);
     if (Object.keys(patch).length === 0) throw badInput('no updatable fields');
-    // WS1-04: self-scoping filter (id AND retailer_id); require exactly one affected row.
     const { rows, count } = await sbWrite('PATCH', `venues?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, patch);
     if (count !== 1) return { status: 409, body: { error: 'update_scope_mismatch' } };
-    return { status: 200, body: { ok: true, venue: rows[0] } };   // WS1-03: return persisted row
+    return { status: 200, body: { ok: true, venue: rows[0] } };
   },
 
   async createVenue(auth, input) {
-    const lim = await venueLimitOk(auth.retailerId);             // WS1-03: enforce plan limit
-    if (!lim.ok) return { status: 402, body: { error: 'plan_limit_reached', message: `Your ${lim.tier} plan is limited to ${lim.limit} location${lim.limit === 1 ? '' : 's'}.`, tier: lim.tier, limit: lim.limit } };
-    const row = venueFields(input, { partial: false });
-    row.retailer_id = auth.retailerId;                            // server owns tenancy
-    const { rows, count } = await sbWrite('POST', 'venues', row);
-    if (count !== 1) return { status: 500, body: { error: 'create_failed' } };
+    const { tier, limit } = await resolveVenueLimit(auth.retailerId);   // WS1-R2-01
+    const existing = await sbGet(`venues?retailer_id=eq.${encodeURIComponent(auth.retailerId)}&select=id`);
+    const count = Array.isArray(existing) ? existing.length : 0;
+    if (count >= limit) return { status: 402, body: { error: 'plan_limit_reached', message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}.`, tier, limit } };
+    const fields = venueUpdateFields(input);
+    if (!fields.name) throw badInput('name is required');
+    fields.retailer_id = auth.retailerId;              // server owns tenancy
+    // NOTE: the DB trigger (venue-limit migration) is the ATOMIC backstop against concurrent
+    // creates; this pre-check just yields a friendly error before hitting it.
+    const { rows, count: n } = await sbWrite('POST', 'venues', fields);
+    if (n !== 1) return { status: 500, body: { error: 'create_failed' } };
     return { status: 201, body: { ok: true, venue: rows[0] } };
   },
 
+  // WS1-R2-05: deactivate a venue that has history; hard-delete only if genuinely unused.
   async deleteVenue(auth, input) {
     if (!input || !isUuid(input.id)) throw badInput('venue id required');
     const owned = await ownedRow('venues', input.id, auth.retailerId);
     if (!owned.ok) return { status: owned.error === 'forbidden' ? 403 : owned.error === 'not_found' ? 404 : 400, body: { error: owned.error } };
-    // NOTE (WS1-03 open): hard delete. Cutover must decide delete-vs-deactivate when the venue has
-    // future demos/bookings; flagged for the frontend-cutover checkpoint. Self-scoped either way.
+    const [demos, bookings] = await Promise.all([
+      sbGet(`demos?venue_id=eq.${encodeURIComponent(input.id)}&select=id&limit=1`),
+      sbGet(`bookings?venue_id=eq.${encodeURIComponent(input.id)}&select=id&limit=1`),
+    ]);
+    const referenced = (Array.isArray(demos) && demos.length) || (Array.isArray(bookings) && bookings.length);
+    if (referenced) {
+      const { count } = await sbWrite('PATCH', `venues?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, { active: false });
+      if (count !== 1) return { status: 409, body: { error: 'deactivate_scope_mismatch' } };
+      return { status: 200, body: { ok: true, deactivated: input.id, reason: 'venue has demos/bookings — deactivated instead of deleted' } };
+    }
     const { count } = await sbWrite('DELETE', `venues?id=eq.${encodeURIComponent(input.id)}&retailer_id=eq.${encodeURIComponent(auth.retailerId)}`, null);
     if (count !== 1) return { status: 409, body: { error: 'delete_scope_mismatch' } };
     return { status: 200, body: { ok: true, deleted: input.id } };
   },
 
   async updateRetailerProfile(auth, input) {
-    let logo_url, website;
-    logo_url = requireHttps(input.logo_url, 'logo_url');
-    website = requireHttps(input.website, 'website');
     const out = {};
-    for (const k of ['name', 'description', 'cancellation_policy', 'demo_policy']) if (input[k] !== undefined) out[k] = input[k] === '' ? null : vStr(input[k], k === 'name' ? 160 : 8000);
-    if (input.cancellation_mode !== undefined) { const m = String(input.cancellation_mode); if (!['refundable', 'non_refundable', 'cutoff'].includes(m)) throw badInput('invalid cancellation_mode'); out.cancellation_mode = m; }
-    if (input.auto_confirm_bookings !== undefined) out.auto_confirm_bookings = !!input.auto_confirm_bookings;
-    if (input.monthly_summary_enabled !== undefined) out.monthly_summary_enabled = !!input.monthly_summary_enabled;
-    if (input.branding !== undefined) { if (input.branding !== null && !isPlainObject(input.branding)) throw badInput('branding must be an object or null'); out.branding = input.branding; }
-    if (input.logo_url !== undefined) out.logo_url = logo_url;
-    if (input.website !== undefined) out.website = website;
+    if (input.name !== undefined) out.name = vString(input.name, 'name', 160, { optional: true });
+    for (const k of ['description', 'cancellation_policy', 'demo_policy']) if (input[k] !== undefined) out[k] = vString(input[k], k, 8000, { optional: true });
+    if (input.cancellation_mode !== undefined) { const m = vString(input.cancellation_mode, 'cancellation_mode', 40); if (!['refundable', 'non_refundable', 'cutoff'].includes(m)) throw badInput('invalid cancellation_mode'); out.cancellation_mode = m; }
+    if (input.auto_confirm_bookings !== undefined) out.auto_confirm_bookings = vBool(input.auto_confirm_bookings, 'auto_confirm_bookings');
+    if (input.monthly_summary_enabled !== undefined) out.monthly_summary_enabled = vBool(input.monthly_summary_enabled, 'monthly_summary_enabled');
+    if (input.branding !== undefined) { if (input.branding !== null && (typeof input.branding !== 'object' || Array.isArray(input.branding))) throw badInput('branding must be an object or null'); out.branding = input.branding; }
+    if (input.logo_url !== undefined) out.logo_url = vHttps(input.logo_url, 'logo_url');
+    if (input.website !== undefined) out.website = vHttps(input.website, 'website');
     if (Object.keys(out).length === 0) throw badInput('no updatable fields');
-    // id is the SESSION's retailer — client cannot target another retailer.
     const { rows, count } = await sbWrite('PATCH', `retailers?id=eq.${encodeURIComponent(auth.retailerId)}`, out);
     if (count !== 1) return { status: 409, body: { error: 'update_scope_mismatch' } };
     return { status: 200, body: { ok: true, retailer: rows[0] } };
@@ -161,6 +216,7 @@ export default async function handler(req, res) {
   const command = String(body.command || '');
   const handler = COMMANDS[command];
   if (!handler) return send(res, 400, { error: 'unknown_command' });
+  if (body.input !== undefined && (typeof body.input !== 'object' || Array.isArray(body.input) || body.input === null)) return send(res, 400, { error: 'invalid_input', message: 'input must be an object' });
 
   const auth = await authRetailer(req, body, CAPABILITY[command]);
   if (!auth.ok) return send(res, auth.status, { error: auth.error });
@@ -170,7 +226,6 @@ export default async function handler(req, res) {
     return send(res, out.status, out.body);
   } catch (e) {
     if (e && e._client) return send(res, 400, { error: 'invalid_input', message: String(e.message).slice(0, 200) });
-    // WS1-10: never leak raw DB/service errors. Log server-side; return a stable code.
     const cid = Math.random().toString(36).slice(2, 10);
     console.error(`commands error [${cid}] command=${command}:`, String(e?.message || e));
     return send(res, 500, { error: 'internal_error', correlation_id: cid });
