@@ -19,6 +19,11 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
   if (!paymentIntentId) return { ok: false, error: 'payment_intent_id required' };
   const params = new URLSearchParams();
   params.set('payment_intent', paymentIntentId);
+  // DH-04: when several bookings share one PaymentIntent (batch checkout), refund only this
+  // booking's share. Omitted -> Stripe does a full refund (correct for single-booking PIs).
+  if (opts.amountCents != null && Number.isFinite(opts.amountCents) && opts.amountCents > 0) {
+    params.set('amount', String(Math.round(opts.amountCents)));
+  }
   // Keeps-all retailers (e.g. Gus) take a plain platform charge: no transfer, no application
   // fee. Sending reverse_transfer / refund_application_fee on those charges makes Stripe reject
   // the refund outright, so only send them for connected (destination-charge) retailers.
@@ -45,6 +50,31 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
+}
+
+// DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error so a transient DB
+// blip never locks out the primary owner (who has no retailer_admins row).
+async function callerRole(retailerId, email) {
+  if (!email) return null;
+  try {
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
+  } catch (_) { return null; }
+}
+
+// DH-04: returns the cents to refund for THIS booking, or null to mean "full PaymentIntent
+// refund" (the tested single-booking path). Only computes a partial when the PI is shared.
+async function bookingRefundCents(booking, venue, retailer) {
+  if (!booking || !booking.payment_intent_id) return null;
+  try {
+    const siblings = await sb(`bookings?payment_intent_id=eq.${encodeURIComponent(booking.payment_intent_id)}&payment_status=eq.paid&select=id`);
+    if (!Array.isArray(siblings) || siblings.length <= 1) return null; // sole booking -> full refund
+  } catch (_) { return null; }
+  const fee = (venue && venue.demo_fee != null) ? Number(venue.demo_fee) : null;
+  if (fee == null || !(fee >= 0)) return null; // can't price this booking -> fall back to full
+  const keepsAll = !!(retailer && retailer.platform_keeps_all);
+  const cents = Math.round(fee * 100) + (keepsAll ? 0 : 500); // +$5 flat platform fee unless keeps-all
+  return cents > 0 ? cents : null;
 }
 
 function daysUntilDemo(demo_date) {
@@ -190,6 +220,7 @@ async function handleReschedulePropose(req, res, body) {
   try { const rows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`); sess = Array.isArray(rows) ? rows[0] : null; }
   catch (_) { return res.status(401).json({ error: 'Invalid admin session' }); }
   if (!sess || new Date(sess.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
+  if ((await callerRole(sess.retailer_id, sess.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access.' });
 
   let demo;
   try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=*,retailers(name,slug),venues(name)`); demo = Array.isArray(rows) ? rows[0] : null; }
@@ -291,6 +322,9 @@ export default async function handler(req, res) {
     const session = Array.isArray(sessRows) ? sessRows[0] : null;
     if (!session) return res.status(401).json({ error: 'Invalid admin session' });
     if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
+    if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
+      return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+    }
     // Opportunistic cookie upgrade: if authenticated via body but no cookie yet, set it.
     const _cookies = parseCookies(req);
     if (!_cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
@@ -344,6 +378,7 @@ export default async function handler(req, res) {
       } else {
         const r = await refundPaymentIntent(booking.payment_intent_id, {
           keepsAll: !!(retailer && retailer.platform_keeps_all),
+          amountCents: await bookingRefundCents(booking, venue, retailer),
           reason: 'requested_by_customer',
           metadata: { booking_id, retailer_id: booking.retailer_id, action: 'decline' },
         });
@@ -364,6 +399,7 @@ export default async function handler(req, res) {
       } else if (shouldRefund) {
         const r = await refundPaymentIntent(booking.payment_intent_id, {
           keepsAll: !!(retailer && retailer.platform_keeps_all),
+          amountCents: await bookingRefundCents(booking, venue, retailer),
           reason: 'requested_by_customer',
           metadata: { booking_id, retailer_id: booking.retailer_id, mode, days_out: String(daysOut) },
         });
