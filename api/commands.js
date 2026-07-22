@@ -89,7 +89,11 @@ function vAvailability(val, field) {
 }
 
 // ---- entitlement (WS1-R2-01): one authoritative tier→limit map; legacy + status aware --------
-const TIER_LIMITS = { solo: 1, free: 1, starter: 25, growth: 100, pro: 100000, enterprise: 100000 };
+// Real per-tier location caps (confirmed by owner). solo=1, pro=10, enterprise=1000 (safety
+// ceiling; tier is billing-assigned, not client-selectable). 'starter'/'growth' exist in legacy
+// billing code but are NOT in current pricing -> omitted -> fall through to the most restrictive
+// limit (1). Add them here if a real customer is still on one.
+const TIER_LIMITS = { solo: 1, free: 1, pro: 10, enterprise: 1000 };
 const INACTIVE_STATUS = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
 async function resolveVenueLimit(retailerId) {
   let tier = null, status = null;
