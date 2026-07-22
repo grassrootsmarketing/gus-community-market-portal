@@ -95,7 +95,15 @@ export default async function handler(req, res) {
       let status = 'operational';
       if (hasMajor) status = 'outage';
       else if (hasMinor || !allChecksOk) status = 'degraded';
-      return res.status(200).json({ ok: true, status, checks, incidents, checked_at: new Date().toISOString() });
+      // DH-21: expose only coarse public health. Drop latency ms, error counts, cron durations,
+      // and incident bodies — those are operator telemetry, not for an anonymous endpoint.
+      const publicChecks = {
+        db: { ok: !!checks.db.ok },
+        cron: { ok: !!checks.cron.ok },
+        errors: { ok: (checks.errors.last_24h || 0) < 50 },
+      };
+      const publicIncidents = incidents.map(i => ({ title: i.title, severity: i.severity, started_at: i.started_at }));
+      return res.status(200).json({ ok: true, status, checks: publicChecks, incidents: publicIncidents, checked_at: new Date().toISOString() });
     }
 
     // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
