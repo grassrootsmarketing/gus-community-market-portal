@@ -4288,12 +4288,12 @@ END:VEVENT
                 const cancelled = status === 'cancelled' || status === 'declined';
                 const cancelBtn = cancelled
                     ? '<span style="font-size:0.72rem; color:var(--ink-500);">—</span>'
-                    : '<button onclick="cancelDemoConfirm(\'' + (d.id || d.booking_id || '') + '\', ' + JSON.stringify(String(d.company || '')) + ', ' + JSON.stringify(String(d.date || '')) + ', ' + JSON.stringify(String(d.time || '')) + ')" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>';
+                    : '<button class="js-cancel-demo" data-id="' + escapeHtml(String(d.id || d.booking_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>';
                 // Reschedule: propose a new date instead of cancelling (keeps the booking + payment).
                 const canResched = status === 'confirmed' && d.id;
                 const rescheduleBtn = d.reschedule_to_date
                     ? '<span title="You proposed a new date. Waiting on the brand to accept or decline." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Reschedule proposed</span>'
-                    : (canResched ? '<button title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." onclick="openRescheduleModal(\'' + d.id + '\', ' + JSON.stringify(String(d.company || '')) + ', ' + JSON.stringify(String(d.date || '')) + ', ' + JSON.stringify(String(d.time || '')) + ')" style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
+                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
                 return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
@@ -4303,6 +4303,8 @@ END:VEVENT
                 + '<td style="text-align:right; white-space:nowrap;">' + rescheduleBtn + cancelBtn + '</td>'
                 + '</tr>';
             }).join('');
+            tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time); }); });
+            tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time); }); });
         }
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
         function _coiBadgeHtml(d) {
