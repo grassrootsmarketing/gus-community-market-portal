@@ -25,7 +25,7 @@ import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
 
 export const config = { api: { bodyParser: false } };
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 // Tolerate up to 5 minutes of clock skew — Stripe's default is 5 min.

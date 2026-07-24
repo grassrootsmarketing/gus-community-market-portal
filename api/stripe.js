@@ -9,7 +9,7 @@
 //   STRIPE_SECRET_KEY     (sk_test_... or sk_live_...)
 //   SUPABASE_SERVICE_KEY
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 

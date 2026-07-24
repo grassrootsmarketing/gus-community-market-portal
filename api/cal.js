@@ -8,7 +8,7 @@
 // Public by design: no auth, but only confirmed demos at the slug are exposed.
 // Sensitive fields (contact email, phone, notes) are NOT included.
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;  // server-side reads must bypass RLS
 

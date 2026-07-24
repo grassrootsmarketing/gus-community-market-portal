@@ -10,7 +10,7 @@
 //   SUPABASE_SERVICE_KEY
 //   SEED_SECRET  (any strong random string; required in body to prevent abuse)
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const SEED_SECRET = process.env.SEED_SECRET;
 

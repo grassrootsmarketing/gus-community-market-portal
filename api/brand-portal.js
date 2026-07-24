@@ -7,7 +7,7 @@
 // Uses service_role; brand_tokens and brand_sessions tables are RLS-locked so only
 // this endpoint touches them.
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';

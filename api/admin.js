@@ -9,7 +9,7 @@
 //   session_id=<uuid>           — required
 // Body (for POST/PATCH): JSON; must include retailer_id for POST.
 
-const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
+const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
 const ALLOWED_TABLES = new Set([
