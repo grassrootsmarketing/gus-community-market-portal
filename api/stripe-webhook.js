@@ -22,6 +22,7 @@
 // disable the built-in body parser and read the stream manually.
 
 import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
+import { applyRefundToBooking } from './_refund-ledger.js';
 
 export const config = { api: { bodyParser: false } };
 
@@ -397,7 +398,8 @@ async function handlePaymentIntentSucceeded(event) {
   // Promote each booking from pending_payment → confirmed (or pending if retailer manual-vets).
   // Payment is the gate for status transitions: no confirmed state ever without a paid booking.
   await Promise.all(bookingIds.map(async (bookingId) => {
-    try {
+    { // P0-3: the paid write is REQUIRED. If it throws, Promise.all rejects, the event is marked
+      // failed and we return non-2xx so Stripe retries — never silently completed.
       const bookingRows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=retailer_id,status`);
       const b = Array.isArray(bookingRows) ? bookingRows[0] : null;
       let nextStatus = null;
@@ -410,8 +412,7 @@ async function handlePaymentIntentSucceeded(event) {
         payment_status: 'paid',
         payment_intent_id: pi.id,
         paid_at: paidAt,
-        amount_paid: perBooking,
-      };
+      }; // P0-4: keep each booking's own amount_paid (set at booking time); never divide the PI
       if (nextStatus) patch.status = nextStatus;
       await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
         method: 'PATCH',
@@ -463,8 +464,6 @@ async function handlePaymentIntentSucceeded(event) {
           console.warn('post-payment confirmation email skipped for', bookingId, ':', (mailErr && mailErr.message) || mailErr);
         }
       }
-    } catch (e) {
-      console.warn('booking', bookingId, 'paid PATCH failed:', (e && e.message) || e);
     }
   }));
   console.log(`payment_intent.succeeded: promoted ${bookingIds.length} booking(s) from pending_payment`);
@@ -505,27 +504,27 @@ async function handlePaymentIntentFailed(event) {
   }
 }
 
-// charge.refunded: cancellation refund completed. Applies to all bookings in the batch.
+// charge.refunded: apply each refund to the EXACT booking it was issued for (P0-4/LG-06).
+// Never divide the charge's cumulative amount_refunded across every booking in the PaymentIntent.
 async function handleChargeRefunded(event) {
   const charge = event.data.object;
-  const bookingIds = bookingIdsFrom(charge.metadata);
-  if (bookingIds.length === 0) return;
-  const refunded = charge.amount_refunded || 0;
-  const fully = refunded >= (charge.amount || 0);
   const refundedAt = new Date().toISOString();
-  const perBooking = bookingIds.length > 0 ? Math.floor(refunded / bookingIds.length) : 0;
-  await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      payment_status: fully ? 'refunded' : 'partial_refund',
-      refunded_at: refundedAt,
-      amount_refunded: perBooking,
-    }),
-  }).catch(e => console.warn('booking', bookingId, 'refund PATCH failed:', (e && e.message) || e))));
-  console.log(`charge.refunded: ${bookingIds.length} booking(s), total=${refunded} fully=${fully}`);
-  for (const bookingId of bookingIds) {
+  const refunds = (charge.refunds && Array.isArray(charge.refunds.data)) ? charge.refunds.data : [];
+  const applied = [];
+  for (const rf of refunds) {
+    const bId = rf.metadata && rf.metadata.booking_id;
+    if (!bId) { console.warn('charge.refunded: refund', rf.id, 'has no booking_id metadata; skipping (charge', charge.id + ')'); continue; }
+    // REQUIRED write — throw on failure so the event stays retryable and no refund is lost.
+    await sb(`bookings?id=eq.${encodeURIComponent(bId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ payment_status: 'refunded', refunded_at: refundedAt, amount_refunded: rf.amount, refund_id: rf.id }),
+    });
+    applied.push({ bookingId: bId, amount: rf.amount });
+  }
+  console.log(`charge.refunded: applied ${applied.length} per-booking refund(s) on charge ${charge.id}`);
+  for (const a of applied) {
     try {
-      const b = await fetchBookingContext(bookingId);
+      const b = await fetchBookingContext(a.bookingId);
       if (b && b.contact_email) {
         await sendResendEmail({
           to: b.contact_email,
@@ -534,14 +533,14 @@ async function handleChargeRefunded(event) {
             brandName: b.brand_name || b.contact_name || 'Brand',
             retailerName: (b.retailers && b.retailers.name) || 'Demohub retailer',
             venueName: (b.venues && b.venues.name) || 'store',
-            demoDate: b.demo_date, demoTime: b.demo_time,
-            amount: perBooking,
+            demoDate: b.demo_date, demoTime: b.demo_time, amount: a.amount,
           }),
         });
       }
     } catch (e) { console.warn('refund email skipped:', (e && e.message) || e); }
   }
 }
+
 
 // -----------------------------------------------------------------------------
 // Subscription lifecycle handlers

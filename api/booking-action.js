@@ -428,13 +428,23 @@ export default async function handler(req, res) {
       if (reason) patch.notes = (booking.notes ? booking.notes + '\n\n' : '') + 'Cancelled: ' + reason;
       if (refundInfo && refundInfo.refund_id) patch.refund_id = refundInfo.refund_id;
     }
+    // P0-5: never show a terminal "refunded/cancelled-and-settled" state unless Stripe actually
+    // refunded. On refund failure, mark payment_status=refund_pending (durable + retryable).
+    if (wasPaid && (action === 'decline' || action === 'cancel')) {
+      if (refundInfo && refundInfo.ok) {
+        if (refundInfo.refund_id) patch.refund_id = refundInfo.refund_id;
+        // authoritative 'refunded' flip happens in the charge.refunded webhook
+      } else if (refundStatus === 'refund_failed') {
+        patch.payment_status = 'refund_pending';
+      }
+    }
     await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
     if (action === 'cancel' && booking.status === 'confirmed') {
       try {
-        await sb(`demos?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&venue_id=eq.${encodeURIComponent(booking.venue_id)}&demo_date=eq.${encodeURIComponent(booking.demo_date)}&demo_time=eq.${encodeURIComponent(booking.demo_time)}&status=in.(confirmed,scheduled)`, {
+        await sb(`demos?booking_id=eq.${encodeURIComponent(booking_id)}&status=in.(confirmed,scheduled)`, {
           method: 'PATCH',
           body: JSON.stringify({ status: 'cancelled', cancelled_at: new Date().toISOString() }),
         });

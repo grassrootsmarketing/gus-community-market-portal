@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     for (const b of bookings) {
       if (b.brand_id !== auth.brandId) return res.status(403).json({ error: 'not_your_booking' });
       if (b.payment_status === 'paid') return res.status(409).json({ error: 'already_paid', booking_id: b.id });
-      if (b.status !== 'pending_payment' && b.payment_status !== 'unpaid') return res.status(409).json({ error: 'not_payable_state', booking_id: b.id });
+      if (b.status !== 'pending_payment' || b.payment_status !== 'unpaid') return res.status(409).json({ error: 'not_payable_state', booking_id: b.id });
     }
     // all bookings in one checkout must share a retailer
     const retailerId = bookings[0].retailer_id;
