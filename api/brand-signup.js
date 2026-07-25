@@ -16,6 +16,16 @@ function rest(path, opts = {}) {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
+
+// Set the HttpOnly brand-session cookie (matches brand-account.js) so a verified brand is
+// immediately signed in for booking — no token handling in page JS.
+function setBrandCookie(res, token) {
+  const cookie = `dh_brand_session=${encodeURIComponent(token)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
+
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -76,6 +86,7 @@ export default async function handler(req, res) {
     if (!r.ok) return res.status(400).json({ error: 'verification_failed', reason: r.reason });
     const out = await provisionOrClaimVerifiedBrand(email, String(body.password || ''), { company_name: body.company_name, contact_name: body.contact_name, phone: body.phone });
     if (!out.ok) return res.status(out.reason === 'account_exists_login_instead' ? 409 : 400).json({ error: out.reason });
+    setBrandCookie(res, out.session_token); // sign them in for booking
     return res.status(200).json({ ok: true, session_token: out.session_token });
   }
   return res.status(400).json({ error: 'unknown action' });

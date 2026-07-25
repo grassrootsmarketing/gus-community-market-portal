@@ -31,7 +31,7 @@ export default async function handler(req, res) {
   // 4) create the booking — server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
-    demo_date: body.demo_date, demo_time: body.demo_time, product: (body.product||null),
+    demo_date: body.demo_date, demo_time: body.demo_time, product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
     status: 'pending_payment', payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
   const r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
   if (!r.ok) { const t = await r.text(); if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' }); return res.status(500).json({ error: 'booking_failed' }); }

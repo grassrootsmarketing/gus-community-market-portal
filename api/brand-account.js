@@ -474,47 +474,16 @@ export default async function handler(req, res) {
         }
       } catch (_) {}
 
-      // Existing brand?
+      // LG-02 FIX: never create a session (or claim a passwordless row) without proving email
+      // ownership. An existing password-having account must sign in; everyone else must complete
+      // the verified signup (emailed 6-digit code) via /api/brand-signup. No silent inline claim.
       const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id,password_hash`);
       const existing = (await lookupR.json())[0];
-      let brandId;
-      if (existing) {
-        // If they already have a password, they must sign in — don't silently overwrite.
-        if (existing.password_hash) {
-          return jsonResp(res, 409, { error: 'account_exists', message: 'You already have a Demohub account. Sign in to continue.', signin: true });
-        }
-        // Brand row exists but no password (auto-created from a prior guest booking) — claim it now.
-        brandId = existing.id;
-        const password_hash = await hashPassword(password);
-        const patch = { password_hash, is_verified: true, updated_at: new Date().toISOString() };
-        if (companyName) patch.company_name = companyName;
-        if (contactName) patch.contact_name = contactName;
-        if (phone) patch.phone = phone;
-        try { await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) }); } catch (_) {}
-      } else {
-        // Brand new — create the brand with password set.
-        const password_hash = await hashPassword(password);
-        const createR = await sb('brands', {
-          method: 'POST',
-          body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone, password_hash, is_verified: true }),
-        });
-        const created = await createR.json();
-        if (!Array.isArray(created) || !created[0]) { console.error('booking-signup brand insert failed:', JSON.stringify(created)); return jsonResp(res, 500, { error: 'Could not create account. Try again.' }); }
-        brandId = created[0].id;
-        try {
-          await sb('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email, role: 'owner', name: contactName }) });
-        } catch (_) {}
+      if (existing && existing.password_hash) {
+        return jsonResp(res, 409, { error: 'account_exists', message: 'You already have a Demohub account. Sign in to continue.', signin: true });
       }
-
-      // Create session + set HttpOnly cookie so the brand is now signed in for the booking + future visits.
-      const sessionToken = randomToken(32);
-      const sessionExpires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-      await sb('brand_account_sessions', {
-        method: 'POST',
-        body: JSON.stringify({ brand_id: brandId, email, session_token: sessionToken, expires_at: sessionExpires }),
-      });
-      setBrandSessionCookie(res, sessionToken);
-      return jsonResp(res, 200, { ok: true, brand_id: brandId, email });
+      // New or passwordless: require email verification before any account/session is issued.
+      return jsonResp(res, 409, { error: 'verify_required', verify: true, email, message: 'Verify your email to finish creating your account.' });
     }
 
     if (action === 'signup') {
