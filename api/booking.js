@@ -2,6 +2,7 @@
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
 import { coiCoverageState } from './_coi-lib.js';
+import { verifyAdminSession } from './admin-auth.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
@@ -252,12 +253,12 @@ export default async function handler(req, res) {
       const a = Array.isArray(as) ? as[0] : null;
       if (!a) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'never_signed', policies });
       if (new Date(a.expires_at).getTime() < Date.now()) {
-        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'expired', current_agreement: a, policies });
+        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'expired', policies });
       }
       if (a.policy_hash !== curHash) {
-        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'policy_changed', current_agreement: a, policies });
+        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'policy_changed', policies });
       }
-      return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, current_agreement: a, policies });
+      return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, policies });
     }
 
     const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name } = body || {};
@@ -292,6 +293,16 @@ export default async function handler(req, res) {
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
     const RETAILER_ID = retailer.id;
+    // LG-01: anonymous public booking via this endpoint is CLOSED. Creating a booking here now
+    // requires an authenticated RETAILER ADMIN session for THIS retailer (staff manual bookings).
+    // Public brands book through /api/book, which derives identity from the brand session.
+    {
+      const _cookie = (req.headers && req.headers.cookie) || '';
+      const _m = /(?:^|;\s*)dh_session=([^;]+)/.exec(_cookie);
+      const _sid = _m ? decodeURIComponent(_m[1]) : (body && body.session_id);
+      const _adm = await verifyAdminSession(_sid, RETAILER_ID);
+      if (!_adm.ok) return res.status(401).json({ error: 'admin_session_required', message: 'Public booking has moved to /api/book. Staff must be signed in to add a manual booking.' });
+    }
     const RETAILER_NAME = retailer.name;
     const RETAILER_BILLING_EMAIL = retailer.billing_email || null;
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';

@@ -2128,7 +2128,9 @@
                     const resp = await fetch('/api/booking', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
                         body: JSON.stringify({
+                            retailer_slug: window.RETAILER_SLUG || (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '',
                             brand_name: brandName,
                             contact_name: contactName,
                             contact_email: contactEmail,
