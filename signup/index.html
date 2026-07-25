@@ -253,6 +253,19 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </form>
     <div class="terms">By creating an account you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</div>
   </div>
+  <div class="card" id="verifyCard" style="display:none;">
+    <div class="error" id="verifyError"></div>
+    <h2 style="font-family:'Plus Jakarta Sans',sans-serif;font-size:1.5rem;font-weight:800;color:var(--forest-900);letter-spacing:-0.02em;margin-bottom:8px;">Check your email</h2>
+    <p style="color:var(--ink-700);font-size:0.95rem;margin-bottom:20px;">We sent a 6-digit code to <strong id="verifyEmailLabel"></strong>. Enter it below to finish setting up your store.</p>
+    <div class="form-row">
+      <label class="label" for="codeInput">Verification code</label>
+      <input class="input" id="codeInput" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456" style="letter-spacing:0.35em;font-size:1.25rem;text-align:center;font-weight:700;">
+    </div>
+    <button class="btn" id="verifyBtn" type="button">Verify &amp; create my store</button>
+    <div class="terms" style="margin-top:14px;">
+      Didn't get it? <a href="#" id="resendLink">Resend code</a> &middot; <a href="#" id="backLink">Use a different email</a>
+    </div>
+  </div>
   <div class="card success" id="successCard">
     <div class="check">&#10003;</div>
     <h2>You're live</h2>
@@ -272,197 +285,136 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 (function(){
   const form = document.getElementById('signupForm');
   const formCard = document.getElementById('formCard');
+  const verifyCard = document.getElementById('verifyCard');
   const successCard = document.getElementById('successCard');
   const errorBox = document.getElementById('errorBox');
+  const verifyError = document.getElementById('verifyError');
   const submitBtn = document.getElementById('submitBtn');
+  const verifyBtn = document.getElementById('verifyBtn');
+  const codeInput = document.getElementById('codeInput');
+  const verifyEmailLabel = document.getElementById('verifyEmailLabel');
   const storeCount = document.getElementById('storeCount');
   const storeMinus = document.getElementById('storeMinus');
   const storePlus = document.getElementById('storePlus');
   const storeUnit = document.getElementById('storeUnit');
+  let pendingEmail = '';
+  let pendingStoreName = '';
   if (successCard) successCard.style.display = 'none';
+  if (verifyCard) verifyCard.style.display = 'none';
 
-  // Render the success card from a known state object
-  // adminUrlAuto carries a one-shot magic-link token (~30min validity) so the
-  // "Open admin" button drops the user straight into their admin already
-  // logged in. The displayed link uses the bare URL so they can share it /
-  // bookmark it without leaking the token.
-  function renderSuccess({ slug, adminUrl, adminUrlAuto, publicUrl }) {
+  // Build links from the CURRENT origin so preview/staging never bounces to prod.
+  const SITE = location.origin;
+
+  function showError(box, msg){ if(!box) return; box.textContent = msg; box.style.display = 'block'; }
+
+  function renderSuccess({ slug, adminUrl, publicUrl }){
     const adminLink  = document.getElementById('adminLink');
     const publicLink = document.getElementById('publicLink');
     const openAdminBtn = document.getElementById('openAdminBtn');
-    const goto = adminUrlAuto || adminUrl;
     if (adminLink)  { adminLink.href = adminUrl;  adminLink.textContent = adminUrl; }
     if (publicLink) { publicLink.href = publicUrl; publicLink.textContent = publicUrl; }
-    if (openAdminBtn) openAdminBtn.onclick = () => {
-      // Wipe cache + replaceState so back button doesn't resurrect the signup success card
-      try { localStorage.removeItem('demohub_signup_success_v1'); } catch(_){}
-      try { history.replaceState({}, '', '/'); } catch(_){}
-      window.location.href = goto;
-    };
-    formCard.style.display = 'none';
+    if (openAdminBtn) openAdminBtn.onclick = () => { window.location.href = adminUrl; };
+    if (formCard)   formCard.style.display = 'none';
+    if (verifyCard) verifyCard.style.display = 'none';
     if (successCard) successCard.style.display = 'block';
   }
 
-  // On page load, restore success state if present (URL param OR localStorage within 7 days)
-  (function autoRestore(){
-    try {
-      const urlSlug = new URLSearchParams(location.search).get('slug');
-      const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
-      let saved = null;
-      try { saved = JSON.parse(localStorage.getItem('demohub_signup_success_v1') || 'null'); } catch(_){}
-      // Prefer URL slug , if the URL says slug, build from it
-      if (urlSlug) {
-        const adminUrl  = 'https://demohubhq.com/r/' + urlSlug + '/admin';
-        const publicUrl = 'https://demohubhq.com/r/' + urlSlug;
-        // No fresh token in URL-only path , button routes through /signin
-        renderSuccess({ slug: urlSlug, adminUrl, adminUrlAuto: null, publicUrl });
-        return;
-      }
-      // Do NOT auto-restore from localStorage on a bare /signup URL.
-      // Previously we did , but that surprised users who wanted to sign up again
-      // (their last success card kept resurrecting even after typing /signup fresh).
-      // Now the only restore path is when the URL explicitly has ?slug=X , meaning
-      // the user is intentionally coming back to a specific success page.
-      // localStorage kept for backwards compatibility with success card refresh in-flow,
-      // but no auto-write to URL / auto-render on cold start.
-    } catch(_){}
-  })();
-
-  const params = new URLSearchParams(location.search);
-  const tier = (params.get('tier') || '').toLowerCase();
-  const validTiers = new Set(['solo','pro']);
-  const initialTier = validTiers.has(tier) ? tier : null;
-  if (initialTier) {
-    if (initialTier === 'solo')      storeCount.value = 1;
-    else if (initialTier === 'pro')  storeCount.value = 2;
-    setStores(storeCount.value);
-  }
-
-  function setStores(n) {
+  // ---- store stepper (kept from before; Solo=1 free, 2+ is a Pro upgrade after signup) ----
+  function setStores(n){
     n = Math.max(1, Math.min(999, parseInt(n, 10) || 1));
-    storeCount.value = n;
+    if (storeCount) storeCount.value = n;
     if (storeUnit) storeUnit.textContent = n === 1 ? 'store' : 'stores';
-    // P4a: show Pro-tier note when > 1
     const proNote = document.getElementById('storeCountProNote');
     if (proNote) proNote.style.display = n > 1 ? 'block' : 'none';
   }
   if (storeMinus) storeMinus.addEventListener('click', () => setStores(parseInt(storeCount.value, 10) - 1));
   if (storePlus)  storePlus.addEventListener('click',  () => setStores(parseInt(storeCount.value, 10) + 1));
   if (storeCount) storeCount.addEventListener('input', () => setStores(storeCount.value));
-  // Initial paint: sync Pro note with current stepper value
-  setStores(storeCount.value);
+  if (storeCount) setStores(storeCount.value);
 
-  function showError(msg) {
-    if (!errorBox) return;
-    errorBox.textContent = msg;
-    errorBox.style.display = 'block';
-  }
-
+  // ---- Step 1: request an email-ownership code (no account yet) ----
   if (form) form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    errorBox.style.display = 'none';
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Creating…';
-
-    const payload = {
-      retailer_name: document.getElementById('retailerName').value.trim(),
-      contact_name:  document.getElementById('contactName').value.trim(),
-      billing_email: document.getElementById('billingEmail').value.trim().toLowerCase(),
-      store_count:   parseInt(storeCount.value, 10) || 1,
-    };
-
-    if (!payload.retailer_name || !payload.billing_email) {
-      showError('Business name and email are required.');
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Create my Demohub';
-      return;
-    }
-
+    if (errorBox) errorBox.style.display = 'none';
+    const retailer_name = document.getElementById('retailerName').value.trim();
+    const billing_email = document.getElementById('billingEmail').value.trim().toLowerCase();
+    if (!retailer_name || !billing_email) { showError(errorBox, 'Business name and email are required.'); return; }
+    submitBtn.disabled = true; submitBtn.textContent = 'Sending code\u2026';
     try {
-      const r = await fetch('/api/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+      const r = await fetch('/api/retailer-signup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request', email: billing_email, store_name: retailer_name }),
       });
-      const j = await r.json();
-      if (!r.ok) {
-        // Single-profile-per-email collisions come back as 409 with a signin_url
-        if (r.status === 409 && j.signin_url) {
-          if (errorBox) {
-            errorBox.innerHTML = (j.message || 'This email already has an account.') +
-              ` <a href="${j.signin_url}" style="color:var(--forest-700); font-weight:600; text-decoration:underline;">Sign in →</a>`;
-            errorBox.style.display = 'block';
-          }
-          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = 'Create my Demohub →'; }
-          return;
-        }
-        throw new Error(j.error || ('HTTP ' + r.status));
-      }
-
-      const slug = j.slug || '';
-      const adminUrl = j.admin_url || ('https://demohubhq.com/r/' + slug + '/admin');
-      const publicUrl = j.public_url || ('https://demohubhq.com/r/' + slug);
-      // adminUrlAuto carries a one-shot magic-link token so "Open admin" lands logged in
-      const adminUrlAuto = j.admin_url_with_token || adminUrl;
-
-      // Persist success state for refresh-survival. We keep adminUrlAuto for ~30 minutes
-      // (it embeds a one-shot token); after that it falls back to the bare URL which routes
-      // through /signin so the user can request a fresh magic link.
-      try {
-        // Also update the recognized-card memory used by /signin. Otherwise a fresh
-        // signup with a +alias email won't override a previously-remembered base email.
-        try {
-          const name = (payload && payload.contact_name) || '';
-          localStorage.setItem('demohub_signin_last_v1', JSON.stringify({
-            email: (payload.billing_email || '').toLowerCase(),
-            role: 'retailer',
-            name: name,
-          }));
-        } catch(_){}
-        localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
-          slug, adminUrl, adminUrlAuto, publicUrl, savedAt: Date.now(),
-          tier: initialTier || null,
-        }));
-      } catch(_){}
-      if (initialTier) {
-        try { localStorage.setItem('demohub_pending_tier_' + slug, initialTier); } catch(_){}
-      }
-
-      // Update URL so refresh stays on success state and shareable
-      try { history.replaceState(null, '', '/signup?slug=' + encodeURIComponent(slug)); } catch(_){}
-
-      // Phase E: Multi-store signup needs Pro subscription. Redirect to Stripe Checkout
-      // (monthly plan). The signup token doubles as an admin session for the subscribe call.
-      if (j.needs_billing && j.session_token) {
-        try {
-          if (submitBtn) submitBtn.textContent = 'Redirecting to payment…';
-          // Stash minimal state so if they cancel out of Stripe they land back on the success card
-          localStorage.setItem('demohub_signup_success_v1', JSON.stringify({
-            slug, adminUrl, adminUrlAuto, publicUrl, savedAt: Date.now(),
-            tier: 'pro', pending_billing: true,
-          }));
-          const stripeResp = await fetch('/api/stripe?action=subscribe&session_id=' + encodeURIComponent(j.session_token), {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tier: 'pro', interval: 'month' }),
-          });
-          const stripeJson = await stripeResp.json().catch(() => ({}));
-          if (stripeResp.ok && stripeJson.url) {
-            window.location.href = stripeJson.url;
-            return;
-          }
-          console.warn('Stripe subscribe failed, showing success card:', stripeJson.error || stripeResp.status);
-        } catch (stripeErr) {
-          console.warn('Stripe redirect failed:', stripeErr);
-        }
-        // If Stripe failed, fall through to normal success (they can hit the button in admin)
-      }
-
-      renderSuccess({ slug, adminUrl, adminUrlAuto, publicUrl });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      pendingEmail = billing_email; pendingStoreName = retailer_name;
+      if (verifyEmailLabel) verifyEmailLabel.textContent = billing_email;
+      if (formCard) formCard.style.display = 'none';
+      if (verifyCard) verifyCard.style.display = 'block';
+      if (codeInput) codeInput.focus();
     } catch (err) {
-      showError(err.message || 'Sign-up failed. Try again or email david@demohubhq.com.');
-      submitBtn.disabled = false;
-      submitBtn.textContent = 'Create my Demohub';
+      showError(errorBox, err.message || 'Could not send the code. Try again.');
+    } finally {
+      submitBtn.disabled = false; submitBtn.textContent = 'Continue \u2192';
     }
+  });
+
+  // ---- Step 2: verify the code -> server provisions Solo store + sets session cookie ----
+  async function submitCode(){
+    const code = (codeInput.value || '').trim();
+    if (!/^\d{6}$/.test(code)) { showError(verifyError, 'Enter the 6-digit code from your email.'); return; }
+    if (verifyError) verifyError.style.display = 'none';
+    verifyBtn.disabled = true; verifyBtn.textContent = 'Verifying\u2026';
+    try {
+      const r = await fetch('/api/retailer-signup', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', email: pendingEmail, code }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const reason = j.reason || j.error || '';
+        if (reason === 'expired') showError(verifyError, 'That code expired. Tap Resend for a new one.');
+        else if (reason === 'too_many_attempts') showError(verifyError, 'Too many tries. Tap Resend for a fresh code.');
+        else showError(verifyError, 'That code is not right. Check your email and try again.');
+        verifyBtn.disabled = false; verifyBtn.textContent = 'Verify & create my store';
+        return;
+      }
+      if (j.already) {
+        showError(verifyError, 'You already have a store with this email. Sending you to sign in\u2026');
+        setTimeout(() => { window.location.href = '/signin'; }, 1200);
+        return;
+      }
+      const slug = j.slug || '';
+      const adminUrl  = SITE + '/r/' + slug + '/admin';
+      const publicUrl = SITE + '/r/' + slug;
+      try { localStorage.setItem('demohub_signin_last_v1', JSON.stringify({ email: pendingEmail, role: 'retailer', name: '' })); } catch(_){}
+      renderSuccess({ slug, adminUrl, publicUrl });
+    } catch (err) {
+      showError(verifyError, err.message || 'Verification failed. Try again.');
+      verifyBtn.disabled = false; verifyBtn.textContent = 'Verify & create my store';
+    }
+  }
+  if (verifyBtn) verifyBtn.addEventListener('click', submitCode);
+  if (codeInput) codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); submitCode(); } });
+
+  // Resend + go-back
+  const resendLink = document.getElementById('resendLink');
+  if (resendLink) resendLink.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (!pendingEmail) return;
+    resendLink.textContent = 'Sending\u2026';
+    try {
+      await fetch('/api/retailer-signup', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request', email: pendingEmail, store_name: pendingStoreName }) });
+      resendLink.textContent = 'Code sent';
+      setTimeout(() => { resendLink.textContent = 'Resend code'; }, 4000);
+    } catch(_) { resendLink.textContent = 'Resend code'; }
+  });
+  const backLink = document.getElementById('backLink');
+  if (backLink) backLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (verifyCard) verifyCard.style.display = 'none';
+    if (formCard) formCard.style.display = 'block';
   });
 })();
 </script>

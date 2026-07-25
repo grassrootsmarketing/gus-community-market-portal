@@ -17,6 +17,14 @@ function rest(path, opts = {}) {
     headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
+// Set the same HttpOnly session cookie admin-auth.js issues, so a freshly
+// verified owner lands in their admin already logged in (no token in the URL).
+function setSessionCookie(res, sessionId) {
+  const cookie = `dh_session=${encodeURIComponent(sessionId)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`;
+  const existing = res.getHeader('Set-Cookie');
+  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
+  else res.setHeader('Set-Cookie', cookie);
+}
 function slugify(s) {
   return String(s || 'store').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'store';
 }
@@ -80,7 +88,8 @@ export default async function handler(req, res) {
     const exRows = existing.ok ? await existing.json() : [];
     if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug });
     const prov = await provisionVerifiedRetailer(email, r.payload && r.payload.store_name);
-    return res.status(200).json({ ok: true, slug: prov.slug, session_id: prov.session_id, admin_url: `${SITE_ORIGIN}/r/${prov.slug}/admin` });
+    setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
+    return res.status(200).json({ ok: true, slug: prov.slug, session_id: prov.session_id, admin_url: `${SITE_ORIGIN}/r/${prov.slug}/admin`, public_url: `${SITE_ORIGIN}/r/${prov.slug}` });
   }
   return res.status(400).json({ error: 'unknown action' });
 }
