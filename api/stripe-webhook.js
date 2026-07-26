@@ -732,46 +732,19 @@ export default async function handler(req, res) {
   // whose handler threw). We mark 'completed' only AFTER the handler succeeds, and release to
   // 'failed' on error so Stripe's retry can reclaim it. Resilient: if the table/columns are
   // missing we process as before and never block a real payment.
-  let _inboxClaimed = false;
+  // P0-7: atomic exactly-once claim via the DB lease. FAIL CLOSED — if the inbox is unavailable we
+  // do NOT process without a durable claim (return 503 so Stripe retries).
+  const _owner = randomBytes(16).toString('hex');
+  let _claimVal;
   try {
-    const ins = await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events`, {
-      method: 'POST',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-      body: JSON.stringify({ event_id: event.id, event_type: event.type, status: 'processing' }),
-    });
-    if (ins.ok) {
-      _inboxClaimed = true;
-    } else if (ins.status === 409) {
-      let st = null;
-      try {
-        const q = await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events?event_id=eq.${encodeURIComponent(event.id)}&select=status`, {
-          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-        });
-        const rows = q.ok ? await q.json() : [];
-        st = (Array.isArray(rows) && rows[0]) ? rows[0].status : null;
-      } catch (_) {}
-      if (st === 'completed') {
-        console.log('duplicate webhook event ignored (already completed):', event.id);
-        return res.status(200).json({ received: true, duplicate: true });
-      }
-      _inboxClaimed = true; // prior unfinished attempt -> reclaim and re-process
-    } else {
-      console.warn('event-inbox claim non-ok (continuing):', ins.status);
-    }
+    const _c = await sbRpc('claim_stripe_event', { p_event_id: event.id, p_event_type: event.type, p_owner: _owner, p_lease_seconds: 120 });
+    _claimVal = Array.isArray(_c) ? _c[0] : _c;
   } catch (e) {
-    console.warn('event-inbox unavailable (continuing):', String(e?.message || e).slice(0, 160));
+    console.error('event-inbox claim failed (fail-closed):', (e && e.message) || e);
+    return res.status(503).json({ error: 'inbox_unavailable' });
   }
-
-  async function _markInbox(status, extra) {
-    if (!_inboxClaimed) return;
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/processed_stripe_events?event_id=eq.${encodeURIComponent(event.id)}`, {
-        method: 'PATCH',
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-        body: JSON.stringify(Object.assign({ status }, extra || {})),
-      });
-    } catch (_) {}
-  }
+  if (_claimVal === 'skip') { return res.status(200).json({ received: true, duplicate: true }); }
+  if (_claimVal === 'busy') { return res.status(409).json({ error: 'event_in_progress' }); }  // another worker holds the lease; Stripe will retry
 
   try {
     switch (event.type) {
@@ -805,12 +778,14 @@ export default async function handler(req, res) {
         // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
         console.log(`ignored event: ${event.type}`);
     }
-    // R2-01: mark completed ONLY after the handler succeeded.
-    await _markInbox('completed', { processed_at: new Date().toISOString() });
+    // mark completed ONLY after the handler succeeded, and ONLY if we still own the lease.
+    const _done = await sbRpc('complete_stripe_event', { p_event_id: event.id, p_owner: _owner });
+    const _doneVal = Array.isArray(_done) ? _done[0] : _done;
+    if (_doneVal !== true) { console.warn('inbox completion not recorded (lease lost?):', event.id); return res.status(500).json({ error: 'completion_not_recorded' }); }
     return res.status(200).json({ received: true });
   } catch (e) {
-    // Return 500 so Stripe will retry — release the claim so the retry can re-process.
-    await _markInbox('failed', { last_error: String((e && e.message) || e).slice(0, 300) });
+    // Return 500 so Stripe retries — release our lease so the retry can reclaim.
+    try { await sbRpc('fail_stripe_event', { p_event_id: event.id, p_owner: _owner, p_err: String((e && e.message) || e) }); } catch (_) {}
     console.error(`webhook handler error for ${event.type}:`, e.message);
     return res.status(500).json({ error: e.message });
   }
