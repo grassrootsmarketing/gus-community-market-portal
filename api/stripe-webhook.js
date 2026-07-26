@@ -151,6 +151,7 @@ async function createDemoForConfirmedBooking(ctx) {
     demo_fee: fee,
     notes: ctx.notes || null,
     brand_id: ctx.brand_id || null,
+    booking_id: ctx.booking_id || null,   // P1-7: link demo->booking for reliable cancel/idempotency
   };
   try {
     await sb('demos', { method: 'POST', body: JSON.stringify(payload) });
@@ -395,6 +396,31 @@ async function sbRpc(fn, args) {
   try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
 }
 
+// checkout.session.expired: release an abandoned group's claimed bookings so they can re-checkout (P1-3).
+async function handleCheckoutSessionExpired(event) {
+  const s = event.data.object || {};
+  if (s.mode && s.mode !== 'payment') return;
+  const groups = await sb(`payment_groups?stripe_checkout_session_id=eq.${encodeURIComponent(s.id)}&select=id,status`);
+  const g = Array.isArray(groups) ? groups[0] : null;
+  if (!g) return;
+  if (g.status === 'pending' || g.status === 'session_created') {
+    await sb(`payment_allocations?payment_group_id=eq.${encodeURIComponent(g.id)}`, { method: 'DELETE' });   // frees UNIQUE(booking_id)
+    await sb(`payment_groups?id=eq.${encodeURIComponent(g.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) });
+    console.log('checkout.session.expired: released group', g.id);
+  }
+}
+
+// Individual Refund lifecycle events (refund.created/updated/failed): verified-event finalization.
+async function handleRefundEvent(event) {
+  const rf = event.data.object || {};
+  const _r = await sbRpc('finalize_refund', { p_stripe_refund_id: rf.id, p_status: rf.status || 'succeeded', p_amount: rf.amount, p_currency: rf.currency });
+  const val = Array.isArray(_r) ? _r[0] : _r;
+  if (val === 'unmatched') {
+    console.warn('unmatched refund (refund event) quarantined:', rf.id);
+    try { await sb('unmatched_stripe_refunds', { method: 'POST', body: JSON.stringify({ stripe_refund_id: rf.id, stripe_charge_id: rf.charge, stripe_payment_intent_id: rf.payment_intent, amount: rf.amount, currency: rf.currency, raw: rf }) }); } catch (_) {}
+  }
+}
+
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
   const gid = pi.metadata && pi.metadata.payment_group_id;
@@ -440,6 +466,7 @@ async function handlePaymentIntentSucceeded(event) {
           const ctx = await fetchBookingContext(bookingId);
           // Auto-confirm: materialise the demo so it's visible to brand + retailer right away.
           if (nextStatus === 'confirmed' && ctx) {
+            ctx.booking_id = bookingId;
             try { await createDemoForConfirmedBooking(ctx); }
             catch (demoErr) { console.warn('auto-confirm demo create failed for', bookingId, ':', (demoErr && demoErr.message) || demoErr); }
           }
@@ -489,6 +516,8 @@ async function handlePaymentIntentFailed(event) {
   const bookingIds = bookingIdsFrom(pi.metadata);
   if (bookingIds.length === 0) return;
   const err = (pi.last_payment_error && pi.last_payment_error.message) || 'payment failed';
+  const _gid = pi.metadata && pi.metadata.payment_group_id;
+  if (_gid) { try { await sb(`payment_groups?id=eq.${encodeURIComponent(_gid)}&status=in.(pending,session_created)`, { method: 'PATCH', body: JSON.stringify({ status: 'failed' }) }); } catch (_) {} }
   await Promise.all(bookingIds.map(bookingId => sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
     method: 'PATCH',
     body: JSON.stringify({
@@ -766,6 +795,12 @@ export default async function handler(req, res) {
         await handlePaymentIntentFailed(event); break;
       case 'charge.refunded':
         await handleChargeRefunded(event); break;
+      case 'refund.created':
+      case 'refund.updated':
+      case 'refund.failed':
+        await handleRefundEvent(event); break;
+      case 'checkout.session.expired':
+        await handleCheckoutSessionExpired(event); break;
       default:
         // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
         console.log(`ignored event: ${event.type}`);
