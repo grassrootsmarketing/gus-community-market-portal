@@ -1,3 +1,4 @@
+import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/coi-status.js — retailer-facing COI status (work order Phase 4).
 //   GET  (session)                 -> { pending: [{booking_id, brand_name, demo_date}] } for upcoming COI-pending demos
 //   POST action=waive {booking_id} -> sets coi_waived_at / coi_waived_by on a booking the retailer owns
@@ -62,12 +63,13 @@ export default async function handler(req, res) {
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
   const cookies = parseCookies(req);
   const body = (req.method === 'POST') ? await readBody(req) : {};
-  const sid = cookies[SESSION_COOKIE] || (body && body.session_id) || (req.query && req.query.session_id) || null;
-  const session = await verifySession(sid);
-  if (!session) return res.status(401).json({ error: 'Not authenticated' });
-  const retailerId = session.retailer_id;
-  if (req.method === 'POST' && (await callerRole(retailerId, session.email)) === 'viewer') {
-    return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+  const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
+  if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+  const session = { retailer_id: _auth.retailer_id, email: _auth.email };
+  const retailerId = _auth.retailer_id;
+  // COI waiver is a compliance state transition — owner/admin only.
+  if (req.method === 'POST' && !['owner', 'admin'].includes(String(_auth.role).toLowerCase())) {
+    return res.status(403).json({ error: 'insufficient_role', message: 'Only owners and admins can change COI status.' });
   }
 
   // ---- Waive ----

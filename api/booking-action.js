@@ -1,3 +1,4 @@
+import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/booking-action — Admin confirms, declines, or cancels a booking.
 // On confirm: flips bookings.status to 'confirmed', creates a demos row, emails the brand.
 // On decline: flips bookings.status to 'declined', emails the brand.
@@ -218,13 +219,9 @@ async function handleReschedulePropose(req, res, body) {
   if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date)) return res.status(400).json({ error: 'new_date (YYYY-MM-DD) required' });
   if (new_date < new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'The new date must be in the future.' });
 
-  const session_id = getSessionIdFromReq(req, body);
-  if (!session_id || !isUuid(session_id)) return res.status(401).json({ error: 'Invalid or missing admin session' });
-  let sess;
-  try { const rows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`); sess = Array.isArray(rows) ? rows[0] : null; }
-  catch (_) { return res.status(401).json({ error: 'Invalid admin session' }); }
-  if (!sess || new Date(sess.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
-  if ((await callerRole(sess.retailer_id, sess.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access.' });
+  const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
+  if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+  const sess = { retailer_id: _auth.retailer_id, email: _auth.email };
 
   let demo;
   try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=*,retailers(name,slug),venues(name)`); demo = Array.isArray(rows) ? rows[0] : null; }
@@ -316,20 +313,10 @@ export default async function handler(req, res) {
     if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
 
     // === Session check (cookie first, body fallback for backwards compat) ===
-    const session_id = getSessionIdFromReq(req, body);
-    if (!session_id) return res.status(401).json({ error: 'Invalid or missing admin session' });
-    if (!isUuid(session_id)) return res.status(401).json({ error: 'Invalid admin session' });
-    let sessRows;
-    try {
-      sessRows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
-    } catch (_) { return res.status(401).json({ error: 'Invalid admin session' }); }
-    const session = Array.isArray(sessRows) ? sessRows[0] : null;
-    if (!session) return res.status(401).json({ error: 'Invalid admin session' });
-    if (new Date(session.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
-    if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
-      return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
-    }
-    // Opportunistic cookie upgrade: if authenticated via body but no cookie yet, set it.
+    const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
+    if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+    const session = { retailer_id: _auth.retailer_id, email: _auth.email };
+    const session_id = _auth.session_id;
     const _cookies = parseCookies(req);
     if (!_cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
 

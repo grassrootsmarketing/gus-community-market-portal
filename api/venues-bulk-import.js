@@ -1,3 +1,4 @@
+import { requireRetailerMembership } from './_retailer-auth.js';
 
 // Tier limit enforcement — mirrors /api/admin
 const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
@@ -129,13 +130,9 @@ async function callerRole(retailerId, email) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
 
-  const sessionId = (req.query?.session_id || '').toString();
-  const session = await verifySession(sessionId);
-  if (!session) return jsonResp(res, 401, { error: 'Invalid session' });
-  if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
-    return jsonResp(res, 403, { error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
-  }
-  if (!session.retailer_id) return jsonResp(res, 403, { error: 'Session has no retailer_id' });
+  const _auth = await requireRetailerMembership(req, {}, null, ['owner', 'admin']);
+  if (!_auth.ok) return jsonResp(res, _auth.status, { error: _auth.error });
+  const session = { retailer_id: _auth.retailer_id, email: _auth.email };
 
   let csvText, filename;
   try {

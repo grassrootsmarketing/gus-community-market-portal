@@ -1,3 +1,4 @@
+import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/stripe — Subscription management for retailers.
 // Actions: subscribe, portal, cancel, status
 //
@@ -161,14 +162,11 @@ export default async function handler(req, res) {
     // Prefer cookie session; fall back to query/body for backwards compat.
     const session_id = getSessionIdFromReq(req, body);
 
-    const session = await verifySession(session_id);
-    if (!session) return jsonResp(res, 401, { error: 'Not authenticated' });
-    // Opportunistic upgrade: if authenticated via body but no cookie yet, set it.
+    const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin']);
+    if (!_auth.ok) return jsonResp(res, _auth.status, { error: _auth.error });
+    const session = { retailer_id: _auth.retailer_id, email: _auth.email };
     const _cookies = parseCookies(req);
     if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
-    if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
-      return jsonResp(res, 403, { error: 'read_only_role', message: 'Your account has view-only access. Billing and Connect changes require an admin.' });
-    }
 
     const retailerArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=*`);
     const retailer = Array.isArray(retailerArr) ? retailerArr[0] : null;
