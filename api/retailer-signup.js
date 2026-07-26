@@ -42,17 +42,18 @@ async function uniqueSlug(base) {
 // The provisioning step — runs only after email is proven. Exported so it's testable.
 export async function provisionVerifiedRetailer(email, storeName) {
   const e = String(email).trim().toLowerCase();
-  const slug = await uniqueSlug(slugify(storeName || e.split('@')[0]));
-  // free Solo store
-  const rr = await rest('retailers', { method: 'POST', headers: { Prefer: 'return=representation' },
-    body: JSON.stringify({ slug, name: storeName || slug, billing_tier: 'solo', billing_email: e }) });
-  if (!rr.ok) throw new Error('retailer create failed: ' + (await rr.text()).slice(0, 160));
-  const retailer = (await rr.json())[0];
-  await rest('settings', { method: 'POST', body: JSON.stringify({ retailer_id: retailer.id, demo_fee: 30, demo_duration: 180, advance_booking_days: 60 }) });
-  await rest('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: retailer.id, email: e, role: 'admin' }) });
-  const sessionId = crypto.randomUUID();
-  await rest('admin_sessions', { method: 'POST', body: JSON.stringify({ session_id: sessionId, retailer_id: retailer.id, email: e, expires_at: new Date(Date.now() + 30 * 864e5).toISOString() }) });
-  return { retailer_id: retailer.id, slug, session_id: sessionId };
+  // P1-3: retailer + settings + owner membership + session created ATOMICALLY by a DB function.
+  // Rolls back on any failure (no half-provisioned tenant); idempotent (returns existing store).
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/provision_verified_retailer`, {
+    method: 'POST',
+    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ p_email: e, p_store_name: storeName || null }),
+  });
+  if (!r.ok) throw new Error('provision failed: ' + (await r.text()).slice(0, 200));
+  const rows = await r.json();
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row || !row.retailer_id) throw new Error('provision returned no row');
+  return { retailer_id: row.retailer_id, slug: row.slug, session_id: row.session_id, already: !!row.already };
 }
 
 async function sendCode(email, code) {
