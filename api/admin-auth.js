@@ -137,6 +137,26 @@ export async function verifyRetailerStaff(session_id, retailerId, allowedRoles =
   return { ok: true, email: s.email, retailerId, role };
 }
 
+// Shared membership guard for EVERY retailer action (P0-1/P0-8): valid session + live EXACT
+// membership + closed role domain, fail-closed. Returns retailer_id/email (drop-in for the old
+// verifyAdminSession shape) PLUS role + venueIds so callers don't do a second fail-open lookup.
+export async function requireRetailerMembership(session_id, expectedRetailerId = null, allowedRoles = null) {
+  const s = await verifyAdminSession(session_id, expectedRetailerId);
+  if (!s.ok) return { ok: false, status: 401, error: s.error };
+  const en = String(s.email || '').trim().toLowerCase();
+  let rows;
+  try {
+    rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(s.retailer_id)}&email_normalized=eq.${encodeURIComponent(en)}&select=id,role,venue_ids`);
+  } catch (_) { return { ok: false, status: 503, error: 'membership_check_unavailable' }; }
+  const m = Array.isArray(rows) && rows[0];
+  if (!m) return { ok: false, status: 403, error: 'no_membership' };
+  const role = String(m.role || '').toLowerCase();
+  const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer', 'editor'];
+  if (!CLOSED_ROLES.includes(role)) return { ok: false, status: 403, error: 'unknown_role' };
+  if (allowedRoles && !allowedRoles.includes(role)) return { ok: false, status: 403, error: 'insufficient_role' };
+  return { ok: true, status: 200, retailer_id: s.retailer_id, email: s.email, role, venueIds: Array.isArray(m.venue_ids) ? m.venue_ids : [], membershipId: m.id };
+}
+
 function generateLoginCode() {
   // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
   const { randomInt } = require('crypto');
@@ -277,13 +297,13 @@ export default async function handler(req, res) {
           try {
             tokens = await sb(`admin_tokens`, {
               method: 'POST',
-              body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
+              body: JSON.stringify({ email: String(adminRow.email).trim().toLowerCase(), retailer_id: retailer.id, code }),
             });
           } catch (_e) {
             // Fallback: DB may not have `code` column yet (migration not run). Retry without.
             tokens = await sb(`admin_tokens`, {
               method: 'POST',
-              body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
+              body: JSON.stringify({ email: String(adminRow.email).trim().toLowerCase(), retailer_id: retailer.id }),
             });
           }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
@@ -327,12 +347,12 @@ export default async function handler(req, res) {
             try {
               tokens = await sb(`admin_tokens`, {
                 method: 'POST',
-                body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
+                body: JSON.stringify({ email: String(adminRow.email).trim().toLowerCase(), retailer_id: retailer.id, code }),
               });
             } catch (_e) {
               tokens = await sb(`admin_tokens`, {
                 method: 'POST',
-                body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
+                body: JSON.stringify({ email: String(adminRow.email).trim().toLowerCase(), retailer_id: retailer.id }),
               });
             }
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
@@ -430,8 +450,8 @@ export default async function handler(req, res) {
       const retailer = Array.isArray(retailers) ? retailers[0] : null;
       if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
 
-      const v = await verifyAdminSession(session_id, retailer.id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id, retailer.id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       // Opportunistic cookie set: if the caller authenticated via body but has no cookie yet, upgrade them.
       const cookies = parseCookies(req);
       if (!cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
@@ -454,31 +474,26 @@ export default async function handler(req, res) {
     if (action === 'cookie-migrate') {
       const sid = (body && body.session_id) || null;
       if (!sid || !isUuid(sid)) return res.status(400).json({ error: 'session_id required' });
-      let sessions = null;
-      try {
-        sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}&select=session_id,email,retailer_id,expires_at`);
-      } catch (_) { return res.status(500).json({ error: 'lookup failed' }); }
-      const s = Array.isArray(sessions) ? sessions[0] : null;
-      if (!s) return res.status(401).json({ error: 'Session not found' });
-      if (new Date(s.expires_at).getTime() < Date.now()) return res.status(401).json({ error: 'Session expired' });
-      setSessionCookie(res, s.session_id);
-      return res.status(200).json({ ok: true, session_id: s.session_id, email: s.email, retailer_id: s.retailer_id });
+      const v = await requireRetailerMembership(sid);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      setSessionCookie(res, sid);
+      return res.status(200).json({ ok: true, session_id: sid, email: v.email, retailer_id: v.retailer_id });
     }
 
     // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
     // ---- AGREEMENT-RETAILER-LIST: list all signed agreements for this retailer ----
     if (action === 'agreement-retailer-list') {
       const { session_id } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,company_name,email)&order=signed_at.desc`);
       return res.status(200).json({ ok: true, agreements: rows || [] });
     }
 
         if (action === 'team-list') {
       const { session_id } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=*&order=created_at`);
       // For each admin, flag whether they've ever signed in (admin_sessions exists).
       // Used by UI to render a "Pending invite" badge for invited-but-never-signed-in members.
@@ -497,12 +512,12 @@ export default async function handler(req, res) {
       const { session_id, email, name, role, venue_ids } = body || {};
       if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
       if (!['admin', 'viewer'].includes(role || 'admin')) return res.status(400).json({ error: 'Role must be admin or viewer' });
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       // Only owners/admins can invite (not viewers)
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot invite team members' });
+      if (!myRow || !['owner', 'admin'].includes(String(myRow.role || '').toLowerCase())) return res.status(403).json({ error: 'insufficient_role', message: 'Only owners and admins can invite team members.' });
 
       // Phase E: Solo tier is single-admin. Team invites require Pro.
       try {
@@ -589,8 +604,8 @@ export default async function handler(req, res) {
     if (action === 'team-remove') {
       const { session_id, admin_id } = body || {};
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
@@ -618,8 +633,8 @@ export default async function handler(req, res) {
       const { session_id, admin_id, role } = body || {};
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Role must be admin or viewer' });
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
@@ -652,8 +667,8 @@ export default async function handler(req, res) {
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       if (!Array.isArray(venue_ids)) return res.status(400).json({ error: 'venue_ids must be an array' });
       if (venue_ids.some(id => !isUuid(id))) return res.status(400).json({ error: 'All venue_ids must be UUIDs' });
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
       const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
@@ -678,9 +693,9 @@ export default async function handler(req, res) {
     // ---- UPLOAD-RETAILER-AVATAR: retailer admin uploads/replaces their store logo ----
     if (action === 'upload-retailer-avatar') {
       const { session_id, image } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
-      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(image || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
       if (!m) return res.status(400).json({ error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
@@ -705,9 +720,9 @@ export default async function handler(req, res) {
     // ---- UPLOAD-DEMO-POLICY (PDF) ----
     if (action === 'upload-demo-policy') {
       const { session_id, file, filename } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
-      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(file || '').match(/^data:(application\/pdf|image\/(?:png|jpeg));base64,(.+)$/);
       if (!m) return res.status(400).json({ error: 'Invalid file — must be a PDF, PNG, or JPEG data URL' });
       const mime = m[1];
@@ -736,9 +751,9 @@ export default async function handler(req, res) {
     // ---- REMOVE-DEMO-POLICY ----
     if (action === 'remove-demo-policy') {
       const { session_id } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
-      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ demo_policy_url: null, demo_policy_filename: null }),
@@ -749,9 +764,9 @@ export default async function handler(req, res) {
     // ---- REMOVE-RETAILER-AVATAR ----
     if (action === 'remove-retailer-avatar') {
       const { session_id } = body || {};
-      const v = await verifyAdminSession(session_id);
-      if (!v.ok) return res.status(401).json({ error: v.error });
-      if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+      const v = await requireRetailerMembership(session_id);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: null }) });
       return res.status(200).json({ ok: true });
     }
@@ -1231,7 +1246,7 @@ async function handleOwnerAction(action, req, res, body) {
   // Reads via retailer admin session (any admin of that retailer). Not owner-only.
   if (action === 'support-sessions') {
     const sid = getSessionIdFromReq(req, body);
-    const v = await verifyAdminSession(sid);
+    const v = await requireRetailerMembership(sid);
     if (!v.ok) return res.status(401).json({ error: v.error });
     const rows = await sb(`support_sessions?target_retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id,owner_email,started_at,ended_at,writes_count&order=started_at.desc&limit=50`);
     return res.status(200).json({ ok: true, sessions: rows || [] });
@@ -1241,9 +1256,9 @@ async function handleOwnerAction(action, req, res, body) {
   // ON sets a 24-hour auto-expire. OFF clears expires_at and blocks future impersonation.
   if (action === 'support-access-toggle') {
     const sid = getSessionIdFromReq(req, body);
-    const v = await verifyAdminSession(sid);
+    const v = await requireRetailerMembership(sid);
     if (!v.ok) return res.status(401).json({ error: v.error });
-    if ((await callerRoleAuth(v.retailer_id, v.email)) === 'viewer') return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
+    if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
     const enabled = body && body.enabled === true;
     const patch = enabled
       ? { allow_support_access: true, support_access_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
@@ -1258,7 +1273,7 @@ async function handleOwnerAction(action, req, res, body) {
   // ---- SUPPORT-ACCESS-STATUS: retailer reads their own toggle state (for the UI toggle) ----
   if (action === 'support-access-status') {
     const sid = getSessionIdFromReq(req, body);
-    const v = await verifyAdminSession(sid);
+    const v = await requireRetailerMembership(sid);
     if (!v.ok) return res.status(401).json({ error: v.error });
     const rows = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rows) ? rows[0] : null;
