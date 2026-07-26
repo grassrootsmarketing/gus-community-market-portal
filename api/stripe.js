@@ -73,16 +73,7 @@ async function stripe(method, path, body) {
   return json;
 }
 
-async function verifySession(session_id) {
-  if (!session_id || !isUuid(session_id)) return null;
-  try {
-    const arr = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
-    const s = Array.isArray(arr) ? arr[0] : null;
-    if (!s) return null;
-    if (new Date(s.expires_at).getTime() < Date.now()) return null;
-    return s;
-  } catch (_) { return null; }
-}
+// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 // -----------------------------------------------------------------------------
 // HttpOnly cookie: prefer cookie session over body/query for auth.
@@ -137,13 +128,7 @@ async function getPriceForTier(tier, interval) {
 // ----- handler -----
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
 // accounts exist yet; failing closed would risk locking out the owner).
-async function callerRole(retailerId, email) {
-  if (!email) return null;
-  try {
-    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
-    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
-  } catch (_) { return null; }
-}
+// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
   try {

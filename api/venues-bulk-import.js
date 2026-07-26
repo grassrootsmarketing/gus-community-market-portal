@@ -20,16 +20,7 @@ async function sb(path, opts = {}) {
   return json;
 }
 
-async function verifySession(sessionId) {
-  if (!isUuid(sessionId)) return null;
-  try {
-    const sessions = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}&select=*`);
-    const s = Array.isArray(sessions) ? sessions[0] : null;
-    if (!s) return null;
-    if (new Date(s.expires_at).getTime() < Date.now()) return null;
-    return { retailer_id: s.retailer_id, email: s.email };
-  } catch { return null; }
-}
+// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 // Simple CSV parser — quoted fields, escaped quotes, comma separators
 function parseCsv(text) {
@@ -119,13 +110,7 @@ export const config = {
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
 // accounts exist yet; failing closed would risk locking out the owner).
-async function callerRole(retailerId, email) {
-  if (!email) return null;
-  try {
-    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
-    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
-  } catch (_) { return null; }
-}
+// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });

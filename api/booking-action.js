@@ -59,13 +59,7 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error so a transient DB
 // blip never locks out the primary owner (who has no retailer_admins row).
-async function callerRole(retailerId, email) {
-  if (!email) return null;
-  try {
-    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
-    return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
-  } catch (_) { return null; }
-}
+// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 // DH-04: returns the cents to refund for THIS booking, or null to mean "full PaymentIntent
 // refund" (the tested single-booking path). Only computes a partial when the PI is shared.

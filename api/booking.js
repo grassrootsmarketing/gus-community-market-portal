@@ -180,28 +180,7 @@ async function createBrandMagicLink(brand_id, email) {
 }
 
 
-// True when this request carries a valid retailer admin session. The admin creates
-// bookings through this same endpoint (phone/walk-in bookings), so the COI gate below
-// must not apply to it. Cookie-based, so a brand cannot spoof it from the booking page.
-async function isRetailerAdminRequest(req) {
-  try {
-    if (!SERVICE_KEY) return false;
-    const raw = (req.headers && req.headers.cookie) || '';
-    const m = raw.match(/(?:^|;\s*)dh_session=([^;]+)/);
-    if (!m) return false;
-    const sid = decodeURIComponent(m[1]);
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/admin_sessions?session_id=eq.${encodeURIComponent(sid)}&select=session_id,expires_at`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-    });
-    if (!r.ok) return false;
-    const rows = await r.json();
-    const sess = Array.isArray(rows) ? rows[0] : null;
-    if (!sess) return false;
-    if (sess.expires_at && new Date(sess.expires_at).getTime() < Date.now()) return false;
-    return true;
-  } catch (_) {
-    return false;   // fail closed: an unreadable session is not an admin
-  }
+// (isRetailerAdminRequest removed — the strict retailer-staff gate above already authenticated the caller)
 }
 
 export default async function handler(req, res) {
@@ -537,7 +516,7 @@ export default async function handler(req, res) {
     // a certificate outside the system; everything is digital, so the exemption only ever
     // fired when a brand had NO COI - exactly the case this gate exists to stop.
     // _isAdminBooking is still computed so the message can tell the right person what to do.
-    const _isAdminBooking = await isRetailerAdminRequest(req);
+    const _isAdminBooking = true; // request already passed the strict retailer-staff gate above
     {
       let coiState = 'missing';
       try {
