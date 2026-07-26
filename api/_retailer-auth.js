@@ -4,7 +4,7 @@
 // No route may authorize a retailer mutation without this.
 const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer', 'editor'];
+const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer']; // editor retired (0027)
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 async function sb(path) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
@@ -28,7 +28,7 @@ export async function requireRetailerMembership(req, body = {}, expectedRetailer
   try { const rows = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}&select=email,retailer_id,expires_at`); s = Array.isArray(rows) ? rows[0] : null; }
   catch (_) { return { ok: false, status: 503, error: 'session_check_unavailable' }; }
   if (!s) return { ok: false, status: 401, error: 'invalid_session' };
-  if (new Date(s.expires_at).getTime() < Date.now()) return { ok: false, status: 401, error: 'session_expired' };
+  const _exp = Date.parse(String(s.expires_at || '')); if (!Number.isFinite(_exp) || _exp <= Date.now()) return { ok: false, status: 401, error: 'session_expired' };
   if (expectedRetailerId && s.retailer_id !== expectedRetailerId) return { ok: false, status: 403, error: 'wrong_retailer' };
   const en = String(s.email || '').trim().toLowerCase();
   let rows;

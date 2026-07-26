@@ -133,7 +133,7 @@ async function verifySession(session_id) {
     const arr = await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
     const s = Array.isArray(arr) ? arr[0] : null;
     if (!s) return null;
-    if (new Date(s.expires_at).getTime() < Date.now()) return null;
+    { const _e = Date.parse(String(s.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return null; }
     return s;
   } catch (_) { return null; }
 }

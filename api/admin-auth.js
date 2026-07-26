@@ -108,7 +108,7 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
   }
   const session = Array.isArray(sessions) ? sessions[0] : null;
   if (!session) return { ok: false, error: 'Invalid session' };
-  if (new Date(session.expires_at).getTime() < Date.now()) return { ok: false, error: 'Session expired' };
+  { const _e = Date.parse(String(session.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return { ok: false, error: 'Session expired' }; }
   if (expectedRetailerId && session.retailer_id !== expectedRetailerId) return { ok: false, error: 'Wrong retailer' };
   return { ok: true, email: session.email, retailer_id: session.retailer_id };
 }
@@ -151,7 +151,7 @@ export async function requireRetailerMembership(session_id, expectedRetailerId =
   const m = Array.isArray(rows) && rows[0];
   if (!m) return { ok: false, status: 403, error: 'no_membership' };
   const role = String(m.role || '').toLowerCase();
-  const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer', 'editor'];
+  const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer']; // editor retired (0027)
   if (!CLOSED_ROLES.includes(role)) return { ok: false, status: 403, error: 'unknown_role' };
   if (allowedRoles && !allowedRoles.includes(role)) return { ok: false, status: 403, error: 'insufficient_role' };
   return { ok: true, status: 200, retailer_id: s.retailer_id, email: s.email, role, venueIds: Array.isArray(m.venue_ids) ? m.venue_ids : [], membershipId: m.id };
@@ -383,7 +383,7 @@ export default async function handler(req, res) {
       const trow = Array.isArray(tokens) ? tokens[0] : null;
       if (!trow) return res.status(404).json({ error: 'Token not found' });
       if (trow.used_at) return res.status(409).json({ error: 'Token already used' });
-      if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Token expired' });
+      { const _e = Date.parse(String(trow.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return res.status(410).json({ error: 'Token expired' }); }
 
       // P0-1: re-verify the exact live membership still exists at exchange time (removal/race safe).
       { const _en = String(trow.email || '').trim().toLowerCase();
@@ -417,7 +417,7 @@ export default async function handler(req, res) {
       const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
       const trow = Array.isArray(rows) ? rows[0] : null;
       if (!trow) return res.status(404).json({ error: 'Invalid code' });
-      if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Code expired' });
+      { const _e = Date.parse(String(trow.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return res.status(410).json({ error: 'Code expired' }); }
       // P0-1: re-verify the exact live membership still exists at exchange time.
       { const _en = String(trow.email || '').trim().toLowerCase();
         const _m = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(trow.retailer_id)}&email_normalized=eq.${encodeURIComponent(_en)}&select=role`);
@@ -540,6 +540,14 @@ export default async function handler(req, res) {
       // Check dup
       const existing = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(normalizedEmail)}&select=id`);
       if (Array.isArray(existing) && existing.length > 0) return res.status(409).json({ error: 'That email is already on the team' });
+
+      // Defect D: a viewer's venue scope must belong to THIS retailer (parity with team-update-scope).
+      if ((role || 'admin') === 'viewer' && Array.isArray(venue_ids) && venue_ids.length > 0) {
+        if (venue_ids.some(id => !isUuid(id))) return res.status(400).json({ error: 'All venue_ids must be UUIDs' });
+        const _vlist = venue_ids.map(id => encodeURIComponent(id)).join(',');
+        const _vok = await sb(`venues?id=in.(${_vlist})&retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id`);
+        if (!Array.isArray(_vok) || _vok.length !== venue_ids.length) return res.status(400).json({ error: 'One or more venues do not belong to this retailer' });
+      }
 
       // Enforce limit: owners + admins capped at 10 per retailer. Viewers unlimited (calendar sync only).
       const ADMIN_CAP = 999;
@@ -916,7 +924,7 @@ async function verifyOwnerSession(sessionId) {
   } catch (_) { return null; }
   const s = Array.isArray(sessions) ? sessions[0] : null;
   if (!s) return null;
-  if (new Date(s.expires_at).getTime() < Date.now()) return null;
+  { const _e = Date.parse(String(s.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return null; }
   if (!OWNER_EMAILS.includes((s.email || '').toLowerCase())) return null;
   return { email: s.email };
 }
@@ -1073,7 +1081,7 @@ async function handleOwnerAction(action, req, res, body) {
     const tok = Array.isArray(tokens) ? tokens[0] : null;
     if (!tok) return res.status(404).json({ error: 'Token not found' });
     if (tok.used_at) return res.status(409).json({ error: 'Token already used' });
-    if (new Date(tok.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Token expired' });
+    { const _e = Date.parse(String(tok.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return res.status(410).json({ error: 'Token expired' }); }
     if (!OWNER_EMAILS.includes((tok.email || '').toLowerCase())) return res.status(403).json({ error: 'Not authorised' });
     await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
     const ownerRetailerId = (await ensureOwnerRetailerId()) || tok.retailer_id;
