@@ -17,7 +17,7 @@ const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
 async function callerRoleAuth(retailerId, email) {
   if (!email || !retailerId) return null;
   try {
-    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email_normalized=eq.${encodeURIComponent(String(email).trim().toLowerCase())}&select=role`);
     return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
   } catch (_) { return null; }
 }
@@ -269,7 +269,7 @@ export default async function handler(req, res) {
       // Always respond 200 to prevent enumeration. Only actually send if email is in retailer_admins.
       if (retailer) {
         const normalizedEmail = email.toLowerCase().trim();
-        const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailer.id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=email,role`);
+        const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailer.id)}&email_normalized=eq.${encodeURIComponent(normalizedEmail)}&select=email,role`);
         const adminRow = Array.isArray(admins) ? admins[0] : null;
         if (adminRow) {
           const code = generateLoginCode();
@@ -317,7 +317,7 @@ export default async function handler(req, res) {
 
       // Always respond 200 to prevent enumeration. Send 1 link per retailer this email admins.
       try {
-        const admins = await sb(`retailer_admins?email=ilike.${encodeURIComponent(normalizedEmail)}&select=retailer_id,role,retailers(id,name,slug)`);
+        const admins = await sb(`retailer_admins?email_normalized=eq.${encodeURIComponent(normalizedEmail)}&select=email,retailer_id,role,retailers(id,name,slug)`);
         if (Array.isArray(admins) && admins.length > 0) {
           for (const adminRow of admins) {
             const retailer = adminRow.retailers;
@@ -327,12 +327,12 @@ export default async function handler(req, res) {
             try {
               tokens = await sb(`admin_tokens`, {
                 method: 'POST',
-                body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id, code }),
+                body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id, code }),
               });
             } catch (_e) {
               tokens = await sb(`admin_tokens`, {
                 method: 'POST',
-                body: JSON.stringify({ email: normalizedEmail, retailer_id: retailer.id }),
+                body: JSON.stringify({ email: adminRow.email, retailer_id: retailer.id }),
               });
             }
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
@@ -344,7 +344,7 @@ export default async function handler(req, res) {
                 await fetch('https://api.resend.com/emails', {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ from: FROM_ADDRESS, to: normalizedEmail, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
+                  body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
                 });
               } catch (_) { /* swallow */ }
             }
@@ -365,6 +365,10 @@ export default async function handler(req, res) {
       if (trow.used_at) return res.status(409).json({ error: 'Token already used' });
       if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Token expired' });
 
+      // P0-1: re-verify the exact live membership still exists at exchange time (removal/race safe).
+      { const _en = String(trow.email || '').trim().toLowerCase();
+        const _m = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(trow.retailer_id)}&email_normalized=eq.${encodeURIComponent(_en)}&select=role`);
+        if (!Array.isArray(_m) || !_m[0]) return res.status(403).json({ error: 'membership_revoked' }); }
       await sb(`admin_tokens?token=eq.${encodeURIComponent(token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
       const sessions = await sb(`admin_sessions`, {
         method: 'POST',
@@ -394,6 +398,10 @@ export default async function handler(req, res) {
       const trow = Array.isArray(rows) ? rows[0] : null;
       if (!trow) return res.status(404).json({ error: 'Invalid code' });
       if (new Date(trow.expires_at).getTime() < Date.now()) return res.status(410).json({ error: 'Code expired' });
+      // P0-1: re-verify the exact live membership still exists at exchange time.
+      { const _en = String(trow.email || '').trim().toLowerCase();
+        const _m = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(trow.retailer_id)}&email_normalized=eq.${encodeURIComponent(_en)}&select=role`);
+        if (!Array.isArray(_m) || !_m[0]) return res.status(403).json({ error: 'membership_revoked' }); }
       await sb(`admin_tokens?token=eq.${encodeURIComponent(trow.token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
       const sessions = await sb(`admin_sessions`, {
         method: 'POST',
@@ -492,7 +500,7 @@ export default async function handler(req, res) {
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
       // Only owners/admins can invite (not viewers)
-      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role === 'viewer') return res.status(403).json({ error: 'Viewers cannot invite team members' });
 
@@ -515,7 +523,7 @@ export default async function handler(req, res) {
 
       const normalizedEmail = email.toLowerCase().trim();
       // Check dup
-      const existing = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(normalizedEmail)}&select=id`);
+      const existing = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(normalizedEmail)}&select=id`);
       if (Array.isArray(existing) && existing.length > 0) return res.status(409).json({ error: 'That email is already on the team' });
 
       // Enforce limit: owners + admins capped at 10 per retailer. Viewers unlimited (calendar sync only).
@@ -583,7 +591,7 @@ export default async function handler(req, res) {
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
-      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
         return res.status(403).json({ error: 'Only owners and admins can remove team members' });
@@ -612,7 +620,7 @@ export default async function handler(req, res) {
       if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Role must be admin or viewer' });
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
-      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
         return res.status(403).json({ error: 'Only owners and admins can change roles' });
@@ -646,7 +654,7 @@ export default async function handler(req, res) {
       if (venue_ids.some(id => !isUuid(id))) return res.status(400).json({ error: 'All venue_ids must be UUIDs' });
       const v = await verifyAdminSession(session_id);
       if (!v.ok) return res.status(401).json({ error: v.error });
-      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email=ilike.${encodeURIComponent(v.email)}&select=role`);
+      const me = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&email_normalized=eq.${encodeURIComponent(String(v.email).trim().toLowerCase())}&select=role`);
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || (myRow.role !== 'owner' && myRow.role !== 'admin')) {
         return res.status(403).json({ error: 'Only owners and admins can change scope' });

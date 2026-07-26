@@ -155,11 +155,14 @@ async function isDemoTenantRetailer(retailerId) {
 // Fail-open on lookup error: no viewer accounts exist yet, and failing closed would lock out
 // the primary owner (who has no retailer_admins row) on a transient DB blip.
 async function callerRole(retailerId, email) {
+  // P0-1/P0-8: EXACT normalized membership. Returns role string, or null = "no live membership".
+  // Fail CLOSED: on error we return the sentinel 'ERROR' so callers deny (owners now have a
+  // backfilled membership row via 0025, so failing closed no longer risks locking out an owner).
   if (!email) return null;
   try {
-    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(email).toLowerCase())}&select=role`);
+    const rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email_normalized=eq.${encodeURIComponent(String(email).trim().toLowerCase())}&select=role`);
     return (Array.isArray(rows) && rows[0]) ? (rows[0].role || null) : null;
-  } catch (_) { return null; }
+  } catch (_) { return 'ERROR'; }
 }
 
 export default async function handler(req, res) {
@@ -181,7 +184,13 @@ export default async function handler(req, res) {
   const _cookies = parseCookies(req);
   if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
 
-  // Phase C: block writes on the demo tenant. Reads (GET action=data) still allowed.
+  // P0-1/P0-8 containment: EVERY retailer request requires a LIVE exact membership (fail closed).
+  // Closes the forged-session chain (a session whose email is not an exact member is rejected here,
+  // for reads as well as writes) and the previous fail-open "anything but viewer" mutation gate.
+  const _callerRole = await callerRole(session.retailer_id, session.email);
+  if (_callerRole === null || _callerRole === 'ERROR') {
+    return send(res, 403, { error: 'no_membership', message: 'Your access to this store was not found or has been removed.' });
+  }
   if (['POST', 'PATCH', 'DELETE', 'PUT'].includes(req.method)) {
     if (await isDemoTenantRetailer(session.retailer_id)) {
       return send(res, 403, {
@@ -190,8 +199,8 @@ export default async function handler(req, res) {
         is_demo: true,
       });
     }
-    // DH-01: viewers are read-only. Enforced server-side — hiding buttons is not authorization.
-    if ((await callerRole(session.retailer_id, session.email)) === 'viewer') {
+    // Only retailer-wide mutating roles may write. viewer/editor are read-only.
+    if (!['owner', 'admin', 'manager'].includes(String(_callerRole).toLowerCase())) {
       return send(res, 403, { error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
     }
   }
@@ -207,7 +216,7 @@ export default async function handler(req, res) {
       let viewerVenueIds = null;
       let callerIsViewer = false;
       try {
-        const meArr = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(rid)}&email=ilike.${encodeURIComponent((session.email || '').toLowerCase())}&select=role,venue_ids`);
+        const meArr = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(rid)}&email_normalized=eq.${encodeURIComponent((session.email || '').trim().toLowerCase())}&select=role,venue_ids`);
         const me = Array.isArray(meArr) ? meArr[0] : null;
         if (me && me.role === 'viewer') {
           callerIsViewer = true;
