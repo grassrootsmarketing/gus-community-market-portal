@@ -127,7 +127,7 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
-${refundStatus === 'issued' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>You've been fully refunded.</strong> The charge for this demo has been reversed and will appear back on your card in 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
+${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund is on its way.</strong> It will appear back on your card in 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
@@ -136,7 +136,7 @@ ${refundStatus === 'issued' ? `<p style="font-size:15px;line-height:1.6;color:#2
 
 
 function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
-  const refundLine = refundStatus === 'issued'
+  const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your full booking fee will show up back on your card in 5&ndash;10 business days.</p>'
     : refundStatus === 'pending_manual'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
@@ -297,34 +297,29 @@ async function sbRpc(fn, args) {
 // the Stripe refund with the durable idempotency key, and tag the refund_request so the webhook's
 // finalize_refund() can match it. Booking payment_status is flipped by that verified webhook, never
 // here. Legacy bookings (no allocation) fall back to a direct PaymentIntent refund.
-async function reserveAndRefund(booking, retailer, actor, reason, policy) {
+async function reserveAndRefund(booking, retailer, actor, reason, opName) {
+  // Ledger-only, fail-closed: a paid booking with NO allocation must NOT trigger a full-PI refund
+  // (that was the P0-6 fanout). Missing allocation -> requires_review, ZERO Stripe calls.
   let alloc = null;
-  try { const a = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(booking.id)}&select=id,customer_amount,refunded_amount`); alloc = Array.isArray(a) ? a[0] : null; } catch (_) {}
+  try { const a = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(booking.id)}&select=id,customer_amount,refunded_amount,reserved_refund_amount`); alloc = Array.isArray(a) ? a[0] : null; } catch (_) { return { ok: false, error: 'lookup_failed', requires_review: true }; }
+  if (!alloc) return { ok: false, error: 'no_allocation', requires_review: true };
   const keepsAll = !!(retailer && retailer.platform_keeps_all);
-  if (alloc) {
-    const amount = alloc.customer_amount - alloc.refunded_amount;
-    if (amount <= 0) return { ok: false, error: 'nothing_refundable' };
-    let rr;
-    try { rr = await sbRpc('reserve_refund', { p_booking_id: booking.id, p_amount: amount, p_actor: actor || null, p_reason: reason || null, p_policy: policy || null }); }
-    catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
-    const row = Array.isArray(rr) ? rr[0] : rr;
-    const r = await refundPaymentIntent(row.stripe_payment_intent_id, {
-      keepsAll, amountCents: amount, idempotencyKey: row.idempotency_key,
-      reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
-    });
-    if (r.ok) {
-      await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_refund_id: r.refund_id, status: 'submitted' }) }).catch(() => {});
-      return { ok: true, ledger: true };
-    }
-    await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
-    return { ok: false, error: 'refund_failed', requires_review: true };
-  }
-  // legacy fallback (pre-ledger booking)
-  const r = await refundPaymentIntent(booking.payment_intent_id, {
-    keepsAll, amountCents: null, idempotencyKey: 'refund-' + booking.id + '-legacy',
-    reason: 'requested_by_customer', metadata: { booking_id: booking.id },
+  const remaining = alloc.customer_amount - alloc.refunded_amount - alloc.reserved_refund_amount;
+  if (remaining <= 0) return { ok: false, error: 'nothing_refundable' };
+  let rr;
+  try { rr = await sbRpc('reserve_refund', { p_booking_id: booking.id, p_amount: remaining, p_actor: actor || null, p_reason: reason || null, p_policy: opName || null, p_op_key: booking.id + ':' + opName }); }
+  catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
+  const row = Array.isArray(rr) ? rr[0] : rr;
+  const r = await refundPaymentIntent(row.stripe_payment_intent_id, {
+    keepsAll, amountCents: remaining, idempotencyKey: row.idempotency_key,
+    reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
   });
-  return { ok: r.ok, legacy: true, refund_id: r.refund_id, error: r.error };
+  if (r.ok) {
+    await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_refund_id: r.refund_id, status: 'submitted' }) }).catch(() => {});
+    return { ok: true, ledger: true };   // NOT "refunded" — only the verified webhook confirms that
+  }
+  await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
+  return { ok: false, error: 'refund_failed', requires_review: true };
 }
 
 export default async function handler(req, res) {
@@ -407,7 +402,7 @@ export default async function handler(req, res) {
       } else {
         const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'declined', 'decline');
         refundInfo = r;
-        refundStatus = r.ok ? 'issued' : 'refund_failed';
+        refundStatus = r.ok ? 'submitted' : 'refund_failed';
         if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
       }
     } else if (action === 'cancel') {
@@ -421,9 +416,9 @@ export default async function handler(req, res) {
       if (!wasPaid) {
         refundStatus = 'not_paid';
       } else if (shouldRefund) {
-        const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', mode);
+        const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', 'cancel');
         refundInfo = r;
-        refundStatus = r.ok ? 'issued' : 'refund_failed';
+        refundStatus = r.ok ? 'submitted' : 'refund_failed';
         if (!r.ok) console.warn('Refund failed for booking', booking_id, '-', r.error);
       } else {
         refundStatus = 'pending_manual';

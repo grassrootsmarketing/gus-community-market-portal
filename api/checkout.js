@@ -76,11 +76,13 @@ export default async function handler(req, res) {
     const totalCents = row.total_customer_amount;
 
     // immutable allocation snapshot -> Stripe line items
-    const allocs = await sbJson(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id,customer_amount`);
+    const allocs = await sbJson(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id,customer_amount,platform_fee_amount`);
     const venueIds = [...new Set(bookings.map(b => b.venue_id).filter(Boolean))];
     const venues = venueIds.length ? await sbJson(`venues?id=in.(${venueIds.map(encodeURIComponent).join(',')})&select=id,name`) : [];
     const venueNameById = new Map((venues || []).map(v => [v.id, v.name]));
     const bkById = new Map(bookings.map(b => [b.id, b]));
+    if (allocs.length !== bookings.length) return res.status(500).json({ error: 'allocation_count_mismatch' });
+    if (allocs.some(a => a.customer_amount < 50)) return res.status(400).json({ error: 'amount_below_minimum' });
     const slug = retailer.slug || '';
 
     const params = {
@@ -99,14 +101,14 @@ export default async function handler(req, res) {
       const bk = bkById.get(a.booking_id) || {};
       const vname = venueNameById.get(bk.venue_id) || 'store';
       params[`line_items[${idx}][price_data][currency]`] = 'usd';
-      params[`line_items[${idx}][price_data][unit_amount]`] = String(Math.max(50, a.customer_amount));
+      params[`line_items[${idx}][price_data][unit_amount]`] = String(a.customer_amount);
       params[`line_items[${idx}][price_data][product_data][name]`] = `Demo at ${vname}`;
       params[`line_items[${idx}][price_data][product_data][description]`] = `${bk.brand_name || ''} - ${(bk.demo_date || '')} ${(bk.demo_time || '')} (${retailer.name || ''})`.trim();
       params[`line_items[${idx}][quantity]`] = '1';
       idx++;
     }
     if (!platformKeepsAll) {
-      params['payment_intent_data[application_fee_amount]'] = String(PLATFORM_FEE_CENTS * allocs.length);
+      params['payment_intent_data[application_fee_amount]'] = String(allocs.reduce((s, a) => s + (a.platform_fee_amount || 0), 0));
       params['payment_intent_data[transfer_data][destination]'] = retailer.stripe_account_id;
       params['payment_intent_data[on_behalf_of]'] = retailer.stripe_account_id;
     }
@@ -125,6 +127,10 @@ export default async function handler(req, res) {
 
     // REQUIRED durable write (no swallow): attach session to the group. On failure return retryable;
     // the same idempotency key reuses the same Stripe session on retry.
+    if (session.amount_total != null && Number(session.amount_total) !== Number(totalCents)) {
+      console.error('RECONCILE: stripe amount_total', session.amount_total, '!= ledger total', totalCents, 'group', gid);
+      return res.status(500).json({ error: 'amount_reconcile_failed' });
+    }
     const upd = await rest(`payment_groups?id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify({ stripe_checkout_session_id: session.id, status: 'session_created' }) });
     if (!upd.ok) { console.error('payment_group session persist failed'); return res.status(503).json({ error: 'session_persist_failed' }); }
     // mirror onto bookings for the existing admin UI (best-effort, non-authoritative)

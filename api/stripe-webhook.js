@@ -404,7 +404,8 @@ async function handlePaymentIntentSucceeded(event) {
     // REQUIRED (retryable on failure): attach PI/charge to the group, then flip bookings to paid
     // atomically via the ledger — never resurrects a refunded/cancelled booking.
     await sb(`payment_groups?id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify({ stripe_payment_intent_id: pi.id, stripe_charge_id: pi.latest_charge || null }) });
-    await sbRpc('apply_payment_success', { p_payment_intent_id: pi.id, p_charge_id: pi.latest_charge || null });
+    const _applied = await sbRpc('apply_payment_success', { p_payment_intent_id: pi.id, p_charge_id: pi.latest_charge || null, p_amount: pi.amount_received || pi.amount || null, p_currency: pi.currency || null });
+    if (_applied === -1 || (Array.isArray(_applied) && _applied[0] === -1)) { console.error('RECONCILE: payment group FROZEN (captured but booking set incomplete) pi', pi.id); }
     const allocs = await sb(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id`);
     bookingIds = (Array.isArray(allocs) ? allocs : []).map(a => a.booking_id);
     ledgerPaid = true;
@@ -524,15 +525,14 @@ async function handleChargeRefunded(event) {
   const charge = event.data.object;
   const refunds = (charge.refunds && Array.isArray(charge.refunds.data)) ? charge.refunds.data : [];
   for (const rf of refunds) {
-    try {
-      // finalize by Stripe refund id (idempotent in the DB fn); status drives reserved->refunded.
-      await sbRpc('finalize_refund', { p_stripe_refund_id: rf.id, p_status: rf.status || 'succeeded', p_amount: rf.amount });
-    } catch (e) {
-      // no matching refund_request (e.g. a Stripe-dashboard/break-glass refund) -> quarantine + alert.
-      console.warn('finalize_refund unmatched for', rf.id, ':', (e && e.message) || e);
-      try {
-        await sb('unmatched_stripe_refunds', { method: 'POST', body: JSON.stringify({ stripe_refund_id: rf.id, stripe_charge_id: charge.id, stripe_payment_intent_id: charge.payment_intent, amount: rf.amount, currency: rf.currency, raw: rf }) });
-      } catch (_) {}
+    // finalize by Stripe refund id, validating amount + currency. A typed 'unmatched' result means a
+    // genuinely unknown (e.g. dashboard) refund -> quarantine. A THROW (amount/currency/DB contradiction)
+    // is NOT swallowed: it propagates so the event is marked failed and Stripe retries.
+    const _r = await sbRpc('finalize_refund', { p_stripe_refund_id: rf.id, p_status: rf.status || 'succeeded', p_amount: rf.amount, p_currency: rf.currency });
+    const _val = Array.isArray(_r) ? _r[0] : _r;
+    if (_val === 'unmatched') {
+      console.warn('unmatched stripe refund quarantined:', rf.id);
+      try { await sb('unmatched_stripe_refunds', { method: 'POST', body: JSON.stringify({ stripe_refund_id: rf.id, stripe_charge_id: charge.id, stripe_payment_intent_id: charge.payment_intent, amount: rf.amount, currency: rf.currency, raw: rf }) }); } catch (_) {}
     }
   }
 }
