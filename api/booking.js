@@ -2,7 +2,8 @@
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
 import { coiCoverageState } from './_coi-lib.js';
-import { verifyAdminSession } from './admin-auth.js';
+import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
+import { requireBrandSession } from './_booking-identity.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
@@ -219,7 +220,7 @@ export default async function handler(req, res) {
     // Public — called by the booking page before submit to decide whether to show
     // the demo-conduct modal. Returns { has_active, needs_re_sign, reason, policies }.
     if (body?.action === 'agreement-check') {
-      const { brand_email, retailer_slug: rs } = body;
+      const { retailer_slug: rs } = body;
       if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
       const retResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
         headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
@@ -238,26 +239,18 @@ export default async function handler(req, res) {
         demohub_tos_version: DEMOHUB_TOS_VERSION,
         demohub_tos_url: DEMOHUB_TOS_URL,
       };
-      if (!brand_email) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_email', policies });
-      const brResp = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(brand_email).toLowerCase())}&select=id`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-      });
-      const brs = await brResp.json();
-      const br = Array.isArray(brs) ? brs[0] : null;
-      if (!br) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'no_brand_account', policies });
-      // Active agreement?
-      const aResp = await fetch(`${SUPABASE_URL}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(br.id)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=*&order=signed_at.desc&limit=1`, {
+      // Brand-specific status requires the AUTHENTICATED brand session — never a submitted email,
+      // so this endpoint can't be used to enumerate which emails have accounts/agreements.
+      const _bAuth = await requireBrandSession(req, body);
+      if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
+      const aResp = await fetch(`${SUPABASE_URL}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_bAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=policy_hash,expires_at&order=signed_at.desc&limit=1`, {
         headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
       });
       const as = await aResp.json();
       const a = Array.isArray(as) ? as[0] : null;
       if (!a) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'never_signed', policies });
-      if (new Date(a.expires_at).getTime() < Date.now()) {
-        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'expired', policies });
-      }
-      if (a.policy_hash !== curHash) {
-        return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'policy_changed', policies });
-      }
+      if (new Date(a.expires_at).getTime() < Date.now()) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'expired', policies });
+      if (a.policy_hash !== curHash) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'policy_changed', policies });
       return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, policies });
     }
 
@@ -267,6 +260,26 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+
+    // Look up retailer by slug, get id, name, and cancellation policy
+    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
+      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    });
+    const retailers = await retailerResp.json();
+    const retailer = Array.isArray(retailers) ? retailers[0] : null;
+    if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
+    const RETAILER_ID = retailer.id;
+    // LG-01: anonymous public booking via this endpoint is CLOSED. Creating a booking here now
+    // requires an authenticated RETAILER ADMIN session for THIS retailer (staff manual bookings).
+    // Public brands book through /api/book, which derives identity from the brand session.
+    {
+      const _cookie = (req.headers && req.headers.cookie) || '';
+      const _m = /(?:^|;\s*)dh_session=([^;]+)/.exec(_cookie);
+      const _sid = _m ? decodeURIComponent(_m[1]) : (body && body.session_id);
+      // P0-1 (strict): valid session + LIVE membership + booking-capable role (blocks viewer/removed).
+      const _staff = await verifyRetailerStaff(_sid, RETAILER_ID);
+      if (!_staff.ok) return res.status(_staff.status).json({ error: _staff.error, message: 'Staff sign-in with booking permission required. Brands book at /api/book.' });
+    }
     // ---- Rate limit: prevent booking spam against any single retailer or from any single brand email ----
     const rlSlug = await checkRateLimitStrict(req, 'booking-slug:' + String(retailer_slug).slice(0, 32), 100);
     if (!rlSlug.allowed) {
@@ -285,24 +298,6 @@ export default async function handler(req, res) {
       });
     }
 
-    // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
-    });
-    const retailers = await retailerResp.json();
-    const retailer = Array.isArray(retailers) ? retailers[0] : null;
-    if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
-    const RETAILER_ID = retailer.id;
-    // LG-01: anonymous public booking via this endpoint is CLOSED. Creating a booking here now
-    // requires an authenticated RETAILER ADMIN session for THIS retailer (staff manual bookings).
-    // Public brands book through /api/book, which derives identity from the brand session.
-    {
-      const _cookie = (req.headers && req.headers.cookie) || '';
-      const _m = /(?:^|;\s*)dh_session=([^;]+)/.exec(_cookie);
-      const _sid = _m ? decodeURIComponent(_m[1]) : (body && body.session_id);
-      const _adm = await verifyAdminSession(_sid, RETAILER_ID);
-      if (!_adm.ok) return res.status(401).json({ error: 'admin_session_required', message: 'Public booking has moved to /api/book. Staff must be signed in to add a manual booking.' });
-    }
     const RETAILER_NAME = retailer.name;
     const RETAILER_BILLING_EMAIL = retailer.billing_email || null;
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';

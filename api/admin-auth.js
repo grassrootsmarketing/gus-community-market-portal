@@ -113,6 +113,24 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
   return { ok: true, email: session.email, retailer_id: session.retailer_id };
 }
 
+// Strict retailer-staff check for MUTATIONS (P0-1): valid session + LIVE membership + allowed role.
+// retailer_admins has no disabled flag — a removed staffer's row is deleted, so absence == removed.
+export async function verifyRetailerStaff(session_id, retailerId, allowedRoles = ['owner', 'admin', 'manager']) {
+  const s = await verifyAdminSession(session_id, retailerId);
+  if (!s.ok) return { ok: false, status: 401, error: s.error };
+  let rows;
+  try {
+    rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(s.email).toLowerCase())}&select=role`);
+  } catch (_) {
+    return { ok: false, status: 503, error: 'membership_check_unavailable' }; // fail closed
+  }
+  const m = Array.isArray(rows) && rows[0];
+  if (!m) return { ok: false, status: 403, error: 'not_a_member' };            // removed staff
+  const role = String(m.role || '').toLowerCase();
+  if (!allowedRoles.includes(role)) return { ok: false, status: 403, error: 'insufficient_role' }; // viewer, etc.
+  return { ok: true, email: s.email, retailerId, role };
+}
+
 function generateLoginCode() {
   // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
   const { randomInt } = require('crypto');
