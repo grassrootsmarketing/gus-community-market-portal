@@ -118,9 +118,15 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
 export async function verifyRetailerStaff(session_id, retailerId, allowedRoles = ['owner', 'admin', 'manager']) {
   const s = await verifyAdminSession(session_id, retailerId);
   if (!s.ok) return { ok: false, status: 401, error: s.error };
+  // P0-1B: EXACT normalized-email identity (never ILIKE — `_`/`%` are SQL wildcards and legal in
+  // email local parts). email_normalized is UNIQUE per (retailer_id, email_normalized) via 0025.
+  // Venue-scope model (P0-1C, Model 2): owner/admin/manager are RETAILER-WIDE mutating roles;
+  // only viewer may be venue-scoped and viewer cannot mutate — so no per-venue check is needed on
+  // this mutation path. The P0-8 authz cutover enforces "no scoped mutating membership" at write time.
+  const en = String(s.email || '').trim().toLowerCase();
   let rows;
   try {
-    rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email=ilike.${encodeURIComponent(String(s.email).toLowerCase())}&select=role`);
+    rows = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(retailerId)}&email_normalized=eq.${encodeURIComponent(en)}&select=role`);
   } catch (_) {
     return { ok: false, status: 503, error: 'membership_check_unavailable' }; // fail closed
   }
