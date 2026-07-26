@@ -385,16 +385,37 @@ ${skuList.length ? `<div style="background:#f4f7ef;border:1px solid #2a5b3222;bo
   } catch (e) { console.warn('webhook staff-notify skipped:', (e && e.message) || e); }
 }
 
+async function sbRpc(fn, args) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error('rpc ' + fn + ' ' + r.status + ' ' + text.slice(0, 200));
+  try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
+}
+
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
-  const bookingIds = bookingIdsFrom(pi.metadata);
+  const gid = pi.metadata && pi.metadata.payment_group_id;
+  let bookingIds = [];
+  let ledgerPaid = false;
+  if (gid) {
+    // REQUIRED (retryable on failure): attach PI/charge to the group, then flip bookings to paid
+    // atomically via the ledger — never resurrects a refunded/cancelled booking.
+    await sb(`payment_groups?id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify({ stripe_payment_intent_id: pi.id, stripe_charge_id: pi.latest_charge || null }) });
+    await sbRpc('apply_payment_success', { p_payment_intent_id: pi.id, p_charge_id: pi.latest_charge || null });
+    const allocs = await sb(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id`);
+    bookingIds = (Array.isArray(allocs) ? allocs : []).map(a => a.booking_id);
+    ledgerPaid = true;
+  } else {
+    bookingIds = bookingIdsFrom(pi.metadata);  // legacy pre-ledger sessions
+  }
   if (bookingIds.length === 0) {
-    console.warn('payment_intent.succeeded without booking_id(s) metadata', pi.id);
+    console.warn('payment_intent.succeeded without payment_group_id/booking metadata', pi.id);
     return;
   }
   const paidAt = new Date().toISOString();
-  const amount = pi.amount_received || pi.amount || 0;
-  const perBooking = bookingIds.length > 0 ? Math.floor(amount / bookingIds.length) : 0;
   // Promote each booking from pending_payment → confirmed (or pending if retailer manual-vets).
   // Payment is the gate for status transitions: no confirmed state ever without a paid booking.
   await Promise.all(bookingIds.map(async (bookingId) => {
@@ -408,16 +429,9 @@ async function handlePaymentIntentSucceeded(event) {
         const r = Array.isArray(retailerRows) ? retailerRows[0] : null;
         nextStatus = (r && r.auto_confirm_bookings) ? 'confirmed' : 'pending';
       }
-      const patch = {
-        payment_status: 'paid',
-        payment_intent_id: pi.id,
-        paid_at: paidAt,
-      }; // P0-4: keep each booking's own amount_paid (set at booking time); never divide the PI
-      if (nextStatus) patch.status = nextStatus;
-      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-      });
+      const patch = ledgerPaid ? {} : { payment_status: 'paid', payment_intent_id: pi.id, paid_at: paidAt };
+      if (nextStatus) patch.status = nextStatus;   // status transition (confirmed/pending) still applies
+      if (Object.keys(patch).length) await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
       // Only email on a real promotion (this booking was pending_payment and just got paid).
       // This is where the brand confirmation + staff alert fire — never at unpaid creation time.
       if (nextStatus) {
@@ -508,36 +522,18 @@ async function handlePaymentIntentFailed(event) {
 // Never divide the charge's cumulative amount_refunded across every booking in the PaymentIntent.
 async function handleChargeRefunded(event) {
   const charge = event.data.object;
-  const refundedAt = new Date().toISOString();
   const refunds = (charge.refunds && Array.isArray(charge.refunds.data)) ? charge.refunds.data : [];
-  const applied = [];
   for (const rf of refunds) {
-    const bId = rf.metadata && rf.metadata.booking_id;
-    if (!bId) { console.warn('charge.refunded: refund', rf.id, 'has no booking_id metadata; skipping (charge', charge.id + ')'); continue; }
-    // REQUIRED write — throw on failure so the event stays retryable and no refund is lost.
-    await sb(`bookings?id=eq.${encodeURIComponent(bId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ payment_status: 'refunded', refunded_at: refundedAt, amount_refunded: rf.amount, refund_id: rf.id }),
-    });
-    applied.push({ bookingId: bId, amount: rf.amount });
-  }
-  console.log(`charge.refunded: applied ${applied.length} per-booking refund(s) on charge ${charge.id}`);
-  for (const a of applied) {
     try {
-      const b = await fetchBookingContext(a.bookingId);
-      if (b && b.contact_email) {
-        await sendResendEmail({
-          to: b.contact_email,
-          subject: 'Refund on the way: ' + ((b.retailers && b.retailers.name) || 'your demo'),
-          html: refundConfirmationEmail({
-            brandName: b.brand_name || b.contact_name || 'Brand',
-            retailerName: (b.retailers && b.retailers.name) || 'Demohub retailer',
-            venueName: (b.venues && b.venues.name) || 'store',
-            demoDate: b.demo_date, demoTime: b.demo_time, amount: a.amount,
-          }),
-        });
-      }
-    } catch (e) { console.warn('refund email skipped:', (e && e.message) || e); }
+      // finalize by Stripe refund id (idempotent in the DB fn); status drives reserved->refunded.
+      await sbRpc('finalize_refund', { p_stripe_refund_id: rf.id, p_status: rf.status || 'succeeded', p_amount: rf.amount });
+    } catch (e) {
+      // no matching refund_request (e.g. a Stripe-dashboard/break-glass refund) -> quarantine + alert.
+      console.warn('finalize_refund unmatched for', rf.id, ':', (e && e.message) || e);
+      try {
+        await sb('unmatched_stripe_refunds', { method: 'POST', body: JSON.stringify({ stripe_refund_id: rf.id, stripe_charge_id: charge.id, stripe_payment_intent_id: charge.payment_intent, amount: rf.amount, currency: rf.currency, raw: rf }) });
+      } catch (_) {}
+    }
   }
 }
 

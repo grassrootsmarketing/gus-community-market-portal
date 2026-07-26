@@ -283,6 +283,50 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 </table></body></html>`;
 }
 
+async function sbRpc(fn, args) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error('rpc ' + fn + ' ' + r.status + ' ' + text.slice(0, 200));
+  try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
+}
+
+// Ledger-backed refund: reserve an exact amount against the booking's immutable allocation, issue
+// the Stripe refund with the durable idempotency key, and tag the refund_request so the webhook's
+// finalize_refund() can match it. Booking payment_status is flipped by that verified webhook, never
+// here. Legacy bookings (no allocation) fall back to a direct PaymentIntent refund.
+async function reserveAndRefund(booking, retailer, actor, reason, policy) {
+  let alloc = null;
+  try { const a = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(booking.id)}&select=id,customer_amount,refunded_amount`); alloc = Array.isArray(a) ? a[0] : null; } catch (_) {}
+  const keepsAll = !!(retailer && retailer.platform_keeps_all);
+  if (alloc) {
+    const amount = alloc.customer_amount - alloc.refunded_amount;
+    if (amount <= 0) return { ok: false, error: 'nothing_refundable' };
+    let rr;
+    try { rr = await sbRpc('reserve_refund', { p_booking_id: booking.id, p_amount: amount, p_actor: actor || null, p_reason: reason || null, p_policy: policy || null }); }
+    catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
+    const row = Array.isArray(rr) ? rr[0] : rr;
+    const r = await refundPaymentIntent(row.stripe_payment_intent_id, {
+      keepsAll, amountCents: amount, idempotencyKey: row.idempotency_key,
+      reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
+    });
+    if (r.ok) {
+      await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_refund_id: r.refund_id, status: 'submitted' }) }).catch(() => {});
+      return { ok: true, ledger: true };
+    }
+    await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
+    return { ok: false, error: 'refund_failed', requires_review: true };
+  }
+  // legacy fallback (pre-ledger booking)
+  const r = await refundPaymentIntent(booking.payment_intent_id, {
+    keepsAll, amountCents: null, idempotencyKey: 'refund-' + booking.id + '-legacy',
+    reason: 'requested_by_customer', metadata: { booking_id: booking.id },
+  });
+  return { ok: r.ok, legacy: true, refund_id: r.refund_id, error: r.error };
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -361,13 +405,7 @@ export default async function handler(req, res) {
       if (!wasPaid) {
         refundStatus = 'not_paid';
       } else {
-        const r = await refundPaymentIntent(booking.payment_intent_id, {
-          keepsAll: !!(retailer && retailer.platform_keeps_all),
-          amountCents: await bookingRefundCents(booking, venue, retailer),
-          idempotencyKey: 'refund-' + booking_id + '-decline',
-          reason: 'requested_by_customer',
-          metadata: { booking_id, retailer_id: booking.retailer_id, action: 'decline' },
-        });
+        const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'declined', 'decline');
         refundInfo = r;
         refundStatus = r.ok ? 'issued' : 'refund_failed';
         if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
@@ -383,13 +421,7 @@ export default async function handler(req, res) {
       if (!wasPaid) {
         refundStatus = 'not_paid';
       } else if (shouldRefund) {
-        const r = await refundPaymentIntent(booking.payment_intent_id, {
-          keepsAll: !!(retailer && retailer.platform_keeps_all),
-          amountCents: await bookingRefundCents(booking, venue, retailer),
-          idempotencyKey: 'refund-' + booking_id + '-cancel',
-          reason: 'requested_by_customer',
-          metadata: { booking_id, retailer_id: booking.retailer_id, mode, days_out: String(daysOut) },
-        });
+        const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', mode);
         refundInfo = r;
         refundStatus = r.ok ? 'issued' : 'refund_failed';
         if (!r.ok) console.warn('Refund failed for booking', booking_id, '-', r.error);
