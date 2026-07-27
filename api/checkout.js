@@ -51,17 +51,14 @@ export default async function handler(req, res) {
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     const platformKeepsAll = !!retailer.platform_keeps_all;
-    if (!platformKeepsAll && (!retailer.stripe_account_id || !retailer.stripe_charges_enabled)) {
-      return res.status(200).json({ ok: true, skip: true, reason: 'stripe_not_connected', booking_ids: bookings.map(b => b.id) });
-    }
-    // R10-P0-6 launch gate: a COMBINED (multi-booking) charge on a CONNECTED retailer would need
-    // exact three-leg Connect settlement (transfer reversal + fee refund per allocation) to refund
-    // correctly, because Stripe reverses destination charges PROPORTIONALLY. That saga isn't live
-    // yet, so until it is we only allow combined charges for keeps-all groups. Connected retailers
-    // can still transact one booking at a time (a single-allocation refund is exact). Keeps-all
-    // (e.g. Gus) is unaffected. This is Codex's sanctioned interim restriction.
-    if (!platformKeepsAll && bookings.length > 1) {
-      return res.status(409).json({ error: 'combined_checkout_unavailable_for_connected_retailer', booking_ids: bookings.map(b => b.id) });
+    // R11 strict pilot gate (Codex "fastest safe launch"): the pilot is keeps-all ONLY. All
+    // connected/destination-charge checkout is rejected at the handler until the full Connect
+    // settlement (exact transfer reversal + fee refund legs) + its live-Stripe evidence are done.
+    // This keeps every Connect requirement (proportional refunds, transfer_data.destination
+    // validation, three-leg reconciliation) entirely out of the launch surface. The DB command
+    // (checkout_claim_group) is gated the same way in 0035 so this cannot be bypassed.
+    if (!platformKeepsAll) {
+      return res.status(409).json({ error: 'connected_checkout_unavailable_pilot', booking_ids: bookings.map(b => b.id) });
     }
 
     // ---- ATOMIC claim + immutable allocations (ownership/payable/venue-fee enforced in the fn) ----
@@ -100,7 +97,10 @@ export default async function handler(req, res) {
       customer_email: bookings[0].contact_email || undefined,
       'metadata[payment_group_id]': gid,
       'metadata[retailer_id]': retailerId,
-      'metadata[booking_ids]': bookings.map(b => b.id).join(','),
+      // R11-P0-5: do NOT put booking UUIDs in metadata — 14+ ids exceed Stripe's 500-char value
+      // limit and break checkout for large carts. Fulfilment resolves allocations from the ledger
+      // by payment_group_id; only a non-sensitive count is kept for at-a-glance dashboards.
+      'metadata[booking_count]': String(bookings.length),
       success_url: `${SITE}/r/${slug}/?paid=1&bookings=${bookings.map(b => b.id).join(',')}`,
       cancel_url: `${SITE}/r/${slug}/?cancelled=1`,
       'payment_intent_data[metadata][payment_group_id]': gid,
