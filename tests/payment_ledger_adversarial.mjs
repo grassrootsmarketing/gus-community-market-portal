@@ -22,6 +22,7 @@ const KEEPS_VENUE    = '35301125-8921-4bb2-a7d5-aac777e2e76e';   // A - Main, $3
 const CONN_RETAILER  = '768705e2-e2e8-4f50-ad7d-0bf02e63fb06';   // test-b connected
 const CONN_VENUE     = 'f7646ef5-29cb-4942-83e2-e701ff1712c4';   // B - Main, $45
 const BRAND1 = '7f044529-1aba-417a-9b39-ea55f846d06d';
+const BRAND2 = 'a75b1fec-ae6c-4232-af2b-b0aa64dd2b7b';
 const PLATFORM_FEE = 500;
 
 const created = { bookings: [], groups: [], cases: [], requests: [], operations: [], events: [] };
@@ -172,17 +173,24 @@ async function run() {
     check('T7 idempotent reserve', r2.outcome === 'existing' && r2.refund_request_id === r1.refund_request_id, JSON.stringify(r2));
   }
 
-  // T8 (P0-6 math): connected group snapshots EXACT per-allocation legs
+  // T8 (R11-P0-1): claim guards — connected gated at DB, exact-set reuse, overlapping/cross-brand/duplicate rejected
   {
-    const b = await seedBooking(CONN_RETAILER, CONN_VENUE);
-    const gid = one((await claimAndTrack(CONN_RETAILER, false, [b.id], 'acct_test')).json).payment_group_id;
-    const amount = 4500 + PLATFORM_FEE;
-    await payGroup(gid, 'cs_' + RUN + '_t8', `pi_${RUN}_t8`, `ch_${RUN}_t8`, amount, { keepsAll: false, connect: 'acct_test', appFee: PLATFORM_FEE });
-    const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'x', p_reason: 'test' })).json);
-    trackRefund(rr);
-    check('T8 exact customer leg', rr.expected_customer_amount === amount, JSON.stringify(rr));
-    check('T8 exact transfer reversal = gross', rr.expected_transfer_reversal_amount === amount, String(rr.expected_transfer_reversal_amount));
-    check('T8 exact fee refund = platform fee', rr.expected_fee_refund_amount === PLATFORM_FEE, String(rr.expected_fee_refund_amount));
+    const cb = await seedBooking(CONN_RETAILER, CONN_VENUE);
+    const cj = await rpc('checkout_claim_group', { p_brand_id: BRAND1, p_retailer_id: CONN_RETAILER, p_booking_ids: [cb.id], p_platform_keeps_all: false, p_connect_account_id: 'x', p_platform_fee_cents: PLATFORM_FEE });
+    check('T8 connected claim rejected at DB', !cj.ok && /connected_not_in_pilot/.test(cj.text), cj.text.slice(0, 80));
+
+    const a = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const b2 = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const c = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const g1 = one((await claimAndTrack(KEEPS_RETAILER, true, [a.id, b2.id])).json);
+    const reuse = one((await claimAndTrack(KEEPS_RETAILER, true, [a.id, b2.id])).json);
+    check('T8 exact-set reuse', reuse.reused === true && reuse.payment_group_id === g1.payment_group_id, JSON.stringify(reuse));
+    const overlap = await rpc('checkout_claim_group', { p_brand_id: BRAND1, p_retailer_id: KEEPS_RETAILER, p_booking_ids: [a.id, c.id], p_platform_keeps_all: true, p_connect_account_id: null, p_platform_fee_cents: PLATFORM_FEE });
+    check('T8 overlapping unequal rejected (no 500)', !overlap.ok && /booking_in_another_group/.test(overlap.text), overlap.text.slice(0, 80));
+    const xb = await rpc('checkout_claim_group', { p_brand_id: BRAND2, p_retailer_id: KEEPS_RETAILER, p_booking_ids: [c.id], p_platform_keeps_all: true, p_connect_account_id: null, p_platform_fee_cents: PLATFORM_FEE });
+    check('T8 cross-brand claim rejected', !xb.ok && /not_your_booking/.test(xb.text), xb.text.slice(0, 80));
+    const dup = await rpc('checkout_claim_group', { p_brand_id: BRAND1, p_retailer_id: KEEPS_RETAILER, p_booking_ids: [c.id, c.id], p_platform_keeps_all: true, p_connect_account_id: null, p_platform_fee_cents: PLATFORM_FEE });
+    check('T8 duplicate id rejected', !dup.ok && /duplicate_booking_input/.test(dup.text), dup.text.slice(0, 80));
   }
 
   // T9 (P0-7): failed refund -> case + authorized replacement
@@ -202,18 +210,8 @@ async function run() {
     check('T9 replacement created v2', rep.outcome === 'replacement_created' && rep.attempt_version === 2, JSON.stringify(rep));
   }
 
-  // T10 (settlement legs): all three succeed -> complete
-  {
-    const b = await seedBooking(CONN_RETAILER, CONN_VENUE);
-    const gid = one((await claimAndTrack(CONN_RETAILER, false, [b.id], 'acct_test')).json).payment_group_id;
-    const amount = 4500 + PLATFORM_FEE;
-    await payGroup(gid, 'cs_' + RUN + '_t10', `pi_${RUN}_t10`, `ch_${RUN}_t10`, amount, { keepsAll: false, connect: 'acct_test', appFee: PLATFORM_FEE });
-    const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'x', p_reason: 'test' })).json); trackRefund(rr);
-    await rpc('record_settlement_leg', { p_request_id: rr.refund_request_id, p_leg: 'customer', p_stripe_id: `re_${RUN}_t10`, p_status: 'succeeded' });
-    await rpc('record_settlement_leg', { p_request_id: rr.refund_request_id, p_leg: 'transfer_reversal', p_stripe_id: 'trr_t10', p_status: 'succeeded' });
-    const done = await rpc('record_settlement_leg', { p_request_id: rr.refund_request_id, p_leg: 'fee_refund', p_stripe_id: 'fr_t10', p_status: 'succeeded' });
-    check('T10 settlement complete', one(done.json).outcome === 'settlement_complete', JSON.stringify(one(done.json)));
-  }
+  // T10: (connected three-leg settlement is out of pilot scope — gated at DB in 0035; covered by the
+  // multi-retailer follow-on suite. record_settlement_leg remains for that path.)
 
   // T11 (P1-1): pay wins over expire; expire is non-destructive
   {
