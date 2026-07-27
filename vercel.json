@@ -38,6 +38,10 @@
     {
       "path": "/api/coi-enforcement",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/refund-worker",
+      "schedule": "*/15 * * * *"
     }
   ],
   "headers": [
