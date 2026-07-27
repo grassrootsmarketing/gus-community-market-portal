@@ -282,10 +282,10 @@ async function sbRpc(fn, args) {
   try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
 }
 
-// Ledger-backed refund: reserve an exact amount against the booking's immutable allocation, issue
-// the Stripe refund with the durable idempotency key, and tag the refund_request so the webhook's
-// finalize_refund() can match it. Booking payment_status is flipped by that verified webhook, never
-// here. Legacy bookings (no allocation) fall back to a direct PaymentIntent refund.
+// Ledger-backed refund: refund_reserve_cas reserves the exact amount against the booking's immutable
+// allocation and returns a canonical request; we submit the Stripe refund with the durable
+// idempotency key and converge via apply_refund_event(). Booking payment_status is flipped only by
+// verified success (webhook/worker), never optimistically here. No allocation -> requires_review.
 async function reserveAndRefund(booking, retailer, actor, reason, opName) {
   // R10-P1-2/P0-4: one idempotent CAS command. refund_reserve_cas creates-or-RETURNS the operation
   // for this (booking, opName), reserves the exact allocation amount, and hands back everything
