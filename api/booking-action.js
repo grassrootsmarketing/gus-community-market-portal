@@ -51,7 +51,7 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
     });
     const json = await r.json();
     if (!r.ok) return { ok: false, error: (json && json.error && json.error.message) || ('HTTP ' + r.status), detail: json };
-    return { ok: true, refund_id: json.id, amount: json.amount };
+    return { ok: true, refund_id: json.id, amount: json.amount, refund: json };
   } catch (e) {
     return { ok: false, error: String((e && e.message) || e) };
   }
@@ -61,20 +61,9 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
 // blip never locks out the primary owner (who has no retailer_admins row).
 // (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
-// DH-04: returns the cents to refund for THIS booking, or null to mean "full PaymentIntent
-// refund" (the tested single-booking path). Only computes a partial when the PI is shared.
-async function bookingRefundCents(booking, venue, retailer) {
-  if (!booking || !booking.payment_intent_id) return null;
-  try {
-    const siblings = await sb(`bookings?payment_intent_id=eq.${encodeURIComponent(booking.payment_intent_id)}&payment_status=eq.paid&select=id`);
-    if (!Array.isArray(siblings) || siblings.length <= 1) return null; // sole booking -> full refund
-  } catch (_) { return null; }
-  const fee = (venue && venue.demo_fee != null) ? Number(venue.demo_fee) : null;
-  if (fee == null || !(fee >= 0)) return null; // can't price this booking -> fall back to full
-  const keepsAll = !!(retailer && retailer.platform_keeps_all);
-  const cents = Math.round(fee * 100) + (keepsAll ? 0 : 500); // +$5 flat platform fee unless keeps-all
-  return cents > 0 ? cents : null;
-}
+// (R10-P1-8) The legacy bookingRefundCents() amount-or-full-refund helper was removed: refund
+// amounts now come exclusively from the immutable allocation via refund_reserve_cas, so no code
+// path can ever fall back to an unscoped full-PaymentIntent refund.
 
 function daysUntilDemo(demo_date) {
   if (!demo_date) return 0;
@@ -127,7 +116,7 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
-${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund is on its way.</strong> It will appear back on your card in 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
+${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed &mdash; typically within 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
@@ -137,7 +126,7 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 
 function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
-    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your full booking fee will show up back on your card in 5&ndash;10 business days.</p>'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed &mdash; typically within 5&ndash;10 business days.</p>'
     : refundStatus === 'pending_manual'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
     : refundStatus === 'not_paid'
@@ -298,28 +287,40 @@ async function sbRpc(fn, args) {
 // finalize_refund() can match it. Booking payment_status is flipped by that verified webhook, never
 // here. Legacy bookings (no allocation) fall back to a direct PaymentIntent refund.
 async function reserveAndRefund(booking, retailer, actor, reason, opName) {
-  // Ledger-only, fail-closed: a paid booking with NO allocation must NOT trigger a full-PI refund
-  // (that was the P0-6 fanout). Missing allocation -> requires_review, ZERO Stripe calls.
-  let alloc = null;
-  try { const a = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(booking.id)}&select=id,customer_amount,refunded_amount,reserved_refund_amount`); alloc = Array.isArray(a) ? a[0] : null; } catch (_) { return { ok: false, error: 'lookup_failed', requires_review: true }; }
-  if (!alloc) return { ok: false, error: 'no_allocation', requires_review: true };
-  const keepsAll = !!(retailer && retailer.platform_keeps_all);
-  const remaining = alloc.customer_amount - alloc.refunded_amount - alloc.reserved_refund_amount;
-  if (remaining <= 0) return { ok: false, error: 'nothing_refundable' };
+  // R10-P1-2/P0-4: one idempotent CAS command. refund_reserve_cas creates-or-RETURNS the operation
+  // for this (booking, opName), reserves the exact allocation amount, and hands back everything
+  // needed to submit a canonical Stripe request. A retry returns the existing request (never
+  // "nothing_refundable"). Missing allocation / uncharged group -> requires_review, ZERO Stripe calls.
+  const opKey = booking.id + ':' + opName;
   let rr;
-  try { rr = await sbRpc('reserve_refund', { p_booking_id: booking.id, p_amount: remaining, p_actor: actor || null, p_reason: reason || null, p_policy: opName || null, p_op_key: booking.id + ':' + opName }); }
+  try { rr = await sbRpc('refund_reserve_cas', { p_booking_id: booking.id, p_op_key: opKey, p_actor: actor || null, p_reason: reason || null }); }
   catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
   const row = Array.isArray(rr) ? rr[0] : rr;
-  const r = await refundPaymentIntent(row.stripe_payment_intent_id, {
-    keepsAll, amountCents: remaining, idempotencyKey: row.idempotency_key,
+  const outcome = row && row.outcome;
+  if (outcome === 'no_allocation' || outcome === 'not_charged') return { ok: false, error: outcome, requires_review: true };
+  if (outcome === 'nothing_refundable') return { ok: false, error: 'nothing_refundable' };
+  if (outcome === 'no_booking' || outcome === 'booking_state_conflict') return { ok: false, error: outcome };
+
+  const r = await refundPaymentIntent(row.payment_intent, {
+    keepsAll: !!row.keeps_all, amountCents: row.amount, idempotencyKey: row.idempotency_key,
     reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
   });
   if (r.ok) {
-    await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_refund_id: r.refund_id, status: 'submitted' }) }).catch(() => {});
-    return { ok: true, ledger: true };   // NOT "refunded" — only the verified webhook confirms that
+    // Converge the ledger now via the VERIFIED apply RPC (idempotent with the later charge.refunded
+    // webhook + the worker). Never flips the booking to 'refunded' here — only a verified success does.
+    try {
+      await sbRpc('apply_refund_event', {
+        p_refund_id: r.refund_id, p_status: (r.refund && r.refund.status) || 'pending',
+        p_amount: row.amount, p_currency: (r.refund && r.refund.currency) || 'usd',
+        p_pi: row.payment_intent, p_charge: (r.refund && r.refund.charge) || row.charge_id || null,
+        p_meta_request_id: row.refund_request_id, p_event_id: null,
+      });
+    } catch (_) { /* webhook/worker will still converge */ }
+    return { ok: true, ledger: true, submitted: true };
   }
-  await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
-  return { ok: false, error: 'refund_failed', requires_review: true };
+  // Submit failed: leave the reservation for the LEASED worker to retry with the same key.
+  await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
+  return { ok: false, error: 'refund_failed', requires_review: true, retrying: true };
 }
 
 export default async function handler(req, res) {
