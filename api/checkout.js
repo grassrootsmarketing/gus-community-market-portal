@@ -54,6 +54,15 @@ export default async function handler(req, res) {
     if (!platformKeepsAll && (!retailer.stripe_account_id || !retailer.stripe_charges_enabled)) {
       return res.status(200).json({ ok: true, skip: true, reason: 'stripe_not_connected', booking_ids: bookings.map(b => b.id) });
     }
+    // R10-P0-6 launch gate: a COMBINED (multi-booking) charge on a CONNECTED retailer would need
+    // exact three-leg Connect settlement (transfer reversal + fee refund per allocation) to refund
+    // correctly, because Stripe reverses destination charges PROPORTIONALLY. That saga isn't live
+    // yet, so until it is we only allow combined charges for keeps-all groups. Connected retailers
+    // can still transact one booking at a time (a single-allocation refund is exact). Keeps-all
+    // (e.g. Gus) is unaffected. This is Codex's sanctioned interim restriction.
+    if (!platformKeepsAll && bookings.length > 1) {
+      return res.status(409).json({ error: 'combined_checkout_unavailable_for_connected_retailer', booking_ids: bookings.map(b => b.id) });
+    }
 
     // ---- ATOMIC claim + immutable allocations (ownership/payable/venue-fee enforced in the fn) ----
     const claim = await rpc('checkout_claim_group', {
