@@ -2,6 +2,7 @@
 // checkout_claim_group() atomically verifies ownership + payable state, snapshots an IMMUTABLE
 // per-demo allocation, and (via UNIQUE booking_id) makes concurrent double-checkout impossible.
 // One Stripe Checkout Session per payment group; the durable group id is the Stripe idempotency key.
+import crypto from 'node:crypto';
 import { requireBrandSession } from './_booking-identity.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY, STRIPE = process.env.STRIPE_SECRET_KEY;
@@ -116,6 +117,18 @@ export default async function handler(req, res) {
     const bodyStr = Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
       .map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(String(v))).join('&');
 
+    // R10-P0-3: canonical request hash over the IMMUTABLE money-routing snapshot (sorted allocation
+    // legs + charge model + connect + currency). A retry must reproduce this exact request; if the
+    // retailer's live config changed after the claim, the hash diverges and register_payment_attempt
+    // rejects the fork rather than routing money by the new config.
+    const canonical = JSON.stringify({
+      gid, currency: 'usd', keepsAll: platformKeepsAll, connect: platformKeepsAll ? null : retailer.stripe_account_id,
+      appFee: platformKeepsAll ? 0 : allocs.reduce((s, a) => s + (a.platform_fee_amount || 0), 0),
+      legs: [...allocs].sort((a, b) => String(a.booking_id).localeCompare(String(b.booking_id)))
+        .map(a => [a.booking_id, a.customer_amount, a.platform_fee_amount]),
+    });
+    const reqHash = crypto.createHash('sha256').update(canonical).digest('hex');
+
     // durable idempotency key = the payment group id (stable across retries of THIS checkout)
     const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
@@ -125,14 +138,22 @@ export default async function handler(req, res) {
     const session = await stripeResp.json();
     if (!stripeResp.ok) { console.error('Stripe session failed:', session && session.error); return res.status(502).json({ error: 'stripe_failed' }); }
 
-    // REQUIRED durable write (no swallow): attach session to the group. On failure return retryable;
-    // the same idempotency key reuses the same Stripe session on retry.
     if (session.amount_total != null && Number(session.amount_total) !== Number(totalCents)) {
       console.error('RECONCILE: stripe amount_total', session.amount_total, '!= ledger total', totalCents, 'group', gid);
       return res.status(500).json({ error: 'amount_reconcile_failed' });
     }
-    const upd = await rest(`payment_groups?id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify({ stripe_checkout_session_id: session.id, status: 'session_created' }) });
-    if (!upd.ok) { console.error('payment_group session persist failed'); return res.status(503).json({ error: 'session_persist_failed' }); }
+
+    // REQUIRED durable write via RPC (no swallow): register the immutable attempt. Enforces ONE open
+    // attempt per group and records session id + canonical hash. A concurrent fork with a different
+    // session/hash -> 'attempt_in_progress' (409). Idempotent retry of the SAME session -> reused.
+    const pi = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
+    const reg = await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: session.id, p_payment_intent: pi, p_hash: reqHash, p_schema: 1 });
+    if (!reg.ok) {
+      const msg = String((reg.json && reg.json.message) || reg.text || '');
+      if (/attempt_in_progress/.test(msg)) return res.status(409).json({ error: 'attempt_in_progress' });
+      console.error('register_payment_attempt failed:', msg);
+      return res.status(503).json({ error: 'attempt_persist_failed' });
+    }
     // mirror onto bookings for the existing admin UI (best-effort, non-authoritative)
     await Promise.allSettled(allocs.map(a => rest(`bookings?id=eq.${encodeURIComponent(a.booking_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_session_id: session.id }) })));
 
