@@ -124,6 +124,12 @@ export default async function handler(req, res) {
         }
       } catch (e) { out.errors++; err = String((e && e.message) || e).slice(0, 200); nextAt = backoff(row.attempts); }
 
+      // R11-P0-4: parking for review is ATOMIC — request + parent operation + one deduped
+      // reconciliation case, reservation preserved (Stripe may still hold an unadopted refund).
+      if (nextStatus === 'requires_review') {
+        try { await sbRpc('park_refund_for_review', { p_request_id: row.id, p_owner: owner, p_reason: err || 'retry_cap_exhausted' }); }
+        catch (_) { out.errors++; }
+      }
       // release the lease (CAS on owner). If we lost it, another worker owns the row now.
       try {
         const held = await sbRpc('release_refund_work', { p_request_id: row.id, p_owner: owner, p_status: nextStatus, p_next_attempt_at: nextAt, p_last_error: err });
