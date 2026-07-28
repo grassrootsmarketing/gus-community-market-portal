@@ -82,8 +82,13 @@ export default async function handler(req, res) {
     const gid = row.payment_group_id;
     const totalCents = row.total_customer_amount;
 
-    // immutable allocation snapshot -> Stripe line items
-    const allocs = await sbJson(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id,customer_amount,platform_fee_amount`);
+    // immutable allocation snapshot -> Stripe line items.
+    // R12-P1-4: order MUST be deterministic. PostgREST gives no ordering guarantee, so a retry could
+    // otherwise build the same logical request with a different parameter order and Stripe would
+    // reject the idempotency-key reuse. Sort by booking_id everywhere (line items, email choice, URLs).
+    const allocs = (await sbJson(`payment_allocations?payment_group_id=eq.${encodeURIComponent(gid)}&select=booking_id,customer_amount,platform_fee_amount&order=booking_id.asc`))
+      .slice().sort((a, b) => String(a.booking_id).localeCompare(String(b.booking_id)));
+    bookings.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     const venueIds = [...new Set(bookings.map(b => b.venue_id).filter(Boolean))];
     const venues = venueIds.length ? await sbJson(`venues?id=in.(${venueIds.map(encodeURIComponent).join(',')})&select=id,name`) : [];
     const venueNameById = new Map((venues || []).map(v => [v.id, v.name]));
