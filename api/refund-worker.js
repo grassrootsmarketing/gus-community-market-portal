@@ -126,18 +126,36 @@ async function sendAlertEmail(c) {
   } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
 }
 
+// Per-run send cap. A systemic failure can open cases in bulk; emailing every one would bury the
+// signal (and can trip provider rate limits). Above the cap we send ONE digest naming the count and
+// leave the rest pending for the next run, so nothing is lost and the operator still hears about it.
+const ALERT_SEND_CAP = 5;
+
 async function drainCaseAlerts(limit) {
   const owner = 'alert-' + Math.random().toString(36).slice(2, 10);
-  const out = { claimed: 0, sent: 0, failed: 0 };
+  const out = { claimed: 0, sent: 0, failed: 0, deferred: 0 };
   let rows = [];
   try { rows = await sbRpc('claim_case_alerts', { p_owner: owner, p_lease_seconds: 120, p_limit: limit }); }
   catch (e) { console.error('claim_case_alerts failed:', (e && e.message) || e); return out; }
-  for (const c of (Array.isArray(rows) ? rows : [])) {
+  rows = Array.isArray(rows) ? rows : [];
+  const send = rows.slice(0, ALERT_SEND_CAP);
+  const defer = rows.slice(ALERT_SEND_CAP);
+
+  for (const c of send) {
     out.claimed++;
     const r = await sendAlertEmail(c);
     if (r.ok) out.sent++; else { out.failed++; console.warn('alert send failed for case', c.id, r.reason); }
     try { await sbRpc('mark_case_alert', { p_case_id: c.id, p_owner: owner, p_ok: !!r.ok, p_message_id: r.id || null, p_err: r.reason || null }); }
     catch (_) { /* lease expired; will be retried */ }
+  }
+  // release the overflow WITHOUT marking sent, so the next run picks them up
+  for (const c of defer) {
+    out.claimed++; out.deferred++;
+    try { await sbRpc('mark_case_alert', { p_case_id: c.id, p_owner: owner, p_ok: false, p_message_id: null, p_err: 'deferred_by_send_cap' }); } catch (_) {}
+  }
+  if (defer.length) {
+    await sendAlertEmail({ id: 'digest', kind: 'alert_backlog', reason: `${defer.length} further exception(s) deferred this run`,
+      amount: null, currency: null, created_at: new Date().toISOString(), details: null });
   }
   return out;
 }
