@@ -122,7 +122,7 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function htmlEscape(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-async function fetchBookingContext(bookingId) {
+export async function fetchBookingContext(bookingId) {
   try {
     const rows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=*,venues(name),retailers(name,slug)`);
     return Array.isArray(rows) && rows[0] ? rows[0] : null;
@@ -134,7 +134,7 @@ async function fetchBookingContext(bookingId) {
 // this via /api/booking-action; auto-confirm had no equivalent, leaving demos invisible).
 // Idempotent (skips if a confirmed demo already exists for the slot) and resilient
 // (falls back to core columns if the demos-carry-fields migration has not run).
-async function createDemoForConfirmedBooking(ctx) {
+export async function createDemoForConfirmedBooking(ctx) {
   if (!ctx || !ctx.retailer_id || !ctx.venue_id) return;
   try {
     const existing = await sb(`demos?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&venue_id=eq.${encodeURIComponent(ctx.venue_id)}&demo_date=eq.${encodeURIComponent(ctx.demo_date)}&demo_time=eq.${encodeURIComponent(ctx.demo_time || '')}&status=in.(confirmed,completed)&select=id&limit=1`);
@@ -172,6 +172,7 @@ async function createDemoForConfirmedBooking(ctx) {
   }
 }
 
+// Returns {ok, id, reason}. Callers that must NOT report success on failure use sendEmailOrThrow().
 async function sendResendEmail({ to, subject, html }) {
   if (!RESEND_API_KEY || !to) return { ok: false, reason: 'not_configured_or_no_to' };
   try {
@@ -180,8 +181,18 @@ async function sendResendEmail({ to, subject, html }) {
       headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
       body: JSON.stringify({ from: FROM_ADDRESS, to, reply_to: 'david@demohubhq.com', subject, html }),
     });
-    return { ok: r.ok };
+    let id = null, reason = null;
+    try { const j = await r.json(); id = j && j.id; if (!r.ok) reason = (j && j.message) || ('HTTP ' + r.status); } catch (_) { if (!r.ok) reason = 'HTTP ' + r.status; }
+    return { ok: r.ok, id, reason };
   } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
+}
+
+// R12-P0-3: fail-closed email. A missing key, network error or non-2xx MUST throw so the fulfilment
+// outbox records emails as NOT sent and retries — previously these were silently treated as success.
+async function sendEmailOrThrow(args, label) {
+  const r = await sendResendEmail(args);
+  if (!r.ok) throw new Error(`email_failed:${label}:${r.reason || 'unknown'}`);
+  return r.id || null;
 }
 
 function _brandHeaderHTML() {
@@ -540,7 +551,7 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
 // Brand confirmation + staff alert for a just-promoted booking. Shared by the legacy path and the
 // durable outbox path so both send exactly the same messages. THROWS on failure so the outbox can
 // mark the row unfinished and retry (the legacy caller keeps its own try/catch).
-async function sendPromotionEmails(ctx, bookingId) {
+export async function sendPromotionEmails(ctx, bookingId) {
   const slug = (ctx.retailers && ctx.retailers.slug) || '';
   const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
   const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
@@ -561,12 +572,17 @@ async function sendPromotionEmails(ctx, bookingId) {
       coiDeadline = _dd.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
     }
   } catch (_) {}
-  await sendResendEmail({
+  // R12-P0-3: the brand confirmation is REQUIRED — throw (not swallow) so the outbox retries.
+  const msgId = await sendEmailOrThrow({
     to: ctx.contact_email,
     subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
     html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
-  });
-  await notifyStaffForBooking(ctx);
+  }, 'brand_confirmation');
+  // Staff alert is best-effort by design (internal, non-customer-facing) and is reported separately
+  // rather than folded into the customer-email result.
+  let staffOk = true;
+  try { await notifyStaffForBooking(ctx); } catch (e) { staffOk = false; console.warn('staff notify failed:', (e && e.message) || e); }
+  return { brand_message_id: msgId, staff_ok: staffOk };
 }
 
 async function handlePaymentIntentFailed(event) {
