@@ -1424,6 +1424,44 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
+    // P0-7: issue or rotate the brand's calendar token. Requires a real brand session; the token
+    // it returns is read-only (feed-only) and can be revoked without touching login sessions.
+    if (action === 'cal_token') {
+      const sessionToken = String(body.session_token || (req.query && req.query.session_token) || parseCookies(req)['dh_brand_session'] || '').trim();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
+      const rotate = body.rotate === true || String((req.query && req.query.rotate) || '') === '1';
+      try {
+        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/issue_calendar_token`, {
+          method: 'POST',
+          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_brand_id: brandId, p_rotate: rotate, p_label: 'brand portal' }),
+        });
+        if (!rr.ok) return res.status(500).json({ error: 'token_issue_failed' });
+        const v = await rr.json();
+        const tok = Array.isArray(v) ? v[0] : v;
+        const origin = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
+        return res.status(200).json({ ok: true, rotated: !!rotate, token: tok,
+          calendar_url: `${origin}/api/brand-account?action=cal&token=${tok}` });
+      } catch (_) { return res.status(500).json({ error: 'token_issue_failed' }); }
+    }
+
+    // P0-7: revoke every calendar URL for this brand (e.g. the link leaked).
+    if (action === 'cal_revoke') {
+      const sessionToken = String(body.session_token || parseCookies(req)['dh_brand_session'] || '').trim();
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
+      try {
+        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/revoke_calendar_tokens`, {
+          method: 'POST',
+          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_brand_id: brandId }),
+        });
+        const v = rr.ok ? await rr.json() : 0;
+        return res.status(200).json({ ok: true, revoked: (Array.isArray(v) ? v[0] : v) || 0 });
+      } catch (_) { return res.status(500).json({ error: 'revoke_failed' }); }
+    }
+
     if (action === 'cal') {
       const token = String((req.query?.token) || body.token || '').trim();
       if (!token) { res.status(400).send('Missing ?token= parameter. Get your calendar URL from your brand dashboard.'); return; }
@@ -1447,13 +1485,27 @@ export default async function handler(req, res) {
         }
         return new Date(Date.UTC(Y, M - 1, D, H + 8, MIN, 0));
       };
-      const sR = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(token)}&select=brand_id,expires_at`);
-      const sess = (await sR.json())[0];
-      if (!sess || new Date(sess.expires_at).getTime() < Date.now()) {
-        res.status(401).send('Invalid or expired calendar URL. Generate a fresh one from your brand portal.');
+      // P0-7: the feed accepts ONLY a dedicated, revocable calendar token — never a login session
+      // token. A calendar URL gets pasted into Google/Apple Calendar and shared with colleagues, so
+      // it must not be usable as an account credential.
+      const UUID_RE_CAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!UUID_RE_CAL.test(token)) {
+        res.status(401).send('Invalid calendar URL. Generate a fresh one from your brand portal.');
         return;
       }
-      const brandId = sess.brand_id;
+      let brandId = null;
+      try {
+        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_calendar_token`, {
+          method: 'POST',
+          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_token: token }),
+        });
+        if (rr.ok) { const v = await rr.json(); brandId = (Array.isArray(v) ? v[0] : v) || null; }
+      } catch (_) {}
+      if (!brandId) {
+        res.status(401).send('Invalid or revoked calendar URL. Generate a fresh one from your brand portal.');
+        return;
+      }
       const bR = await sb(`brands?id=eq.${encodeURIComponent(brandId)}&select=company_name`);
       const brand = (await bR.json())[0];
       if (!brand) { res.status(404).send('Brand not found'); return; }
