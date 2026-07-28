@@ -4,6 +4,7 @@
 // One Stripe Checkout Session per payment group; the durable group id is the Stripe idempotency key.
 import crypto from 'node:crypto';
 import { requireBrandSession } from './_booking-identity.js';
+import { FLAGS, maxCartSize } from './_flags.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY, STRIPE = process.env.STRIPE_SECRET_KEY;
 const SITE = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
@@ -27,6 +28,7 @@ async function rpc(fn, args) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (!FLAGS.checkoutEnabled) return res.status(503).json({ error: 'checkout_disabled', message: 'Checkout is temporarily paused. Please try again shortly.' });
   if (!STRIPE) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
   if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
@@ -37,7 +39,8 @@ export default async function handler(req, res) {
   let ids = Array.isArray(body.booking_ids) ? body.booking_ids.filter(Boolean) : (body.booking_id ? [body.booking_id] : []);
   ids = [...new Set(ids.map(String))];
   if (!ids.length) return res.status(400).json({ error: 'booking_ids required' });
-  if (ids.length > 25) return res.status(400).json({ error: 'too_many_bookings' });
+  const MAX_CART = maxCartSize();
+  if (ids.length > MAX_CART) return res.status(400).json({ error: 'too_many_bookings', max: MAX_CART });
 
   try {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
