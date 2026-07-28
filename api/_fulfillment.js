@@ -27,7 +27,7 @@ async function sbRpc(fn, args) {
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status));
-  return Array.isArray(j) ? j[0] : j;
+  return j;   // RAW: claim_fulfillments returns an ARRAY — unwrapping it here silently broke the drain
 }
 
 // Perform fulfilment for one claimed outbox row. Returns {done, demo_created, emails_sent, error, recorded}.
@@ -64,7 +64,7 @@ export async function runFulfillment(row, owner) {
     const r = await sbRpc('complete_fulfillment', {
       p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err,
     });
-    recorded = r === true;
+    recorded = (r === true) || (Array.isArray(r) && r[0] === true);
   } catch (e) {
     err = (err ? err + '; ' : '') + 'record:' + String((e && e.message) || e).slice(0, 120);
   }
@@ -76,9 +76,11 @@ export async function drainFulfillments({ limit = 25, group = null, leaseSeconds
   const owner = 'fulfil-' + Math.random().toString(36).slice(2, 10);
   const out = { processed: 0, completed: 0, failed: 0, capped: 0 };
   let rows = [];
-  try { rows = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: leaseSeconds, p_limit: limit, p_group: group }); }
-  catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); return out; }
-  for (const row of (Array.isArray(rows) ? rows : [])) {
+  try {
+    const claimed = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: leaseSeconds, p_limit: limit, p_group: group });
+    rows = Array.isArray(claimed) ? claimed : (claimed ? [claimed] : []);
+  } catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); return out; }
+  for (const row of rows) {
     out.processed++;
     const r = await runFulfillment(row, owner);
     if (r.done && r.recorded) { out.completed++; continue; }
