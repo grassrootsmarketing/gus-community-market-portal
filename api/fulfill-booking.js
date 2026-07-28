@@ -41,39 +41,9 @@ export default async function handler(req, res) {
   const { booking_id, owner, target_status } = body;
   if (!booking_id || !owner) return res.status(400).json({ error: 'booking_id and owner required' });
 
-  let demoOk = !!body.demo_created, mailOk = !!body.emails_sent, err = null;
-  try {
-    // 1. status transition (idempotent — only moves a still-pending_payment booking)
-    await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&status=eq.pending_payment`, {
-      method: 'PATCH', body: JSON.stringify({ status: target_status || 'pending' }),
-    });
-
-    // 2. demo + emails via the webhook module's shared helpers
-    const wh = await import('./stripe-webhook.js');
-    const ctx = await wh.fetchBookingContext(booking_id);
-    if (!ctx) throw new Error('no_booking_context');
-    ctx.booking_id = booking_id;
-
-    if (!demoOk) {
-      if (target_status === 'confirmed') { await wh.createDemoForConfirmedBooking(ctx); demoOk = true; }
-      else demoOk = true;   // non-auto-confirm retailers materialise the demo on manual confirm
-    }
-    if (!mailOk) {
-      if (ctx.contact_email) { await wh.sendPromotionEmails(ctx, booking_id); mailOk = true; }
-      else mailOk = true;   // nothing to send
-    }
-  } catch (e) {
-    err = String((e && e.message) || e).slice(0, 300);
-  }
-
-  const done = demoOk && mailOk;
-  let recorded = false;
-  try {
-    const r = await sbRpc('complete_fulfillment', {
-      p_booking_id: booking_id, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err,
-    });
-    recorded = (Array.isArray(r) ? r[0] : r) === true;
-  } catch (e) { err = (err ? err + '; ' : '') + 'record:' + ((e && e.message) || e); }
+  const { runFulfillment } = await import('./_fulfillment.js');
+  const r = await runFulfillment({ booking_id, target_status, demo_created: body.demo_created, emails_sent: body.emails_sent }, owner);
+  const { done, demo_created: demoOk, emails_sent: mailOk, error: err, recorded } = r;
 
   // lease lost (another worker owns it) -> report not-done so the caller doesn't count a success
   if (!recorded) return res.status(409).json({ done: false, error: 'lease_lost_or_not_recorded', detail: err });
