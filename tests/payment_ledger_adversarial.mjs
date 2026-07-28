@@ -360,6 +360,63 @@ async function run() {
     check('T18 marked done', fin.status === 'done', fin.status);
   }
 
+  // T19 (R12 scenario 4): CONCURRENT cancel/decline on one paid booking -> exactly ONE refund request
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    await payGroup(gid, `cs_${RUN}_t19`, `pi_${RUN}_t19`, `ch_${RUN}_t19`, 3000);
+    const [r1, r2] = await Promise.all([
+      rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'a', p_reason: 'race' }),
+      rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'b', p_reason: 'race' }),
+    ]);
+    const ids = [one(r1.json), one(r2.json)].filter(Boolean).map(x => x.refund_request_id).filter(Boolean);
+    trackRefund(one(r1.json)); trackRefund(one(r2.json));
+    const rows = (await rest(`refund_requests?booking_id=eq.${b.id}&select=id`)).json || [];
+    check('T19 concurrent cancels -> one request', rows.length === 1, `rows=${rows.length} ids=${JSON.stringify(ids)}`);
+    const al = one((await rest(`payment_allocations?booking_id=eq.${b.id}&select=reserved_refund_amount`)).json);
+    check('T19 reserved exactly once', al.reserved_refund_amount === 3000, String(al.reserved_refund_amount));
+  }
+
+  // T20 (R12 scenario 3): OUT-OF-ORDER + duplicate refund events converge to one truth
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    const pi = `pi_${RUN}_t20`, ch = `ch_${RUN}_t20`, re = `re_${RUN}_t20`;
+    await payGroup(gid, `cs_${RUN}_t20`, pi, ch, 3000);
+    const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'x', p_reason: 'ooo' })).json);
+    trackRefund(rr);
+    const ev = (status) => rpc('apply_refund_event', { p_refund_id: re, p_status: status, p_amount: rr.amount, p_currency: 'usd', p_pi: pi, p_charge: ch, p_meta_request_id: rr.refund_request_id, p_event_id: `evt_${status}` });
+    // terminal FIRST, then a late 'pending' (out of order), then a duplicate terminal
+    const a = one((await ev('succeeded')).json);
+    const late = one((await ev('pending')).json);
+    const dup = one((await ev('succeeded')).json);
+    check('T20 terminal applied', a.outcome === 'applied', JSON.stringify(a));
+    check('T20 late pending does not undo terminal', late.outcome === 'already_terminal', JSON.stringify(late));
+    check('T20 duplicate terminal is a no-op', dup.outcome === 'already_terminal', JSON.stringify(dup));
+    const al = one((await rest(`payment_allocations?booking_id=eq.${b.id}&select=refunded_amount,reserved_refund_amount`)).json);
+    check('T20 refunded exactly once', al.refunded_amount === 3000 && al.reserved_refund_amount === 0, JSON.stringify(al));
+  }
+
+  // T21 (R12 P0-4): operator review — replace releases exactly one reservation; adopt converges
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    await payGroup(gid, `cs_${RUN}_t21`, `pi_${RUN}_t21`, `ch_${RUN}_t21`, 3000);
+    const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'x', p_reason: 'stuck' })).json);
+    trackRefund(rr);
+    await rpc('park_refund_for_review', { p_request_id: rr.refund_request_id, p_owner: 'w', p_reason: 'cap' });
+    const xr = one((await rpc('resolve_refund_replace', { p_op_key: b.id + ':cancel', p_operator: 'attacker@other.test', p_retailer_id: CONN_RETAILER, p_evidence: {} })).json);
+    check('T21 cross-retailer replace forbidden', xr.outcome === 'forbidden', JSON.stringify(xr));
+    const ok = one((await rpc('resolve_refund_replace', { p_op_key: b.id + ':cancel', p_operator: 'ownerA@fixture.test', p_retailer_id: KEEPS_RETAILER, p_evidence: { scanned: 5, match: null } })).json);
+    check('T21 authorized replace -> v2', ok.outcome === 'replacement_created' && ok.attempt_version === 2, JSON.stringify(ok));
+    const al = one((await rest(`payment_allocations?booking_id=eq.${b.id}&select=reserved_refund_amount`)).json);
+    check('T21 no double reservation', al.reserved_refund_amount === 3000, String(al.reserved_refund_amount));
+    const sup = (await rest(`refund_requests?booking_id=eq.${b.id}&status=eq.superseded&select=id`)).json || [];
+    check('T21 old request superseded', sup.length === 1, String(sup.length));
+    const audit = (await rest(`refund_review_actions?refund_operation_id=eq.${rr.refund_operation_id}&select=action,operator_email`)).json || [];
+    check('T21 operator decision audited', audit.length === 1 && audit[0].operator_email === 'ownerA@fixture.test', JSON.stringify(audit));
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fails.length) console.log('FAILURES:\n' + fails.map(f => '  - ' + f).join('\n'));
 }
@@ -371,6 +428,10 @@ async function teardown() {
       for (const a of allocs) {
         const reqs = (await rest(`refund_requests?payment_allocation_id=eq.${a.id}&select=id`)).json || [];
         for (const rq of reqs) await rest(`reconciliation_cases?refund_request_id=eq.${rq.id}`, { method: 'DELETE' }).catch(() => {});
+        await rest(`refund_requests?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' }).catch(() => {});
+        for (const rq of reqs) await rest(`refund_review_actions?refund_request_id=eq.${rq.id}`, { method: 'DELETE' }).catch(() => {});
+        const ops = (await rest(`refund_operations?payment_allocation_id=eq.${a.id}&select=id`)).json || [];
+        for (const op of ops) await rest(`refund_review_actions?refund_operation_id=eq.${op.id}`, { method: 'DELETE' }).catch(() => {});
         await rest(`refund_requests?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' }).catch(() => {});
         await rest(`refund_operations?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' }).catch(() => {});
       }
