@@ -486,31 +486,9 @@ async function handlePaymentIntentSucceeded(event) {
 // crash after the status patch leaves the outbox row 'pending', so the next webhook retry (or the
 // fulfillment cron) finishes the demo + emails idempotently instead of skipping them forever.
 async function promoteFromOutbox(groupId) {
-  const owner = 'wh-' + Math.random().toString(36).slice(2, 10);
-  const leased = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: 120, p_limit: 50, p_group: groupId || null });
-  const rows = Array.isArray(leased) ? leased : [];
-  for (const row of rows) {
-    const bookingId = row.booking_id;
-    let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
-    try {
-      // status transition first (idempotent), then the durable-marked side effects
-      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&status=eq.pending_payment`, { method: 'PATCH', body: JSON.stringify({ status: row.target_status }) });
-      const ctx = await fetchBookingContext(bookingId);
-      if (!demoOk && row.target_status === 'confirmed' && ctx) {
-        ctx.booking_id = bookingId;
-        try { await createDemoForConfirmedBooking(ctx); demoOk = true; }
-        catch (e) { err = 'demo:' + ((e && e.message) || e); }
-      } else if (row.target_status !== 'confirmed') { demoOk = true; }
-      if (!mailOk && ctx && ctx.contact_email) {
-        try { await sendPromotionEmails(ctx, bookingId); mailOk = true; }
-        catch (e) { err = (err ? err + '; ' : '') + 'mail:' + ((e && e.message) || e); }
-      } else if (!ctx || !ctx.contact_email) { mailOk = true; }
-    } catch (e) { err = String((e && e.message) || e); }
-    const done = demoOk && mailOk;
-    try { await sbRpc('complete_fulfillment', { p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err ? String(err).slice(0, 300) : null }); }
-    catch (_) { /* lease lost or transient: row stays pending and is retried */ }
-  }
-  return rows.length;
+  const { drainFulfillments } = await import('./_fulfillment.js');
+  const r = await drainFulfillments({ limit: 50, group: groupId || null });
+  return r.processed;
 }
 
 async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
