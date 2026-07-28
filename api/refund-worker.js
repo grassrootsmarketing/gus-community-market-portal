@@ -84,6 +84,64 @@ async function applyRefundToLedger(row, refund) {
 }
 function backoff(attempts) { return new Date(Date.now() + Math.min(60, Math.pow(2, Math.max(0, attempts))) * 60 * 1000).toISOString(); }
 
+// ---- R12-P0-5: external alerting for financial exceptions ----
+// A durable reconciliation_cases row is necessary but NOT sufficient: a customer can be charged or
+// owed a refund while nobody is looking at the database. One email per case id (deduped by the
+// case's own alert_status, not per retry), never containing secrets or card data.
+const ALERT_TO = process.env.ALERT_EMAIL || 'david@demohubhq.com';
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const ENV_LABEL = process.env.VERCEL_ENV || 'unknown';
+
+function alertHtml(c) {
+  const esc = (s) => String(s == null ? '—' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const money = c.amount != null ? `$${(c.amount / 100).toFixed(2)} ${String(c.currency || 'usd').toUpperCase()}` : '—';
+  const row = (k, v) => `<tr><td style="padding:6px 10px;color:#6b6a64;font-size:12px;">${esc(k)}</td><td style="padding:6px 10px;font-family:monospace;font-size:12px;">${esc(v)}</td></tr>`;
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;">
+<h2 style="margin:0 0 4px;font-size:18px;">Payment exception: ${esc(c.kind)}</h2>
+<p style="margin:0 0 14px;color:#6b6a64;font-size:13px;">Environment <strong>${esc(ENV_LABEL)}</strong> · needs operator review.</p>
+<table style="border-collapse:collapse;background:#faf8f4;border:1px solid #ece5d8;border-radius:8px;">
+${row('reason', c.reason)}${row('amount', money)}${row('case id', c.id)}
+${row('payment group', c.payment_group_id)}${row('refund request', c.refund_request_id)}
+${row('checkout session', c.stripe_checkout_session_id)}${row('payment intent', c.stripe_payment_intent_id)}
+${row('charge', c.stripe_charge_id)}${row('refund', c.stripe_refund_id)}${row('opened', c.created_at)}
+</table>
+<p style="margin:14px 0 0;font-size:12px;color:#6b6a64;">No card or customer-sensitive data is included. Investigate via the reconciliation_cases table using the case id above.</p></div>`;
+}
+
+async function sendAlertEmail(c) {
+  if (!RESEND_API_KEY) return { ok: false, reason: 'resend_not_configured' };
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Demohub Alerts <bookings@demohubhq.com>', to: ALERT_TO,
+        subject: `[Demohub ${ENV_LABEL}] payment exception: ${c.kind} (${c.reason || 'review'})`,
+        html: alertHtml(c),
+      }),
+    });
+    let id = null, reason = null;
+    try { const j = await r.json(); id = j && j.id; if (!r.ok) reason = (j && j.message) || ('HTTP ' + r.status); } catch (_) { if (!r.ok) reason = 'HTTP ' + r.status; }
+    return { ok: r.ok, id, reason };
+  } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
+}
+
+async function drainCaseAlerts(limit) {
+  const owner = 'alert-' + Math.random().toString(36).slice(2, 10);
+  const out = { claimed: 0, sent: 0, failed: 0 };
+  let rows = [];
+  try { rows = await sbRpc('claim_case_alerts', { p_owner: owner, p_lease_seconds: 120, p_limit: limit }); }
+  catch (e) { console.error('claim_case_alerts failed:', (e && e.message) || e); return out; }
+  for (const c of (Array.isArray(rows) ? rows : [])) {
+    out.claimed++;
+    const r = await sendAlertEmail(c);
+    if (r.ok) out.sent++; else { out.failed++; console.warn('alert send failed for case', c.id, r.reason); }
+    try { await sbRpc('mark_case_alert', { p_case_id: c.id, p_owner: owner, p_ok: !!r.ok, p_message_id: r.id || null, p_err: r.reason || null }); }
+    catch (_) { /* lease expired; will be retried */ }
+  }
+  return out;
+}
+
 // ---- R12-P0-2: fulfilment drain (the cron's own recovery path) ----
 const FULFILL_BATCH = 25;
 const FULFILL_MAX_ATTEMPTS = 6;
@@ -192,6 +250,12 @@ export default async function handler(req, res) {
       out.fulfillments_pending = Array.isArray(stuck) ? stuck.length : 0;
       if (out.fulfillments_pending > 0) console.warn('FULFILLMENT BACKLOG:', out.fulfillments_pending, 'paid booking(s) not fully fulfilled');
     } catch (e) { out.errors++; console.error('fulfilment drain error:', (e && e.message) || e); }
+
+    // R12-P0-5: notify an operator about every open financial exception (deduped per case).
+    try {
+      const a = await drainCaseAlerts(20);
+      out.alerts_claimed = a.claimed; out.alerts_sent = a.sent; out.alerts_failed = a.failed;
+    } catch (e) { out.errors++; console.error('alert drain error:', (e && e.message) || e); }
 
     return res.status(200).json(out);
   } catch (e) {
