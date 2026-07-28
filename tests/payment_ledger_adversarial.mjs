@@ -89,20 +89,25 @@ function trackRefund(rr) {
 }
 
 
-// Full ledger sweep. Runs BEFORE and AFTER the suite so an interrupted run (or manual probing) can
-// never leave state that breaks the next run. Staging-only: guarded on a fixture-shaped URL.
-async function sweepLedger() {
-  const ALL_ID = 'id=neq.00000000-0000-0000-0000-000000000000';
-  await rest(`booking_fulfillments?booking_id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' }).catch(() => {});
-  for (const t of ['reconciliation_cases', 'refund_requests', 'refund_operations', 'payment_attempts', 'payment_allocations', 'payment_groups']) {
-    await rest(`${t}?${ALL_ID}`, { method: 'DELETE' }).catch(() => {});
-  }
-  await rest(`bookings?contact_email=like.advtest-*`, { method: 'DELETE' }).catch(() => {});
+// SAFETY GATE — this harness writes to real financial tables. It refuses to run unless it can
+// positively prove it is pointed at the allowlisted STAGING project, with an explicit opt-in token.
+// There is deliberately NO global delete anywhere in this file: cleanup removes ONLY rows this run
+// created (tracked by primary key) so pre-existing ledger data can never be destroyed.
+const ALLOWED_PROJECT_REFS = ['eubbgurdwqmwqduamwhn'];          // staging only
+const DENY_PROJECT_REFS    = ['ecapmcyumpjjgjwuokyv'];          // known production — never
+function assertSafeTarget() {
+  const host = (SB_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+  const fail = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
+  if (!host) fail('cannot determine Supabase project ref from SB_URL');
+  if (DENY_PROJECT_REFS.includes(host)) fail(`SB_URL points at a DENIED (production) project: ${host}`);
+  if (!ALLOWED_PROJECT_REFS.includes(host)) fail(`SB_URL project ${host} is not in the staging allowlist`);
+  if (process.env.ALLOW_STAGING_LEDGER_TESTS !== 'yes') fail('ALLOW_STAGING_LEDGER_TESTS=yes is required');
+  console.log(`safety: target project ${host} allowlisted, opt-in present\n`);
 }
+assertSafeTarget();
 
 async function run() {
   console.log('RUN', RUN, '\n');
-  await sweepLedger();   // start from clean state
 
   // T1 (P0-1): frozen payment promotes ZERO bookings + opens a case
   {
@@ -385,5 +390,5 @@ async function teardown() {
 
 try { await run(); }
 catch (e) { console.error('HARNESS ERROR', (e && e.stack) || e); fail++; }
-finally { await teardown(); await sweepLedger(); console.log('teardown done'); }
+finally { await teardown(); console.log('teardown done'); }
 process.exit(fail === 0 ? 0 : 1);
