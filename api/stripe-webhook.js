@@ -470,6 +470,38 @@ async function handlePaymentIntentSucceeded(event) {
 // auto-confirm, and send the brand confirmation + staff alert. For ledger payments the bookings are
 // already payment_status='paid' (set atomically in apply_verified_payment), so ledgerPaid=true skips
 // the legacy payment fields and only applies the status transition + side effects.
+// R11-P1-4: for LEDGER payments, side effects are driven by the durable booking_fulfillments outbox
+// (enqueued in the same transaction as payment in 0038), never by the booking's current status. A
+// crash after the status patch leaves the outbox row 'pending', so the next webhook retry (or the
+// fulfillment cron) finishes the demo + emails idempotently instead of skipping them forever.
+async function promoteFromOutbox(groupId) {
+  const owner = 'wh-' + Math.random().toString(36).slice(2, 10);
+  const leased = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: 120, p_limit: 50, p_group: groupId || null });
+  const rows = Array.isArray(leased) ? leased : [];
+  for (const row of rows) {
+    const bookingId = row.booking_id;
+    let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
+    try {
+      // status transition first (idempotent), then the durable-marked side effects
+      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&status=eq.pending_payment`, { method: 'PATCH', body: JSON.stringify({ status: row.target_status }) });
+      const ctx = await fetchBookingContext(bookingId);
+      if (!demoOk && row.target_status === 'confirmed' && ctx) {
+        ctx.booking_id = bookingId;
+        try { await createDemoForConfirmedBooking(ctx); demoOk = true; }
+        catch (e) { err = 'demo:' + ((e && e.message) || e); }
+      } else if (row.target_status !== 'confirmed') { demoOk = true; }
+      if (!mailOk && ctx && ctx.contact_email) {
+        try { await sendPromotionEmails(ctx, bookingId); mailOk = true; }
+        catch (e) { err = (err ? err + '; ' : '') + 'mail:' + ((e && e.message) || e); }
+      } else if (!ctx || !ctx.contact_email) { mailOk = true; }
+    } catch (e) { err = String((e && e.message) || e); }
+    const done = demoOk && mailOk;
+    try { await sbRpc('complete_fulfillment', { p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err ? String(err).slice(0, 300) : null }); }
+    catch (_) { /* lease lost or transient: row stays pending and is retried */ }
+  }
+  return rows.length;
+}
+
 async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
   const paidAt = new Date().toISOString();
   await Promise.all(bookingIds.map(async (bookingId) => {
@@ -496,44 +528,45 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
             try { await createDemoForConfirmedBooking(ctx); }
             catch (demoErr) { console.warn('auto-confirm demo create failed for', bookingId, ':', (demoErr && demoErr.message) || demoErr); }
           }
-          if (ctx && ctx.contact_email) {
-            const slug = (ctx.retailers && ctx.retailers.slug) || '';
-            const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
-            const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
-            // COI: if the brand has no COI on file, the confirmation warns the demo is cancelled
-            // unless it's uploaded by the day before the demo.
-            let coiDeadline = null;
-            try {
-              // brand_id can be null on legacy/edge bookings; fall back to contact_email so the
-              // COI warning still renders. No brand row found also means no COI on file.
-              let _br = null;
-              if (ctx.brand_id) {
-                _br = await sb(`brands?id=eq.${encodeURIComponent(ctx.brand_id)}&select=default_coi_url`);
-              } else if (ctx.contact_email) {
-                _br = await sb(`brands?email=eq.${encodeURIComponent(String(ctx.contact_email).toLowerCase())}&select=default_coi_url`);
-              }
-              {
-                const _hasCoi = Array.isArray(_br) && _br[0] && _br[0].default_coi_url;
-                if (!_hasCoi && ctx.demo_date) {
-                  const _dd = new Date(ctx.demo_date + 'T00:00:00Z');
-                  _dd.setUTCDate(_dd.getUTCDate() - 3);
-                  coiDeadline = _dd.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
-                }
-              }
-            } catch (_) {}
-            await sendResendEmail({
-              to: ctx.contact_email,
-              subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
-              html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
-            });
-            await notifyStaffForBooking(ctx);
-          }
+          if (ctx && ctx.contact_email) await sendPromotionEmails(ctx, bookingId);
         } catch (mailErr) {
           console.warn('post-payment confirmation email skipped for', bookingId, ':', (mailErr && mailErr.message) || mailErr);
         }
       }
     }
   }));
+}
+
+// Brand confirmation + staff alert for a just-promoted booking. Shared by the legacy path and the
+// durable outbox path so both send exactly the same messages. THROWS on failure so the outbox can
+// mark the row unfinished and retry (the legacy caller keeps its own try/catch).
+async function sendPromotionEmails(ctx, bookingId) {
+  const slug = (ctx.retailers && ctx.retailers.slug) || '';
+  const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
+  const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
+  // COI: if the brand has no COI on file, the confirmation warns the demo is cancelled unless it's
+  // uploaded by the day before the demo.
+  let coiDeadline = null;
+  try {
+    let _br = null;
+    if (ctx.brand_id) {
+      _br = await sb(`brands?id=eq.${encodeURIComponent(ctx.brand_id)}&select=default_coi_url`);
+    } else if (ctx.contact_email) {
+      _br = await sb(`brands?email=eq.${encodeURIComponent(String(ctx.contact_email).toLowerCase())}&select=default_coi_url`);
+    }
+    const _hasCoi = Array.isArray(_br) && _br[0] && _br[0].default_coi_url;
+    if (!_hasCoi && ctx.demo_date) {
+      const _dd = new Date(ctx.demo_date + 'T00:00:00Z');
+      _dd.setUTCDate(_dd.getUTCDate() - 3);
+      coiDeadline = _dd.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
+    }
+  } catch (_) {}
+  await sendResendEmail({
+    to: ctx.contact_email,
+    subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
+    html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
+  });
+  await notifyStaffForBooking(ctx);
 }
 
 async function handlePaymentIntentFailed(event) {
@@ -634,9 +667,10 @@ async function handleCheckoutSessionCompleted(event) {
     const val = Array.isArray(applied) ? applied[0] : applied;
     const outcome = val && val.outcome;
     if (outcome === 'applied' || outcome === 'idempotent') {
-      const ids = (val.booking_ids || []).map(String);
-      if (ids.length) await promoteBookings(ids, { piId: pi.id, ledgerPaid: true });
-      console.log(`checkout.session.completed: ${outcome}, promoted ${ids.length} booking(s)`, session.id);
+      // R11-P1-4: drive side effects from the durable outbox (enqueued in the payment transaction).
+      // Safe to call on 'idempotent' replays too — finished rows are already 'done' and won't reappear.
+      const n = await promoteFromOutbox(val.payment_group_id);
+      console.log(`checkout.session.completed: ${outcome}, fulfilled ${n} booking(s)`, session.id);
     } else {
       // R11-P0-3: a non-applied PAID session must be durably quarantined before we acknowledge the
       // event. apply_verified_payment returns case_id for every permanent contradiction; if we did
