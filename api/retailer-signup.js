@@ -4,6 +4,7 @@
 // Paid tiers (pro/enterprise) are a separate upgrade; signup always creates a free Solo store.
 
 import crypto from 'node:crypto';
+import { FLAGS } from './_flags.js';
 import { createChallenge, consumeChallenge } from './_verify.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -68,6 +69,12 @@ async function sendCode(email, code) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  // Closed-launch envelope: public self-service retailer signup is OFF unless explicitly enabled.
+  // Fails closed — an unset flag keeps it disabled.
+  if (!FLAGS.publicRetailerSignup) {
+    return res.status(403).json({ error: 'public_signup_disabled',
+      message: 'Demohub is invite-only right now. Email david@demohubhq.com to get your store set up.' });
+  }
   if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const action = String(body.action || '');
