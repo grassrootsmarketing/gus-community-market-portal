@@ -1122,7 +1122,10 @@ export default async function handler(req, res) {
         const errText = await uploadResp.text();
         return jsonResp(res, 500, { error: 'Upload failed: ' + errText });
       }
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/coi-docs/${path}?v=${Date.now()}`;
+      // P0-6: store the STORAGE PATH, never a public URL. A COI carries the brand's legal entity,
+      // address, policy numbers and limits; it must only ever be served through /api/coi-file, which
+      // authorises the viewer and mints a 60-second signed link.
+      const publicUrl = path;
       const originalName = String(body.filename || `certificate-of-insurance.${ext}`).slice(0, 120);
 
       // --- content verification (Claude Haiku). Degrades to 'pending', never blocks on our failure. ---
