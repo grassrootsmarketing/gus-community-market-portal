@@ -20,6 +20,9 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
+// self-call base for the shared fulfilment endpoint (Vercel provides VERCEL_URL per deployment)
+const SITE_ORIGIN = process.env.SITE_ORIGIN
+  || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.demohubhq.com');
 
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -81,6 +84,46 @@ async function applyRefundToLedger(row, refund) {
 }
 function backoff(attempts) { return new Date(Date.now() + Math.min(60, Math.pow(2, Math.max(0, attempts))) * 60 * 1000).toISOString(); }
 
+// ---- R12-P0-2: fulfilment drain (the cron's own recovery path) ----
+const FULFILL_BATCH = 25;
+const FULFILL_MAX_ATTEMPTS = 6;
+
+// Perform the real fulfilment work for one claimed row by calling the deployed webhook's shared
+// logic over HTTP-free internals is not possible from here, so the worker performs the same durable
+// steps directly: promote status, then hand the demo/email work to the app's own endpoint. Keeping
+// the *decision* here and the *side effects* behind one shared endpoint avoids two divergent copies.
+async function drainFulfillments(limit) {
+  const owner = 'cron-' + Math.random().toString(36).slice(2, 10);
+  const out = { processed: 0, completed: 0, failed: 0 };
+  let rows = [];
+  try { rows = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: 180, p_limit: limit, p_group: null }); }
+  catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); return out; }
+  for (const row of (Array.isArray(rows) ? rows : [])) {
+    out.processed++;
+    try {
+      const r = await fetch(`${SITE_ORIGIN}/api/fulfill-booking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + CRON_SECRET },
+        body: JSON.stringify({ booking_id: row.booking_id, owner, target_status: row.target_status,
+                               demo_created: row.demo_created, emails_sent: row.emails_sent }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j && j.done) { out.completed++; continue; }
+      out.failed++;
+      // retry cap -> durable case so a permanently broken fulfilment is visible to an operator
+      if ((row.attempts || 0) + 1 >= FULFILL_MAX_ATTEMPTS) {
+        try {
+          await sbRpc('open_fulfillment_case', { p_booking_id: row.booking_id, p_reason: (j && j.error) || ('http_' + r.status) });
+        } catch (_) {}
+      }
+    } catch (e) {
+      out.failed++;
+      try { await sbRpc('complete_fulfillment', { p_booking_id: row.booking_id, p_owner: owner, p_demo: row.demo_created, p_emails: row.emails_sent, p_done: false, p_err: String((e && e.message) || e).slice(0, 300) }); } catch (_) {}
+    }
+  }
+  return out;
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'POST only' });
   const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
@@ -136,14 +179,19 @@ export default async function handler(req, res) {
         if (held === false || (Array.isArray(held) && held[0] === false)) out.lost_lease++;
       } catch (_) { out.errors++; }
     }
-    // R11-P1-4 safety net: report any fulfilment rows still pending. The webhook normally drains
-    // these immediately; a row surviving here means every webhook attempt died mid-fulfilment, so it
-    // needs operator visibility (the demo/emails for a PAID booking are outstanding).
+    // R12-P0-2: actually DRAIN the fulfilment outbox. Recovery must never depend on Stripe
+    // redelivering a webhook — the webhook marks its event complete, so a row left pending after a
+    // demo/email failure would otherwise sit unfulfilled forever. This claims rows under the same
+    // lease, performs the real work, and completes/retries them.
     try {
+      const f = await drainFulfillments(FULFILL_BATCH);
+      out.fulfillments_processed = f.processed;
+      out.fulfillments_completed = f.completed;
+      out.fulfillments_failed = f.failed;
       const stuck = await sbGet('booking_fulfillments?status=eq.pending&select=booking_id&limit=100');
       out.fulfillments_pending = Array.isArray(stuck) ? stuck.length : 0;
       if (out.fulfillments_pending > 0) console.warn('FULFILLMENT BACKLOG:', out.fulfillments_pending, 'paid booking(s) not fully fulfilled');
-    } catch (_) { /* non-fatal */ }
+    } catch (e) { out.errors++; console.error('fulfilment drain error:', (e && e.message) || e); }
 
     return res.status(200).json(out);
   } catch (e) {
