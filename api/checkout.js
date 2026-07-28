@@ -138,10 +138,18 @@ export default async function handler(req, res) {
     });
     const reqHash = crypto.createHash('sha256').update(canonical).digest('hex');
 
-    // durable idempotency key = the payment group id (stable across retries of THIS checkout)
+    // R11-P0-2: the idempotency key must be ATTEMPT-scoped, not group-scoped. A group-scoped key
+    // would make a post-expiry retry return the SAME (now expired) Session, permanently locking the
+    // cart. `attemptSeq` is the count of prior attempts on this group, so each new attempt gets a
+    // distinct key while a genuine in-flight retry of the same attempt still reuses its Session.
+    let attemptSeq = 0;
+    try {
+      const prior = await sbJson(`payment_attempts?payment_group_id=eq.${encodeURIComponent(gid)}&select=id`);
+      attemptSeq = Array.isArray(prior) ? prior.length : 0;
+    } catch (_) { /* fall back to 0; a duplicate key here only reuses an in-flight session */ }
     const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': 'co-' + gid },
+      headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptSeq}` },
       body: bodyStr,
     });
     const session = await stripeResp.json();
