@@ -3,6 +3,8 @@
 // R12-P1-5: the detailed view (Supabase project ref, Stripe live/test mode, secret-presence flags)
 // is reconnaissance if exposed publicly, so it now requires the operator/deploy secret. Without it
 // the endpoint returns only a coarse build id + health, which is safe to leave reachable in prod.
+import { flagSnapshot } from './_flags.js';
+
 const CRON_SECRET = process.env.CRON_SECRET;
 
 export default async function handler(req, res) {
@@ -35,6 +37,7 @@ export default async function handler(req, res) {
       : (process.env.STRIPE_SECRET_KEY || '').startsWith('sk_live_') ? 'LIVE' : 'unset',
     has_webhook_secret: !!process.env.STRIPE_WEBHOOK_SECRET,
     has_cron_secret: !!process.env.CRON_SECRET,
+    flags: flagSnapshot(),   // Gate 0 launch-envelope matrix (operator-only)
     now: new Date().toISOString(),
   });
 }
