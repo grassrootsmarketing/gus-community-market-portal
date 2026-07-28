@@ -88,8 +88,21 @@ function trackRefund(rr) {
   if (rr.refund_operation_id) created.operations.push(rr.refund_operation_id);
 }
 
+
+// Full ledger sweep. Runs BEFORE and AFTER the suite so an interrupted run (or manual probing) can
+// never leave state that breaks the next run. Staging-only: guarded on a fixture-shaped URL.
+async function sweepLedger() {
+  const ALL_ID = 'id=neq.00000000-0000-0000-0000-000000000000';
+  await rest(`booking_fulfillments?booking_id=neq.00000000-0000-0000-0000-000000000000`, { method: 'DELETE' }).catch(() => {});
+  for (const t of ['reconciliation_cases', 'refund_requests', 'refund_operations', 'payment_attempts', 'payment_allocations', 'payment_groups']) {
+    await rest(`${t}?${ALL_ID}`, { method: 'DELETE' }).catch(() => {});
+  }
+  await rest(`bookings?contact_email=like.advtest-*`, { method: 'DELETE' }).catch(() => {});
+}
+
 async function run() {
   console.log('RUN', RUN, '\n');
+  await sweepLedger();   // start from clean state
 
   // T1 (P0-1): frozen payment promotes ZERO bookings + opens a case
   {
@@ -319,6 +332,29 @@ async function run() {
     check('T17 replacement blocked while live request exists', rep.outcome === 'live_request_exists' || rep.outcome === 'nothing_refundable', JSON.stringify(rep));
   }
 
+  // T18 (R11-P1-4): fulfilment survives a crash after the booking status patch
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    const paid = one((await payGroup(gid, `cs_${RUN}_t18`, `pi_${RUN}_t18`, `ch_${RUN}_t18`, 3000)).json);
+    check('T18 payment applied', paid.outcome === 'applied', JSON.stringify(paid));
+    const fRow = one((await rest(`booking_fulfillments?booking_id=eq.${b.id}&select=status,target_status`)).json);
+    check('T18 outbox enqueued in payment txn', !!fRow && fRow.status === 'pending', JSON.stringify(fRow));
+    // simulate the crash: status patch lands, process dies before demo/emails
+    await rest(`bookings?id=eq.${b.id}`, { method: 'PATCH', body: JSON.stringify({ status: fRow.target_status }) });
+    const still = one((await rest(`booking_fulfillments?booking_id=eq.${b.id}&select=status`)).json);
+    check('T18 still pending after crash', still.status === 'pending', JSON.stringify(still));
+    const c1 = (await rpc('claim_fulfillments', { p_owner: 'fw1', p_lease_seconds: 60, p_limit: 10, p_group: gid })).json;
+    const c2 = (await rpc('claim_fulfillments', { p_owner: 'fw2', p_lease_seconds: 60, p_limit: 10, p_group: gid })).json;
+    check('T18 recoverable + leased to one worker', (c1 || []).length === 1 && (c2 || []).length === 0, `c1:${(c1||[]).length} c2:${(c2||[]).length}`);
+    const bad = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw2', p_demo: true, p_emails: true, p_done: true, p_err: null })).json);
+    check('T18 non-owner cannot complete', bad === false, JSON.stringify(bad));
+    const ok = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw1', p_demo: true, p_emails: true, p_done: true, p_err: null })).json);
+    check('T18 owner completes', ok === true, JSON.stringify(ok));
+    const fin = one((await rest(`booking_fulfillments?booking_id=eq.${b.id}&select=status`)).json);
+    check('T18 marked done', fin.status === 'done', fin.status);
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fails.length) console.log('FAILURES:\n' + fails.map(f => '  - ' + f).join('\n'));
 }
@@ -333,6 +369,7 @@ async function teardown() {
         await rest(`refund_requests?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' }).catch(() => {});
         await rest(`refund_operations?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' }).catch(() => {});
       }
+      await rest(`booking_fulfillments?payment_group_id=eq.${gid}`, { method: 'DELETE' }).catch(() => {});
       await rest(`reconciliation_cases?payment_group_id=eq.${gid}`, { method: 'DELETE' }).catch(() => {});
       await rest(`payment_attempts?payment_group_id=eq.${gid}`, { method: 'DELETE' }).catch(() => {});
       await rest(`payment_allocations?payment_group_id=eq.${gid}`, { method: 'DELETE' }).catch(() => {});
@@ -342,10 +379,11 @@ async function teardown() {
   for (const k of [...new Set(created.caseKeys)]) await rest(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent(k)}`, { method: 'DELETE' }).catch(() => {});
   await rest(`reconciliation_cases?stripe_checkout_session_id=like.cs_${RUN}*`, { method: 'DELETE' }).catch(() => {});
   for (const evt of [...new Set(created.events)]) await rest(`processed_stripe_events?stripe_event_id=eq.${evt}`, { method: 'DELETE' }).catch(() => {});
+  for (const id of [...new Set(created.bookings)]) await rest(`booking_fulfillments?booking_id=eq.${id}`, { method: 'DELETE' }).catch(() => {});
   for (const id of [...new Set(created.bookings)]) await rest(`bookings?id=eq.${id}`, { method: 'DELETE' }).catch(() => {});
 }
 
 try { await run(); }
 catch (e) { console.error('HARNESS ERROR', (e && e.stack) || e); fail++; }
-finally { await teardown(); console.log('teardown done'); }
+finally { await teardown(); await sweepLedger(); console.log('teardown done'); }
 process.exit(fail === 0 ? 0 : 1);
