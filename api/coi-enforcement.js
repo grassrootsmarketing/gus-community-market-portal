@@ -11,6 +11,8 @@
 
 import { coiCoverageState, coiCutoff, localMidnightUtc } from './_coi-lib.js';
 
+import { FLAGS, coiEnforcementEffective } from './_flags.js';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -151,8 +153,16 @@ export default async function handler(req, res) {
   const authOk = !!secret && (req.headers['authorization'] || '') === 'Bearer ' + secret;
   if (!authOk) return res.status(401).json({ error: 'unauthorized' });
 
-  const mode = String(process.env.COI_ENFORCEMENT_MODE || 'off').toLowerCase();
-  if (mode === 'off') return res.status(200).json({ ok: true, mode: 'off', note: 'COI enforcement disabled' });
+  // G0-C1 dual gate: the launch flag AND the mode must both permit work. If
+  // COI_AUTO_ENFORCEMENT_ENABLED is not exactly "true", this worker does nothing at all — a stray
+  // COI_ENFORCEMENT_MODE=live can no longer cancel bookings or move money. The effective state is
+  // computed by the SAME parser the operator probe reports, so the two can never disagree.
+  if (!FLAGS.coiAutoEnforcement) {
+    return res.status(200).json({ ok: true, mode: 'off', effective: 'off',
+      note: 'COI auto-enforcement disabled by launch flag (COI_AUTO_ENFORCEMENT_ENABLED)' });
+  }
+  const mode = coiEnforcementEffective();
+  if (mode === 'off') return res.status(200).json({ ok: true, mode: 'off', effective: 'off', note: 'COI enforcement disabled' });
   if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
 
   const canWrite = mode === 'warn_only' || mode === 'live';   // markers + emails
