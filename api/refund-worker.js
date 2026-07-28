@@ -1,3 +1,4 @@
+import { drainFulfillments } from './_fulfillment.js';
 // api/refund-worker.js — leased refund retry + reconciliation worker (Codex R10-P0-4/P0-7).
 //
 // Runs on a schedule behind CRON_SECRET. Every Stripe write reuses the refund request's stored
@@ -21,8 +22,6 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 // self-call base for the shared fulfilment endpoint (Vercel provides VERCEL_URL per deployment)
-const SITE_ORIGIN = process.env.SITE_ORIGIN
-  || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.demohubhq.com');
 
 const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 8;
@@ -160,54 +159,9 @@ async function drainCaseAlerts(limit) {
   return out;
 }
 
-// ---- R12-P0-2: fulfilment drain (the cron's own recovery path) ----
+// R12-P0-2: fulfilment drain now lives in the shared module (no HTTP self-call — that hit
+// Vercel deployment protection and added a needless network hop).
 const FULFILL_BATCH = 25;
-const FULFILL_MAX_ATTEMPTS = 6;
-
-// Perform the real fulfilment work for one claimed row by calling the deployed webhook's shared
-// logic over HTTP-free internals is not possible from here, so the worker performs the same durable
-// steps directly: promote status, then hand the demo/email work to the app's own endpoint. Keeping
-// the *decision* here and the *side effects* behind one shared endpoint avoids two divergent copies.
-async function drainFulfillments(limit) {
-  const owner = 'cron-' + Math.random().toString(36).slice(2, 10);
-  const out = { processed: 0, completed: 0, failed: 0 };
-  let rows = [];
-  try { rows = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: 180, p_limit: limit, p_group: null }); }
-  catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); return out; }
-  for (const row of (Array.isArray(rows) ? rows : [])) {
-    out.processed++;
-    try {
-      const r = await fetch(`${SITE_ORIGIN}/api/fulfill-booking`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + CRON_SECRET },
-        body: JSON.stringify({ booking_id: row.booking_id, owner, target_status: row.target_status,
-                               demo_created: row.demo_created, emails_sent: row.emails_sent }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (r.ok && j && j.done) { out.completed++; continue; }
-      out.failed++;
-      const why = (j && j.error) || ('http_' + r.status);
-      // retry cap -> durable case so a permanently broken fulfilment is visible to an operator
-      if ((row.attempts || 0) + 1 >= FULFILL_MAX_ATTEMPTS) {
-        try { await sbRpc('open_fulfillment_case', { p_booking_id: row.booking_id, p_reason: why }); } catch (_) {}
-      } else {
-        // RELEASE the lease and RECORD why. Without this the row stayed locked for the full lease
-        // window with last_error=null, so each run burned an attempt and the cause was invisible.
-        // (Skip when fulfill-booking reported lease_lost — another worker legitimately owns it.)
-        if (!(j && j.error === 'lease_lost_or_not_recorded')) {
-          try {
-            await sbRpc('complete_fulfillment', { p_booking_id: row.booking_id, p_owner: owner,
-              p_demo: row.demo_created, p_emails: row.emails_sent, p_done: false, p_err: String(why).slice(0, 300) });
-          } catch (_) {}
-        }
-      }
-    } catch (e) {
-      out.failed++;
-      try { await sbRpc('complete_fulfillment', { p_booking_id: row.booking_id, p_owner: owner, p_demo: row.demo_created, p_emails: row.emails_sent, p_done: false, p_err: String((e && e.message) || e).slice(0, 300) }); } catch (_) {}
-    }
-  }
-  return out;
-}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'POST only' });
@@ -269,7 +223,7 @@ export default async function handler(req, res) {
     // demo/email failure would otherwise sit unfulfilled forever. This claims rows under the same
     // lease, performs the real work, and completes/retries them.
     try {
-      const f = await drainFulfillments(FULFILL_BATCH);
+      const f = await drainFulfillments({ limit: FULFILL_BATCH });
       out.fulfillments_processed = f.processed;
       out.fulfillments_completed = f.completed;
       out.fulfillments_failed = f.failed;
