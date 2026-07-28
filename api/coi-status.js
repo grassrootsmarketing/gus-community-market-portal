@@ -98,7 +98,7 @@ export default async function handler(req, res) {
         const v = verifByBrand[b.brand_id] || null;
         docs.push({
           booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date,
-          coi_url: brand.default_coi_url, coi_expires: brand.default_coi_expires || null,
+          coi_url: brand.default_coi_url ? `/api/coi-file?brand_id=${brand.id}` : null, coi_expires: brand.default_coi_expires || null,
           verified: brandVerifiedState(brand, b.demo_date).verified,
           verification: v ? {
             status: v.status || null, insurer: v.insurer_name || null, naic: v.insurer_naic || null,
@@ -110,7 +110,7 @@ export default async function handler(req, res) {
       continue;
     }
     // Not covered for this demo, but they may still have an expired document worth seeing.
-    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url || null, coi_expires: brand.default_coi_expires || null, verified: false });
+    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url ? `/api/coi-file?brand_id=${brand.id}` : null, coi_expires: brand.default_coi_expires || null, verified: false });
   }
   return res.status(200).json({ ok: true, pending, docs, pending_booking_ids: pending.map(p => p.booking_id) });
 }
