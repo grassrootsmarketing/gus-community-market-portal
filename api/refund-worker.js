@@ -136,6 +136,15 @@ export default async function handler(req, res) {
         if (held === false || (Array.isArray(held) && held[0] === false)) out.lost_lease++;
       } catch (_) { out.errors++; }
     }
+    // R11-P1-4 safety net: report any fulfilment rows still pending. The webhook normally drains
+    // these immediately; a row surviving here means every webhook attempt died mid-fulfilment, so it
+    // needs operator visibility (the demo/emails for a PAID booking are outstanding).
+    try {
+      const stuck = await sbGet('booking_fulfillments?status=eq.pending&select=booking_id&limit=100');
+      out.fulfillments_pending = Array.isArray(stuck) ? stuck.length : 0;
+      if (out.fulfillments_pending > 0) console.warn('FULFILLMENT BACKLOG:', out.fulfillments_pending, 'paid booking(s) not fully fulfilled');
+    } catch (_) { /* non-fatal */ }
+
     return res.status(200).json(out);
   } catch (e) {
     console.error('refund-worker error:', (e && e.message) || e);
