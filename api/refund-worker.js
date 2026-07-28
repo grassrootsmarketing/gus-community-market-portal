@@ -186,11 +186,20 @@ async function drainFulfillments(limit) {
       const j = await r.json().catch(() => ({}));
       if (r.ok && j && j.done) { out.completed++; continue; }
       out.failed++;
+      const why = (j && j.error) || ('http_' + r.status);
       // retry cap -> durable case so a permanently broken fulfilment is visible to an operator
       if ((row.attempts || 0) + 1 >= FULFILL_MAX_ATTEMPTS) {
-        try {
-          await sbRpc('open_fulfillment_case', { p_booking_id: row.booking_id, p_reason: (j && j.error) || ('http_' + r.status) });
-        } catch (_) {}
+        try { await sbRpc('open_fulfillment_case', { p_booking_id: row.booking_id, p_reason: why }); } catch (_) {}
+      } else {
+        // RELEASE the lease and RECORD why. Without this the row stayed locked for the full lease
+        // window with last_error=null, so each run burned an attempt and the cause was invisible.
+        // (Skip when fulfill-booking reported lease_lost — another worker legitimately owns it.)
+        if (!(j && j.error === 'lease_lost_or_not_recorded')) {
+          try {
+            await sbRpc('complete_fulfillment', { p_booking_id: row.booking_id, p_owner: owner,
+              p_demo: row.demo_created, p_emails: row.emails_sent, p_done: false, p_err: String(why).slice(0, 300) });
+          } catch (_) {}
+        }
       }
     } catch (e) {
       out.failed++;
