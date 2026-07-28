@@ -1240,6 +1240,8 @@ export default async function handler(req, res) {
     }
 
     if (action === 'team-invite') {
+      // G0-C2: the brand-invite kill switch has a real consumer here (requires exact "true").
+      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled', message: 'Team invites are temporarily paused.' });
       const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
       const email = String(body.email || '').trim().toLowerCase();
