@@ -4,6 +4,8 @@
 // Privacy: NEVER expose brand_id to retailer-side endpoints. All retailer
 // admin queries continue to filter by retailer_id only.
 
+import { FLAGS } from './_flags.js';
+
 const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
@@ -971,6 +973,10 @@ export default async function handler(req, res) {
     // Extracts structured fields from the certificate and applies the check matrix.
     // Never blocks an upload on our own failure: any error/timeout returns status 'pending'.
     async function verifyCoiWithClaude(bytes, mime, brandCompanyName) {
+      // Gate 5D: for the closed launch, COI bytes must NOT leave for an AI provider unless David
+      // has explicitly approved the data-processing terms. Fails closed to manual staff review, so
+      // an absent/unset flag can never result in a document being transmitted.
+      if (!FLAGS.coiAiVerification) return { status: 'pending', reason: 'ai_verification_disabled' };
       const key = process.env.ANTHROPIC_API_KEY;
       if (!key) return { status: 'pending', reason: 'no_api_key' };
       const schema = {
@@ -1085,6 +1091,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'upload-coi') {
+      if (!FLAGS.coiUploadEnabled) return jsonResp(res, 503, { error: 'coi_upload_disabled', message: 'COI upload is temporarily paused. Please try again shortly.' });
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
