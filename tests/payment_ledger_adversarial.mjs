@@ -25,7 +25,7 @@ const BRAND1 = '7f044529-1aba-417a-9b39-ea55f846d06d';
 const BRAND2 = 'a75b1fec-ae6c-4232-af2b-b0aa64dd2b7b';
 const PLATFORM_FEE = 500;
 
-const created = { bookings: [], groups: [], cases: [], requests: [], operations: [], events: [] };
+const created = { bookings: [], groups: [], cases: [], caseKeys: [], requests: [], operations: [], events: [] };
 
 async function rest(path, opts = {}) {
   const r = await fetch(`${SB_URL}/${path}`, { ...opts, headers: { ...H, Prefer: 'return=representation', ...(opts.headers || {}) } });
@@ -42,14 +42,18 @@ const one = (j) => Array.isArray(j) ? j[0] : j;
 let seedN = 0;
 const DAY0 = Math.floor(Math.random() * 280);   // random per-run window so repeat runs never collide on a slot
 function uniqueSlot() {
+  // distinct (date,time) per booking; the per-run DAY0 offset + a per-run minute offset keep repeat
+  // runs (and leftovers from an interrupted run) from colliding with the venue slot cap.
   const d = new Date(Date.UTC(2026, 11, 1)); d.setUTCDate(d.getUTCDate() + DAY0 + seedN); seedN++;
-  return d.toISOString().slice(0, 10);   // distinct demo_date per booking -> no slot-capacity collision
+  return d.toISOString().slice(0, 10);
 }
+const MIN0 = Math.floor(Math.random() * 50);
+function uniqueTime() { return `${8 + (seedN % 10)}:${String((MIN0 + seedN) % 60).padStart(2, '0')}`; }
 async function seedBooking(retailer, venue, { status = 'pending_payment', payment_status = 'unpaid' } = {}) {
   const resp = await rest('bookings', { method: 'POST', body: JSON.stringify({
     retailer_id: retailer, venue_id: venue, brand_id: BRAND1, brand_name: 'Adv ' + RUN,
     contact_name: 'Adv Tester', contact_email: `${RUN}@fixture.test`,
-    demo_date: uniqueSlot(), demo_time: '10:00', status, payment_status,
+    demo_date: uniqueSlot(), demo_time: uniqueTime(), status, payment_status,
   }) });
   const b = one(resp.json);
   if (!b || !b.id) throw new Error('seedBooking failed: ' + resp.status + ' ' + (resp.text || '').slice(0, 200));
@@ -106,8 +110,10 @@ async function run() {
 
   // T2 (P0-2): unknown session / amount mismatch / wrong-PI overwrite
   {
-    const r = await rpc('apply_verified_payment', { p_session_id: 'cs_nope_' + RUN, p_payment_intent: 'pi_x', p_charge: null, p_amount: 3000, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null });
+    // full valid field set, but a session nobody ever registered -> unknown_session (+ durable case)
+    const r = await rpc('apply_verified_payment', { p_session_id: 'cs_nope_' + RUN, p_payment_intent: 'pi_x', p_charge: 'ch_x', p_amount: 3000, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null });
     check('T2 unknown session', one(r.json).outcome === 'unknown_session', JSON.stringify(one(r.json)));
+    created.caseKeys.push('unknown-session:cs_nope_' + RUN);
     const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
     const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
     const sess = 'cs_' + RUN + '_t2'; await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: sess, p_payment_intent: `pi_${RUN}_t2`, p_hash: 'h', p_schema: 1 });
@@ -267,6 +273,52 @@ async function run() {
     check('T14 non-owner release rejected', rel === false, JSON.stringify(rel));
   }
 
+  // T15 (R11-P0-2): expire -> group reopens -> NEW session -> pays; expired session can never apply
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    const sA = `cs_${RUN}_expA`, sB = `cs_${RUN}_expB`;
+    await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: sA, p_payment_intent: null, p_hash: 'hA', p_schema: 1 });
+    const exp = one((await rpc('expire_payment_attempt', { p_session_id: sA })).json);
+    check('T15 expiry reopens group', exp.outcome === 'attempt_expired_group_reopened', JSON.stringify(exp));
+    const reg2 = await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: sB, p_payment_intent: `pi_${RUN}_expB`, p_hash: 'hB', p_schema: 1 });
+    check('T15 new attempt allowed after expiry', reg2.ok, reg2.text.slice(0, 80));
+    const paid = one((await rpc('apply_verified_payment', { p_session_id: sB, p_payment_intent: `pi_${RUN}_expB`, p_charge: `ch_${RUN}_expB`, p_amount: 3000, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).json);
+    check('T15 new session pays', paid.outcome === 'applied', JSON.stringify(paid));
+    const stale = one((await rpc('apply_verified_payment', { p_session_id: sA, p_payment_intent: `pi_${RUN}_expA`, p_charge: `ch_${RUN}_expA`, p_amount: 3000, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).json);
+    check('T15 expired session cannot apply', stale.outcome === 'contradiction' && !!stale.case_id, JSON.stringify(stale));
+  }
+
+  // T16 (R11-P0-3): unknown/invalid paid sessions are durably quarantined + deduped
+  {
+    const s = `cs_${RUN}_unknown`;
+    const a = one((await rpc('apply_verified_payment', { p_session_id: s, p_payment_intent: 'pi_u', p_charge: 'ch_u', p_amount: 100, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).json);
+    check('T16 unknown session -> case', a.outcome === 'unknown_session' && !!a.case_id, JSON.stringify(a));
+    const b2 = one((await rpc('apply_verified_payment', { p_session_id: s, p_payment_intent: 'pi_u', p_charge: 'ch_u', p_amount: 100, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).json);
+    check('T16 case is deduped', b2.case_id === a.case_id, JSON.stringify(b2));
+    const m = one((await rpc('apply_verified_payment', { p_session_id: `cs_${RUN}_missing`, p_payment_intent: null, p_charge: null, p_amount: 100, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).json);
+    check('T16 missing PI/charge -> contradiction + case', m.outcome === 'contradiction' && !!m.case_id, JSON.stringify(m));
+    created.caseKeys.push(`unknown-session:${s}`, `pi-missing:cs_${RUN}_missing`);
+  }
+
+  // T17 (R11-P0-4): retry exhaustion parks request + parent operation + opens one case
+  {
+    const b = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
+    const gid = one((await claimAndTrack(KEEPS_RETAILER, true, [b.id])).json).payment_group_id;
+    await payGroup(gid, `cs_${RUN}_t17`, `pi_${RUN}_t17`, `ch_${RUN}_t17`, 3000);
+    const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'x', p_reason: 'test' })).json); trackRefund(rr);
+    const parked = one((await rpc('park_refund_for_review', { p_request_id: rr.refund_request_id, p_owner: 'wX', p_reason: 'retry_cap_exhausted' })).json);
+    check('T17 parked with case', parked.outcome === 'parked' && !!parked.case_id, JSON.stringify(parked));
+    const req = one((await rest(`refund_requests?id=eq.${rr.refund_request_id}&select=status`)).json);
+    check('T17 request requires_review', req.status === 'requires_review', req.status);
+    const op = one((await rest(`refund_operations?id=eq.${rr.refund_operation_id}&select=status`)).json);
+    check('T17 parent op requires_review', op.status === 'requires_review', op.status);
+    const alloc = one((await rest(`payment_allocations?booking_id=eq.${b.id}&select=reserved_refund_amount`)).json);
+    check('T17 reservation preserved', alloc.reserved_refund_amount === rr.amount, String(alloc.reserved_refund_amount));
+    const rep = one((await rpc('create_refund_replacement', { p_op_key: b.id + ':cancel', p_actor: 'admin' })).json);
+    check('T17 replacement blocked while live request exists', rep.outcome === 'live_request_exists' || rep.outcome === 'nothing_refundable', JSON.stringify(rep));
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fails.length) console.log('FAILURES:\n' + fails.map(f => '  - ' + f).join('\n'));
 }
@@ -287,6 +339,8 @@ async function teardown() {
       await rest(`payment_groups?id=eq.${gid}`, { method: 'DELETE' }).catch(() => {});
     } catch (_) {}
   }
+  for (const k of [...new Set(created.caseKeys)]) await rest(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent(k)}`, { method: 'DELETE' }).catch(() => {});
+  await rest(`reconciliation_cases?stripe_checkout_session_id=like.cs_${RUN}*`, { method: 'DELETE' }).catch(() => {});
   for (const evt of [...new Set(created.events)]) await rest(`processed_stripe_events?stripe_event_id=eq.${evt}`, { method: 'DELETE' }).catch(() => {});
   for (const id of [...new Set(created.bookings)]) await rest(`bookings?id=eq.${id}`, { method: 'DELETE' }).catch(() => {});
 }
