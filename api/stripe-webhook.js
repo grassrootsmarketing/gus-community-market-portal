@@ -638,9 +638,14 @@ async function handleCheckoutSessionCompleted(event) {
       if (ids.length) await promoteBookings(ids, { piId: pi.id, ledgerPaid: true });
       console.log(`checkout.session.completed: ${outcome}, promoted ${ids.length} booking(s)`, session.id);
     } else {
-      // frozen / contradiction / unknown_session: apply_verified_payment already opened a
-      // reconciliation_cases row where relevant. Promote nothing; no email; no demo.
-      console.error('checkout.session.completed NOT applied:', outcome, val && val.reason, session.id);
+      // R11-P0-3: a non-applied PAID session must be durably quarantined before we acknowledge the
+      // event. apply_verified_payment returns case_id for every permanent contradiction; if we did
+      // NOT get one, treat it as transient and THROW so the event is marked failed and Stripe retries
+      // (never a silent "charged but not fulfilled"). Promote nothing; no email; no demo.
+      console.error('checkout.session.completed NOT applied:', outcome, val && val.reason, session.id, 'case:', val && val.case_id);
+      if (!val || !val.case_id) {
+        throw new Error('payment_not_applied_without_case:' + outcome + ':' + session.id);
+      }
     }
     return;
   }
