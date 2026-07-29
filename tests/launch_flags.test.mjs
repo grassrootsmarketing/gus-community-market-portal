@@ -1,46 +1,82 @@
-// tests/launch_flags.test.mjs — Gate 0 (G0-C1..C3) effective-state proof.
-// Every closed-launch switch must require an EXACT "true", and COI automation must stay off even
-// when the legacy COI_ENFORCEMENT_MODE is set to live. Run: node tests/launch_flags.test.mjs
-// Gate 0 correction proof: every switch/mode combination Codex listed.
-const cases = [];
-function run(env, label) {
-  for (const k of ['PUBLIC_RETAILER_SIGNUP_ENABLED','COI_AI_VERIFICATION_ENABLED','COI_AUTO_ENFORCEMENT_ENABLED','CHECKOUT_ENABLED','COI_UPLOAD_ENABLED','BRAND_INVITE_ENABLED','COI_ENFORCEMENT_MODE','LAUNCH_MAX_CART']) delete process.env[k];
-  Object.assign(process.env, env);
-  return import(`../_flags.js?v=${Math.random()}`).then(m => ({ label, snap: m.flagSnapshot() }));
-}
-const T = [
-  [{}, 'all unset'],
-  [{ CHECKOUT_ENABLED: '' }, 'checkout empty'],
-  [{ CHECKOUT_ENABLED: 'TRU E' }, 'checkout malformed'],
-  [{ CHECKOUT_ENABLED: 'false' }, 'checkout false'],
-  [{ CHECKOUT_ENABLED: 'true' }, 'checkout exact true'],
-  [{ COI_UPLOAD_ENABLED: 'yes' }, 'coi upload "yes"'],
-  [{ COI_UPLOAD_ENABLED: 'true' }, 'coi upload exact true'],
-  [{ BRAND_INVITE_ENABLED: 'TRUE' }, 'invite "TRUE" (case)'],
-  [{ COI_ENFORCEMENT_MODE: 'live' }, 'mode=live, flag unset'],
-  [{ COI_AUTO_ENFORCEMENT_ENABLED: 'false', COI_ENFORCEMENT_MODE: 'live' }, 'flag=false, mode=live'],
-  [{ COI_AUTO_ENFORCEMENT_ENABLED: 'yes', COI_ENFORCEMENT_MODE: 'live' }, 'flag malformed, mode=live'],
-  [{ COI_AUTO_ENFORCEMENT_ENABLED: 'true' }, 'flag=true, mode unset'],
-  [{ COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'bogus' }, 'flag=true, mode invalid'],
-  [{ COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'dry_run' }, 'flag=true, mode=dry_run'],
-  [{ LAUNCH_MAX_CART: '10' }, 'cart max 10'],
-  [{ LAUNCH_MAX_CART: '999' }, 'cart max out of range'],
+// tests/launch_flags.test.mjs — Gate 0 effective-state proof (G0-C1..C3, G0-v2-1..3).
+//
+// Run from the repository root:   node tests/launch_flags.test.mjs
+// Exit code 0 iff every case passes.
+//
+// Covers, for EVERY closed-launch switch: unset, empty, "false", malformed, case/whitespace
+// variants, and the literal "true". Plus the full COI dual-gate matrix, including the positive case
+// (flag true + mode live -> live), which proves the gate is a real control and not a hard-off.
+
+const SWITCHES = [
+  ['PUBLIC_RETAILER_SIGNUP_ENABLED', 'publicRetailerSignup'],
+  ['COI_AI_VERIFICATION_ENABLED', 'coiAiVerification'],
+  ['CHECKOUT_ENABLED', 'checkoutEnabled'],
+  ['COI_UPLOAD_ENABLED', 'coiUploadEnabled'],
+  ['BRAND_INVITE_ENABLED', 'brandInviteEnabled'],
+  ['COI_AUTO_ENFORCEMENT_ENABLED', 'coiAutoEnforcementFlag'],
 ];
-for (const [env, label] of T) cases.push(await run(env, label));
-let fail = 0;
-const expect = (c, cond, why) => { if (!cond) { fail++; console.log('  FAIL', c.label, '-', why, JSON.stringify(c.snap)); } else console.log('  ok  ', c.label); };
-for (const c of cases) {
-  const s = c.snap;
-  if (c.label.startsWith('checkout')) expect(c, s.checkoutEnabled === (c.label.includes('exact true')), 'checkout only on exact true');
-  if (c.label.startsWith('coi upload')) expect(c, s.coiUploadEnabled === (c.label.includes('exact true')), 'upload only on exact true');
-  if (c.label.includes('invite "TRUE"')) expect(c, s.brandInviteEnabled === true, 'case-insensitive true accepted');
-  if (c.label.includes('mode=live') || c.label.includes('mode invalid') || c.label.includes('mode unset'))
-    expect(c, s.coiEnforcementEffective === (c.label === 'flag=true, mode=dry_run' ? 'dry_run' : 'off'), 'effective must be off');
-  if (c.label === 'flag=true, mode=dry_run') expect(c, s.coiEnforcementEffective === 'dry_run', 'dry_run allowed');
-  if (c.label === 'cart max 10') expect(c, s.max_cart === 10, 'cart honoured');
-  if (c.label === 'cart max out of range') expect(c, s.max_cart === 25, 'out-of-range clamps to default');
-  if (c.label === 'all unset') expect(c, s.checkoutEnabled === false && s.coiUploadEnabled === false && s.brandInviteEnabled === false && s.publicRetailerSignup === false && s.coiAiVerification === false && s.coiEnforcementEffective === 'off', 'everything off when unset');
-  expect(c, s.connectedCheckout === 'hard_disabled', 'connected labelled hard_disabled');
+const ALL_ENV = [...SWITCHES.map(([e]) => e), 'COI_ENFORCEMENT_MODE', 'LAUNCH_MAX_CART'];
+
+let pass = 0, fail = 0;
+function check(name, cond, detail) {
+  if (cond) { pass++; console.log('  PASS', name); }
+  else { fail++; console.log('  FAIL', name, detail === undefined ? '' : `-> ${JSON.stringify(detail)}`); }
 }
-console.log(fail === 0 ? '\nALL FLAG CASES PASS' : `\n${fail} FAILURES`);
-process.exit(fail ? 1 : 0);
+
+// Fresh module instance per case: flags are read once at module load.
+async function snapshot(env) {
+  for (const k of ALL_ENV) delete process.env[k];
+  Object.assign(process.env, env);
+  const m = await import(`../api/_flags.js?case=${Math.random()}`);
+  return m.flagSnapshot();
+}
+
+console.log('\n--- per-switch matrix: only the literal "true" may enable ---');
+for (const [envVar, field] of SWITCHES) {
+  for (const [label, value, expected] of [
+    ['unset', undefined, false],
+    ['empty', '', false],
+    ['false', 'false', false],
+    ['malformed', 'tru e', false],
+    ['uppercase TRUE', 'TRUE', false],
+    ['padded " true "', ' true ', false],
+    ['mixed case True', 'True', false],
+    ['literal true', 'true', true],
+  ]) {
+    const env = value === undefined ? {} : { [envVar]: value };
+    const snap = await snapshot(env);
+    check(`${envVar} ${label} -> ${expected}`, snap[field] === expected, snap[field]);
+  }
+}
+
+console.log('\n--- COI dual gate: effective mode ---');
+for (const [label, env, expected] of [
+  ['flag unset + mode live', { COI_ENFORCEMENT_MODE: 'live' }, 'off'],
+  ['flag false + mode live', { COI_AUTO_ENFORCEMENT_ENABLED: 'false', COI_ENFORCEMENT_MODE: 'live' }, 'off'],
+  ['flag malformed + mode live', { COI_AUTO_ENFORCEMENT_ENABLED: 'yes', COI_ENFORCEMENT_MODE: 'live' }, 'off'],
+  ['flag TRUE uppercase + mode live', { COI_AUTO_ENFORCEMENT_ENABLED: 'TRUE', COI_ENFORCEMENT_MODE: 'live' }, 'off'],
+  ['flag true + mode unset', { COI_AUTO_ENFORCEMENT_ENABLED: 'true' }, 'off'],
+  ['flag true + mode invalid', { COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'bogus' }, 'off'],
+  ['flag true + mode off', { COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'off' }, 'off'],
+  ['flag true + mode dry_run', { COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'dry_run' }, 'dry_run'],
+  ['flag true + mode warn_only', { COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'warn_only' }, 'warn_only'],
+  ['flag true + mode live', { COI_AUTO_ENFORCEMENT_ENABLED: 'true', COI_ENFORCEMENT_MODE: 'live' }, 'live'],
+]) {
+  const snap = await snapshot(env);
+  check(`${label} -> ${expected}`, snap.coiEnforcementEffective === expected, snap.coiEnforcementEffective);
+}
+
+console.log('\n--- cart maximum + non-env state ---');
+{
+  let s = await snapshot({ LAUNCH_MAX_CART: '10' });
+  check('cart max 10 honoured', s.max_cart === 10, s.max_cart);
+  s = await snapshot({ LAUNCH_MAX_CART: '999' });
+  check('cart max out of range clamps to 25', s.max_cart === 25, s.max_cart);
+  s = await snapshot({ LAUNCH_MAX_CART: 'abc' });
+  check('cart max malformed clamps to 25', s.max_cart === 25, s.max_cart);
+  s = await snapshot({});
+  check('connected checkout reported hard_disabled', s.connectedCheckout === 'hard_disabled', s.connectedCheckout);
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail === 0 ? 0 : 1);
