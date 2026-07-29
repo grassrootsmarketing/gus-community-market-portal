@@ -2,12 +2,13 @@
 // service-role route that acts on retailer data (P0-1/P0-8). Validates the session, requires a
 // LIVE exact-normalized-email membership, enforces a closed role domain + optional allowlist.
 // No route may authorize a retailer mutation without this.
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding } from './_env.js';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CLOSED_ROLES = ['owner', 'admin', 'manager', 'viewer']; // editor retired (0027)
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 async function sb(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
+  const b = await getBinding();
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}` } });
   if (!r.ok) throw new Error('sb ' + r.status);
   return r.json();
 }

@@ -62,3 +62,48 @@ COMMIT;
 --     AND NOT EXISTS (SELECT 1 FROM retailer_admins ra
 --                     WHERE ra.retailer_id = r.id
 --                       AND ra.email_normalized = lower(btrim(r.billing_email)));
+
+-- ---------------------------------------------------------------------------
+-- R1 GAP FIX (folded in from a rejected `0025a` file — Supabase requires numeric
+-- versions, so this cannot live in its own out-of-band migration).
+--
+-- retailer_admins.venue_ids has never existed in source control: no migration
+-- creates it, and the live production schema does not have it. Yet 31 call sites
+-- depend on it, including the AUTHORIZATION path — api/_retailer-auth.js and
+-- api/admin-auth.js both select `id,role,venue_ids` and return venueIds, which is
+-- what scopes a `viewer` to specific venues.
+--
+-- It exists on staging only because it was added by hand in the dashboard: the
+-- undocumented-prerequisite failure Codex prohibited. A rebuilt environment would
+-- have come up with a silently broken authorization control.
+--
+-- Must land before 0026, which is the first migration to reference the column.
+-- Type is uuid[]: api/admin-auth.js validates each element with isUuid() and checks
+-- ownership against the retailer's venues before writing.
+-- ---------------------------------------------------------------------------
+
+alter table public.retailer_admins
+  add column if not exists venue_ids uuid[];
+
+comment on column public.retailer_admins.venue_ids is
+  'Venue scope for role=viewer. NULL or empty means unscoped. Mutating roles (owner/admin/manager) carry no scope — enforced by retailer_admins_scope_viewer_only in 0027.';
+
+create index if not exists retailer_admins_venue_scope_idx
+  on public.retailer_admins using gin (venue_ids)
+  where venue_ids is not null;
+
+do $$
+declare v_type text;
+begin
+  select format_type(a.atttypid, a.atttypmod) into v_type
+  from pg_attribute a
+  join pg_class c on c.oid = a.attrelid
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname='public' and c.relname='retailer_admins' and a.attname='venue_ids';
+  if v_type is null then
+    raise exception 'POST-CONDITION FAILED: retailer_admins.venue_ids was not created';
+  end if;
+  if v_type <> 'uuid[]' then
+    raise exception 'POST-CONDITION FAILED: retailer_admins.venue_ids is % (expected uuid[]); 0026/0027 array predicates will misbehave', v_type;
+  end if;
+end $$;

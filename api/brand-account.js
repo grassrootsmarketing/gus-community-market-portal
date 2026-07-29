@@ -4,10 +4,11 @@
 // Privacy: NEVER expose brand_id to retailer-side endpoints. All retailer
 // admin queries continue to filter by retailer_id only.
 
+import { randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
@@ -36,11 +37,11 @@ function randomToken(n = 32) {
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 async function sb(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
     headers: {
-      apikey: SUPABASE_SERVICE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+      apikey: _b.serviceKey,
+      Authorization: `Bearer ${_b.serviceKey}`,
       'Content-Type': 'application/json',
       Prefer: opts.method === 'POST' ? 'return=representation' : (opts.headers?.Prefer || ''),
       ...(opts.headers || {}),
@@ -142,7 +143,6 @@ function clearBrandSessionCookie(res) {
 // scrypt cost params are Node defaults (N=16384, r=8, p=1).
 // -----------------------------------------------------------------------------
 async function hashPassword(password) {
-  const { randomBytes, scrypt } = require('crypto');
   const salt = randomBytes(16);
   return new Promise((resolve, reject) => {
     scrypt(password, salt, 64, (err, derivedKey) => {
@@ -156,7 +156,6 @@ async function verifyPassword(password, storedHash) {
   if (!storedHash || typeof storedHash !== 'string' || !storedHash.includes('$')) return false;
   const [saltHex, hashHex] = storedHash.split('$');
   if (!saltHex || !hashHex) return false;
-  const { scrypt, timingSafeEqual } = require('crypto');
   const salt = Buffer.from(saltHex, 'hex');
   const expected = Buffer.from(hashHex, 'hex');
   return new Promise((resolve) => {
@@ -170,7 +169,6 @@ async function verifyPassword(password, storedHash) {
 
 function generateLoginCode() {
   // 6-digit numeric code, zero-padded, cryptographically random.
-  const { randomInt } = require('crypto');
   const n = randomInt(0, 1000000);
   return String(n).padStart(6, '0');
 }
@@ -440,6 +438,7 @@ async function sha256Hex(str) {
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   const body = await readBody(req);
   const action = (req.query?.action || body.action || '').toString();
 
@@ -767,8 +766,8 @@ export default async function handler(req, res) {
             ? `${brandName} accepted the new date`
             : `${brandName} kept their original demo date`;
           const line = decision === 'accept'
-            ? `${escapeHtml(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeHtml(String(movedTo.date))}${movedTo.time ? ' at ' + escapeHtml(String(movedTo.time)) : ''}</strong>.`
-            : `${escapeHtml(brandName)} declined the new date, so their demo stays on <strong>${escapeHtml(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeHtml(String(demo.demo_time)) : ''}</strong>.`;
+            ? `${escapeText(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeText(String(movedTo.date))}${movedTo.time ? ' at ' + escapeText(String(movedTo.time)) : ''}</strong>.`
+            : `${escapeText(brandName)} declined the new date, so their demo stays on <strong>${escapeText(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeText(String(demo.demo_time)) : ''}</strong>.`;
           await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -894,9 +893,9 @@ export default async function handler(req, res) {
       const bytes = Buffer.from(m[2], 'base64');
       if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large — max 2MB' });
       const path = `brands/${brandId}.${ext}`;
-      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}?upsert=true`, {
+      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, apikey: SUPABASE_SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
@@ -904,7 +903,7 @@ export default async function handler(req, res) {
         console.error('COI storage upload failed', uploadResp.status, errText);
         return jsonResp(res, 502, { error: 'coi_storage_failed', message: 'We could not save that file to storage. Try again in a moment; if it keeps failing, email david@demohubhq.com.' });
       }
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
+      const publicUrl = `${_b.supabaseUrl}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
       await sb(`brands?id=eq.${brandId}`, {
         method: 'PATCH',
         body: JSON.stringify({ logo_url: publicUrl, updated_at: new Date().toISOString() }),
@@ -1120,9 +1119,9 @@ export default async function handler(req, res) {
       const expChk = validateCoiExpiry(body.expires);
       if (!expChk.ok) return jsonResp(res, 400, { error: expChk.error, message: expChk.message });
       const path = `brands/${brandId}.${ext}`;
-      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/coi-docs/${path}?upsert=true`, {
+      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/coi-docs/${path}?upsert=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`, apikey: SUPABASE_SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
@@ -1444,9 +1443,9 @@ export default async function handler(req, res) {
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
       const rotate = body.rotate === true || String((req.query && req.query.rotate) || '') === '1';
       try {
-        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/issue_calendar_token`, {
+        const rr = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/issue_calendar_token`, {
           method: 'POST',
-          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_brand_id: brandId, p_rotate: rotate, p_label: 'brand portal' }),
         });
         if (!rr.ok) return res.status(500).json({ error: 'token_issue_failed' });
@@ -1464,9 +1463,9 @@ export default async function handler(req, res) {
       const brandId = await verifySession(sessionToken);
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
       try {
-        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/revoke_calendar_tokens`, {
+        const rr = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/revoke_calendar_tokens`, {
           method: 'POST',
-          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_brand_id: brandId }),
         });
         const v = rr.ok ? await rr.json() : 0;
@@ -1507,9 +1506,9 @@ export default async function handler(req, res) {
       }
       let brandId = null;
       try {
-        const rr = await fetch(`${SUPABASE_URL}/rest/v1/rpc/resolve_calendar_token`, {
+        const rr = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/resolve_calendar_token`, {
           method: 'POST',
-          headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_token: token }),
         });
         if (rr.ok) { const v = await rr.json(); brandId = (Array.isArray(v) ? v[0] : v) || null; }

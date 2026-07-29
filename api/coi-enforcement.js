@@ -13,8 +13,8 @@ import { coiCoverageState, coiCutoff, localMidnightUtc } from './_coi-lib.js';
 
 import { FLAGS, coiEnforcementEffective } from './_flags.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -23,9 +23,9 @@ function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
 function ymd(d) { return d.toISOString().slice(0, 10); }
 
 async function sb(path, opts = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
   });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
@@ -163,7 +163,7 @@ export default async function handler(req, res) {
   }
   const mode = coiEnforcementEffective();
   if (mode === 'off') return res.status(200).json({ ok: true, mode: 'off', effective: 'off', note: 'COI enforcement disabled' });
-  if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const canWrite = mode === 'warn_only' || mode === 'live';   // markers + emails
   const canCancel = mode === 'live';                          // cancel + refund

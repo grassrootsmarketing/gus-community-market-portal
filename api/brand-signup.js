@@ -6,14 +6,14 @@
 import crypto from 'node:crypto';
 import { createChallenge, consumeChallenge } from './_verify.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
 
@@ -72,6 +72,7 @@ async function sendCode(email, code) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();

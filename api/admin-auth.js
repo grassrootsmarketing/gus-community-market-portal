@@ -5,8 +5,14 @@
 //   POST { action: "logout", session_id }                 → invalidates the session
 // Uses service_role; never exposes whether an email is registered (anti-enumeration).
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { randomBytes, randomInt } from 'node:crypto';
+import { getBinding, sendBindingFailure } from './_env.js';
+
+// admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
+// binding is resolved lazily by bind() — the exported guards work even when this file's own handler
+// was not the entry point. _b is what the in-handler storage calls read.
+let _b = null;
+async function bind() { _b = await getBinding(); return _b; }
 
 // R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin
 // — never from client-controllable forwarded-host headers. Defaults to the canonical www host.
@@ -33,8 +39,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
 async function sb(path, opts = {}) {
-  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const b = await bind();
+  const headers = { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
@@ -159,7 +166,6 @@ export async function requireRetailerMembership(session_id, expectedRetailerId =
 
 function generateLoginCode() {
   // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
-  const { randomInt } = require('crypto');
   const n = randomInt(0, 1000000);
   return String(n).padStart(6, '0');
 }
@@ -266,7 +272,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+  try { await bind(); } catch (e) { return sendBindingFailure(res, e); }
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -711,16 +717,16 @@ export default async function handler(req, res) {
       const bytes = Buffer.from(m[2], 'base64');
       if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large — max 2MB' });
       const path = `retailers/${v.retailer_id}.${ext}`;
-      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/avatars/${path}?upsert=true`, {
+      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
         const t = await uploadResp.text();
         return res.status(500).json({ error: 'Upload failed: ' + t });
       }
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
+      const publicUrl = `${_b.supabaseUrl}/storage/v1/object/public/avatars/${path}?v=${Date.now()}`;
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: publicUrl }) });
       return res.status(200).json({ ok: true, logo_url: publicUrl });
     }
@@ -739,16 +745,16 @@ export default async function handler(req, res) {
       if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large — max 5MB' });
       const safeName = (filename || 'demo-policy').replace(/[^a-z0-9._-]/gi, '_').slice(0, 60);
       const path = `retailers/${v.retailer_id}/demo-policy-${Date.now()}.${ext}`;
-      const uploadResp = await fetch(`${SUPABASE_URL}/storage/v1/object/policy-docs/${path}?upsert=true`, {
+      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/policy-docs/${path}?upsert=true`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY, 'Content-Type': mime, 'x-upsert': 'true' },
+        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime, 'x-upsert': 'true' },
         body: bytes,
       });
       if (!uploadResp.ok) {
         const t = await uploadResp.text();
         return res.status(500).json({ error: 'Upload failed: ' + t });
       }
-      const publicUrl = `${SUPABASE_URL}/storage/v1/object/public/policy-docs/${path}`;
+      const publicUrl = `${_b.supabaseUrl}/storage/v1/object/public/policy-docs/${path}`;
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
         method: 'PATCH',
         body: JSON.stringify({ demo_policy_url: publicUrl, demo_policy_filename: safeName }),
@@ -785,7 +791,7 @@ export default async function handler(req, res) {
     // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
     if (action === 'owner-verification-queue') {
       const { session_id, status } = body || {};
-      const owner = await verifyOwnerSessionV2(session_id);
+      const owner = await verifyOwnerSession(session_id)   /* was verifyOwnerSessionV2 — never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
       try {
@@ -799,7 +805,7 @@ export default async function handler(req, res) {
     // ---- OWNER-VERIFY-RETAILER: approve / reject / suspend / reset ----
     if (action === 'owner-verify-retailer') {
       const { session_id, retailer_id, new_status, notes } = body || {};
-      const owner = await verifyOwnerSessionV2(session_id);
+      const owner = await verifyOwnerSession(session_id)   /* was verifyOwnerSessionV2 — never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
       if (!['pending', 'approved', 'rejected', 'suspended'].includes(new_status)) {
@@ -898,7 +904,6 @@ async function ensureOwnerRetailerId() {
 function randomToken(n = 32) {
   // Use Node's crypto — throw if unavailable rather than fall back to Math.random,
   // which is a predictable PRNG unsuitable for auth tokens.
-  const { randomBytes } = require('crypto');
   const buf = randomBytes(n);
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }

@@ -3,12 +3,14 @@
 // by the DB trigger, server owns tenant/brand/amount. Replaces the anonymous email-based booking.
 import { requireBrandSession } from './_booking-identity.js';
 import { coiCovered } from './_coi-coverage.js';
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const rest=(p,o={})=>fetch(`${SUPABASE_URL}/rest/v1/${p}`,{...o,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(o.headers||{})}});
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
+const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body={}; try{ body = typeof req.body==='string'?JSON.parse(req.body||'{}'):(req.body||{}); }catch(_){}
 
   // 1) identity comes from the authenticated brand session

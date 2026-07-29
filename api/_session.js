@@ -4,13 +4,14 @@
 // - owner authority requires an owner-shaped session, not just an allowlisted email;
 // - cookie-authenticated mutations must come from an allowed Origin (CSRF).
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding } from './_env.js';
+
 const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
 const OWNER_SLUG = '__owner__';
 
-function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+async function rest(path, opts = {}) {
+  const b = await getBinding();
+  return fetch(`${b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
 }
 
 export async function membershipFor(retailerId, email) {

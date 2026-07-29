@@ -6,20 +6,22 @@ import crypto from 'node:crypto';
 import { requireBrandSession } from './_booking-identity.js';
 import { FLAGS, maxCartSize } from './_flags.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY, STRIPE = process.env.STRIPE_SECRET_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+const STRIPE = process.env.STRIPE_SECRET_KEY;
+let _b = null;
 const SITE = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
 const PLATFORM_FEE_CENTS = 500;
 
 function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
   });
 }
 async function sbJson(path, opts) { const r = await rest(path, opts); const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {} if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status)); return j; }
 async function rpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
@@ -30,7 +32,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   if (!FLAGS.checkoutEnabled) return res.status(503).json({ error: 'checkout_disabled', message: 'Checkout is temporarily paused. Please try again shortly.' });
   if (!STRIPE) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
   const auth = await requireBrandSession(req, body);

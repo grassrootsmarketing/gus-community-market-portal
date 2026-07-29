@@ -8,21 +8,22 @@
 // Contract: the caller has already claimed the outbox row (claim_fulfillments) and owns its lease.
 // This performs the work idempotently and records progress via complete_fulfillment.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding } from './_env.js';
 
 async function sb(path, opts = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const b = await getBinding();
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status));
   return j;
 }
 async function sbRpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const b = await getBinding();
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}

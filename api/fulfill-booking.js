@@ -8,22 +8,22 @@
 // lease. This performs the work idempotently, then records progress via complete_fulfillment.
 // Internal-only: requires CRON_SECRET.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 
 async function sb(path, opts = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status));
   return j;
 }
 async function sbRpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!CRON_SECRET || provided !== CRON_SECRET) return res.status(401).json({ error: 'unauthorized' });
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const { booking_id, owner, target_status } = body;

@@ -12,16 +12,16 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { hasCurrentCoi, brandVerifiedState } from './_coi-lib.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const SESSION_COOKIE = 'dh_session';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
 
 async function sb(path, opts = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
   });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
@@ -46,7 +46,7 @@ async function readBody(req) {
 // (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
-  if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   const cookies = parseCookies(req);
   const body = (req.method === 'POST') ? await readBody(req) : {};
   const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);

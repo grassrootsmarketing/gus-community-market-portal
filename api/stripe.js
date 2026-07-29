@@ -10,8 +10,8 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 //   STRIPE_SECRET_KEY     (sk_test_... or sk_live_...)
 //   SUPABASE_SERVICE_KEY
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://demohubhq.com';
@@ -29,11 +29,11 @@ function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
 async function sb(path, opts = {}) {
   const headers = {
-    apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`,
+    apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`,
     'Content-Type': 'application/json', Prefer: 'return=representation',
     ...(opts.headers || {}),
   };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
@@ -140,7 +140,7 @@ export default async function handler(req, res) {
     }
     if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
     if (!STRIPE_SECRET_KEY) return jsonResp(res, 500, { error: 'STRIPE_SECRET_KEY not configured' });
-    if (!SERVICE_KEY) return jsonResp(res, 500, { error: 'SUPABASE_SERVICE_KEY not configured' });
+    try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const action = (req.query?.action || body.action || '').toString();

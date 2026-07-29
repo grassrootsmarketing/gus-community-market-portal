@@ -27,8 +27,9 @@ async function runCase(label, env, { expectWork }) {
   for (const k of ['COI_AUTO_ENFORCEMENT_ENABLED', 'COI_ENFORCEMENT_MODE']) delete process.env[k];
   Object.assign(process.env, env);
   process.env.CRON_SECRET = CRON;
-  process.env.SUPABASE_URL = 'https://example.invalid';
-  process.env.SUPABASE_SERVICE_KEY = 'test-key';
+  // No Supabase fixtures: the route no longer reads process.env for its target — it goes through
+  // api/_env.js. A gated run must return before the binding is ever resolved, and an ungated
+  // regression now fails loudly (unresolvable binding -> 503) instead of silently reaching a DB.
 
   // record every outbound request the handler tries to make
   const calls = [];

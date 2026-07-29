@@ -5,14 +5,15 @@
 
 import crypto from 'node:crypto';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding } from './_env.js';
+
 const PEPPER = process.env.VERIFY_PEPPER || process.env.CRON_SECRET || 'dev-pepper';
 
-function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+async function rest(path, opts = {}) {
+  const b = await getBinding();
+  return fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
 function hashCode(email, purpose, code) {

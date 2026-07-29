@@ -26,8 +26,13 @@ import { applyRefundToBooking } from './_refund-ledger.js';
 
 export const config = { api: { bodyParser: false } };
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+
+// stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
+// fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
+// the cron), so the binding is resolved lazily by bind() rather than only by this file's handler.
+let _b = null;
+async function bind() { _b = await getBinding(); return _b; }
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 // Tolerate up to 5 minutes of clock skew — Stripe's default is 5 min.
@@ -98,11 +103,12 @@ function readRawBody(req) {
 // Supabase REST helper (uses service key, bypasses RLS)
 // -----------------------------------------------------------------------------
 async function sb(path, opts = {}) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  const b = await bind();
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
     headers: {
-      apikey: SERVICE_KEY,
-      Authorization: `Bearer ${SERVICE_KEY}`,
+      apikey: b.serviceKey,
+      Authorization: `Bearer ${b.serviceKey}`,
       'Content-Type': 'application/json',
       Prefer: 'return=representation',
       ...(opts.headers || {}),
@@ -302,7 +308,7 @@ function bookingIdsFrom(metadata) {
 // Magic link so the confirmation email's "Manage your booking" CTA lands the brand
 // authenticated. Mirrors createBrandMagicLink in api/booking.js. Best-effort.
 async function createBrandMagicLink(brand_id, email) {
-  if (!SERVICE_KEY || !brand_id || !email) return null;
+  if (!brand_id || !email) return null;
   try {
     const token = randomBytes(24).toString('hex');
     const expires = new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString();
@@ -409,8 +415,9 @@ ${skuList.length ? `<div style="background:#f4f7ef;border:1px solid #2a5b3222;bo
 }
 
 async function sbRpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const b = await bind();
+  const r = await fetch(`${b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const text = await r.text();
@@ -807,10 +814,7 @@ export default async function handler(req, res) {
     console.error('STRIPE_WEBHOOK_SECRET not configured');
     return res.status(500).json({ error: 'webhook secret not configured' });
   }
-  if (!SERVICE_KEY) {
-    console.error('SUPABASE_SERVICE_KEY not configured');
-    return res.status(500).json({ error: 'db key not configured' });
-  }
+  try { await bind(); } catch (e) { return sendBindingFailure(res, e); }
 
   const rawBody = await readRawBody(req);
   const sig = req.headers['stripe-signature'];

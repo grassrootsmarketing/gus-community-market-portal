@@ -17,8 +17,8 @@ import { drainFulfillments } from './_fulfillment.js';
 //   C. no id, age > 24h        -> paginate the PI's refunds, adopt the one tagged with this request
 //                                 id, else park requires_review. Never blind-resubmits.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 // self-call base for the shared fulfilment endpoint (Vercel provides VERCEL_URL per deployment)
@@ -28,8 +28,8 @@ const MAX_ATTEMPTS = 8;
 const BATCH = 25;
 
 async function sbRpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
@@ -37,7 +37,7 @@ async function sbRpc(fn, args) {
   return j;
 }
 async function sbGet(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` } });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error(t || ('HTTP ' + r.status));
   return j;
@@ -167,7 +167,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'POST only' });
   const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!CRON_SECRET || provided !== CRON_SECRET) return res.status(401).json({ error: 'unauthorized' });
-  if (!SUPABASE_URL || !SERVICE_KEY || !STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const owner = 'refund-worker-' + Math.random().toString(36).slice(2, 10);
   const out = { ok: true, claimed: 0, reconciled: 0, resubmitted: 0, adopted: 0, manual: 0, lost_lease: 0, errors: 0 };

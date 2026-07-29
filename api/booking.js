@@ -1,13 +1,13 @@
 // /api/booking — Vercel serverless function
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
+import { randomBytes } from 'node:crypto';
 import { coiCoverageState } from './_coi-lib.js';
 import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
 import { requireBrandSession } from './_booking-identity.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.';
@@ -24,9 +24,9 @@ async function sha256Hex(str) {
 }
 
 async function svcCall(path, opts = {}) {
-  if (!SERVICE_KEY) throw new Error('SUPABASE_SERVICE_KEY not configured for write');
-  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  if (!_b.serviceKey) throw new Error('SUPABASE_SERVICE_KEY not configured for write');
+  const headers = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
@@ -106,11 +106,11 @@ ${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed
 // Wave 9: error log — best-effort write to error_log on any 5xx return.
 // Caller uses logError(req, e, status). Never throws.
 async function logError(req, status, message, stack) {
-  if (!SERVICE_KEY) return;
+  if (!_b.serviceKey) return;
   try {
-    await fetch(`${SUPABASE_URL}/rest/v1/error_log`, {
+    await fetch(`${_b.supabaseUrl}/rest/v1/error_log`, {
       method: 'POST',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         endpoint: '/api/booking',
         method: req.method || 'POST',
@@ -162,9 +162,8 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 // Generate a magic-link token for the brand so the confirmation email can deep-link
 // them into their portal without re-verifying. Best-effort; falls through if it fails.
 async function createBrandMagicLink(brand_id, email) {
-  if (!SERVICE_KEY || !brand_id || !email) return null;
+  if (!_b.serviceKey || !brand_id || !email) return null;
   try {
-    const { randomBytes } = require('crypto');
     const token = randomBytes(24).toString('hex');
     // Match brand-account.js format: brand_account_tokens with token/brand_id/email/expires_at
     const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days per P8 spec
@@ -181,7 +180,9 @@ async function createBrandMagicLink(brand_id, email) {
 
 
 // (isRetailerAdminRequest removed — the strict retailer-staff gate above already authenticated the caller)
-}
+// R2/Codex 3.1: an orphan `}` sat here. createBrandMagicLink() closes on the line above, so this
+// brace closed nothing and made the whole module unparseable as ESM. node --check accepted it
+// (script goal); native `import()` did not. /api/booking has therefore been a dead route.
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -191,6 +192,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -201,8 +203,8 @@ export default async function handler(req, res) {
     if (body?.action === 'agreement-check') {
       const { retailer_slug: rs } = body;
       if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
-      const retResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      const retResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
       const rets = await retResp.json();
       const ret = Array.isArray(rets) ? rets[0] : null;
@@ -222,8 +224,8 @@ export default async function handler(req, res) {
       // so this endpoint can't be used to enumerate which emails have accounts/agreements.
       const _bAuth = await requireBrandSession(req, body);
       if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
-      const aResp = await fetch(`${SUPABASE_URL}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_bAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=policy_hash,expires_at&order=signed_at.desc&limit=1`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      const aResp = await fetch(`${_b.supabaseUrl}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_bAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=policy_hash,expires_at&order=signed_at.desc&limit=1`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
       const as = await aResp.json();
       const a = Array.isArray(as) ? as[0] : null;
@@ -241,8 +243,8 @@ export default async function handler(req, res) {
 
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    const retailerResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const retailers = await retailerResp.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -282,8 +284,8 @@ export default async function handler(req, res) {
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';
 
     // Look up venue by retailer + name (for venue_id on the row)
-    const venueResp = await fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    const venueResp = await fetch(`${_b.supabaseUrl}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee`, {
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const venues = await venueResp.json();
     const venueRow = Array.isArray(venues) ? venues[0] : null;
@@ -297,14 +299,14 @@ export default async function handler(req, res) {
       // lookup silently returns [] and the booking ends up with brand_id = NULL. That null
       // breaks the brand dashboard (demos never link to the account), the COI warning in the
       // confirmation email, and the COI enforcement cron (which skips bookings with no brand).
-      const brandLookup = await fetch(`${SUPABASE_URL}/rest/v1/brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      const brandLookup = await fetch(`${_b.supabaseUrl}/rest/v1/brands?email=eq.${encodeURIComponent(String(contact_email).toLowerCase())}&select=id`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
       const brandRows = await brandLookup.json();
       brandId = Array.isArray(brandRows) && brandRows[0] ? brandRows[0].id : null;
       // If no existing brand and SERVICE_KEY available, create one so first-time bookers
       // get a brand account (and a welcome email) even when they don't sign the agreement.
-      if (!brandId && SERVICE_KEY) {
+      if (!brandId && _b.serviceKey) {
         try {
           const created = await svcCall('brands', {
             method: 'POST',
@@ -348,7 +350,7 @@ export default async function handler(req, res) {
     // this fails — agreement is best-effort, the booking is the primary action.
     const DEMO_POLICY = retailer.demo_policy || DEFAULT_DEMO_POLICY;
     const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
-    if (signed_name && String(signed_name).trim().length >= 2 && SERVICE_KEY) {
+    if (signed_name && String(signed_name).trim().length >= 2 && _b.serviceKey) {
       try {
         // Ensure we have a brand row
         if (!brandId) {
@@ -496,7 +498,7 @@ export default async function handler(req, res) {
     // Insert booking row — MUST use SERVICE_KEY to bypass RLS on bookings table.
     // Anonymous inserts are blocked by design; this endpoint acts as the trusted
     // proxy for public brand booking submissions.
-    if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+    if (!_b.serviceKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
     // Payment-gated status computed once so we can also decide whether to send the
     // brand confirmation email + notify staff NOW (free/auto-confirm bookings) or wait
     // for the Stripe webhook to fire them AFTER payment (fee-based 'pending_payment').
@@ -520,9 +522,9 @@ export default async function handler(req, res) {
     {
       let coiState = 'missing';
       try {
-        if (brandId && SERVICE_KEY) {
-          const cr = await fetch(`${SUPABASE_URL}/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires`, {
-            headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+        if (brandId && _b.serviceKey) {
+          const cr = await fetch(`${_b.supabaseUrl}/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires`, {
+            headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
           });
           if (cr.ok) {
             const brow = (await cr.json())[0] || null;
@@ -565,11 +567,11 @@ export default async function handler(req, res) {
       return out.length ? out : null;
     })();
 
-    const insertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+    const insertResp = await fetch(`${_b.supabaseUrl}/rest/v1/bookings`, {
       method: 'POST',
       headers: {
-        apikey: SERVICE_KEY,
-        Authorization: `Bearer ${SERVICE_KEY}`,
+        apikey: _b.serviceKey,
+        Authorization: `Bearer ${_b.serviceKey}`,
         'Content-Type': 'application/json',
         Prefer: 'return=representation',
       },
@@ -600,11 +602,11 @@ export default async function handler(req, res) {
     if (!insertResp.ok && skuSnapshot) {
       const firstDetail = await insertResp.text().catch(() => '');
       console.warn('booking insert failed with product_skus, retrying without:', firstDetail.slice(0, 300));
-      finalInsertResp = await fetch(`${SUPABASE_URL}/rest/v1/bookings`, {
+      finalInsertResp = await fetch(`${_b.supabaseUrl}/rest/v1/bookings`, {
         method: 'POST',
         headers: {
-          apikey: SERVICE_KEY,
-          Authorization: `Bearer ${SERVICE_KEY}`,
+          apikey: _b.serviceKey,
+          Authorization: `Bearer ${_b.serviceKey}`,
           'Content-Type': 'application/json',
           Prefer: 'return=representation',
         },
@@ -671,7 +673,7 @@ export default async function handler(req, res) {
       emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
-      if (isNewBrand && RESEND_KEY) {
+      if (isNewBrand && RESEND_API_KEY) {   /* was RESEND_KEY — undefined here */
         try {
           const welcomeSubj = `Your Demohub brand account is set up`;
           const welcomeHtml = brandWelcomeEmail({
@@ -683,7 +685,7 @@ export default async function handler(req, res) {
           // Fire-and-forget welcome email; don't block booking response.
           fetch('https://api.resend.com/emails', {
             method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({
               from: FROM_ADDRESS,
               to: contact_email,
@@ -697,9 +699,9 @@ export default async function handler(req, res) {
           console.warn('brand welcome email failed (non-blocking):', welcomeErr?.message || welcomeErr);
         }
       }
-      if (!emailOk) {
-        try { const j = await emailResp.json(); emailErr = j.message || JSON.stringify(j); } catch (_) { emailErr = `HTTP ${emailResp.status}`; }
-      }
+      // (removed) An `if (!emailOk)` branch inspected a non-existent `emailResp`. emailOk is set
+      // true unconditionally above and the confirmation send is fire-and-forget, so the branch was
+      // unreachable — and referenced an undefined identifier if it ever had run.
     }
 
 
@@ -713,8 +715,8 @@ export default async function handler(req, res) {
       if (RESEND_KEY && bookingId && !awaitingPayment) {
         // Fetch staff whose prefs include on_scheduled and either no venue restriction or this venue
         const bookedVenueId = venue?.id || null;
-        const staffUrl = `${SUPABASE_URL}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
-        const staffResp = await fetch(staffUrl, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
+        const staffUrl = `${_b.supabaseUrl}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
+        const staffResp = await fetch(staffUrl, { headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` } });
         if (staffResp.ok) {
           const allStaff = await staffResp.json();
           const targetStaff = (allStaff || []).filter(s => {
@@ -746,13 +748,6 @@ export default async function handler(req, res) {
 </table>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong> added you to their team with new-demo alerts on.</p>
 <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${retailer_slug}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
-</td></tr>
-<tr><td style="padding:24px 32px 6px;">
-<div style="display:flex; gap:10px; flex-wrap:wrap; justify-content:center; margin-bottom:8px;">
-<a href="${manageBookingUrl || '#'}" style="background:#0f2c17; color:white; padding:12px 22px; border-radius:10px; text-decoration:none; font-weight:700; font-size:14px; display:inline-block;">Manage your booking</a>
-<a href="${rebookUrl || '#'}" style="background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); padding:12px 22px; border-radius:10px; text-decoration:none; font-weight:600; font-size:14px; display:inline-block;">Book another demo</a>
-</div>
-<p style="font-size:12px; color:#6b6a64; text-align:center; margin:6px 0 0; line-height:1.5;">The Manage link signs you in automatically. Link is good for 7 days.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
 </table></body></html>`;

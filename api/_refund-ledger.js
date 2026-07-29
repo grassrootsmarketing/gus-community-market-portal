@@ -2,10 +2,11 @@
 // were issued for, never split across every booking that shared a PaymentIntent.
 // Each booking stores its own charged amount (amount_paid). A refund updates only its target.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+import { getBinding } from './_env.js';
+
+async function rest(path, opts = {}) {
+  const b = await getBinding();
+  return fetch(`${b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
 }
 
 // At checkout: record what THIS booking was charged (used later to refund the exact amount).

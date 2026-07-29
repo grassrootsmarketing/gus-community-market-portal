@@ -550,7 +550,6 @@
   [style*="Verified brand"] { animation:none !important; }
 }
 </style>
-    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <!-- PWA -->
 <link rel="manifest" href="/manifest.json">
@@ -1972,7 +1971,7 @@
             if (!ok) return;
             updateAccountBadge();
             renderImpersonationBanner();
-            initSupabase();
+            initAdminData();
         });
         
         function showView(view) {
@@ -2299,33 +2298,19 @@ END:VEVENT
         }
 
         // ===== Password gate =====
-        function openPasswordModal() {
-            const m = document.getElementById('passwordModal');
-            m.classList.add('active');
-            const inp = document.getElementById('passwordInput');
-            inp.value = '';
-            document.getElementById('passwordError').style.display = 'none';
-            setTimeout(() => inp.focus(), 50);
-        }
-        function closePasswordModal() {
-            document.getElementById('passwordModal').classList.remove('active');
-        }
-        function submitPassword() {
-            const val = document.getElementById('passwordInput').value;
-            if (val === 'testpass') {
-                sessionStorage.setItem('adminUnlocked', '1');
-                closePasswordModal();
-                showView('admin');
-            } else {
-                document.getElementById('passwordError').style.display = 'block';
-            }
-        }
+        // R2 cutover: openPasswordModal / closePasswordModal / submitPassword removed.
+        // They compared a typed value against the literal 'testpass' and set an
+        // 'adminUnlocked' sessionStorage flag. Nothing called them and no #passwordModal
+        // element existed, so they were dead — but a hardcoded password check sitting in
+        // a shipped admin page reads like a real control to anyone auditing it later.
+        // Real access control is AdminAuth.init() + server-side session validation.
 
         // ===== Supabase client + cached state =====
-        const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+        // R2 cutover: this page no longer talks to Supabase directly. Every read goes
+        // through /api/admin?action=data, which validates the admin session server-side
+        // and scopes results to that session's retailer. The project ref and publishable
+        // key that used to live here were the only browser-exposed copies.
         const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || ''; window.RETAILER_SLUG = RETAILER_SLUG;
-        let sb = null;
         let RETAILER_ID = null;
         window.state = { brandContacts: [], internalContacts: [], demos: [], settings: null, compliance: [], venues: [], bookings: [] };
 
@@ -2337,25 +2322,28 @@ END:VEVENT
         }
         let RETAILER_DISPLAY_NAME = '';
 
-        async function initSupabase() {
+        // Bootstrap: authenticate first, then load everything through the server route.
+        // refreshAll() populates window.state.retailer from /api/admin?action=data.
+        async function initAdminData() {
             try {
-                sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
                 if (!RETAILER_SLUG) { console.error('No retailer slug in URL — aborting'); window.location.href = '/signin'; return; }
-                const { data: retailer } = await sb.from('retailers').select('id,name,logo_url').eq('slug', RETAILER_SLUG).single();
-                if (!retailer) { console.error('Retailer not found for slug', RETAILER_SLUG); document.body.innerHTML = '<div style=\"padding:60px;text-align:center;font-family:sans-serif;\"><h1>Retailer not found</h1><p>This admin URL does not match any retailer in our system.</p><a href=\"/signin\" style=\"color:#0f2c17;\">Sign in</a></div>'; return; }
+                await refreshAll();
+                const retailer = window.state.retailer;
+                if (!retailer) {
+                    // Fails closed: no fallback to a browser database read.
+                    document.body.innerHTML = '<div style="padding:60px;text-align:center;font-family:sans-serif;"><h1>Could not load this retailer</h1><p>Your session may have expired.</p><a href="/signin" style="color:#0f2c17;">Sign in</a></div>';
+                    return;
+                }
                 RETAILER_ID = retailer.id;
                 RETAILER_DISPLAY_NAME = retailer.name || '';
-                // Update header with the real retailer name (not the static 'Loading...' or hardcoded gus)
                 const headerEl = document.getElementById('adminHeaderRetailerName');
                 if (headerEl && retailer.name) {
-                    // Preserve the edit button child if any
                     const editBtn = headerEl.querySelector('.logo-edit-btn');
                     headerEl.textContent = retailer.name;
                     if (editBtn) headerEl.appendChild(editBtn);
                 }
                 renderRetailerLogo(retailer.logo_url);
-                await refreshAll();
-            } catch (e) { console.error('Supabase init failed:', e); }
+            } catch (e) { console.error('admin init failed:', e); }
         }
 
         function renderRetailerLogo(url) {
@@ -2488,7 +2476,6 @@ END:VEVENT
         });
 
         async function refreshAll() {
-            if (!sb || !RETAILER_ID) return;
             // Privacy Phase 0: single session-validated read endpoint replaces 7 anon reads.
             // /api/admin?action=data uses SERVICE_KEY server-side, scoped to session.retailer_id.
             const sid = AdminAuth.getSession();
@@ -2501,6 +2488,7 @@ END:VEVENT
             } catch (e) {
                 console.error('admin data load failed', e);
             }
+            window.state.retailer = data.retailer || null;
             window.state.venues = data.venues || [];
             window.state.bookings = data.bookings || [];
             window.state.brandContacts = data.brand_contacts || [];
@@ -4510,8 +4498,8 @@ END:VEVENT
         // ===== Notification preferences =====
         async function loadNotificationPrefs() {
             try {
-                const res = await sb.from('retailers').select('monthly_summary_enabled').eq('id', RETAILER_ID).maybeSingle();
-                const enabled = !res.data || res.data.monthly_summary_enabled !== false;
+                const r = window.state.retailer;
+                const enabled = !r || r.monthly_summary_enabled !== false;
                 const cb = document.getElementById('settingMonthlySummary');
                 if (cb) cb.checked = enabled;
             } catch (e) { console.warn('loadNotificationPrefs', e); }
@@ -4541,8 +4529,7 @@ END:VEVENT
 
         async function loadDemoPolicy() {
             try {
-                const res = await sb.from('retailers').select('demo_policy').eq('id', RETAILER_ID).maybeSingle();
-                const persisted = res.data && res.data.demo_policy;
+                const persisted = window.state.retailer && window.state.retailer.demo_policy;
                 const policy = persisted || DEMO_POLICY_DEFAULT;
                 const ta = document.getElementById('demoPolicy');
                 if (ta) ta.value = policy;
@@ -4611,8 +4598,7 @@ END:VEVENT
         const CANCEL_POLICY_DEFAULT = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
         async function loadCancellationPolicy() {
             try {
-                const res = await sb.from('retailers').select('cancellation_policy').eq('id', RETAILER_ID).maybeSingle();
-                const persisted = res.data && res.data.cancellation_policy;
+                const persisted = window.state.retailer && window.state.retailer.cancellation_policy;
                 const policy = persisted || CANCEL_POLICY_DEFAULT;
                 const ta = document.getElementById('cancellationPolicy');
                 if (ta) ta.value = policy;

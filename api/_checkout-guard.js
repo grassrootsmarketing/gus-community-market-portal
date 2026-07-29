@@ -1,8 +1,8 @@
 // api/_checkout-guard.js — F5-16 / LG-08: a checkout can only be created by the brand that OWNS
 // the booking, only when the booking is in 'pending_payment', and reuses an existing live
 // checkout instead of spawning unlimited parallel ones (which could double-charge).
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const rest=(p,o={})=>fetch(`${SUPABASE_URL}/rest/v1/${p}`,{...o,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(o.headers||{})}});
+import { getBinding } from './_env.js';
+const rest=async(p,o={})=>{const b=await getBinding();return fetch(`${b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:b.serviceKey,Authorization:`Bearer ${b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});};
 
 // Returns {ok, booking} or {ok:false, status, error}. brandId comes from the verified session.
 export async function guardCheckout(bookingId, brandId) {

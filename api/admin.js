@@ -9,8 +9,8 @@
 //   session_id=<uuid>           — required
 // Body (for POST/PATCH): JSON; must include retailer_id for POST.
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 
 const ALLOWED_TABLES = new Set([
   'brand_contacts',
@@ -52,8 +52,8 @@ function send(res, status, body) {
 }
 
 async function sb(path, opts = {}) {
-  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const headers = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
@@ -101,14 +101,14 @@ async function bumpSupportWriteCounter(req, session_id) {
   try {
     const cookies = parseCookies(req);
     if (!cookies.dh_support || !session_id) return;
-    fetch(`${SUPABASE_URL}/rest/v1/support_sessions?target_session_id=eq.${encodeURIComponent(session_id)}&ended_at=is.null&select=id,writes_count`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    fetch(`${_b.supabaseUrl}/rest/v1/support_sessions?target_session_id=eq.${encodeURIComponent(session_id)}&ended_at=is.null&select=id,writes_count`, {
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     }).then(r => r.json()).then(rows => {
       if (!Array.isArray(rows) || !rows[0]) return;
       const row = rows[0];
-      return fetch(`${SUPABASE_URL}/rest/v1/support_sessions?id=eq.${encodeURIComponent(row.id)}`, {
+      return fetch(`${_b.supabaseUrl}/rest/v1/support_sessions?id=eq.${encodeURIComponent(row.id)}`, {
         method: 'PATCH',
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
         body: JSON.stringify({ writes_count: (row.writes_count || 0) + 1, last_action_at: new Date().toISOString() }),
       });
     }).catch(() => {});
@@ -165,6 +165,40 @@ async function callerMembership(retailerId, email) {
   } catch (_) { return 'ERROR'; }
 }
 
+
+// ---------------------------------------------------------------------------
+// Venue plan limit — MIRRORS supabase/migrations/0021_ws1-venue-limit-trigger-migration.sql
+// ---------------------------------------------------------------------------
+// The database trigger enforce_venue_limit() is AUTHORITATIVE. These two helpers exist only so a
+// user hits a friendly 402 instead of a raw constraint error. Any change to the tier→limit table
+// or the precedence rule must be made in BOTH places.
+//
+// Precedence (from the trigger): settings.billing_tier first, then retailers.billing_tier,
+// defaulting to 'solo'. An inactive paid subscription drops entitlement back to the solo limit.
+const TIER_LIMITS = { pro: 10, enterprise: 1000 };          // everything else => 1
+const INACTIVE_BILLING = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
+
+async function getVenueLimitForRetailer(retailerId) {
+  const rid = encodeURIComponent(retailerId);
+  const [settingsRows, retailerRows] = await Promise.all([
+    sb(`settings?retailer_id=eq.${rid}&select=billing_tier&limit=1`),
+    sb(`retailers?id=eq.${rid}&select=billing_tier,billing_status&limit=1`),
+  ]);
+  const settingsTier = Array.isArray(settingsRows) && settingsRows[0] ? settingsRows[0].billing_tier : null;
+  const retailer = Array.isArray(retailerRows) && retailerRows[0] ? retailerRows[0] : {};
+  const tier = String(settingsTier || retailer.billing_tier || 'solo').toLowerCase().trim();
+  let limit = TIER_LIMITS[tier] || 1;
+  if (limit > 1 && INACTIVE_BILLING.has(String(retailer.billing_status || '').toLowerCase().trim())) {
+    limit = 1;
+  }
+  return { limit, tier };
+}
+
+async function countExistingVenues(retailerId) {
+  const rows = await sb(`venues?retailer_id=eq.${encodeURIComponent(retailerId)}&select=id`);
+  return Array.isArray(rows) ? rows.length : 0;
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -173,7 +207,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  if (!SERVICE_KEY) return send(res, 500, { error: 'SUPABASE_SERVICE_KEY not configured on server' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const { table, id } = req.query || {};
   // === Session check (cookie first, query/body fallback for backwards compat) ===
@@ -218,7 +252,7 @@ export default async function handler(req, res) {
       const callerIsViewer = _callerRoleStr === 'viewer';
       const viewerVenueIds = (callerIsViewer && Array.isArray(_mem.venue_ids) && _mem.venue_ids.length > 0) ? _mem.venue_ids : null;
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
-        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,cal_feed_key`),
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key`),
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
         sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
         sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
@@ -378,11 +412,11 @@ export default async function handler(req, res) {
     } catch (_) { /* leave body as-is if unparseable */ }
   }
 
-  const baseUrl = `${SUPABASE_URL}/rest/v1/${table}`;
+  const baseUrl = `${_b.supabaseUrl}/rest/v1/${table}`;
   const url = id ? `${baseUrl}?id=eq.${encodeURIComponent(id)}` : baseUrl;
   const headers = {
-    apikey: SERVICE_KEY,
-    Authorization: `Bearer ${SERVICE_KEY}`,
+    apikey: _b.serviceKey,
+    Authorization: `Bearer ${_b.serviceKey}`,
     'Content-Type': 'application/json',
     Prefer: 'return=representation',
   };

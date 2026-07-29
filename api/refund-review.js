@@ -13,13 +13,13 @@
 // belong to that retailer (the RPCs re-check tenancy too). p_actor text is NEVER authorization.
 import { requireRetailerMembership } from './_retailer-auth.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
 async function sbRpc(fn, args) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(args),
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
@@ -27,7 +27,7 @@ async function sbRpc(fn, args) {
   return Array.isArray(j) ? j[0] : j;
 }
 async function sbGet(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` } });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error(t || ('HTTP ' + r.status));
   return j;
@@ -53,7 +53,8 @@ async function stripeFindRefund(pi, requestId) {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
-  if (!SUPABASE_URL || !SERVICE_KEY || !STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
   // owner/admin only — a manager or viewer may not move money

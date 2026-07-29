@@ -93,7 +93,9 @@ function trackRefund(rr) {
 // positively prove it is pointed at the allowlisted STAGING project, with an explicit opt-in token.
 // There is deliberately NO global delete anywhere in this file: cleanup removes ONLY rows this run
 // created (tracked by primary key) so pre-existing ledger data can never be destroyed.
-const ALLOWED_PROJECT_REFS = ['eubbgurdwqmwqduamwhn'];          // staging only
+// R2: the retired staging ref is gone and no replacement exists yet, so nothing is allowlisted —
+// this harness cannot run at all. The new staging ref is added here at R3, once that project exists.
+const ALLOWED_PROJECT_REFS = [];                                // staging only; populated at R3
 const DENY_PROJECT_REFS    = ['ecapmcyumpjjgjwuokyv'];          // known production — never
 function assertSafeTarget() {
   const host = (SB_URL || '').replace(/^https?:\/\//, '').split('.')[0];

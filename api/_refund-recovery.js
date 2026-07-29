@@ -1,8 +1,8 @@
 // api/_refund-recovery.js — F5-15 / LG-07: if a Stripe refund FAILS on decline/cancel, the
 // booking is NOT closed into an un-retryable state and money is NOT falsely marked refunded.
 // It goes to payment_status='refund_pending' so a retry worker can finish it.
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const rest=(p,o={})=>fetch(`${SUPABASE_URL}/rest/v1/${p}`,{...o,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(o.headers||{})}});
+import { getBinding } from './_env.js';
+const rest=async(p,o={})=>{const b=await getBinding();return fetch(`${b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:b.serviceKey,Authorization:`Bearer ${b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});};
 
 export async function resolveDeclineRefund(bookingId, refund) {
   const patch = { status: 'declined' };

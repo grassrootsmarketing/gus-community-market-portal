@@ -10,8 +10,8 @@
 //   SUPABASE_SERVICE_KEY
 //   SEED_SECRET  (any strong random string; required in body to prevent abuse)
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const SEED_SECRET = process.env.SEED_SECRET;
 
 const DEMO_SLUG = 'harvest-lane-demo';
@@ -45,11 +45,11 @@ const DEMO_TEAM = [
 
 async function sb(path, opts = {}) {
   const headers = {
-    apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`,
+    apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`,
     'Content-Type': 'application/json', Prefer: 'return=representation',
     ...(opts.headers || {}),
   };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error((json && json.message) || text || `HTTP ${r.status}`);
@@ -240,7 +240,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
-  if (!SERVICE_KEY) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   if (!SEED_SECRET) return res.status(500).json({ error: 'SEED_SECRET not configured' });
 
   // Auth: the SEED_SECRET (manual calls) OR a real Vercel cron identity. DH-07: the bare

@@ -2,10 +2,11 @@
 // handler fully succeeds. If a DB write fails mid-handler we mark it 'failed' and return a
 // retryable error, so Stripe retries and the event is reclaimed — never silently lost.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
+import { getBinding } from './_env.js';
+
+async function rest(path, opts = {}) {
+  const b = await getBinding();
+  return fetch(`${b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
 }
 // claim: returns 'process' (go handle it) or 'skip' (already completed)
 export async function claimEvent(eventId, type) {

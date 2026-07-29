@@ -5,15 +5,15 @@ const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
 // /api/venues-bulk-import — POST FormData with a CSV file + session_id.
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
 
 async function sb(path, opts = {}) {
-  const headers = { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers });
+  const headers = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers });
   const text = await r.text();
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
@@ -114,6 +114,7 @@ export const config = {
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const _auth = await requireRetailerMembership(req, {}, null, ['owner', 'admin']);
   if (!_auth.ok) return jsonResp(res, _auth.status, { error: _auth.error });

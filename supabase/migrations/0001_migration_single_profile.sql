@@ -1,43 +1,7 @@
--- ==========================================================================
--- Migration: enforce single-profile-per-email
--- Adds unique indexes so one email can only own one retailer OR one brand,
--- and never both. Backend collision checks already ship friendly errors,
--- but these indexes are the last line of defense against race conditions.
--- ==========================================================================
 
--- STEP 1 — Look at existing duplicates before applying the constraint.
--- (Run this FIRST. If it returns rows, you need to consolidate/delete
--- duplicate retailers or brands manually. Otherwise Step 2 will fail.)
-
-SELECT
-    'retailer' AS type,
-    LOWER(billing_email) AS email,
-    COUNT(*) AS accounts,
-    STRING_AGG(slug, ', ') AS slugs
-FROM retailers
-WHERE billing_email IS NOT NULL AND billing_email != ''
-GROUP BY LOWER(billing_email)
-HAVING COUNT(*) > 1
-UNION ALL
-SELECT
-    'brand' AS type,
-    LOWER(email) AS email,
-    COUNT(*) AS accounts,
-    STRING_AGG(company_name, ', ') AS slugs
-FROM brands
-WHERE email IS NOT NULL AND email != ''
-GROUP BY LOWER(email)
-HAVING COUNT(*) > 1
-UNION ALL
--- Cross-role collisions (same email exists as BOTH retailer and brand)
-SELECT
-    'cross_role' AS type,
-    LOWER(r.billing_email) AS email,
-    2 AS accounts,
-    r.slug || ' | ' || b.company_name AS slugs
-FROM retailers r
-JOIN brands b ON LOWER(b.email) = LOWER(r.billing_email)
-WHERE r.billing_email IS NOT NULL AND r.billing_email != '';
+-- [R1 clean-build] removed interactive duplicate-check — a bare SELECT is a runbook step,
+-- not a migration statement, and it aborts an automated chain.
+-- SELECT 'retailer' AS type, LOWER(billing_email) AS email, COUNT(*) AS accounts, STRING_AGG(slug, ', ') AS slugs FROM ret ...;
 
 -- ==========================================================================
 -- STEP 2 — Normalize existing emails to lowercase.

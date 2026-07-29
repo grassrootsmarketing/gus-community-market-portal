@@ -8,9 +8,8 @@
 // Public by design: no auth, but only confirmed demos at the slug are exposed.
 // Sensitive fields (contact email, phone, notes) are NOT included.
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;  // server-side reads must bypass RLS
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;   // per-invocation binding; server-side reads use the service key to bypass RLS
 
 function pad(n) { return String(n).padStart(2, '0'); }
 function toICSDate(d) {
@@ -56,6 +55,7 @@ function parseDemoTime(dateStr, timeStr) {
 }
 
 export default async function handler(req, res) {
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   const slug = String((req.query && req.query.slug) || '').trim().toLowerCase();
   const venueParam = String((req.query && req.query.venue) || '').trim();
   const feedKey = String((req.query && req.query.key) || '').trim();
@@ -66,8 +66,8 @@ export default async function handler(req, res) {
 
   try {
     // Look up retailer
-    const rR = await fetch(`${SUPABASE_URL}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name,cal_feed_key`, {
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+    const rR = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name,cal_feed_key`, {
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const retailers = await rR.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -81,11 +81,11 @@ export default async function handler(req, res) {
 
     // Get all confirmed/completed demos for this retailer + their venue names
     const [dR, vR] = await Promise.all([
-      fetch(`${SUPABASE_URL}/rest/v1/demos?retailer_id=eq.${encodeURIComponent(retailer.id)}&status=in.(confirmed,completed)&select=*&order=demo_date`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      fetch(`${_b.supabaseUrl}/rest/v1/demos?retailer_id=eq.${encodeURIComponent(retailer.id)}&status=in.(confirmed,completed)&select=*&order=demo_date`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       }),
-      fetch(`${SUPABASE_URL}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=id,name,address`, {
-        headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+      fetch(`${_b.supabaseUrl}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=id,name,address`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       }),
     ]);
     let demos = await dR.json();

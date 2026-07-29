@@ -2,11 +2,11 @@
 // brand session, never from a submitted email. Stops "book as another brand / use their COI"
 // (LG-01) and stops the agreement-record disclosure.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding } from './_env.js';
 
-function rest(path) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, { headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` } });
+async function rest(path) {
+  const b = await getBinding();
+  return fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}` } });
 }
 function parseCookies(req) {
   const raw = req.headers && req.headers['cookie']; const out = {};

@@ -16,14 +16,14 @@
 //     the certificate to let the demo happen, but only for brands actually coming to their store.
 import { requireRetailerMembership } from './_retailer-auth.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const BUCKET = 'coi-docs';
 const SIGNED_TTL_SECONDS = 60;
 
 async function sb(path) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` },
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error(t || ('HTTP ' + r.status));
@@ -50,7 +50,7 @@ function toStoragePath(stored) {
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   const brandId = String((req.query && req.query.brand_id) || '').trim();
   if (!/^[0-9a-f-]{36}$/i.test(brandId)) return res.status(400).json({ error: 'brand_id required' });
@@ -92,16 +92,16 @@ export default async function handler(req, res) {
 
   // ---- mint a short-lived signed URL ----
   try {
-    const r = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/${BUCKET}/${path}`, {
+    const r = await fetch(`${_b.supabaseUrl}/storage/v1/object/sign/${BUCKET}/${path}`, {
       method: 'POST',
-      headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ expiresIn: SIGNED_TTL_SECONDS }),
     });
     if (!r.ok) { console.error('coi sign failed', r.status, await r.text().catch(() => '')); return res.status(502).json({ error: 'sign_failed' }); }
     const j = await r.json();
     const signed = j && (j.signedURL || j.signedUrl);
     if (!signed) return res.status(502).json({ error: 'sign_failed' });
-    const url = `${SUPABASE_URL}/storage/v1${signed.startsWith('/') ? '' : '/'}${signed}`;
+    const url = `${_b.supabaseUrl}/storage/v1${signed.startsWith('/') ? '' : '/'}${signed}`;
     res.setHeader('Cache-Control', 'no-store');           // never cache a credentialed link
     res.setHeader('Referrer-Policy', 'no-referrer');
     return res.redirect(302, url);

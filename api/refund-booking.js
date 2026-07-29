@@ -1,8 +1,10 @@
 // api/refund-booking.js — F5-15/18 INTEGRATION: retailer-authorized, per-booking, idempotent refund.
 import { verifyAdminSessionStrict } from './_session.js';
 import { resolveDeclineRefund } from './_refund-recovery.js';
-const SUPABASE_URL=process.env.SUPABASE_URL, SERVICE_KEY=process.env.SUPABASE_SERVICE_KEY, STRIPE=process.env.STRIPE_SECRET_KEY;
-const rest=(p,o={})=>fetch(`${SUPABASE_URL}/rest/v1/${p}`,{...o,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(o.headers||{})}});
+import { getBinding, sendBindingFailure } from './_env.js';
+const STRIPE=process.env.STRIPE_SECRET_KEY;
+let _b = null;
+const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async p=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
 async function stripeRefund(pi,cents,idem){
   const body=new URLSearchParams({payment_intent:pi,amount:String(cents)}).toString();
@@ -11,6 +13,7 @@ async function stripeRefund(pi,cents,idem){
 }
 export default async function handler(req,res){
   if(req.method!=='POST') return res.status(405).json({error:'POST only'});
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body={}; try{body=typeof req.body==='string'?JSON.parse(req.body||'{}'):(req.body||{});}catch(_){}
   const sid=(req.headers.cookie&&/dh_session=([^;]+)/.exec(req.headers.cookie)?.[1])||body.session_id;
   const s=await verifyAdminSessionStrict(sid); if(!s.ok) return res.status(s.status).json({error:s.error});

@@ -7,15 +7,15 @@ import crypto from 'node:crypto';
 import { FLAGS } from './_flags.js';
 import { createChallenge, consumeChallenge } from './_verify.js';
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure } from './_env.js';
+let _b = null;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
 
 function rest(path, opts = {}) {
-  return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     ...opts,
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
 // Set the same HttpOnly session cookie admin-auth.js issues, so a freshly
@@ -45,9 +45,9 @@ export async function provisionVerifiedRetailer(email, storeName) {
   const e = String(email).trim().toLowerCase();
   // P1-3: retailer + settings + owner membership + session created ATOMICALLY by a DB function.
   // Rolls back on any failure (no half-provisioned tenant); idempotent (returns existing store).
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/provision_verified_retailer`, {
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/provision_verified_retailer`, {
     method: 'POST',
-    headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}`, 'Content-Type': 'application/json' },
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ p_email: e, p_store_name: storeName || null }),
   });
   if (!r.ok) throw new Error('provision failed: ' + (await r.text()).slice(0, 200));
@@ -75,7 +75,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ error: 'public_signup_disabled',
       message: 'Demohub is invite-only right now. Email david@demohubhq.com to get your store set up.' });
   }
-  if (!SUPABASE_URL || !SERVICE_KEY) return res.status(500).json({ error: 'server_not_configured' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();

@@ -1,20 +1,7 @@
--- ============================================================================
--- SECURITY FIX — enable Row-Level Security on all tables.
--- Run in the Supabase SQL editor. Run STEP 1 first, look at it, then STEP 2.
---
--- Why this is safe: every server endpoint now uses the SERVICE key, which
--- bypasses RLS. Turning RLS on blocks the PUBLIC (anon) key — the one embedded
--- in the website source — from reading or writing your tables directly. That
--- public key could previously read brands (password hashes), bookings, staff
--- contacts, and compliance records. This closes that.
--- ============================================================================
 
--- STEP 1 — DIAGNOSTIC (read-only). See which tables are currently unprotected.
--- Run this alone first. Any row with rowsecurity = false is exposed.
-SELECT tablename, rowsecurity AS rls_enabled
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY rowsecurity, tablename;
+-- [R1 clean-build] removed interactive verification query — a bare SELECT is a runbook step,
+-- not a migration statement, and it aborts an automated chain.
+-- SELECT tablename, rowsecurity AS rls_enabled FROM pg_tables WHERE schemaname = 'public' ORDER BY rowsecurity, tablename ...;
 
 
 -- STEP 2 — THE FIX. Run after you've looked at Step 1.
@@ -39,12 +26,10 @@ CREATE POLICY retailers_anon_read ON public.retailers
   FOR SELECT TO anon USING (true);
 
 REVOKE SELECT ON public.retailers FROM anon;
-GRANT  SELECT (id, slug, name, logo_url, monthly_summary_enabled, demo_policy, cancellation_policy)
-  ON public.retailers TO anon;
-
-
--- STEP 4 — VERIFY (read-only). Every row should now show rls_enabled = true.
-SELECT tablename, rowsecurity AS rls_enabled
-FROM pg_tables
-WHERE schemaname = 'public'
-ORDER BY rowsecurity, tablename;
+-- P1-3: three columns only. find-retailer.js's anonymous path needs id (health ping),
+-- slug (lookup) and name (existence response). logo_url / policies / summary flag are
+-- returned by fixed server routes and do not require direct anon table access.
+GRANT  SELECT (id, slug, name) ON public.retailers TO anon;
+-- [R1 clean-build] removed interactive verification query — a bare SELECT is a runbook step,
+-- not a migration statement, and it aborts an automated chain.
+-- SELECT tablename, rowsecurity AS rls_enabled FROM pg_tables WHERE schemaname = 'public' ORDER BY rowsecurity, tablename ...;

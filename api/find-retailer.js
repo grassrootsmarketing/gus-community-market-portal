@@ -5,13 +5,15 @@
 //     payload for the public booking page. Server-side, uses SERVICE key, returns
 //     ONLY safe public fields (no PII, no contacts, no compliance docs).
 
-const SUPABASE_URL = process.env.SUPABASE_URL || (process.env.VERCEL_ENV === 'preview' ? undefined : 'https://ecapmcyumpjjgjwuokyv.supabase.co'); // preview must set SUPABASE_URL; never silently uses prod
-const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+import { getBinding, sendBindingFailure, BindingError } from './_env.js';
+let _b = null;
 
 async function sb(path, useService = false) {
-  const key = useService ? SERVICE_KEY : SUPABASE_KEY;
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
+  // anon/publishable reads never fall back to the service key: if no publishable key is bound,
+  // the anon path fails closed and the handler turns it into a 503 binding_invalid.
+  const key = useService ? _b.serviceKey : _b.publishableKey;
+  if (!key) throw new BindingError('publishable_key_not_configured');
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
     headers: { apikey: key, Authorization: `Bearer ${key}` },
   });
   const text = await r.text();
@@ -28,6 +30,7 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   let body = {};
   if (req.method === 'POST') {
@@ -55,7 +58,7 @@ export default async function handler(req, res) {
 
       // Cron heartbeat: was there a successful run in the last 25 hours?
       try {
-        if (SERVICE_KEY) {
+        if (_b.serviceKey) {
           const r = await sb('cron_heartbeat?select=ran_at,outcome,duration_ms&order=ran_at.desc&limit=1', true);
           const last = Array.isArray(r) ? r[0] : null;
           if (last) {
@@ -72,7 +75,7 @@ export default async function handler(req, res) {
 
       // Errors in last 24h (read-only count)
       try {
-        if (SERVICE_KEY) {
+        if (_b.serviceKey) {
           const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
           const r = await sb(`error_log?select=id&occurred_at=gte.${encodeURIComponent(since)}&limit=200`, true);
           checks.errors.last_24h = Array.isArray(r) ? r.length : 0;
@@ -82,7 +85,7 @@ export default async function handler(req, res) {
       // Active incidents posted by owner
       const incidents = [];
       try {
-        if (SERVICE_KEY) {
+        if (_b.serviceKey) {
           const rows = await sb('status_incidents?resolved_at=is.null&select=id,title,body,severity,started_at&order=started_at.desc&limit=10', true);
           if (Array.isArray(rows)) incidents.push(...rows);
         }
@@ -108,7 +111,7 @@ export default async function handler(req, res) {
 
     // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
     if (action === 'public-data') {
-      if (!SERVICE_KEY) return res.status(500).json({ error: 'service key not configured' });
+      if (!_b.serviceKey) return res.status(500).json({ error: 'service key not configured' });
       // Whitelist of safe retailer columns. Explicitly excludes: billing_email,
       // stripe_customer_id, stripe_subscription_id, billing_status, billing_tier,
       // billing_period_*, welcome_day0_sent_at, and any email field.
@@ -146,6 +149,7 @@ export default async function handler(req, res) {
     if (!Array.isArray(r) || r.length === 0) return res.status(404).json({ error: 'not found' });
     return res.status(200).json({ ok: true, name: r[0].name });
   } catch (e) {
+    if (e instanceof BindingError) return sendBindingFailure(res, e);
     return res.status(500).json({ error: String(e?.message || e) });
   }
 }

@@ -1,7 +1,7 @@
 // api/_demo-materialize.js — F5-19 / LG (confirm race): creating the calendar demo for a booking
 // is idempotent and keyed on booking_id, so confirming twice (or a retry) never makes two demos.
-const SUPABASE_URL = process.env.SUPABASE_URL, SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const rest=(p,o={})=>fetch(`${SUPABASE_URL}/rest/v1/${p}`,{...o,headers:{apikey:SERVICE_KEY,Authorization:`Bearer ${SERVICE_KEY}`,'Content-Type':'application/json',...(o.headers||{})}});
+import { getBinding } from './_env.js';
+const rest=async(p,o={})=>{const b=await getBinding();return fetch(`${b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:b.serviceKey,Authorization:`Bearer ${b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});};
 
 export async function materializeDemo(booking) {
   // reuse if one already exists for this booking

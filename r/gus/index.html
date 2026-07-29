@@ -1836,8 +1836,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
 
         // ===== Supabase client + cached state =====
-        const SUPABASE_URL = 'https://ecapmcyumpjjgjwuokyv.supabase.co';
-        const SUPABASE_KEY = 'sb_publishable__e8tiRc5-f7Wexa-r1Perg_hJ84vltF';
+        // R2 cutover: dead constants removed. This page never queried Supabase directly
+        // (see the `if (false)` guard below); they were the last browser-exposed copies.
         const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
         // Hard-fail (privacy): silently falling back to 'gus' leaked data across retailers.
         // If the URL has no slug, redirect to /signin instead of guessing.
