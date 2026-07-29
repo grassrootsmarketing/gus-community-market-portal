@@ -20,6 +20,7 @@
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
 //   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
 
+// Gate 0 rebuild marker: forces a fresh build so env changes are picked up.
 function exactTrue(v) { return String(v ?? '').trim().toLowerCase() === 'true'; }
 
 export const FLAGS = {
