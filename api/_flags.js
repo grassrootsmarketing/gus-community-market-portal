@@ -5,7 +5,7 @@
 // by flagSnapshot() below is either (a) enforced by a named consumer, or (b) explicitly labelled as
 // derived/hard-coded state rather than a control.
 //
-// Codex G0-C3: kill switches now require an EXACT "true". Unset, empty, misspelled or malformed
+// Codex G0-C3/G0-v2-3: kill switches require the LITERAL string "true" (case/whitespace variants rejected). Unset, empty, misspelled or malformed
 // values DISABLE the operation. This is a deliberate change from availability-first defaults — the
 // closed launch prefers a hard stop over an accidentally-open surface, and it makes the packet's
 // "malformed configuration cannot widen the surface" statement actually true.
@@ -20,8 +20,10 @@
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
 //   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
 
-// Gate 0 rebuild marker: forces a fresh build so env changes are picked up.
-function exactTrue(v) { return String(v ?? '').trim().toLowerCase() === 'true'; }
+// G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
+// DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
+// design of record for the closed launch.
+function exactTrue(v) { return v === 'true'; }
 
 export const FLAGS = {
   // --- outside the launch envelope: OFF unless exactly "true" ---
