@@ -7,7 +7,22 @@ import crypto from 'node:crypto';
 
 import { getBinding } from './_env.js';
 
-const PEPPER = process.env.VERIFY_PEPPER || process.env.CRON_SECRET || 'dev-pepper';
+// Codex finding A: the pepper had two fallbacks, and both were disqualifying.
+//   process.env.CRON_SECRET  — reuses one secret for two unrelated purposes, so rotating the
+//                              cron secret silently invalidates every outstanding login code,
+//                              and a cron-secret leak becomes a code-forgery capability.
+//   'dev-pepper'             — a public constant in a public repository. With it, anyone can
+//                              compute a valid code hash for any email offline.
+// Now required, with a length floor. Missing or weak configuration means codes cannot be
+// issued or verified at all, which is the correct failure for an auth primitive.
+const MIN_PEPPER_LEN = 32;
+function requirePepper() {
+  const p = process.env.VERIFY_PEPPER;
+  if (!p || String(p).trim().length < MIN_PEPPER_LEN) {
+    throw new Error('verify_pepper_not_configured');
+  }
+  return String(p).trim();
+}
 
 async function rest(path, opts = {}) {
   const b = await getBinding();
@@ -16,8 +31,8 @@ async function rest(path, opts = {}) {
     headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', ...(opts.headers || {}) },
   });
 }
-function hashCode(email, purpose, code) {
-  return crypto.createHmac('sha256', PEPPER).update(`${String(email).toLowerCase()}|${purpose}|${code}`).digest('hex');
+export function hashCode(email, purpose, code) {
+  return crypto.createHmac('sha256', requirePepper()).update(`${String(email).toLowerCase()}|${purpose}|${code}`).digest('hex');
 }
 function newCode() { return String(crypto.randomInt(0, 1000000)).padStart(6, '0'); }
 

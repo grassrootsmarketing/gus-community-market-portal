@@ -4,7 +4,7 @@
 // path is login only. Password format matches the existing login (<salt_hex>$<hash_hex>, scrypt).
 
 import crypto from 'node:crypto';
-import { createChallenge, consumeChallenge } from './_verify.js';
+import { createChallenge, hashCode } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
@@ -35,7 +35,14 @@ function hashPassword(password) {
 
 // Core: create or claim a brand — ONLY called after email verification succeeds.
 // Returns { ok, reason? , brand_id, session_token }.
-export async function provisionOrClaimVerifiedBrand(email, password, profile = {}) {
+// RETIRED — Codex finding A: exactly one canonical provisioning path. Everything this used to do
+// now happens inside redeem_brand_signup() (migration 0053) as one transaction. Kept as a throwing
+// stub rather than deleted so any forgotten caller fails loudly instead of silently taking a
+// second, unreviewed route to the same tables.
+export async function provisionOrClaimVerifiedBrand() {
+  throw new Error('retired: use the redeem_brand_signup RPC via POST /api/brand-signup {action:"verify"}');
+}
+async function _retired_provisionOrClaimVerifiedBrand(email, password, profile = {}) {
   const e = String(email).trim().toLowerCase();
   if (!password || String(password).length < 8) return { ok: false, reason: 'weak_password' };
   const look = await rest(`brands?email=eq.${encodeURIComponent(e)}&select=id,password_hash&limit=1`);
@@ -70,6 +77,37 @@ async function sendCode(email, code) {
   await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: `<p>Your code is <strong>${code}</strong> (expires in 30 min).</p>` }, { binding: _b });
 }
 
+const GENERIC_REQUEST_REPLY = 'If that email can receive mail, a code is on its way.';
+
+async function rpc(fn, args) {
+  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
+    method: 'POST',
+    headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  });
+  const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
+  return { ok: r.ok, status: r.status, json: j };
+}
+
+// Durable throttle. Fails CLOSED: if the counter cannot be read we refuse rather than allow,
+// because an attacker who can break the throttle store should not thereby remove the throttle.
+async function throttle(scope, key, purpose, limit) {
+  if (!key) return false;
+  const r = await rpc('verification_throttle_hit', {
+    p_scope: scope, p_key: String(key), p_purpose: purpose, p_limit: limit,
+    p_window_minutes: 60, p_block_minutes: 60,
+  });
+  if (!r.ok || !r.json) return false;
+  return r.json.allowed === true;
+}
+
+// Only a proxy-set address is trusted; a client-supplied header must never widen the quota.
+function clientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '');
+  const first = xff.split(',')[0].trim();
+  return first || String(req.headers['x-real-ip'] || '') || 'unknown';
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
@@ -79,16 +117,69 @@ export default async function handler(req, res) {
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
 
   if (action === 'request') {
-    try { const ch = await createChallenge(email, 'brand_signup', null); await sendCode(email, ch.code); } catch (_) {}
-    return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
+    // Codex finding A: the REQUEST stage creates only a verification challenge. Nothing about
+    // the brand, its profile, its membership or a session is written here. The old reachable
+    // handler (brand-account.js?action=signup) wrote all four before any email proof, which let
+    // anyone overwrite a passwordless brand's profile by "signing up" as it.
+    //
+    // Durable throttles on BOTH axes, in the database rather than in memory, so they survive
+    // both challenge churn and serverless instance recycling. Neither axis alone can be used to
+    // exhaust the other.
+    const ipOk = await throttle('ip', clientIp(req), 'brand_signup', 20);
+    const emOk = await throttle('email', email, 'brand_signup', 5);
+    if (!ipOk || !emOk) {
+      // Deliberately the SAME response as success: a distinguishable rate-limit reply is an
+      // account-existence and traffic oracle.
+      return res.status(200).json({ ok: true, message: GENERIC_REQUEST_REPLY });
+    }
+    try {
+      // Profile fields ride on the challenge payload. They are applied only at redeem time,
+      // and only to fields that are currently blank.
+      const ch = await createChallenge(email, 'brand_signup', {
+        company_name: String(body.company_name || '').trim() || null,
+        contact_name: String(body.contact_name || '').trim() || null,
+        phone: String(body.phone || '').trim() || null,
+      });
+      await sendCode(email, ch.code);
+    } catch (e) {
+      // Never reveal whether the address exists, is throttled, or the mail provider failed.
+      console.warn('brand_signup request failed', JSON.stringify({ code: (e && e.message) || 'unknown' }));
+    }
+    return res.status(200).json({ ok: true, message: GENERIC_REQUEST_REPLY });
   }
   if (action === 'verify') {
-    const r = await consumeChallenge(email, 'brand_signup', String(body.code || ''));
-    if (!r.ok) return res.status(400).json({ error: 'verification_failed', reason: r.reason });
-    const out = await provisionOrClaimVerifiedBrand(email, String(body.password || ''), { company_name: body.company_name, contact_name: body.contact_name, phone: body.phone });
-    if (!out.ok) return res.status(out.reason === 'account_exists_login_instead' ? 409 : 400).json({ error: out.reason });
-    setBrandCookie(res, out.session_token); // sign them in for booking
-    return res.status(200).json({ ok: true, session_token: out.session_token });
+    // Throttle the redeem axis too, so a fresh challenge per guess cannot reset the counter.
+    const ipOk = await throttle('ip', clientIp(req), 'brand_verify', 30);
+    const emOk = await throttle('email', email, 'brand_verify', 10);
+    if (!ipOk || !emOk) return res.status(429).json({ error: 'too_many_attempts' });
+
+    // ONE round trip does all of: match the code, consume the challenge, provision the brand,
+    // create the owner membership, and issue the session — in a single transaction that claims
+    // the challenge row FOR UPDATE. Codex finding A required atomicity here; previously a crash
+    // between consume and provision left the code spent and the brand absent, and N parallel
+    // guesses could all read the same pre-increment attempt count.
+    const token = crypto.randomUUID();
+    const r = await rpc('redeem_brand_signup', {
+      p_email: email,
+      p_code_hash: hashCode(email, 'brand_signup', String(body.code || '')),
+      p_session_token: token,
+      p_session_days: 30,
+      p_max_attempts: 6,
+    });
+    if (!r.ok) return res.status(503).json({ error: 'verification_unavailable' });
+    const out = r.json || {};
+
+    if (out.outcome !== 'ok') {
+      // One response for every failure mode. Distinguishing "wrong code" from "no challenge"
+      // from "already used" tells an attacker which emails have pending signups.
+      const status = out.outcome === 'too_many_attempts' ? 429 : 400;
+      return res.status(status).json({ error: 'verification_failed' });
+    }
+
+    setBrandCookie(res, token);
+    // Codex finding B: the session goes in the HttpOnly cookie ONLY. It is not returned in the
+    // body, so page JavaScript cannot read it and it cannot land in localStorage or a log.
+    return res.status(200).json({ ok: true, brand_id: out.brand_id, created: !!out.created });
   }
   return res.status(400).json({ error: 'unknown action' });
 }

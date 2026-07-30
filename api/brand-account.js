@@ -476,106 +476,9 @@ export default async function handler(req, res) {
       return jsonResp(res, 409, { error: 'verify_required', verify: true, email, message: 'Verify your email to finish creating your account.' });
     }
 
-    if (action === 'signup') {
-      const rl = await checkRateLimit(req, 'brand-signup', 30);
-      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests', message: 'Too many signup attempts. Try again in an hour.' });
-      const email = String(body.email || '').trim().toLowerCase();
-      const companyName = String(body.company_name || '').trim();
-      const contactName = String(body.contact_name || '').trim() || null;
-      const phone = String(body.phone || '').trim() || null;
-      let website = String(body.website || '').trim() || null;
-      if (website && !/^https?:\/\//i.test(website)) website = 'https://' + website;
-      const defaultCategories = String(body.default_categories || '').trim() || null;
-      if (!email || !companyName) return jsonResp(res, 400, { error: 'Missing email or company name' });
-      if (!website) return jsonResp(res, 400, { error: 'Website is required so retailers can verify your brand' });
-
-      // ===== Cross-role collision check: single-profile-per-email =====
-      try {
-        const dupR = await sb(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id&limit=1`);
-        const dupRows = await dupR.json();
-        if (Array.isArray(dupRows) && dupRows.length > 0) {
-          return jsonResp(res, 409, {
-            error: 'already_retailer',
-            message: `This email is already registered as a retailer on Demohub. Each email can only have one account type. Sign in to your retailer admin instead.`,
-            signin_url: '/signin?email=' + encodeURIComponent(email),
-          });
-        }
-      } catch (_) { /* fall through */ }
-
-      const lookupR = await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id`);
-      const existing = (await lookupR.json())[0];
-      let brandId;
-      if (existing) {
-        brandId = existing.id;
-        const patch = { updated_at: new Date().toISOString() };
-        if (contactName) patch.contact_name = contactName;
-        if (phone) patch.phone = phone;
-        if (website) patch.website = website;
-        if (defaultCategories) patch.default_categories = defaultCategories;
-        try { await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) }); } catch (_) {}
-      } else {
-        const createR = await sb('brands', {
-          method: 'POST',
-          body: JSON.stringify({ email, company_name: companyName, contact_name: contactName, phone, website, default_categories: defaultCategories }),
-        });
-        const created = await createR.json();
-        if (!Array.isArray(created) || !created[0]) return jsonResp(res, 500, { error: 'Failed to create brand' });
-        brandId = created[0].id;
-        try {
-          await sb('brand_members', {
-            method: 'POST',
-            body: JSON.stringify({ brand_id: brandId, email, role: 'owner', name: contactName }),
-          });
-        } catch (e) { console.warn('brand_members owner row creation failed:', e); }
-      }
-
-      const token = randomToken(24);
-      const code = generateLoginCode();
-      const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      // Insert the magic-link token AND a 6-digit code, same as the login path. Without the
-      // code, a new signup got a link-only email; tapping that link on a phone opens the mail
-      // app's in-app browser, so the session lands in a different browser than the one they
-      // started in. The code lets them finish in the tab they already have open.
-      await Promise.all([
-        sb('brand_account_tokens', {
-          method: 'POST',
-          body: JSON.stringify({ brand_id: brandId, email, token, expires_at: expires }),
-        }),
-        sb('brand_account_tokens', {
-          method: 'POST',
-          body: JSON.stringify({ brand_id: brandId, email, token: code, expires_at: expires }),
-        }),
-      ]);
-      const link = siteLink(_b, `/brand/verify?t=${token}`);
-      await sendMagicLink(email, link, !existing, code);
-
-      // Day-0 welcome — only on a brand-new signup. Best-effort, never blocks signup.
-      if (!existing) {
-        try {
-          const firstName = (contactName || '').trim().split(/\s+/)[0] || companyName || 'there';
-          const built = brandDay0Email({
-            first_name: firstName,
-            brand_name: companyName,
-            example_retailer_url: siteLink(_b, '/r/gus'),
-          });
-          const ok = await sendWelcome({ to: email, subject: built.subject, html: built.html, text: built.text });
-          if (ok) {
-            try {
-              await sb(`brands?id=eq.${encodeURIComponent(brandId)}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ welcome_day0_sent_at: new Date().toISOString() }),
-              });
-            } catch (e) { console.warn('brand welcome_day0_sent_at stamp skipped:', e?.message || e); }
-          }
-        } catch (e) { console.warn('Brand day-0 welcome failed:', e?.message || e); }
-      }
-      return jsonResp(res, 200, { ok: true });
-    }
-
-    // Resolve a login identity by email. brand_members is the auth surface, but brands created
-    // via /api/booking (or where the member-row insert silently failed) have no member row. That
-    // silently locked those users out: no code was ever sent and login still returned ok:true.
-    // Fall back to brands and self-heal by creating the missing owner member row.
+    // Shared by the login and magic-link paths (it happened to be declared inside the retired
+    // signup block, which is why removing that block broke both). Self-heals a brand row that
+    // has no brand_members owner entry.
     async function resolveBrandMemberByEmail(addr) {
       try {
         const mR = await sb(`brand_members?email=ilike.${encodeURIComponent(addr)}&select=brand_id,email`);
@@ -591,6 +494,27 @@ export default async function handler(req, res) {
         } catch (_) { /* already exists or blocked; still let them in */ }
         return { brand_id: brand.id, email: brand.email };
       } catch (_) { return null; }
+    }
+
+    if (action === 'signup') {
+      // RETIRED — Codex finding A. This handler was the one the UI actually called, and it
+      // PATCHed an existing brand's profile, inserted a brands row, inserted a brand_members
+      // owner row, and issued a session — all BEFORE the caller proved they controlled the
+      // email address. That made it a profile-takeover primitive: "sign up" as a passwordless
+      // brand and overwrite its company name, contact and phone.
+      //
+      // The canonical flow is POST /api/brand-signup with {action:'request'} then
+      // {action:'verify'}, where the request stage writes nothing and the verify stage is one
+      // atomic transaction (redeem_brand_signup, migration 0053).
+      //
+      // Deliberately 410 rather than a silent delegation: a second reachable path to the same
+      // tables is exactly the condition that let the reviewed implementation and the live one
+      // diverge in the first place.
+      return jsonResp(res, 410, {
+        error: 'endpoint_retired',
+        message: 'Brand signup moved to /api/brand-signup and now requires email verification before any account is created.',
+        use: { path: '/api/brand-signup', actions: ['request', 'verify'] },
+      });
     }
 
     if (action === 'login') {
