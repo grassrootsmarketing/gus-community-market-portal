@@ -80,7 +80,10 @@ for (const f of files) {
   // 6. Provider credentials and provider endpoints must live in their approved module only.
   //    Codex finding C: 24 direct Resend calls across 11 files, each with its own env read,
   //    meant the email containment in _env.js was decorative.
-  if (rel !== 'api/_mail.js' && /api\.resend\.com/.test(code)) {
+  // Tests must be able to SPY on the provider endpoint to prove containment — that is the
+  // opposite of calling it. The rule targets production code; a test that never issues a real
+  // request is exempt, and check-imports separately proves no module performs I/O on load.
+  if (rel !== 'api/_mail.js' && !isTest(rel) && /api\.resend\.com/.test(code)) {
     problems.push(`${rel}: direct mail-provider call — all email goes through api/_mail.js`);
   }
   if (rel !== 'api/_mail.js' && rel !== BINDING && /process\.env\.RESEND_API_KEY/.test(code)) {
