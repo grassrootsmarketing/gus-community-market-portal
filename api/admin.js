@@ -175,7 +175,11 @@ async function callerMembership(retailerId, email) {
 //
 // Precedence (from the trigger): settings.billing_tier first, then retailers.billing_tier,
 // defaulting to 'solo'. An inactive paid subscription drops entitlement back to the solo limit.
-const TIER_LIMITS = { pro: 10, enterprise: 1000 };          // everything else => 1
+const TIER_LIMITS = { pro: 999, enterprise: 1000 };        // everything else => 1
+// 999 = practical-unlimited, matching the advertised Pro contract ("Unlimited stores") and
+// the existing convention in admin-auth.js ADMIN_CAP and signup.js's venueCount clamp.
+// MUST equal the value in migration 0052's enforce_venue_limit(). Changing one alone
+// reintroduces a silent cliff — 0021 had pro=10 while pricing promised unlimited.
 const INACTIVE_BILLING = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
 
 async function getVenueLimitForRetailer(retailerId) {
