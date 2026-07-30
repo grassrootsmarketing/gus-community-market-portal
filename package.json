@@ -4,5 +4,12 @@
   "description": "Demohub multi-tenant demo scheduling platform",
   "dependencies": {
     "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "eslint": "^9.15.0"
+  },
+  "scripts": {
+    "check": "node tools/check-migrations.mjs && node tools/check-imports.mjs && node tools/check-undefined.mjs && node tools/check-binding.mjs",
+    "test": "node tests/binding.test.mjs && node tests/route_binding.test.mjs && node tests/mail_containment.test.mjs && node tests/launch_flags.test.mjs && node tests/brand_signup.test.mjs && node tests/coi_enforcement_gate.test.mjs && node tests/session_transport.test.mjs"
   }
 }

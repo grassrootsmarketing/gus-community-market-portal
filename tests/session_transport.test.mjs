@@ -18,6 +18,10 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve, join, sep } from 'node:path';
 
+// Every path this suite builds is normalised to forward slashes at construction. Rules and
+// exclusion lists are written with '/', and a Windows '\\' would silently stop matching them.
+const norm = p => p.split(sep).join('/');
+
 let pass = 0, fail = 0; const fails = [];
 const ok = (n, c, x = '') => c ? pass++ : (fail++, fails.push(`${n} ${x}`));
 
@@ -400,7 +404,13 @@ const readApi = f => readFileSync(resolve('api', f), 'utf8');
 // Masks the scheme first: a naive //-stripper eats every line containing "https://" — the exact
 // bug that made tools/check-binding.mjs blind earlier in this project.
 function stripComments(src) {
-  const masked = src.replace(/https?:\/\//g, 'SCHEME_');
+  // Codex finding 1: on a Windows CRLF checkout this stripper left every `//` comment intact.
+  // It split on '\n', so each line still ended with '\r', and `/\/\/.*$/` does not match past
+  // a '\r' in non-multiline mode — the comment survived and the static scans then reported the
+  // COMMENTS DESCRIBING removed defects as if they were the defects. Two false failures.
+  // Normalising newlines first makes the rest of the function line-ending agnostic.
+  const unix = src.replace(/\r\n?/g, '\n');
+  const masked = unix.replace(/https?:\/\//g, 'SCHEME_');
   return masked
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n').map(l => l.replace(/\/\/.*$/, '')).join('\n');
@@ -535,7 +545,7 @@ const EXEMPT = new Map([
       if (e.name === 'node_modules' || e.name === '.git') continue;
       const p = join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.html')) html.push(p);
+      else if (e.name.endsWith('.html')) html.push(norm(p));
     }
   };
   walk('.');
@@ -569,7 +579,7 @@ const EXEMPT = new Map([
       else if (e.name.endsWith('.html')) {
         const src = readFileSync(p, 'utf8');
         const readsToken = /(searchParams|params)\s*\.\s*get\s*\(\s*['"](token|t|code|sid|session)['"]\s*\)/.test(src);
-        if (readsToken && !/history\.replaceState/.test(src)) bad.push(p);
+        if (readsToken && !/history\.replaceState/.test(src)) bad.push(norm(p));
       }
     }
   };

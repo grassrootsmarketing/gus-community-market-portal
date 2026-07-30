@@ -3,7 +3,14 @@
 // Fails the build when application code can reach a database without going
 // through the one validated binding module.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
+
+// Codex finding 1: path.join() yields '\\' on Windows, so every rule that matched on '/'
+// (isTest, isTool, the api/_mail.js allowance, the binding-module exemption) silently stopped
+// matching and produced five false positives on a Windows checkout. Normalising once, at the
+// point a relative path is constructed, is the fix — normalising at each comparison would leave
+// the next rule someone adds broken again.
+const norm = p => p.split(sep).join('/');
 
 const BINDING = 'api/_env.js';
 const problems = [];
@@ -11,7 +18,7 @@ const problems = [];
 function walk(dir, out = []) {
   for (const e of readdirSync(dir)) {
     if (['node_modules', '.git', 'supabase'].includes(e)) continue;
-    const p = join(dir, e);
+    const p = norm(join(dir, e));
     if (statSync(p).isDirectory()) walk(p, out);
     else if (/\.(js|mjs|ts|html)$/.test(e)) out.push(p);
   }

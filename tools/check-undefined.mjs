@@ -9,17 +9,34 @@
 //
 // Reports every violation in one pass; exits nonzero if any remain.
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { resolve, dirname } from 'node:path';
+
+// Resolve ESLint's CLI from this repository's own node_modules. If it is absent the check must
+// FAIL LOUDLY rather than pass: a linter that cannot run is not a linter that found nothing.
+const require = createRequire(import.meta.url);
+let eslintBin;
+try {
+  eslintBin = resolve(dirname(require.resolve('eslint/package.json')), 'bin', 'eslint.js');
+} catch {
+  console.error('eslint is not installed. Run `npm install` — it is pinned in devDependencies.');
+  process.exit(2);
+}
 import { relative, sep } from 'node:path';   // POSIX-only string surgery on cwd broke the
                                             // relative-path display on Windows (no match, so absolute paths leaked).
 
 let out = '';
 try {
-  out = execFileSync('npx', ['--no-install', 'eslint', 'api', 'tools', 'tests', '--format', 'json'],
+  // Codex finding 1: execFileSync('npx', ...) cannot launch on Windows, where the executable is
+  // npx.cmd and there is no shell to resolve it. Resolving ESLint's own bin through Node and
+  // running it with process.execPath removes the platform dependency entirely — no shell, no
+  // .cmd/.exe extension guessing, and it uses the exact ESLint pinned in devDependencies.
+  out = execFileSync(process.execPath, [eslintBin, 'api', 'tools', 'tests', '--format', 'json'],
                      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 } catch (e) {
   out = e.stdout || '';   // eslint exits nonzero when it finds problems
 }
-if (!out.trim()) { console.error('could not run eslint — is it installed? (npm i -D eslint)'); process.exit(2); }
+if (!out.trim()) { console.error('eslint produced no output — refusing to report success'); process.exit(2); }
 
 const results = JSON.parse(out);
 const undef = [];
