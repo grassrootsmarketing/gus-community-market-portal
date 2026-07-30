@@ -93,16 +93,26 @@ function trackRefund(rr) {
 // positively prove it is pointed at the allowlisted STAGING project, with an explicit opt-in token.
 // There is deliberately NO global delete anywhere in this file: cleanup removes ONLY rows this run
 // created (tracked by primary key) so pre-existing ledger data can never be destroyed.
-// R2: the retired staging ref is gone and no replacement exists yet, so nothing is allowlisted —
-// this harness cannot run at all. The new staging ref is added here at R3, once that project exists.
-const ALLOWED_PROJECT_REFS = [];                                // staging only; populated at R3
-const DENY_PROJECT_REFS    = ['ecapmcyumpjjgjwuokyv'];          // known production — never
+// R3. The permitted target is supplied by the operator via LEDGER_TARGET_REF and is NOT a literal
+// here, because tools/check-binding.mjs forbids a real project ref appearing as an ALLOW target in
+// source — a rule worth keeping: a hardcoded allow-ref is one careless edit away from naming
+// production, and it travels with the file into every branch and every patch.
+//
+// The DENY list stays hardcoded. That asymmetry is the point: what may be targeted is a decision
+// made at run time by a person, what may NEVER be targeted is a property of the source. Setting
+// LEDGER_TARGET_REF to production therefore does not help — the deny check runs first.
+const ALLOWED_PROJECT_REFS = (process.env.LEDGER_TARGET_REF || '').split(',').map(s => s.trim()).filter(Boolean);
+const DENY_PROJECT_REFS    = [
+  'ecapmcyumpjjgjwuokyv',   // production — never, under any circumstances
+  'eubbgurdwqmwqduamwhn',   // retired staging — retired by the binding incident
+];
 function assertSafeTarget() {
   const host = (SB_URL || '').replace(/^https?:\/\//, '').split('.')[0];
   const fail = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
   if (!host) fail('cannot determine Supabase project ref from SB_URL');
   if (DENY_PROJECT_REFS.includes(host)) fail(`SB_URL points at a DENIED (production) project: ${host}`);
-  if (!ALLOWED_PROJECT_REFS.includes(host)) fail(`SB_URL project ${host} is not in the staging allowlist`);
+  if (!ALLOWED_PROJECT_REFS.length) fail('LEDGER_TARGET_REF is not set — refusing to guess a target');
+  if (!ALLOWED_PROJECT_REFS.includes(host)) fail(`SB_URL project ${host} is not in LEDGER_TARGET_REF`);
   if (process.env.ALLOW_STAGING_LEDGER_TESTS !== 'yes') fail('ALLOW_STAGING_LEDGER_TESTS=yes is required');
   console.log(`safety: target project ${host} allowlisted, opt-in present\n`);
 }

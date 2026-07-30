@@ -518,11 +518,14 @@ export default async function handler(req, res) {
 
       // Phase E: Solo tier is single-admin. Team invites require Pro.
       try {
-        const settingsArr = await sb(`settings?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=billing_tier&limit=1`);
+        // settings has no billing_tier column and never has, so the "settings first, then
+        // retailers" precedence this used to implement could not have worked — the first query
+        // 400s on an unknown column and the catch swallows it, meaning EVERY retailer read as
+        // 'solo' and every team invite was refused with plan_upgrade_required.
+        // Migration 0054 removed the identical fiction from enforce_venue_limit(). retailers is
+        // the one place a tier is actually stored.
         const retArr = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=billing_tier`);
-        const settingsTier = (Array.isArray(settingsArr) && settingsArr[0] && settingsArr[0].billing_tier) || null;
-        const retailerTier = (Array.isArray(retArr) && retArr[0] && retArr[0].billing_tier) || null;
-        const tier = (settingsTier || retailerTier || 'solo').toLowerCase();
+        const tier = ((Array.isArray(retArr) && retArr[0] && retArr[0].billing_tier) || 'solo').toLowerCase();
         if (tier === 'solo' || tier === 'free') {
           return res.status(402).json({
             error: 'plan_upgrade_required',
@@ -784,7 +787,7 @@ export default async function handler(req, res) {
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
       try {
-        const rows = await sb(`retailers?verification_status=eq.${wantedStatus}&select=id,slug,name,billing_email,website,verification_status,verified_at,verified_by,verification_notes,created_at,branding&order=created_at.desc`);
+        const rows = await sb(`retailers?verification_status=eq.${wantedStatus}&select=id,slug,name,billing_email,verification_status,verified_at,verified_by,verification_notes,created_at,branding&order=created_at.desc`  /* `website` removed: it is a column on brands, not retailers */);
         return res.status(200).json({ ok: true, retailers: rows || [], status: wantedStatus });
       } catch (e) {
         return res.status(500).json({ error: 'Query failed: ' + (e?.message || e) });
@@ -930,7 +933,10 @@ async function computeOwnerMetrics() {
     safeQuery(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
     safeQuery(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
     safeQuery(`bookings?select=id,retailer_id,brand_id,status,created_at`),
-    safeQuery(`settings?select=retailer_id,billing_tier,price_per_demo`),
+    // settings has neither billing_tier nor price_per_demo. demo_fee is the real per-demo
+    // price column; tier lives on retailers. safeQuery swallowed the 400, so this row of the
+    // owner metrics silently contributed nothing.
+    safeQuery(`settings?select=retailer_id,demo_fee`),
   ]);
   const now = new Date();
   const thisMonth = monthKey(now);

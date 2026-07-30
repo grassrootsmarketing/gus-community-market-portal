@@ -162,13 +162,14 @@ const INACTIVE_BILLING = new Set(['canceled', 'cancelled', 'unpaid', 'past_due',
 
 async function getVenueLimitForRetailer(retailerId) {
   const rid = encodeURIComponent(retailerId);
-  const [settingsRows, retailerRows] = await Promise.all([
-    sb(`settings?retailer_id=eq.${rid}&select=billing_tier&limit=1`),
-    sb(`retailers?id=eq.${rid}&select=billing_tier,billing_status&limit=1`),
-  ]);
-  const settingsTier = Array.isArray(settingsRows) && settingsRows[0] ? settingsRows[0].billing_tier : null;
+  // The settings lookup that used to sit here read settings.billing_tier, a column that does
+  // not exist. It 400'd on every call, so `settingsTier` was always null and the expression
+  // below always fell through to retailers.billing_tier. Removing the query changes no
+  // behaviour and stops the code from describing a precedence rule it never applied.
+  // Migration 0054 removed the same fiction from enforce_venue_limit().
+  const retailerRows = await sb(`retailers?id=eq.${rid}&select=billing_tier,billing_status&limit=1`);
   const retailer = Array.isArray(retailerRows) && retailerRows[0] ? retailerRows[0] : {};
-  const tier = String(settingsTier || retailer.billing_tier || 'solo').toLowerCase().trim();
+  const tier = String(retailer.billing_tier || 'solo').toLowerCase().trim();
   let limit = TIER_LIMITS[tier] || 1;
   if (limit > 1 && INACTIVE_BILLING.has(String(retailer.billing_status || '').toLowerCase().trim())) {
     limit = 1;
