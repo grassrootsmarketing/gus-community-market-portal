@@ -105,7 +105,6 @@ td { padding: 14px 12px; border-bottom: 1px solid rgba(15,44,23,0.04); font-size
 
 <script>
 const RETAILER_SLUG = (location.pathname.match(/\/b\/([^/]+)/) || [])[1] || '';
-const SESSION_KEY = 'demohub_brand_session_' + RETAILER_SLUG;
 
 const els = {
   loginView: document.getElementById('loginView'),
@@ -130,9 +129,16 @@ function setNotice(text, kind) {
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function api(payload) {
-  const r = await fetch('/api/brand-portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  // credentials: 'same-origin' is what authenticates the call now — the session is an HttpOnly
+  // cookie, so it is never in `payload` and never readable from this script.
+  const r = await fetch('/api/brand-portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+  if (!r.ok) {
+    // Keep the status so callers can tell "not signed in" (401) from "something broke".
+    const err = new Error(j.error || ('HTTP ' + r.status));
+    err.status = r.status;
+    throw err;
+  }
   return j;
 }
 
@@ -148,16 +154,20 @@ function showDash() {
 }
 
 function logout() {
-  localStorage.removeItem(SESSION_KEY);
+  // Codex finding B: this used to sign the brand out by deleting the session from localStorage.
+  // There is nothing here to delete now — the session is an HttpOnly cookie, so only the server
+  // can end it, and /api/brand-portal (retired, see the 410 in the handler) has no logout action
+  // to call. So this is a local view reset and the copy says exactly that rather than claiming a
+  // sign-out it cannot perform.
   showLogin();
-  setNotice('Signed out.', 'info');
+  setNotice('Returned to sign-in. Close this tab to finish leaving.', 'info');
 }
 
 async function loadDashboard() {
-  const session_id = localStorage.getItem(SESSION_KEY);
-  if (!session_id) { showLogin(); return; }
+  // No local "do I have a session" pre-check is possible or wanted: the cookie is invisible to
+  // this script, so the server's answer to the data call IS the answer to "am I signed in".
   try {
-    const data = await api({ action: 'data', session_id, retailer_slug: RETAILER_SLUG });
+    const data = await api({ action: 'data', retailer_slug: RETAILER_SLUG });
     showDash();
     els.brandHeading.textContent = data.brand.company || data.brand.name || 'Your demos';
     els.brandSub.textContent = `Hi ${data.brand.name || ''} — here's what's coming up at ${data.retailer.name}.`;
@@ -206,10 +216,10 @@ async function loadDashboard() {
       }).join('') + '</tbody></table>';
     }
   } catch (e) {
-    // Invalid/expired session → drop it and show login
-    localStorage.removeItem(SESSION_KEY);
     showLogin();
-    setNotice('Your sign-in expired. Please request a new link.', 'info');
+    // 401 is the ordinary signed-out case (first visit, or after sign-out) and needs no scare
+    // copy. Anything else really did fail.
+    if (e.status !== 401) setNotice('Your sign-in expired. Please request a new link.', 'info');
   }
 }
 
@@ -218,13 +228,13 @@ async function init() {
   const params = new URLSearchParams(location.search);
   const token = params.get('token');
   if (token) {
+    // Strip the token before the exchange, not after: an in-flight verify can take seconds, and
+    // for all of them the sign-in credential would sit in history and in outgoing Referer headers.
+    history.replaceState(null, '', window.location.pathname);
     try {
-      const j = await api({ action: 'verify', token });
-      if (j.session_id) {
-        localStorage.setItem(SESSION_KEY, j.session_id);
-        // Clean the URL so the token isn't shareable in the address bar
-        history.replaceState({}, '', location.pathname);
-      }
+      // verify sets the HttpOnly session cookie server-side. Nothing to store here — the old
+      // localStorage write is exactly the XSS-readable copy Codex finding B is about.
+      await api({ action: 'verify', token });
     } catch (e) {
       setNotice('That sign-in link is invalid or expired.', 'err');
     }

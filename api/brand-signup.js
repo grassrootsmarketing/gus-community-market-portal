@@ -7,6 +7,8 @@ import crypto from 'node:crypto';
 import { createChallenge, hashCode } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { setSessionCookie as setRoleCookie } from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
 let _b = null;
 
@@ -19,11 +21,10 @@ function rest(path, opts = {}) {
 
 // Set the HttpOnly brand-session cookie (matches brand-account.js) so a verified brand is
 // immediately signed in for booking — no token handling in page JS.
+// Codex finding B: "matches brand-account.js" was a promise kept by hand, in a duplicated
+// attribute string. Delegated, so the name and attributes have one definition.
 function setBrandCookie(res, token) {
-  const cookie = `dh_brand_session=${encodeURIComponent(token)}; Path=/; Max-Age=2592000; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
+  setRoleCookie(res, 'brand', token);
 }
 
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
@@ -69,6 +70,8 @@ async function _retired_provisionOrClaimVerifiedBrand(email, password, profile =
   await rest('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: e, role: 'owner', name: profile.contact_name || null }) }).catch(() => {});
   const token = crypto.randomUUID();
   await rest('brand_account_sessions', { method: 'POST', body: JSON.stringify({ session_token: token, brand_id: brandId, email: e, expires_at: new Date(Date.now() + 30 * 864e5).toISOString() }) });
+  // session_token here reaches no HTTP response: this whole function is unreachable (its only
+  // export is the throwing stub above), and the live verify path returns brand_id + created only.
   return { ok: true, brand_id: brandId, session_token: token };
 }
 
@@ -111,6 +114,9 @@ function clientIp(req) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+  // Codex finding B: the verify action creates or claims a brand account and issues a session
+  // cookie, so a cross-origin page must not be able to drive it. No exemption applies.
+  if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();

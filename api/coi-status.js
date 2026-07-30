@@ -2,8 +2,10 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/coi-status.js — retailer-facing COI status (work order Phase 4).
 //   GET  (session)                 -> { pending: [{booking_id, brand_name, demo_date}] } for upcoming COI-pending demos
 //   POST action=waive {booking_id} -> sets coi_waived_at / coi_waived_by on a booking the retailer owns
-// Uses the shared COI helper so there is one source of truth. Requires a retailer admin session
-// (dh_session cookie or session_id). Reads brands.default_coi_url (brand-level source; the cron
+// Uses the shared COI helper so there is one source of truth. Requires a retailer admin session,
+// carried ONLY in the dh_retailer_session cookie — the retired dh_session name and the
+// ?session_id= alternative are both gone (Codex finding B).
+// Reads brands.default_coi_url (brand-level source; the cron
 // additionally consults compliance_records — the badge uses the brand-level signal, which is what
 // all brand-facing UI writes to).
 //
@@ -13,8 +15,8 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 import { hasCurrentCoi, brandVerifiedState } from './_coi-lib.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
-const SESSION_COOKIE = 'dh_session';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
 
@@ -27,12 +29,6 @@ async function sb(path, opts = {}) {
   let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
   if (!r.ok) throw new Error(json && json.message ? json.message : (text || `sb HTTP ${r.status}`));
   return json;
-}
-function parseCookies(req) {
-  const out = {}; const raw = req.headers && req.headers['cookie'];
-  if (!raw) return out;
-  for (const part of raw.split(';')) { const i = part.indexOf('='); if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); }
-  return out;
 }
 // (dead auth helper removed — all authorization goes through _retailer-auth.js)
 function ymd(d) { return d.toISOString().slice(0, 10); }
@@ -47,7 +43,10 @@ async function readBody(req) {
 
 export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
-  const cookies = parseCookies(req);
+  // The waive action below is a compliance state transition on a booking. Checked before the body
+  // is read; a no-op for the GET status list, which checkSameOrigin() treats as a safe method.
+  // No exemption applies: the COI cron is a separate route (api/coi-enforcement.js).
+  if (!requireSameOrigin(req, res, _b)) return;
   const body = (req.method === 'POST') ? await readBody(req) : {};
   const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
   if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });

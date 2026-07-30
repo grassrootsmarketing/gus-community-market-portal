@@ -559,37 +559,19 @@ document.addEventListener('keydown', function(e) {
 </div>
 
 <script>
-const SESSION_KEY = 'demohub_brand_account_session';
-// Session token now lives in an HttpOnly cookie set by /api/brand-account.
-// We keep in-memory storage so existing fetches that pass session_id in body keep working,
-// but nothing sensitive persists to localStorage.
-let sessionToken = null;
-try {
-    const legacy = localStorage.getItem(SESSION_KEY);
-    if (legacy) {
-        // Best-effort migrate legacy localStorage session to cookie, then remove.
-        fetch('/api/brand-account?action=cookie-migrate', {
-            method: 'POST', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ session_token: legacy }),
-            credentials: 'same-origin',
-        }).then(r => {
-            if (r.ok) {
-                sessionToken = legacy;  // valid until server expires it
-                try { localStorage.removeItem(SESSION_KEY); } catch(_){}
-            }
-        }).catch(() => {});
-        // Also seed in-memory synchronously so the initial fetches on this page work
-        sessionToken = legacy;
-    }
-} catch(_){}
+// Codex finding B: this page used to read a session token out of localStorage, hold it in
+// `sessionToken`, POST it to a `cookie-migrate` action to trade it for the HttpOnly cookie, and
+// append it as ?session_id= on every later call. All of that is gone: the session is only ever
+// the HttpOnly dh_brand_session cookie, `cookie-migrate` no longer exists server-side, and every
+// fetch below authenticates purely with credentials: 'same-origin'.
 const main = document.getElementById('mainContent');
 const navAvatar = document.getElementById('navAvatar');
 const navName = document.getElementById('navName');
 
-// Auth is cookie-based (HttpOnly dh_brand_session set at signup/booking). Do NOT gate on the
-// legacy localStorage token — a brand who just signed up during booking has the cookie but no
-// localStorage entry. loadData() verifies the cookie with the server and only redirects to
-// sign-in if that check actually returns 401. This is the post-payment "straight to dashboard" fix.
+// Auth is cookie-based (HttpOnly dh_brand_session set at signup/booking). There is no local
+// signed-in flag to consult: loadData() asks the server and only redirects to sign-in when that
+// check actually returns 401. This is also the post-payment "straight to dashboard" behaviour —
+// a brand who just signed up during booking holds the cookie and nothing else.
 
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(iso, fmt) {
@@ -681,12 +663,10 @@ let _calYear = new Date().getFullYear();
 // ===== Load data =====
 async function loadData() {
   try {
-    const r = await fetch('/api/brand-account?action=data' + (sessionToken ? '&session_id=' + encodeURIComponent(sessionToken) : ''), { credentials: 'same-origin' });
+    const r = await fetch('/api/brand-account?action=data', { credentials: 'same-origin' });
     if (r.status === 401) {
-        try { localStorage.removeItem(SESSION_KEY); } catch(_){}
-        // Ask server to clear the cookie (best-effort)
+        // Ask the server to clear the cookie (best-effort) — it is the only party that can.
         try { fetch('/api/brand-account?action=logout', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}', credentials: 'same-origin' }); } catch(_){}
-        sessionToken = null;
         window.location.href = '/brand/signin'; return;
     }
     _data = await r.json();
@@ -1690,9 +1670,10 @@ function setupCoiWidget() {
     const reader = new FileReader();
     reader.onload = async () => {
       try {
-        const r = await fetch('/api/brand-account?action=upload-coi&session_id=' + encodeURIComponent(sessionToken), {
+        const r = await fetch('/api/brand-account?action=upload-coi', {
           method: 'POST', headers: {'Content-Type':'application/json'},
           body: JSON.stringify({ file: reader.result, filename: file.name }),
+          credentials: 'same-origin',
         });
         const j = await r.json().catch(() => ({}));
         // Prefer the server's human message over the machine error code.
@@ -1802,8 +1783,8 @@ function setupCoiWidget() {
 // ===== Brand portal write actions (save profile, remove COI/avatar, sign out, team) =====
 async function _brandApi(action, payload, method) {
   const m = (method || 'POST').toUpperCase();
-  const url = '/api/brand-account?action=' + encodeURIComponent(action) + '&session_id=' + encodeURIComponent(sessionToken);
-  const opts = { method: m, headers: {'Content-Type':'application/json'} };
+  const url = '/api/brand-account?action=' + encodeURIComponent(action);
+  const opts = { method: m, headers: {'Content-Type':'application/json'}, credentials: 'same-origin' };
   if (payload !== undefined && m !== 'GET') opts.body = JSON.stringify(payload || {});
   const r = await fetch(url, opts);
   let j = null; try { j = await r.json(); } catch(_) {}
@@ -1892,8 +1873,9 @@ window.removeAvatar = async function() {
 
 // Sign out
 window.brandSignOut = async function() {
+  // The logout call is the whole of sign-out now: it deletes the session row and clears the
+  // HttpOnly cookie. There is no browser-side copy left to remove.
   try { await _brandApi('logout', {}); } catch(_) {}
-  try { localStorage.removeItem('demohub_brand_account_session'); } catch(_) {}
   window.location.href = '/brand/signin';
 };
 
@@ -2039,19 +2021,17 @@ async function renderAgreements() {
     </div></div>
     <div id="agreementsList"><div class="loading"><div class="spinner"></div><div>Loading your agreements…</div></div></div>
   `;
-  const profileEmail = (_data.profile && _data.profile.email) || (_session && _session.email) || '';
+  const profileEmail = (_data.profile && _data.profile.email) || '';
   if (!profileEmail) {
     document.getElementById('agreementsList').innerHTML = '<div style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:12px; padding:24px; text-align:center; color:var(--ink-500);">Sign in to see your agreements.</div>';
     return;
   }
   let agreements = [];
   try {
-    // Use the same session_id pattern as /api/brand-account?action=data
-    // Prefer the in-memory token seeded from the legacy migration; server also has the cookie.
-    const sessionToken = (typeof window !== 'undefined' && window.sessionToken) || localStorage.getItem('demohub_brand_account_session') || '';
-    const r = await fetch('/api/brand-account?action=agreement-list&session_id=' + encodeURIComponent(sessionToken), {
+    const r = await fetch('/api/brand-account?action=agreement-list', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'agreement-list', session_id: sessionToken }),
+      body: JSON.stringify({ action: 'agreement-list' }),
+      credentials: 'same-origin',
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || 'Failed to load');

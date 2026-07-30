@@ -17,6 +17,8 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { getSessionToken } from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const BUCKET = 'coi-docs';
 const SIGNED_TTL_SECONDS = 60;
@@ -28,11 +30,6 @@ async function sb(path) {
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error(t || ('HTTP ' + r.status));
   return j;
-}
-function parseCookies(req) {
-  const out = {}; const raw = req.headers.cookie || '';
-  for (const part of raw.split(';')) { const i = part.indexOf('='); if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); }
-  return out;
 }
 
 // Accepts either a bare storage path ("brands/<id>.pdf") or a legacy full URL, and returns the
@@ -52,15 +49,23 @@ export default async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  // Wired for completeness, not because it fires today: checkSameOrigin() short-circuits on GET,
+  // and this route is GET-only. It is here so that if a method is ever added to this handler the
+  // guard is already in place, rather than being the thing someone remembers to add afterwards.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   const brandId = String((req.query && req.query.brand_id) || '').trim();
   if (!/^[0-9a-f-]{36}$/i.test(brandId)) return res.status(400).json({ error: 'brand_id required' });
 
   // ---- authorise ----
   let allowed = false;
-  const cookies = parseCookies(req);
 
-  // (a) the brand viewing its own certificate
-  const brandSession = cookies['dh_brand_session'] || String((req.query && req.query.session_token) || '');
+  // (a) the brand viewing its own certificate.
+  // Codex finding B: this accepted ?session_token= as an alternative to the cookie. A COI link is
+  // exactly the kind of URL that gets forwarded, bookmarked and pasted into a support ticket, so a
+  // session in its query string outlives the page it was minted for — in browser history, in access
+  // logs, and in the Referer sent to whatever the signed URL redirects to. Cookie only.
+  const brandSession = getSessionToken(req, 'brand');
   if (brandSession) {
     try {
       const rows = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(brandSession)}&select=brand_id,expires_at`);

@@ -4,6 +4,7 @@
 import { requireBrandSession } from './_booking-identity.js';
 import { coiCovered } from './_coi-coverage.js';
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
@@ -11,6 +12,10 @@ const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+  // Codex finding B, CSRF wiring: this is the live brand booking endpoint — it creates a booking under the caller's brand.
+  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // and carries neither a Stripe signature nor a CRON_SECRET.
+  if (!requireSameOrigin(req, res, _b)) return;
   let body={}; try{ body = typeof req.body==='string'?JSON.parse(req.body||'{}'):(req.body||{}); }catch(_){}
 
   // 1) identity comes from the authenticated brand session

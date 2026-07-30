@@ -178,7 +178,7 @@ footer a { color:var(--forest-700); }
   </ul>
 
   <h3>Cookies and local storage</h3>
-  <p>Demohub does not use third-party tracking cookies. We rely on browser <code>localStorage</code> to keep you signed in (we store an opaque session ID, not your email or name). When you sign out, the session ID is removed. PostHog uses first-party local storage for analytics; you can opt out by appending <code>?__qa=1</code> to any URL in your session.</p>
+  <p>Demohub does not use third-party tracking cookies. We keep you signed in with a first-party, HttpOnly session cookie (an opaque session ID, not your email or name) that JavaScript on the page cannot read. When you sign out, the cookie is cleared and the session is deleted server-side. Browser <code>localStorage</code> is used only for interface preferences &mdash; things like which product tour you have seen and which banners you have dismissed &mdash; never for sign-in credentials. PostHog uses first-party local storage for analytics; you can opt out by appending <code>?__qa=1</code> to any URL in your session.</p>
 
   <h2>2. How we use information</h2>
   <ul>

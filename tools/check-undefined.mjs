@@ -9,6 +9,8 @@
 //
 // Reports every violation in one pass; exits nonzero if any remain.
 import { execFileSync } from 'node:child_process';
+import { relative, sep } from 'node:path';   // POSIX-only string surgery on cwd broke the
+                                            // relative-path display on Windows (no match, so absolute paths leaked).
 
 let out = '';
 try {
@@ -24,7 +26,7 @@ const undef = [];
 for (const r of results) {
   for (const m of r.messages) {
     if (m.ruleId === 'no-undef') {
-      undef.push(`${r.filePath.replace(process.cwd() + '/', '')}:${m.line}  ${m.message}`);
+      undef.push(`${relative(process.cwd(), r.filePath).split(sep).join('/')}:${m.line}  ${m.message}`);
     }
   }
 }

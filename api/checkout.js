@@ -7,6 +7,7 @@ import { requireBrandSession } from './_booking-identity.js';
 import { FLAGS, maxCartSize } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 const STRIPE = process.env.STRIPE_SECRET_KEY;
 let _b = null;
 // SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
@@ -34,6 +35,10 @@ export default async function handler(req, res) {
   if (!FLAGS.checkoutEnabled) return res.status(503).json({ error: 'checkout_disabled', message: 'Checkout is temporarily paused. Please try again shortly.' });
   if (!STRIPE) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+  // Codex finding B, CSRF wiring: this route claims a payment group and opens a Stripe Checkout Session.
+  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // and carries neither a Stripe signature nor a CRON_SECRET.
+  if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
   const auth = await requireBrandSession(req, body);

@@ -14,6 +14,7 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
@@ -55,6 +56,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+  // Codex finding B, CSRF wiring: adopt/replace resolve a parked refund and can release a reservation or mint a new one.
+  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // and carries neither a Stripe signature nor a CRON_SECRET.
+  if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
   // owner/admin only — a manager or viewer may not move money

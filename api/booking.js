@@ -7,6 +7,8 @@ import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
 import { requireBrandSession } from './_booking-identity.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { getSessionToken } from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -198,6 +200,11 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  // Codex finding B: both actions on this route are cookie-authenticated POSTs — agreement-check
+  // reads the brand session, and booking creation requires a retailer staff session. Checked here,
+  // before the body is parsed. No exemption applies: no webhook, no cron.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
@@ -258,9 +265,11 @@ export default async function handler(req, res) {
     // requires an authenticated RETAILER ADMIN session for THIS retailer (staff manual bookings).
     // Public brands book through /api/book, which derives identity from the brand session.
     {
-      const _cookie = (req.headers && req.headers.cookie) || '';
-      const _m = /(?:^|;\s*)dh_session=([^;]+)/.exec(_cookie);
-      const _sid = _m ? decodeURIComponent(_m[1]) : (body && body.session_id);
+      // Codex finding B: the staff session was read here by a private regex over the raw Cookie
+      // header, with a body.session_id fallback behind it. A per-file regex is a per-file rename
+      // hazard — this one still spelled the retired dh_session — so the shared reader is the only
+      // way in now, and the body fallback is gone with it.
+      const _sid = getSessionToken(req, 'retailer');
       // P0-1 (strict): valid session + LIVE membership + booking-capable role (blocks viewer/removed).
       const _staff = await verifyRetailerStaff(_sid, RETAILER_ID);
       if (!_staff.ok) return res.status(_staff.status).json({ error: _staff.error, message: 'Staff sign-in with booking permission required. Brands book at /api/book.' });

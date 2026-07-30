@@ -3,22 +3,21 @@
 // (LG-01) and stops the agreement-record disclosure.
 
 import { getBinding } from './_env.js';
+import { getSessionToken } from './_cookies.js';
 
 async function rest(path) {
   const b = await getBinding();
   return fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}` } });
 }
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie']; const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) { const i = seg.indexOf('='); if (i < 0) continue; const k = seg.slice(0, i).trim(); if (k) { try { out[k] = decodeURIComponent(seg.slice(i + 1).trim()); } catch (_) { out[k] = seg.slice(i + 1).trim(); } } }
-  return out;
-}
 
 // The authoritative identity resolver. Returns {ok, brandId, email} from the session ALONE.
-export async function requireBrandSession(req, body) {
-  const c = parseCookies(req);
-  const token = c['dh_brand_session'] || (body && (body.session_token || body.session_id)) || null;
+//
+// Codex finding B: "from the session alone" was already the rule for the EMAIL, but the session
+// itself was accepted from body.session_token / body.session_id as well as the cookie. Booking and
+// agreement signing are the actions this resolver gates, so a session that can arrive in a request
+// body is a session that can be replayed out of any log or proxy that recorded that body.
+export async function requireBrandSession(req, _body) {
+  const token = getSessionToken(req, 'brand');
   if (!token) return { ok: false, status: 401, error: 'sign in to book' };
   try {
     const r = await rest(`brand_account_sessions?session_token=eq.${encodeURIComponent(token)}&select=brand_id,email,expires_at&limit=1`);

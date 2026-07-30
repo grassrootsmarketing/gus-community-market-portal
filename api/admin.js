@@ -6,10 +6,13 @@
 // Query params:
 //   table=<allowed-table>       — required
 //   id=<uuid>                   — required for PATCH/DELETE
-//   session_id=<uuid>           — required
 // Body (for POST/PATCH): JSON; must include retailer_id for POST.
+// The session arrives ONLY in the dh_retailer_session cookie — never as ?session_id=, which is
+// what this route used to document and accept (Codex finding B).
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { readCookies, getSessionToken } from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 
 const ALLOWED_TABLES = new Set([
@@ -65,34 +68,13 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
 // -----------------------------------------------------------------------------
-// HttpOnly cookie: prefer cookie over query/body for auth. Opportunistically
-// set the cookie for callers that authenticated via legacy body/query so they
-// upgrade seamlessly to cookie-only over time.
+// Session transport — api/_cookies.js is the single implementation (Codex finding B). This file's
+// own copy of the attribute string and the retired dh_session name are gone; the local setter went
+// with the "authenticated via body, so upgrade them to a cookie" branch it existed to serve.
+// parseCookies survives as a thin alias because the impersonation MARKER cookie (dh_support) is
+// deliberately not a session and is still read by name below.
 // -----------------------------------------------------------------------------
-const SESSION_COOKIE = 'dh_session';
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie'];
-  const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) {
-    const i = seg.indexOf('=');
-    if (i < 0) continue;
-    const k = seg.slice(0, i).trim();
-    const v = seg.slice(i + 1).trim();
-    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
-  }
-  return out;
-}
-
-function setSessionCookie(res, sessionId) {
-  if (!sessionId) return;
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
-}
+const parseCookies = readCookies;
 
 // Level 3: increment support_sessions.writes_count if this request runs under an
 // impersonation session (detected by dh_support marker cookie). Fire-and-forget —
@@ -115,15 +97,11 @@ async function bumpSupportWriteCounter(req, session_id) {
   } catch (_) { /* never throws into the write path */ }
 }
 
+// Cookie only. The body/query fallbacks this used to try — including a JSON.parse of the request
+// body purely to fish out session_id — meant every generic-proxy call could carry the credential
+// in its URL, and this route can write any allowed table.
 function getSessionIdFromReq(req) {
-  const cookies = parseCookies(req);
-  const bodySid = (() => {
-    try {
-      const b = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-      return b.session_id || null;
-    } catch (_) { return null; }
-  })();
-  return cookies[SESSION_COOKIE] || bodySid || (req.query && req.query.session_id) || null;
+  return getSessionToken(req, 'retailer');
 }
 
 // Inline session verification (mirrors verifyAdminSession in admin-auth.js).
@@ -213,14 +191,16 @@ export default async function handler(req, res) {
 
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  // Codex finding B: this is the generic service-role proxy — one POST/PATCH/DELETE here can write
+  // any allowed table. Checked before the session is read and before any table is touched. No
+  // exemption applies: every method this route serves is cookie-authenticated.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   const { table, id } = req.query || {};
-  // === Session check (cookie first, query/body fallback for backwards compat) ===
+  // === Session check — cookie only ===
   const session_id = getSessionIdFromReq(req);
   const session = await verifySession(session_id);
   if (!session) return send(res, 401, { error: 'Invalid or missing admin session' });
-  // Opportunistic upgrade: if authenticated via body/query but no cookie yet, set it.
-  const _cookies = parseCookies(req);
-  if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
 
   // P0-1/P0-8 containment: EVERY retailer request requires a LIVE exact membership (fail closed).
   // Closes the forged-session chain (a session whose email is not an exact member is rejected here,
@@ -247,7 +227,7 @@ export default async function handler(req, res) {
   // === Privacy Phase 0: read-all action ===
   // Replaces direct anon SELECTs from the retailer admin page. Returns every
   // bit of state for the session's retailer in one call, fully filtered server-side.
-  // Frontend calls: GET /api/admin?action=data&session_id=<uuid>
+  // Frontend calls: GET /api/admin?action=data (session from the cookie)
   if (req.method === 'GET' && req.query?.action === 'data') {
     try {
       const rid = session.retailer_id;

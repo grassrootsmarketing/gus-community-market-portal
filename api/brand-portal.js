@@ -1,13 +1,15 @@
 // /api/brand-portal — Brand-side auth + data fetch.
 // Actions:
 //   POST { action: "login",  email, retailer_slug }  → emails a magic link
-//   POST { action: "verify", token }                  → returns { session_id, email, retailer_id }
-//   POST { action: "data",   session_id, retailer_slug } → returns { brand, demos, compliance }
+//   POST { action: "verify", token }                  → sets dh_brand_session cookie
+//   POST { action: "data",   retailer_slug }          → returns { brand, demos, compliance }
 //
 // Uses service_role; brand_tokens and brand_sessions tables are RLS-locked so only
 // this endpoint touches them.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { setSessionCookie, getSessionToken } from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -85,6 +87,10 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  // Codex finding B. Unreachable behind the 410 above, and kept exactly because of that: if this
+  // route is ever revived, it is revived with the guard already on it. No exemption applies.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     const action = body?.action;
@@ -141,13 +147,28 @@ export default async function handler(req, res) {
         body: JSON.stringify({ email: trow.email, retailer_id: trow.retailer_id }),
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
-      return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id });
+      if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
+      // Role 'brand', not 'retailer': every signal in this file is brand-side — brand_tokens,
+      // brand_sessions, brand_contacts, the /b/<slug>/ portal path, and a magic-link email that
+      // says "view your demos at <retailer>". The retailer_slug here scopes WHICH retailer's demos
+      // a brand contact may see; it does not make the caller retailer staff.
+      //
+      // CAVEAT, recorded because reviving this route without reading it would break sign-in:
+      // dh_brand_session is validated elsewhere (api/_booking-identity.js, api/brand-account.js)
+      // against brand_account_sessions.session_token, while this route mints a row in the DIFFERENT
+      // brand_sessions table. The mismatch fails closed — the token simply does not resolve — but it
+      // would evict a live booking session. The right fix on revival is to issue a
+      // brand_account_sessions token here, not to give this dead route a fourth cookie name.
+      setSessionCookie(res, 'brand', session.session_id);
+      return res.status(200).json({ ok: true, email: trow.email, retailer_id: trow.retailer_id });
     }
 
     // ---- DATA: return demos + COI for this brand ----
     if (action === 'data') {
-      const { session_id, retailer_slug } = body || {};
-      if (!session_id || !retailer_slug) return res.status(400).json({ error: 'session_id and retailer_slug required' });
+      const { retailer_slug } = body || {};
+      const session_id = getSessionToken(req, 'brand');
+      if (!session_id) return res.status(401).json({ error: 'Not authenticated' });
+      if (!retailer_slug) return res.status(400).json({ error: 'retailer_slug required' });
 
       const sessions = await sb(`brand_sessions?session_id=eq.${encodeURIComponent(session_id)}&select=*`);
       const session = Array.isArray(sessions) ? sessions[0] : null;

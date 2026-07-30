@@ -883,14 +883,36 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // Phase F: Preview mode banner. Only visible to retailers signed in as admin visiting their own /r/{slug}.
         // Brands never see this. Copies the "add a location" nudge inline as a thin, dismissable banner
         // so the LIVE page still shows exactly what brands see below.
+        // Codex finding B: "is a retailer admin looking at their own page" used to be answered by
+        // the presence of a session id in localStorage. That session is now an HttpOnly cookie
+        // page script cannot read, so the only source of truth is the server: /api/admin-auth
+        // action:'data' answers 200 for a live staff session and 401 otherwise. Asked at most once
+        // per page load, and only when the banner could actually appear.
+        let _isRetailerAdmin = false;
+        let _retailerAdminProbe = null;
+        function _probeRetailerAdmin() {
+            if (!_retailerAdminProbe) {
+                _retailerAdminProbe = fetch('/api/admin-auth', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'data', retailer_slug: RETAILER_SLUG || '' }),
+                    credentials: 'same-origin',
+                }).then(r => r.ok).catch(() => false).then(ok => { _isRetailerAdmin = ok; return ok; });
+            }
+            return _retailerAdminProbe;
+        }
         function _renderPreviewBanner() {
             const slug = RETAILER_SLUG || '';
-            const isRetailerViewer = !!localStorage.getItem('demohub_admin_session_' + slug);
             let banner = document.getElementById('previewBanner');
             const venues = (window.state && window.state.venues) || [];
-            const shouldShow = isRetailerViewer && venues.length === 0;
-            if (!shouldShow) {
+            if (venues.length !== 0) {
                 if (banner) banner.remove();
+                return;
+            }
+            if (!_isRetailerAdmin) {
+                if (banner) banner.remove();
+                // Unknown is treated as "not an admin" so a brand never flashes the banner; if the
+                // server says otherwise we re-render once the answer lands.
+                _probeRetailerAdmin().then(ok => { if (ok) _renderPreviewBanner(); });
                 return;
             }
             if (banner) return; // already shown
@@ -1813,27 +1835,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
 
         // ===== Password gate =====
-        function openPasswordModal() {
-            const m = document.getElementById('passwordModal');
-            m.classList.add('active');
-            const inp = document.getElementById('passwordInput');
-            inp.value = '';
-            document.getElementById('passwordError').style.display = 'none';
-            setTimeout(() => inp.focus(), 50);
-        }
-        function closePasswordModal() {
-            document.getElementById('passwordModal').classList.remove('active');
-        }
-        function submitPassword() {
-            const val = document.getElementById('passwordInput').value;
-            if (val === 'testpass') {
-                sessionStorage.setItem('adminUnlocked', '1');
-                closePasswordModal();
-                showView('admin');
-            } else {
-                document.getElementById('passwordError').style.display = 'block';
-            }
-        }
+        // Codex finding B: openPasswordModal / closePasswordModal / submitPassword removed. They
+        // compared a typed value against the literal 'testpass' and recorded the result as an
+        // 'adminUnlocked' sessionStorage flag — a browser-side "am I signed in" decision, which is
+        // exactly what this change removes. Nothing called them and there is no #passwordModal in
+        // the markup, so they were dead, but a hardcoded password check shipped in a page reads
+        // like a real control to whoever audits it next. Access control is the server session.
 
         // ===== Supabase client + cached state =====
         // R2 cutover: dead constants removed. This page never queried Supabase directly
@@ -1864,8 +1871,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         window._brandProfile = j.profile;
                     }
                 }
-                // Legacy cleanup: nuke old localStorage entry so we don't leak session material
-                try { localStorage.removeItem('demohub_brand_account_session'); } catch (_) {}
             } catch (e) { /* silent */ }
             renderBrandAuthUi();
         }
@@ -1898,7 +1903,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     credentials: 'same-origin',
                 });
             } catch (_) {}
-            try { localStorage.removeItem('demohub_brand_account_session'); } catch (_) {}
             window._brandProfile = null;
             renderBrandAuthUi();
         };

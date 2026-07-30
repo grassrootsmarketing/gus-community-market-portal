@@ -11,6 +11,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 //   SUPABASE_SERVICE_KEY
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
@@ -76,40 +77,13 @@ async function stripe(method, path, body) {
 // (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 // -----------------------------------------------------------------------------
-// HttpOnly cookie: prefer cookie session over body/query for auth.
+// Codex finding B: the local cookie helpers are deleted, not re-pointed. This route's only reader
+// fed the opportunistic set-cookie below, and authorization itself goes through _retailer-auth.js,
+// which now reads dh_retailer_session directly — so there is no remaining consumer of a session
+// value in this file, and the body/query fallback that used to sit behind the cookie is gone.
+// (The `session_id` in the subscribe response further down is a STRIPE CHECKOUT session id, not an
+// auth session — it is public by design and deliberately untouched.)
 // -----------------------------------------------------------------------------
-const SESSION_COOKIE = 'dh_session';
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie'];
-  const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) {
-    const i = seg.indexOf('=');
-    if (i < 0) continue;
-    const k = seg.slice(0, i).trim();
-    const v = seg.slice(i + 1).trim();
-    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
-  }
-  return out;
-}
-
-function setSessionCookie(res, sessionId) {
-  if (!sessionId) return;
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
-}
-
-function getSessionIdFromReq(req, body) {
-  const cookies = parseCookies(req);
-  return cookies[SESSION_COOKIE]
-    || (body && body.session_id)
-    || (req.query && req.query.session_id)
-    || null;
-}
 
 // ----- price/product lookup (cached in-memory per cold start) -----
 let _priceCache = null;
@@ -142,16 +116,17 @@ export default async function handler(req, res) {
     if (!STRIPE_SECRET_KEY) return jsonResp(res, 500, { error: 'STRIPE_SECRET_KEY not configured' });
     try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+    // Codex finding B: every action here starts, cancels or resyncs a billing subscription for the
+    // caller's retailer. Checked before the session is read. No exemption applies — Stripe reaches
+    // this platform through api/stripe-webhook.js, never through this route.
+    if (!requireSameOrigin(req, res, _b)) return;
+
     const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
     const action = (req.query?.action || body.action || '').toString();
-    // Prefer cookie session; fall back to query/body for backwards compat.
-    const session_id = getSessionIdFromReq(req, body);
 
     const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin']);
     if (!_auth.ok) return jsonResp(res, _auth.status, { error: _auth.error });
     const session = { retailer_id: _auth.retailer_id, email: _auth.email };
-    const _cookies = parseCookies(req);
-    if (!_cookies[SESSION_COOKIE] && session_id) setSessionCookie(res, session_id);
 
     const retailerArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=*`);
     const retailer = Array.isArray(retailerArr) ? retailerArr[0] : null;

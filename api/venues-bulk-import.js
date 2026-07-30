@@ -6,6 +6,7 @@ const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -115,6 +116,11 @@ export const config = {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+
+  // Codex finding B, CSRF wiring: this route bulk-inserts venues for the caller's retailer from an uploaded CSV.
+  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // and carries neither a Stripe signature nor a CRON_SECRET.
+  if (!requireSameOrigin(req, res, _b)) return;
 
   const _auth = await requireRetailerMembership(req, {}, null, ['owner', 'admin']);
   if (!_auth.ok) return jsonResp(res, _auth.status, { error: _auth.error });

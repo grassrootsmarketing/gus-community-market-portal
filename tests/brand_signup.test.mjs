@@ -27,6 +27,11 @@ const ENV = {
 };
 
 
+// A legitimate caller here is the signup page on this origin, so the mock must carry the header a
+// browser actually sends. Sec-Fetch-Site is the strongest evidence requireSameOrigin() accepts and
+// is not settable by page script — which is exactly why the guard denies a POST that carries none.
+const SAME_ORIGIN = { 'sec-fetch-site': 'same-origin' };
+
 function mockRes() {
   return { statusCode: null, body: null, headers: {},
     setHeader(k, v) { this.headers[k] = v; return this; }, getHeader(k) { return this.headers[k]; },
@@ -72,7 +77,7 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   const f = spyFetch(); globalThis.fetch = f;
   const mod = await import(pathToFileURL(resolve('api', 'brand-signup.js')).href + '?t=' + Math.random());
   const res = mockRes();
-  await mod.default({ method: 'POST', headers: { 'x-forwarded-for': '203.0.113.9' },
+  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
     body: { action: 'request', email: 'attacker@evil.test', company_name: 'TAKEOVER', contact_name: 'X', phone: '1' } }, res);
 
   const brandWrites = f.writes.filter(w => /brands|brand_members|brand_account_sessions/.test(w));
@@ -91,7 +96,7 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   const f = spyFetch(); globalThis.fetch = f;
   const mod = await import(pathToFileURL(resolve('api', 'brand-signup.js')).href + '?t=' + Math.random());
   const res = mockRes();
-  await mod.default({ method: 'POST', headers: { 'x-forwarded-for': '203.0.113.9' },
+  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
     body: { action: 'verify', email: 'attacker@evil.test', code: '000000' } }, res);
 
   ok('verify: uses the atomic redeem RPC', f.rpcs.includes('redeem'));
@@ -110,7 +115,9 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   const mod = await import(pathToFileURL(resolve('api', 'brand-account.js')).href + '?t=' + Math.random());
   const res = mockRes();
   await mod.default({ method: 'POST', url: '/api/brand-account?action=signup', query: { action: 'signup' },
-    headers: {}, body: { action: 'signup', email: 'attacker@evil.test', company_name: 'TAKEOVER' } }, res);
+    headers: { ...SAME_ORIGIN }, body: { action: 'signup', email: 'attacker@evil.test', company_name: 'TAKEOVER' } }, res);
+  // Same-origin on purpose: the claim under test is that the retired path is GONE, so it must not
+  // be able to pass for closed merely because the CSRF guard rejected the request first.
   ok('brand-account?action=signup returns 410', res.statusCode === 410, `— got ${res.statusCode}`);
   ok('retired path writes nothing',
      f.writes.filter(w => /brands|brand_members|brand_account_sessions/.test(w)).length === 0,

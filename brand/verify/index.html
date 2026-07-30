@@ -26,6 +26,11 @@ a { display:inline-block; margin-top:20px; padding:10px 22px; background:#0f2c17
 (async () => {
   const params = new URLSearchParams(window.location.search);
   const token = params.get('t');
+  // Codex finding B: strip the token from the address bar the instant it is captured, before the
+  // exchange below is even started. Doing it after the await would leave a single-use sign-in
+  // credential in browser history — and in the Referer of any subresource — for as long as the
+  // request took. window.location.pathname keeps us on this page with no query string.
+  history.replaceState(null, '', window.location.pathname);
   const box = document.getElementById('box');
   if (!token) {
     box.innerHTML = '<h1>Bad link</h1><p>This link is missing its verification token.</p><a href="/brand/signin">Try again</a>';
@@ -36,10 +41,13 @@ a { display:inline-block; margin-top:20px; padding:10px 22px; background:#0f2c17
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ token }),
+      credentials: 'same-origin',
     });
     const json = await r.json();
-    if (!r.ok || !json.session_token) throw new Error(json.error || 'Verification failed');
-    localStorage.setItem('demohub_brand_account_session', json.session_token);
+    if (!r.ok || !json.ok) throw new Error(json.error || 'Verification failed');
+    // Codex finding B: no localStorage write. The verify response sets the HttpOnly
+    // dh_brand_session cookie, which the browser attaches to every later request on its own.
+    // The old copy in localStorage was readable by any injected script and outlived the tab.
     window.location.href = '/brand/dashboard';
   } catch (err) {
     box.innerHTML = `<h1 class="err">Link expired</h1><p>${err.message}</p><a href="/brand/signin">Request a new link</a>`;

@@ -9,6 +9,14 @@ import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import {
+  setSessionCookie as setRoleCookie,
+  clearSessionCookie as clearRoleCookie,
+  clearAllSessionCookies,
+  getSessionToken,
+  readCookies as parseCookies,
+} from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
@@ -102,40 +110,21 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
 }
 
 // -----------------------------------------------------------------------------
-// HttpOnly cookie for BRAND sessions (dh_brand_session, distinct from dh_session
-// used by retailers). Same invariants: HttpOnly, Secure, SameSite=Lax.
+// Session transport — api/_cookies.js is the single implementation.
+//
+// Codex finding B. This file used to carry its own copy of the cookie attribute string and its
+// own cookie parser, and so did api/admin-auth.js, api/admin.js and api/booking-action.js. Four
+// hand-rolled copies of one security-critical string is four chances for one of them to drift —
+// a dropped Secure, a stray Domain — with nothing that would notice. The wrappers below keep the
+// local names so every existing call site in this file is unchanged, but the attributes, the
+// cookie name and the parsing now come from one place.
 // -----------------------------------------------------------------------------
-const BRAND_SESSION_COOKIE = 'dh_brand_session';
-const BRAND_SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie'];
-  const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) {
-    const i = seg.indexOf('=');
-    if (i < 0) continue;
-    const k = seg.slice(0, i).trim();
-    const v = seg.slice(i + 1).trim();
-    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
-  }
-  return out;
-}
-
 function setBrandSessionCookie(res, token) {
   if (!token) return;
-  const cookie = `${BRAND_SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${BRAND_SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
+  setRoleCookie(res, 'brand', token);
 }
 
-function clearBrandSessionCookie(res) {
-  const cookie = `${BRAND_SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
-}
+function clearBrandSessionCookie(res) { clearRoleCookie(res, 'brand'); }
 
 // -----------------------------------------------------------------------------
 // Password hashing (Node stdlib scrypt — no npm dependency).
@@ -173,14 +162,12 @@ function generateLoginCode() {
   return String(n).padStart(6, '0');
 }
 
-function getBrandSessionFromReq(req, body) {
-  const cookies = parseCookies(req);
-  return cookies[BRAND_SESSION_COOKIE]
-    || (body && body.session_id)
-    || (body && body.session_token)
-    || (req.query && req.query.session_id)
-    || (req.query && req.query.session_token)
-    || null;
+// Codex finding B: the cookie is the ONLY session source. This used to fall back to
+// body.session_id/session_token and to the QUERY STRING, so the brand session secret was landing
+// in browser history, Referer headers and Vercel's access logs, and was readable by any script on
+// the page. The `body` parameter is kept only so the call sites need no edit.
+function getBrandSessionFromReq(req, _body) {
+  return getSessionToken(req, 'brand');
 }
 async function sendMagicLink(email, link, isNew, code) {
   // The link and the code are credentials. If there is no provider key we send nothing and log
@@ -428,12 +415,28 @@ async function sha256Hex(str) {
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
+
+  // Codex finding B: the same-origin gate for every state-changing request on this route.
+  // api/_session.js exported a checkOrigin() helper that no handler ever called — a control that
+  // read as protection and was wired to nothing. This is that check actually invoked: once, after
+  // the binding (the expected origin is derived from the validated binding, never from a
+  // client-controllable forwarded-host header) and before the body is read or any session looked
+  // up. SameSite=Lax alone does not cover this: a sibling subdomain is same-site, so its POSTs
+  // still carry the cookie, and _csrf.js rejects those.
+  // The daily cron arrives as a GET (vercel.json crons) and authenticates with CRON_SECRET rather
+  // than a cookie, so it needs no exemption — GET is a safe method here.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   const body = await readBody(req);
   const action = (req.query?.action || body.action || '').toString();
 
   // DH-12: block GET-triggered mutations. Cookie-authenticated state changes must be POST so a
   // cross-site top-level navigation can't remove a COI/avatar or nuke sessions via the Lax cookie.
-  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere']);
+  // logout, cal_token and cal_revoke were missing: all three change state under the session
+  // cookie, and a safe method bypasses requireSameOrigin by definition, so as GETs they were
+  // reachable by cross-site navigation (sign the user out, or silently rotate/revoke their
+  // calendar URL). Every caller in the repo already POSTs.
+  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke']);
   if (MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
     return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
   }
@@ -583,9 +586,15 @@ export default async function handler(req, res) {
         method: 'POST',
         body: JSON.stringify({ brand_id: tok.brand_id, email: tok.email, session_token: sessionToken, expires_at: sessionExpires }),
       });
-      // Set HttpOnly cookie so future requests authenticate without body-token
+      // Codex finding B: the session leaves here in a Set-Cookie header and nowhere else. It used
+      // to be returned as session_token in this JSON body, which any script on the page (and any
+      // analytics or error reporter that captures responses) could read, and which the dashboard
+      // then persisted to localStorage where an XSS could retrieve it.
+      // The cookie is now the only delivery mechanism, so failing to set it is a failed sign-in,
+      // not a 200 the caller cannot act on.
+      if (!sessionToken) return jsonResp(res, 500, { error: 'Could not start session' });
       setBrandSessionCookie(res, sessionToken);
-      return jsonResp(res, 200, { ok: true, session_token: sessionToken, email: tok.email, brand_id: tok.brand_id });
+      return jsonResp(res, 200, { ok: true, email: tok.email, brand_id: tok.brand_id });
     }
 
     if (action === 'verify') {
@@ -615,9 +624,11 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
       });
-      // Set HttpOnly cookie so subsequent requests authenticate without body-session_token.
+      // Codex finding B: cookie only — the session_token that used to be in this body was read by
+      // brand/verify and written to localStorage. Cookie not set means no session, so fail loudly.
+      if (!sessionToken) return jsonResp(res, 500, { error: 'Could not start session' });
       setBrandSessionCookie(res, sessionToken);
-      return jsonResp(res, 200, { ok: true, session_token: sessionToken });
+      return jsonResp(res, 200, { ok: true });
     }
 
     if (action === 'data') {
@@ -1294,8 +1305,10 @@ export default async function handler(req, res) {
         method: 'POST',
         body: JSON.stringify({ brand_id: member.brand_id, email: member.email, session_token: sessionToken, expires_at: sessionExpires }),
       });
+      // Codex finding B: cookie only, and a missing cookie is a 500 rather than a hollow 200.
+      if (!sessionToken) return jsonResp(res, 500, { error: 'Could not start session' });
       setBrandSessionCookie(res, sessionToken);
-      return jsonResp(res, 200, { ok: true, session_token: sessionToken, email: member.email, brand_id: member.brand_id });
+      return jsonResp(res, 200, { ok: true, email: member.email, brand_id: member.brand_id });
     }
 
     // ---- CLAIM-STATUS: does this brand have a password set? ----
@@ -1313,22 +1326,27 @@ export default async function handler(req, res) {
       });
     }
 
-    // ---- COOKIE-MIGRATE: legacy body session_token → HttpOnly cookie ----
-    if (action === 'cookie-migrate') {
-      const sessionToken = (body.session_token || body.session_id || '').toString();
-      if (!sessionToken) return jsonResp(res, 400, { error: 'session_token required' });
-      const brandId = await verifySession(sessionToken);
-      if (!brandId) return jsonResp(res, 401, { error: 'Session not found or expired' });
-      setBrandSessionCookie(res, sessionToken);
-      return jsonResp(res, 200, { ok: true, brand_id: brandId });
-    }
+    // ---- COOKIE-MIGRATE: REMOVED (Codex finding B) ----
+    // This action existed only to lift a session out of localStorage and into the HttpOnly cookie,
+    // and to do that it had to accept a session secret in a request body — the precise intake this
+    // finding requires gone. It also kept that intake permanently reachable and made it useful:
+    // anyone holding a stolen or logged token could post it here and be handed a valid cookie for
+    // it, which is a session-fixation primitive dressed up as a migration.
+    //
+    // Deleted outright rather than kept behind a flag because there is no real user data to
+    // preserve: the only cost of removal is that a holder of a legacy localStorage token signs in
+    // again. brand/dashboard/index.html still calls this action and will now get 400 Unknown
+    // action; that call and the localStorage session handling around it must be deleted with it.
 
     if (action === 'logout') {
       const sessionToken = getBrandSessionFromReq(req, body);
       if (sessionToken) {
         await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}`, { method: 'DELETE' });
       }
-      clearBrandSessionCookie(res);
+      // Every role cookie, not just the brand one: the user asked to be signed out on this device,
+      // and a retailer or owner session left live behind a completed sign-out is the same defect
+      // Codex called out for impersonation. api/admin-auth.js logout already does this.
+      clearAllSessionCookies(res);
       return jsonResp(res, 200, { ok: true });
     }
 
@@ -1337,13 +1355,19 @@ export default async function handler(req, res) {
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
+      // The rows this cookie names are gone, so leaving it set makes the browser keep presenting a
+      // secret that can never validate again. Clear it here too.
+      clearBrandSessionCookie(res);
       return jsonResp(res, 200, { ok: true });
     }
 
     // P0-7: issue or rotate the brand's calendar token. Requires a real brand session; the token
     // it returns is read-only (feed-only) and can be revoked without touching login sessions.
     if (action === 'cal_token') {
-      const sessionToken = String(body.session_token || (req.query && req.query.session_token) || parseCookies(req)['dh_brand_session'] || '').trim();
+      // Codex finding B: was body.session_token || query.session_token || an inline cookie read.
+      // The query-string branch put the brand session in logs and Referer headers, and the inline
+      // read was a fifth copy of the cookie name. Cookie only, via the one accessor.
+      const sessionToken = getBrandSessionFromReq(req, body);
       const brandId = await verifySession(sessionToken);
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
       const rotate = body.rotate === true || String((req.query && req.query.rotate) || '') === '1';
@@ -1363,7 +1387,8 @@ export default async function handler(req, res) {
 
     // P0-7: revoke every calendar URL for this brand (e.g. the link leaked).
     if (action === 'cal_revoke') {
-      const sessionToken = String(body.session_token || parseCookies(req)['dh_brand_session'] || '').trim();
+      // Codex finding B: cookie only — was body.session_token with an inline cookie fallback.
+      const sessionToken = getBrandSessionFromReq(req, body);
       const brandId = await verifySession(sessionToken);
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
       try {

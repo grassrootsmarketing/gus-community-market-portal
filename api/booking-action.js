@@ -8,6 +8,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 // build-bust: 2026-07-09-phase-b
 import { getBinding, sendBindingFailure } from './_env.js';
+import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
@@ -157,41 +158,12 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// HttpOnly cookie: prefer cookie session for auth
+// Codex finding B: this file's third hand-rolled copy of the cookie helpers is deleted outright
+// rather than re-pointed at api/_cookies.js. getSessionIdFromReq() here had no call site at all —
+// authorization already runs through _retailer-auth.js, which now reads the cookie itself — so the
+// only live remnant was the opportunistic set-cookie in the handler, and that is meaningless once
+// the cookie is the only place a session can have come from. Nothing left to keep a name for.
 // -----------------------------------------------------------------------------
-const SESSION_COOKIE = 'dh_session';
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
-
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie'];
-  const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) {
-    const i = seg.indexOf('=');
-    if (i < 0) continue;
-    const k = seg.slice(0, i).trim();
-    const v = seg.slice(i + 1).trim();
-    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
-  }
-  return out;
-}
-
-function setSessionCookie(res, sessionId) {
-  if (!sessionId) return;
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
-}
-
-function getSessionIdFromReq(req, body) {
-  const cookies = parseCookies(req);
-  return cookies[SESSION_COOKIE]
-    || (body && body.session_id)
-    || (req.query && req.query.session_id)
-    || null;
-}
-
 
 // Retailer proposes moving a confirmed demo to a new date. Sets the proposal on the
 // demo and emails the brand to accept/decline. Resilient if the reschedule migration
@@ -327,6 +299,12 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  // Codex finding B: confirm / decline / cancel / reschedule all mutate a booking, and cancel can
+  // move money out via Stripe. Checked once here, before the body is parsed and before any action
+  // dispatch. No exemption applies: this route has no webhook and no cron path — the refund events
+  // it depends on arrive at api/stripe-webhook.js, which is exempt on its own signature check.
+  if (!requireSameOrigin(req, res, _b)) return;
+
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     // ===== Reschedule proposal (retailer proposes a new date for a CONFIRMED demo) =====
@@ -340,13 +318,10 @@ export default async function handler(req, res) {
     }
     if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
 
-    // === Session check (cookie first, body fallback for backwards compat) ===
+    // === Session check — cookie only, via the shared retailer guard ===
     const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
     if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
     const session = { retailer_id: _auth.retailer_id, email: _auth.email };
-    const session_id = _auth.session_id;
-    const _cookies = parseCookies(req);
-    if (!_cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
 
     // Fetch booking + retailer + venue
     let bookings;

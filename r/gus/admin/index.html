@@ -1541,25 +1541,31 @@
             if (menu && wrap && !wrap.contains(e.target)) menu.style.display = 'none';
         });
         async function acctLogout() {
-            const slug = window.RETAILER_SLUG || '';
-            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + slug);
-            // Best-effort server invalidation
+            // Codex finding B: the logout request IS the sign-out now. It deletes the session row
+            // and clears the HttpOnly cookies; nothing in the browser holds a session to delete,
+            // so the two localStorage removals that used to follow are gone with the writes.
             try {
                 await fetch('/api/admin-auth', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ action: 'logout', session_id: sessionId }),
+                    body: JSON.stringify({ action: 'logout' }),
+                    credentials: 'same-origin',
                 });
             } catch(_) {}
-            // Clear local session
-            localStorage.removeItem('demohub_admin_session_' + slug);
-            localStorage.removeItem('demohub_admin_email_' + slug);
             // Redirect
             window.location.href = '/signin?from=logout';
         }
-        function acctSwitchAccount() {
-            // Keep the remembered profile so /signin shows the recognized card
-            const slug = window.RETAILER_SLUG || '';
-            localStorage.removeItem('demohub_admin_session_' + slug);
+        async function acctSwitchAccount() {
+            // Also has to go through the server: deleting a localStorage key used to be enough to
+            // "switch account", but the live session is a cookie only the server can clear — skip
+            // this and /signin would just bounce straight back into the previous account.
+            // /signin still shows the recognized card, which is remembered separately.
+            try {
+                await fetch('/api/admin-auth', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ action: 'logout' }),
+                    credentials: 'same-origin',
+                });
+            } catch(_) {}
             window.location.href = '/signin';
         }
 
@@ -1725,53 +1731,31 @@
         });
 
         // ===== AdminAuth — per-retailer magic-link gate =====
-        // NEW: session_id lives in-memory + an HttpOnly cookie set by the server.
-        // localStorage is only touched to MIGRATE legacy sessions to the cookie, then cleared.
+        // Codex finding B: the session is ONLY the HttpOnly dh_retailer_session cookie. This module
+        // used to keep a copy in memory (seeded from a localStorage key, or from a session_id the
+        // API returned) and hand it to every caller to paste into a request body or query string.
+        // All of that is deleted: there is no getSession(), no setSession(), no legacy key, and no
+        // migrateLegacyToken() — the `cookie-migrate` action it called has been removed server-side
+        // and now answers 400. What is left in memory is the signed-in email, which is display data.
         const AdminAuth = (() => {
             const RETAILER_SLUG_LOCAL = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
-            const LEGACY_KEY = 'demohub_admin_session_' + RETAILER_SLUG_LOCAL;
-            let _memSession = null;
             let _memEmail = null;
             return {
-                getSession() { return _memSession; },
-                setSession(id) { if (id) _memSession = id; },
                 getEmail() { return _memEmail; },
                 setEmail(e) { if (e) _memEmail = e; },
-                clearSession() { _memSession = null; _memEmail = null; try { localStorage.removeItem(LEGACY_KEY); } catch(_){} },
+                clearEmail() { _memEmail = null; },
                 logout: async function() {
                     try { await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'logout' }), credentials: 'same-origin' }); } catch (_) {}
-                    this.clearSession();
+                    this.clearEmail();
                     location.reload();
                 },
                 async api(payload) {
-                    // credentials: 'same-origin' ensures the dh_session cookie rides along
+                    // credentials: 'same-origin' is the whole of authentication — it sends the
+                    // HttpOnly session cookie, and `payload` never carries a session.
                     const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'same-origin' });
                     const j = await r.json().catch(() => ({}));
                     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
                     return j;
-                },
-                // NEW: on page load, migrate any legacy localStorage session to the HttpOnly cookie.
-                // If we already have a cookie (fresh login) this is a no-op.
-                async migrateLegacyToken() {
-                    let legacy = null;
-                    try { legacy = localStorage.getItem(LEGACY_KEY); } catch(_){}
-                    if (!legacy) return null;
-                    try {
-                        const r = await fetch('/api/admin-auth', {
-                            method: 'POST', headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'cookie-migrate', session_id: legacy }),
-                            credentials: 'same-origin',
-                        });
-                        if (r.ok) {
-                            const j = await r.json().catch(() => ({}));
-                            _memSession = j.session_id || legacy;
-                            if (j.email) _memEmail = j.email;
-                            try { localStorage.removeItem(LEGACY_KEY); } catch(_){}
-                            return _memSession;
-                        }
-                    } catch (_) {}
-                    // Migration failed — leave legacy alone; init() will treat as unauthenticated
-                    return null;
                 },
                 async init() {
                     const gate = document.getElementById('adminAuthGate');
@@ -1781,33 +1765,34 @@
                     if (!gate) return false;
                     loading.style.display = 'block'; login.style.display = 'none'; success.style.display = 'none';
 
-                    // 0) Cookie migration: if a legacy localStorage session exists, upgrade it to the HttpOnly cookie.
-                    // This is safe to run every load — it's a no-op if there's nothing in localStorage.
-                    try { await this.migrateLegacyToken(); } catch(_){}
-
                     // 1) Magic link landing — exchange ?token for session
                     const params = new URLSearchParams(location.search);
                     const token = params.get('token');
                     if (token) {
+                        // Strip the token from the address bar the moment it is read, before the
+                        // exchange below runs. Doing it inside the success branch left a live
+                        // single-use sign-in credential in history for the length of the request,
+                        // and in the Referer of anything the page fetched meanwhile.
+                        history.replaceState(null, '', window.location.pathname);
                         let verifiedOk = false;
                         try {
                             const j = await this.api({ action: 'verify', token });
-                            if (j.session_id) {
-                                this.setSession(j.session_id);
+                            // verify sets the HttpOnly cookie and returns no session secret, so
+                            // success is j.ok and there is nothing to stash client-side.
+                            if (j.ok) {
+                                if (j.email) this.setEmail(j.email);
                                 verifiedOk = true;
                                 // Wipe the signup success card cache — the retailer has landed in admin,
                                 // so back-navigating to /signup shouldn't resurrect the success screen.
                                 try { localStorage.removeItem('demohub_signup_success_v1'); } catch(_){}
-                                history.replaceState({}, '', location.pathname);
                             }
                         } catch (_) { /* verify threw */ }
                         // Defense-in-depth: if a ?token= was present but verify didn't succeed
-                        // (409 already-used, 410 expired, 404 not-found, network fail), destroy
-                        // any pre-existing session and force the login gate. Never let a stale
-                        // localStorage session sneak past a failed token exchange.
+                        // (409 already-used, 410 expired, 404 not-found, network fail), force the
+                        // login gate rather than falling through to the cookie check — a failed
+                        // exchange must not silently resume some earlier session.
                         if (!verifiedOk) {
-                            this.clearSession();
-                            history.replaceState({}, '', location.pathname);
+                            this.clearEmail();
                             loading.style.display = 'none';
                             login.style.display = 'block';
                             // Surface a small notice above the login form
@@ -1820,26 +1805,20 @@
                         }
                     }
 
-                    // 2) Validate existing session by calling /api/admin-auth data.
-                    // CRITICAL: always attempt this even if in-memory _memSession is null. The
-                    // HttpOnly cookie may still be valid on the server — page reloads, tab restores,
-                    // and Stripe Connect returns all wipe our in-memory state but preserve the cookie.
-                    // The server's getSessionIdFromReq() reads the cookie transparently.
+                    // 2) Validate the session by calling /api/admin-auth data. This is the ONLY
+                    // way the page can learn whether it is signed in: 200 means the cookie is live,
+                    // 401 means show the login gate. Page reloads, tab restores and Stripe Connect
+                    // returns all wipe in-memory state but preserve the cookie, so this must run
+                    // unconditionally on every load.
                     if (!RETAILER_SLUG_LOCAL) {
                         console.error('No slug in URL — cannot validate session');
-                        this.clearSession();
+                        this.clearEmail();
                         window.location.href = '/signin';
                         return false;
                     }
                     try {
-                        const sid = this.getSession();
-                        // Send session_id in body if we have it; server prefers cookie either way.
-                        const payload = { action: 'data', retailer_slug: RETAILER_SLUG_LOCAL };
-                        if (sid) payload.session_id = sid;
-                        const j = await this.api(payload);
+                        const j = await this.api({ action: 'data', retailer_slug: RETAILER_SLUG_LOCAL });
                         if (j.ok) {
-                            // Populate in-memory session so subsequent fetches (which pass it in body) work.
-                            if (j.session_id) this.setSession(j.session_id);
                             if (j.email) this.setEmail(j.email);
                             // Also stash on window.state so other code paths can read it
                             window.state = window.state || {};
@@ -1858,7 +1837,7 @@
                         }
                     } catch (e) {
                         // 401 or network error — no valid session, fall through to login UI
-                        this.clearSession();
+                        this.clearEmail();
                     }
 
                     // 3) No valid session — show login UI
@@ -2404,10 +2383,10 @@ END:VEVENT
                 const clean = (editSpan.textContent || '').trim().slice(0, 120);
                 if (!clean || clean === originalName) { restore(originalName); return; }
                 try {
-                    const sessionId = AdminAuth.getSession();
-                    const r = await fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(sessionId), {
+                    const r = await fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                         method: 'PATCH', headers: {'Content-Type':'application/json'},
                         body: JSON.stringify({ name: clean }),
+                        credentials: 'same-origin',
                     });
                     const j = await r.json();
                     if (!r.ok) throw new Error(j.error || 'Rename failed');
@@ -2453,16 +2432,18 @@ END:VEVENT
                 const file = e.target.files && e.target.files[0];
                 if (!file) return;
                 if (file.size > 2 * 1024 * 1024) { DhModal.toast('Image too large — max 2MB', 'error'); e.target.value = ''; return; }
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
-                if (!sessionId) { DhModal.toast('Sign in again to upload a logo.', 'info'); return; }
                 const reader = new FileReader();
                 reader.onload = async () => {
                     try {
                         const r = await fetch('/api/admin-auth', {
                             method: 'POST', headers: {'Content-Type':'application/json'},
-                            body: JSON.stringify({ action: 'upload-retailer-avatar', session_id: sessionId, image: reader.result }),
+                            body: JSON.stringify({ action: 'upload-retailer-avatar', image: reader.result }),
+                            credentials: 'same-origin',
                         });
                         const j = await r.json();
+                        // The old localStorage pre-check ('Sign in again to upload a logo') is gone:
+                        // whether a session exists is the server's answer, and it arrives as a 401 here.
+                        if (r.status === 401) throw new Error('Your session expired — sign in again.');
                         if (!r.ok) throw new Error(j.error || 'Upload failed');
                         renderRetailerLogo(j.logo_url);
                     } catch (err) {
@@ -2478,10 +2459,9 @@ END:VEVENT
         async function refreshAll() {
             // Privacy Phase 0: single session-validated read endpoint replaces 7 anon reads.
             // /api/admin?action=data uses SERVICE_KEY server-side, scoped to session.retailer_id.
-            const sid = AdminAuth.getSession();
             let data = { venues: [], bookings: [], brand_contacts: [], internal_contacts: [], demos: [], settings: null, compliance: [] };
             try {
-                const r = await fetch('/api/admin?action=data&session_id=' + encodeURIComponent(sid));
+                const r = await fetch('/api/admin?action=data', { credentials: 'same-origin' });
                 const j = await r.json();
                 if (!r.ok || !j.ok) throw new Error(j.error || ('HTTP ' + r.status));
                 data = j;
@@ -2733,14 +2713,15 @@ END:VEVENT
         }
 
         async function bookingAction(bookingId, action, reason) {
-            const sess = AdminAuth.getSession();
-            if (!sess) throw new Error('Not signed in');
-            const payload = { booking_id: bookingId, action, session_id: sess };
+            // No local "signed in?" guard: the cookie is unreadable here, so the server decides and
+            // answers 401. Guarding on a session the page can no longer see would block every call.
+            const payload = { booking_id: bookingId, action };
             if (action === 'decline' && reason) payload.reason = reason;
             const r = await fetch('/api/booking-action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
+                credentials: 'same-origin',
             });
             const text = await r.text();
             let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
@@ -3538,10 +3519,9 @@ END:VEVENT
         async function _bulkStoresPatch(patch, actionLabel) {
             const ids = Array.from(window._storesSelected || []);
             if (!ids.length) return;
-            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
             const results = await Promise.allSettled(ids.map(id =>
-                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}&session_id=${encodeURIComponent(sessionId)}`, {
-                    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch)
+                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}`, {
+                    method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(patch), credentials: 'same-origin'
                 }).then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
             ));
             const ok = results.filter(r => r.status === 'fulfilled').length;
@@ -3573,10 +3553,9 @@ END:VEVENT
             const names = ids.map(id => (venues.find(v => v.id === id) || {}).name).filter(Boolean);
             const preview = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length-3} more` : '');
             if (!(await DhModal.confirm({title:`Delete ${ids.length} location${ids.length===1?'':'s'}?`, message:`${preview}\n\nThis can't be undone.`, ok:'Delete', danger:true}))) return;
-            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
             const results = await Promise.allSettled(ids.map(id =>
-                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}&session_id=${encodeURIComponent(sessionId)}`, {
-                    method: 'DELETE'
+                fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}`, {
+                    method: 'DELETE', credentials: 'same-origin'
                 }).then(r => r.ok ? r.text() : r.text().then(e => Promise.reject(e)))
             ));
             const ok = results.filter(r => r.status === 'fulfilled').length;
@@ -3815,11 +3794,12 @@ END:VEVENT
 
         // ===== Admin proxy (writes use service_role via /api/admin) =====
         async function adminWrite(method, table, id, payload) {
-            const sess = AdminAuth.getSession();
-            if (!sess) throw new Error('Not signed in');
-            let qs = `?table=${encodeURIComponent(table)}&session_id=${encodeURIComponent(sess)}`;
+            // The session used to be spliced into this query string. It is a cookie now, so the
+            // query string carries only the resource being written — and 'Not signed in' is no
+            // longer knowable up front; it comes back as a 401 from the call below.
+            let qs = `?table=${encodeURIComponent(table)}`;
             if (id) qs += `&id=${encodeURIComponent(id)}`;
-            const opts = { method, headers: { 'Content-Type': 'application/json' } };
+            const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
             if (payload !== undefined && method !== 'DELETE') opts.body = JSON.stringify(payload);
             const resp = await fetch('/api/admin' + qs, opts);
             const text = await resp.text();
@@ -4199,7 +4179,8 @@ END:VEVENT
             try {
                 const r = await fetch('/api/booking-action', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ booking_id: demoId, action: 'cancel', session_id: AdminAuth.getSession() }),
+                    body: JSON.stringify({ booking_id: demoId, action: 'cancel' }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
@@ -4221,8 +4202,7 @@ END:VEVENT
         function _coiKey(brand, date) { return String(brand || '').trim().toLowerCase() + '|' + String(date || '').slice(0, 10); }
         async function loadCoiPending() {
             try {
-                const sid = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || '';
-                const r = await fetch('/api/coi-status' + (sid ? ('?session_id=' + encodeURIComponent(sid)) : ''), { credentials: 'same-origin' });
+                const r = await fetch('/api/coi-status', { credentials: 'same-origin' });
                 if (!r.ok) throw new Error('coi-status ' + r.status);
                 const j = await r.json();
                 const m = new Map();
@@ -4247,10 +4227,9 @@ END:VEVENT
             });
             if (!ok) return;
             try {
-                const sid = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || '';
                 const r = await fetch('/api/coi-status?action=waive', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                    body: JSON.stringify({ action: 'waive', booking_id: bookingId, session_id: sid }),
+                    body: JSON.stringify({ action: 'waive', booking_id: bookingId }),
                 });
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
@@ -4417,15 +4396,14 @@ END:VEVENT
             const reader = new FileReader();
             reader.onload = async () => {
                 try {
-                    const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
                     const r = await fetch('/api/admin-auth', {
                         method: 'POST', headers: {'Content-Type':'application/json'},
                         body: JSON.stringify({
                             action: 'upload-demo-policy',
-                            session_id: sessionId,
                             file: reader.result,
                             filename: file.name,
                         }),
+                        credentials: 'same-origin',
                     });
                     const j = await r.json();
                     if (!r.ok) throw new Error(j.error || 'Upload failed');
@@ -4447,10 +4425,10 @@ END:VEVENT
             if (!(await DhModal.confirm({title:'Remove policy PDF?', message:'Brands will see the text policy instead.', ok:'Remove', danger:true}))) return;
             const status = document.getElementById('demoPolicyStatus');
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || localStorage.getItem('demohub_admin_session_' + RETAILER_SLUG);
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ action: 'remove-demo-policy', session_id: sessionId }),
+                    body: JSON.stringify({ action: 'remove-demo-policy' }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Remove failed');
@@ -4509,10 +4487,11 @@ END:VEVENT
             const status = document.getElementById('notificationStatus');
             if (!cb) return;
             try {
-                const r = await fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                const r = await fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ monthly_summary_enabled: cb.checked }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (j.error) throw new Error(j.error);
@@ -4573,10 +4552,11 @@ END:VEVENT
             } else {
                 btn.disabled = true; btn.textContent = 'Saving…';
                 const newVal = ta.value.trim() || DEMO_POLICY_DEFAULT;
-                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ demo_policy: newVal }),
+                    credentials: 'same-origin',
                 }).then(r => r.json()).then(j => {
                     if (j.error) throw new Error(j.error);
                     ta.readOnly = true;
@@ -4622,10 +4602,11 @@ END:VEVENT
             } else {
                 btn.disabled = true; btn.textContent = 'Saving…';
                 const newVal = ta.value.trim() || 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
-                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID) + '&session_id=' + encodeURIComponent(AdminAuth.getSession()), {
+                fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ cancellation_policy: newVal }),
+                    credentials: 'same-origin',
                 }).then(r => r.json()).then(j => {
                     if (j.error) throw new Error(j.error);
                     ta.readOnly = true;
@@ -4653,7 +4634,8 @@ END:VEVENT
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'agreement-retailer-list', session_id: AdminAuth.getSession() }),
+                    body: JSON.stringify({ action: 'agreement-retailer-list' }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');
@@ -4674,7 +4656,8 @@ END:VEVENT
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'team-list', session_id: AdminAuth.getSession() }),
+                    body: JSON.stringify({ action: 'team-list' }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (j.error) throw new Error(j.error);
@@ -4887,10 +4870,10 @@ END:VEVENT
                         method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             action: 'team-invite',
-                            session_id: AdminAuth.getSession(),
                             email: inv.email, name: inv.name, role: inv.role,
                             venue_ids: inv.venue_ids || [],
                         }),
+                        credentials: 'same-origin',
                     });
                     const j = await r.json();
                     if (!r.ok) { failed++; failures.push(`${inv.email}: ${j.error || 'failed'}`); }
@@ -4911,7 +4894,8 @@ END:VEVENT
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'team-update-role', session_id: AdminAuth.getSession(), admin_id: id, role }),
+                    body: JSON.stringify({ action: 'team-update-role', admin_id: id, role }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');
@@ -4923,7 +4907,8 @@ END:VEVENT
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'team-remove', session_id: AdminAuth.getSession(), admin_id: id }),
+                    body: JSON.stringify({ action: 'team-remove', admin_id: id }),
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || 'Failed');
@@ -5155,12 +5140,12 @@ END:VEVENT
             resultBox.style.display = 'none';
             // Server-side flow — POST the file as multipart/form-data
             try {
-                const sid = AdminAuth.getSession();
                 const fd = new FormData();
                 fd.append('csv', file, file.name);
-                const r = await fetch('/api/venues-bulk-import?session_id=' + encodeURIComponent(sid), {
+                const r = await fetch('/api/venues-bulk-import', {
                     method: 'POST',
                     body: fd,
+                    credentials: 'same-origin',
                 });
                 const j = await r.json();
                 console.log('[bulk-upload] server response:', j);
@@ -5193,14 +5178,14 @@ END:VEVENT
 
             let successCount = 0;
             const failures = [];
-            const sid = AdminAuth.getSession();
             for (let i = 0; i < validRows.length; i++) {
                 const r = validRows[i];
                 btn.textContent = `Importing ${i+1} of ${validRows.length}…`;
                 try {
-                    const resp = await fetch(`/api/admin?table=venues&session_id=${encodeURIComponent(sid)}`, {
+                    const resp = await fetch('/api/admin?table=venues', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
                         body: JSON.stringify({
                             name: r.name,
                             address: r.address || null,
@@ -5952,8 +5937,7 @@ END:VEVENT
             const body = document.getElementById('billingCardBody');
             if (!body) return;
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                const r = await fetch('/api/stripe?action=status&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+                const r = await fetch('/api/stripe?action=status', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
                 const tierLabel = d.tier ? TIER_LABELS[d.tier] || d.tier : 'Free (no subscription)';
@@ -5987,8 +5971,7 @@ END:VEVENT
         }
 
         async function openBillingPortal() {
-            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-            const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+            const r = await fetch('/api/stripe?action=portal', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
             else DhModal.toast('Failed to open billing portal: ' + (d.error || 'unknown'), 'error');
@@ -6009,9 +5992,8 @@ END:VEVENT
             const btn = event?.target;
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
-                const sessionId = AdminAuth.getSession();
-                const r = await fetch('/api/stripe?action=portal&session_id=' + encodeURIComponent(sessionId), {
-                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}'
+                const r = await fetch('/api/stripe?action=portal', {
+                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}', credentials: 'same-origin'
                 });
                 const d = await r.json();
                 if (d.url) { window.location.href = d.url; return; }
@@ -6134,9 +6116,9 @@ END:VEVENT
             const origLabel = btn ? btn.innerHTML : null;
             if (btn) { btn.disabled = true; btn.innerHTML = 'Checking Stripe…'; }
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                const r = await fetch('/api/stripe?action=sync&session_id=' + encodeURIComponent(sessionId), {
+                const r = await fetch('/api/stripe?action=sync', {
                     method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+                    credentials: 'same-origin',
                 });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Sync failed');
@@ -6177,10 +6159,12 @@ END:VEVENT
                 window.history.replaceState({}, '', clean);
                 // Wait for session + state to hydrate
                 setTimeout(() => {
-                    const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                    if (!sessionId) return;
-                    fetch('/api/stripe?action=sync&session_id=' + encodeURIComponent(sessionId), {
+                    // The old `if (!sessionId) return;` guard read a localStorage session that no
+                    // longer exists, so it would abort every auto-sync. The cookie rides along on
+                    // its own; an unauthenticated call simply comes back 401 and is ignored below.
+                    fetch('/api/stripe?action=sync', {
                         method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
+                        credentials: 'same-origin',
                     }).then(r => r.json()).then(d => {
                         if (d && d.found && window.state) {
                             window.state.retailer = window.state.retailer || {};
@@ -6200,10 +6184,10 @@ END:VEVENT
             const origLabel = btn ? btn.innerHTML : null;
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                const r = await fetch('/api/stripe?action=subscribe&session_id=' + encodeURIComponent(sessionId), {
+                const r = await fetch('/api/stripe?action=subscribe', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ tier, interval }),
+                    credentials: 'same-origin',
                 });
                 const d = await r.json();
                 if (d.url) { window.location.href = d.url; return; }
@@ -6281,8 +6265,7 @@ END:VEVENT
             const body = document.getElementById('payoutsCardBody');
             if (!body) return;
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                const r = await fetch('/api/stripe?action=connect-status&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+                const r = await fetch('/api/stripe?action=connect-status', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
 
@@ -6338,8 +6321,7 @@ END:VEVENT
         async function startConnectOnboarding(btn) {
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
-                const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-                const r = await fetch('/api/stripe?action=connect-onboard&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+                const r = await fetch('/api/stripe?action=connect-onboard', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
                 const d = await r.json();
                 if (d.url) { window.location.href = d.url; return; }
                 throw new Error(d.error || 'Failed');
@@ -6349,8 +6331,7 @@ END:VEVENT
             }
         }
         async function openConnectDashboard() {
-            const sessionId = (typeof AdminAuth !== 'undefined' && AdminAuth.getSession()) || (typeof getSessionId === 'function' ? getSessionId() : (window.SESSION_ID || localStorage.getItem('admin_session_id') || ''));
-            const r = await fetch('/api/stripe?action=connect-dashboard&session_id=' + encodeURIComponent(sessionId), { method: 'POST', headers: {'Content-Type':'application/json'} });
+            const r = await fetch('/api/stripe?action=connect-dashboard', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
             const d = await r.json();
             if (d.url) window.location.href = d.url;
             else DhModal.toast('Failed to open dashboard: ' + (d.error || 'unknown'), 'error');

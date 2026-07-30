@@ -1,13 +1,24 @@
 // /api/admin-auth — Retailer admin authentication.
 //   POST { action: "login",  email, retailer_slug }      → emails magic link if email matches billing_email
-//   POST { action: "verify", token }                      → returns session_id
-//   POST { action: "data",   session_id, retailer_slug }  → returns { ok, email, retailer_id }
-//   POST { action: "logout", session_id }                 → invalidates the session
+//   POST { action: "verify", token }                      → sets dh_retailer_session cookie
+//   POST { action: "data",   retailer_slug }              → returns { ok, email, retailer_id }
+//   POST { action: "logout" }                             → invalidates the session
+// Sessions are carried ONLY in HttpOnly cookies: dh_retailer_session for staff,
+// dh_owner_session for the platform owner. No action returns a session secret in its response
+// body, and none accepts one from a body or query string (Codex finding B).
 // Uses service_role; never exposes whether an email is registered (anti-enumeration).
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import {
+  setSessionCookie as setRoleCookie,
+  clearSessionCookie as clearRoleCookie,
+  clearAllSessionCookies,
+  getSessionToken,
+  readCookies as parseCookies,
+} from './_cookies.js';
+import { requireSameOrigin } from './_csrf.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind() — the exported guards work even when this file's own handler
@@ -49,58 +60,44 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// HttpOnly cookie helpers — session_id lives here so XSS can't read it via
-// document.cookie or localStorage. Cookies are same-origin (no Domain=),
-// SameSite=Lax (safe for GETs, blocks cross-site POSTs), Secure (HTTPS only).
+// Session transport — api/_cookies.js is the single implementation.
+//
+// Codex finding B. This file previously carried its own copy of the cookie helpers, and so did
+// api/admin.js, api/booking-action.js and api/brand-account.js — four hand-rolled copies of the
+// same attribute string. api/booking.js and api/refund-booking.js parsed the cookie with an
+// inline regex instead. Four copies plus two regexes is six places for one of them to drift.
+//
+// TWO ROLES ARE NOW DISTINCT COOKIES:
+//   dh_retailer_session — retailer staff, and the session an owner assumes when impersonating
+//   dh_owner_session    — the platform owner
+// Before this change the owner panel carried its session in the QUERY STRING (see owner-data,
+// owner-logout, owner-list-retailers, owner-impersonate below), so the credential for the account
+// that can read all platform data and impersonate any retailer was landing in browser history,
+// Referer headers and Vercel's access logs. Impersonation then wrote dh_session — the retailer
+// cookie — which is why the two had to be separated before impersonation could be made safe.
 // -----------------------------------------------------------------------------
-const SESSION_COOKIE = 'dh_session';
-const SESSION_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
-function parseCookies(req) {
-  const raw = req.headers && req.headers['cookie'];
-  const out = {};
-  if (!raw) return out;
-  for (const seg of String(raw).split(';')) {
-    const i = seg.indexOf('=');
-    if (i < 0) continue;
-    const k = seg.slice(0, i).trim();
-    const v = seg.slice(i + 1).trim();
-    if (k) { try { out[k] = decodeURIComponent(v); } catch (_) { out[k] = v; } }
-  }
-  return out;
-}
+const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h — matches the DB expiry set in owner-verify
+const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+const IMPERSONATION_MAX_AGE = 4 * 60 * 60;       // 4h — matches the DB expiry in owner-impersonate
 
-function setSessionCookieWithMaxAge(res, sessionId, maxAgeSeconds) {
+function setSessionCookie(res, sessionId, maxAgeSeconds = RETAILER_SESSION_MAX_AGE) {
   if (!sessionId) return;
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
+  setRoleCookie(res, 'retailer', sessionId, maxAgeSeconds);
 }
 
-function setSessionCookie(res, sessionId) {
-  if (!sessionId) return;
-  const cookie = `${SESSION_COOKIE}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=${SESSION_COOKIE_MAX_AGE}; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
+function clearSessionCookie(res) { clearRoleCookie(res, 'retailer'); }
+
+// Retailer/staff session. Cookie only — no body, no query string.
+function getSessionIdFromReq(req, _body) {
+  return getSessionToken(req, 'retailer');
 }
 
-function clearSessionCookie(res) {
-  const cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
-  const existing = res.getHeader('Set-Cookie');
-  if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, cookie] : [existing, cookie]);
-  else res.setHeader('Set-Cookie', cookie);
+// Owner session. Separate cookie, so an owner who is impersonating a retailer still holds their
+// own session and end-impersonation does not have to reconstruct it.
+function getOwnerSessionIdFromReq(req) {
+  return getSessionToken(req, 'owner');
 }
-
-function getSessionIdFromReq(req, body) {
-  const cookies = parseCookies(req);
-  return cookies[SESSION_COOKIE]
-    || (body && body.session_id)
-    || (req.query && req.query.session_id)
-    || null;
-}
-
 
 // Reusable helper: verify a session_id is valid for a given retailer_id.
 // Exported so /api/admin and /api/booking-action can re-use it.
@@ -265,14 +262,22 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
 }
 
 export default async function handler(req, res) {
+  // Same-origin only. The previous handler answered every preflight with
+  // Access-Control-Allow-Origin: '*', advertising a cross-origin API. That wildcard could never
+  // actually carry credentials (browsers refuse '*' with cookies), so it granted nothing and
+  // only obscured the fact that this route is same-origin by design.
   if (req.method === 'OPTIONS') {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Allow', 'POST');
     return res.status(204).end();
   }
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { await bind(); } catch (e) { return sendBindingFailure(res, e); }
+
+  // Codex finding B: every action on this route is a POST that either creates a session or acts
+  // under one, so the same-origin check belongs here — once, before any action dispatch, before
+  // the body is read. api/_session.js exported a checkOrigin() helper that no route ever called;
+  // this is that control actually wired in. No exemption: this route has no webhook and no cron.
+  if (!requireSameOrigin(req, res, _b)) return;
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
@@ -387,8 +392,11 @@ export default async function handler(req, res) {
         body: JSON.stringify({ email: trow.email, retailer_id: trow.retailer_id }),
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
-      if (session?.session_id) setSessionCookie(res, session.session_id);
-      return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id });
+      if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
+      setSessionCookie(res, session.session_id);
+      // No session_id in the body. The cookie is the session; anything that also puts it in the
+      // response is handing it to page script, analytics and any error reporter on the page.
+      return res.status(200).json({ ok: true, email: trow.email, retailer_id: trow.retailer_id });
     }
 
     // ---- VERIFY-CODE: exchange 6-digit code for session ----
@@ -427,16 +435,17 @@ export default async function handler(req, res) {
           retailerSlug = Array.isArray(rt) && rt[0]?.slug || null;
         } catch(_){}
       }
-      // Set HttpOnly cookie so subsequent requests don't need body-session_id.
-      if (session?.session_id) setSessionCookie(res, session.session_id);
-      return res.status(200).json({ ok: true, session_id: session?.session_id, email: trow.email, retailer_id: trow.retailer_id, retailer_slug: retailerSlug });
+      if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
+      setSessionCookie(res, session.session_id);
+      return res.status(200).json({ ok: true, email: trow.email, retailer_id: trow.retailer_id, retailer_slug: retailerSlug });
     }
 
     // ---- DATA: verify session is still valid + return retailer info ----
     if (action === 'data') {
       const { retailer_slug } = body || {};
       const session_id = getSessionIdFromReq(req, body);
-      if (!session_id || !retailer_slug) return res.status(400).json({ error: 'session_id and retailer_slug required' });
+      if (!session_id) return res.status(401).json({ error: 'Not authenticated' });
+      if (!retailer_slug) return res.status(400).json({ error: 'retailer_slug required' });
 
       const retailers = await sb(`retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name`);
       const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -444,10 +453,9 @@ export default async function handler(req, res) {
 
       const v = await requireRetailerMembership(session_id, retailer.id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
-      // Opportunistic cookie set: if the caller authenticated via body but has no cookie yet, upgrade them.
-      const cookies = parseCookies(req);
-      if (!cookies[SESSION_COOKIE]) setSessionCookie(res, session_id);
-      return res.status(200).json({ ok: true, session_id, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
+      // The opportunistic "authenticated via body, so upgrade them to a cookie" branch is gone
+      // with the body path itself — a cookie is now the only way to have got here.
+      return res.status(200).json({ ok: true, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
     }
 
     // ---- LOGOUT ----
@@ -456,35 +464,31 @@ export default async function handler(req, res) {
       if (sid) {
         try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' }); } catch(_) {}
       }
-      clearSessionCookie(res);
+      // Clear ALL role cookies. If an owner is mid-impersonation, logging out must not leave
+      // their owner session live behind the retailer session they just discarded.
+      clearAllSessionCookies(res);
       return res.status(200).json({ ok: true });
     }
 
-    // ---- COOKIE-MIGRATE: exchange a legacy body session_id for an HttpOnly cookie ----
-    // Called by clients on page load if localStorage has a session but no cookie is set.
-    // Validates the session and sets the cookie; client can then delete localStorage.
-    if (action === 'cookie-migrate') {
-      const sid = (body && body.session_id) || null;
-      if (!sid || !isUuid(sid)) return res.status(400).json({ error: 'session_id required' });
-      const v = await requireRetailerMembership(sid);
-      if (!v.ok) return res.status(v.status).json({ error: v.error });
-      setSessionCookie(res, sid);
-      return res.status(200).json({ ok: true, session_id: sid, email: v.email, retailer_id: v.retailer_id });
-    }
+    // ---- COOKIE-MIGRATE: REMOVED ----
+    // This action existed to accept a session_id from a request body and hand back an HttpOnly
+    // cookie, so pages holding a session in localStorage could migrate. Codex finding B: remove
+    // the legacy compatibility paths, there is no real user data to preserve. Keeping it would
+    // have preserved exactly the primitive the rest of this change removes — an endpoint that
+    // accepts a session secret from a request body. The localStorage writes that fed it are
+    // deleted from r/gus/admin/index.html and brand/verify/index.html in the same commit.
 
     // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
     // ---- AGREEMENT-RETAILER-LIST: list all signed agreements for this retailer ----
     if (action === 'agreement-retailer-list') {
-      const { session_id } = body || {};
-      const v = await requireRetailerMembership(session_id);
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,company_name,email)&order=signed_at.desc`);
       return res.status(200).json({ ok: true, agreements: rows || [] });
     }
 
         if (action === 'team-list') {
-      const { session_id } = body || {};
-      const v = await requireRetailerMembership(session_id);
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=*&order=created_at`);
       // For each admin, flag whether they've ever signed in (admin_sessions exists).
@@ -501,7 +505,8 @@ export default async function handler(req, res) {
 
     // ---- TEAM-INVITE: add a new admin (owner/admin only) ----
     if (action === 'team-invite') {
-      const { session_id, email, name, role, venue_ids } = body || {};
+      const { email, name, role, venue_ids } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
       if (!['admin', 'viewer'].includes(role || 'admin')) return res.status(400).json({ error: 'Role must be admin or viewer' });
       const v = await requireRetailerMembership(session_id);
@@ -597,7 +602,8 @@ export default async function handler(req, res) {
 
     // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
     if (action === 'team-remove') {
-      const { session_id, admin_id } = body || {};
+      const { admin_id } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       const v = await requireRetailerMembership(session_id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
@@ -625,7 +631,8 @@ export default async function handler(req, res) {
 
     // ---- TEAM-UPDATE-ROLE: change a member's role (owner only) ----
     if (action === 'team-update-role') {
-      const { session_id, admin_id, role } = body || {};
+      const { admin_id, role } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       if (!['admin', 'viewer'].includes(role)) return res.status(400).json({ error: 'Role must be admin or viewer' });
       const v = await requireRetailerMembership(session_id);
@@ -658,7 +665,8 @@ export default async function handler(req, res) {
 
     // ---- TEAM-UPDATE-SCOPE: Phase D — set which venues a viewer can see ----
     if (action === 'team-update-scope') {
-      const { session_id, admin_id, venue_ids } = body || {};
+      const { admin_id, venue_ids } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       if (!isUuid(admin_id)) return res.status(400).json({ error: 'Invalid admin_id' });
       if (!Array.isArray(venue_ids)) return res.status(400).json({ error: 'venue_ids must be an array' });
       if (venue_ids.some(id => !isUuid(id))) return res.status(400).json({ error: 'All venue_ids must be UUIDs' });
@@ -687,7 +695,8 @@ export default async function handler(req, res) {
 
     // ---- UPLOAD-RETAILER-AVATAR: retailer admin uploads/replaces their store logo ----
     if (action === 'upload-retailer-avatar') {
-      const { session_id, image } = body || {};
+      const { image } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       const v = await requireRetailerMembership(session_id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
@@ -714,7 +723,8 @@ export default async function handler(req, res) {
 
     // ---- UPLOAD-DEMO-POLICY (PDF) ----
     if (action === 'upload-demo-policy') {
-      const { session_id, file, filename } = body || {};
+      const { file, filename } = body || {};
+      const session_id = getSessionIdFromReq(req, body);
       const v = await requireRetailerMembership(session_id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
@@ -745,8 +755,7 @@ export default async function handler(req, res) {
 
     // ---- REMOVE-DEMO-POLICY ----
     if (action === 'remove-demo-policy') {
-      const { session_id } = body || {};
-      const v = await requireRetailerMembership(session_id);
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
@@ -758,8 +767,7 @@ export default async function handler(req, res) {
 
     // ---- REMOVE-RETAILER-AVATAR ----
     if (action === 'remove-retailer-avatar') {
-      const { session_id } = body || {};
-      const v = await requireRetailerMembership(session_id);
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, { method: 'PATCH', body: JSON.stringify({ logo_url: null }) });
@@ -771,8 +779,8 @@ export default async function handler(req, res) {
     // ============================================================
     // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
     if (action === 'owner-verification-queue') {
-      const { session_id, status } = body || {};
-      const owner = await verifyOwnerSession(session_id)   /* was verifyOwnerSessionV2 — never defined */;
+      const { status } = body || {};
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
       try {
@@ -785,8 +793,8 @@ export default async function handler(req, res) {
 
     // ---- OWNER-VERIFY-RETAILER: approve / reject / suspend / reset ----
     if (action === 'owner-verify-retailer') {
-      const { session_id, retailer_id, new_status, notes } = body || {};
-      const owner = await verifyOwnerSession(session_id)   /* was verifyOwnerSessionV2 — never defined */;
+      const { retailer_id, new_status, notes } = body || {};
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
       if (!['pending', 'approved', 'rejected', 'suspended'].includes(new_status)) {
@@ -818,8 +826,8 @@ export default async function handler(req, res) {
       // === Incident management (owner-only) ===
   // POST a new incident
   if (action === 'incident-post') {
-    const { sessionId, title, body: incBody, severity } = body || {};
-    const v = await verifyOwnerSession(sessionId);
+    const { title, body: incBody, severity } = body || {};
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Owner auth required' });
     if (!title || String(title).trim().length < 3) return res.status(400).json({ error: 'title required' });
     const sev = ['minor','major','maintenance'].includes(severity) ? severity : 'minor';
@@ -832,8 +840,8 @@ export default async function handler(req, res) {
 
   // Resolve an active incident
   if (action === 'incident-resolve') {
-    const { sessionId, incident_id } = body || {};
-    const v = await verifyOwnerSession(sessionId);
+    const { incident_id } = body || {};
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Owner auth required' });
     if (!incident_id) return res.status(400).json({ error: 'incident_id required' });
     await sb(`status_incidents?id=eq.${encodeURIComponent(incident_id)}`, {
@@ -845,8 +853,7 @@ export default async function handler(req, res) {
 
   // List incidents (owner sees both active + resolved)
   if (action === 'incident-list') {
-    const { sessionId } = body || {};
-    const v = await verifyOwnerSession(sessionId);
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Owner auth required' });
     const rows = await sb(`status_incidents?select=*&order=started_at.desc&limit=50`);
     return res.status(200).json({ ok: true, incidents: rows || [] });
@@ -1068,13 +1075,15 @@ async function handleOwnerAction(action, req, res, body) {
     const ownerExpires = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
     const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId, expires_at: ownerExpires }) });
     const session = Array.isArray(sessions) ? sessions[0] : null;
-    // Set the HttpOnly cookie with a matching 12-hour max-age (override the 30-day default).
-    if (session?.session_id) setSessionCookieWithMaxAge(res, session.session_id, 12 * 60 * 60);
-    return res.status(200).json({ ok: true, session_id: session?.session_id, email: tok.email });
+    if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
+    // The OWNER cookie, max-age matching the 12-hour DB expiry above. Distinct from the retailer
+    // cookie, so starting an impersonation no longer overwrites the owner's own session.
+    setRoleCookie(res, 'owner', session.session_id, OWNER_SESSION_MAX_AGE);
+    return res.status(200).json({ ok: true, email: tok.email });
   }
 
   if (action === 'owner-data') {
-    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const sessionId = getOwnerSessionIdFromReq(req);
     const v = await verifyOwnerSession(sessionId);
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
     const metrics = await computeOwnerMetrics();
@@ -1082,17 +1091,21 @@ async function handleOwnerAction(action, req, res, body) {
   }
 
   if (action === 'owner-logout') {
-    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const sessionId = getOwnerSessionIdFromReq(req);
     if (sessionId) {
       try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sessionId)}`, { method: 'DELETE' }); } catch (_) {}
     }
+    // Previously this deleted the row and cleared no cookie, because the owner session was never
+    // in a cookie to clear. Clear every role: an owner logging out mid-impersonation must not
+    // leave the impersonated retailer session usable.
+    clearAllSessionCookies(res);
     return res.status(200).json({ ok: true });
   }
 
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
   if (action === 'owner-list-retailers') {
-    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const sessionId = getOwnerSessionIdFromReq(req);
     const v = await verifyOwnerSession(sessionId);
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
     const rows = await sb('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc&limit=500');
@@ -1100,10 +1113,10 @@ async function handleOwnerAction(action, req, res, body) {
   }
 
   // ---- OWNER-IMPERSONATE: create a scoped 4-hour session for a retailer, log to audit table ----
-  // Sets the retailer's admin cookie (dh_session) AND a non-HttpOnly marker cookie (dh_support)
+  // Sets the retailer's admin cookie (dh_retailer_session) AND a non-HttpOnly marker cookie
   // so the client-side admin page can render the "Support session" banner.
   if (action === 'owner-impersonate') {
-    const sessionId = String((req.query && req.query.session_id) || body.session_id || '');
+    const sessionId = getOwnerSessionIdFromReq(req);
     const owner = await verifyOwnerSession(sessionId);
     if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
     const retailer_id = String((body && body.retailer_id) || '');
@@ -1145,8 +1158,11 @@ async function handleOwnerAction(action, req, res, body) {
     } catch (e) {
       console.warn('support_sessions log failed (impersonation still proceeds):', e?.message || e);
     }
-    // Set the admin session cookie (HttpOnly — the impersonated session)
-    setSessionCookie(res, session.session_id);
+    // The RETAILER cookie only. The owner's own session stays in dh_owner_session, untouched.
+    // That is the point of splitting them: before this, impersonation overwrote the single
+    // dh_session cookie, so the retailer-scoped session became the only session the owner held,
+    // and any owner-only path reading that cookie would have been reading a retailer session.
+    setSessionCookie(res, session.session_id, IMPERSONATION_MAX_AGE);
     // Set a non-HttpOnly marker cookie so client JS can render the banner + Exit button
     const markerVal = encodeURIComponent(JSON.stringify({ owner: owner.email, retailer: r.name, started: new Date().toISOString() }));
     const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=14400; Secure; SameSite=Lax`;
@@ -1163,6 +1179,9 @@ async function handleOwnerAction(action, req, res, body) {
 
   // ---- OWNER-END-IMPERSONATION: clear the impersonation session + cookies ----
   if (action === 'owner-end-impersonation') {
+    // The session being ended is the IMPERSONATED retailer session, from the retailer cookie.
+    // The owner cookie is deliberately left alone so the owner lands back on the owner panel
+    // still signed in — previously there was no owner cookie to preserve.
     const sid = getSessionIdFromReq(req, body);
     let summaryRow = null;
     let retailerInfo = null;
