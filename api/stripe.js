@@ -14,7 +14,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
-const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://demohubhq.com';
+// Return/refresh URLs come from the validated binding inside the handler (_b.siteOrigin).
 
 const VALID_TIERS = new Set(['solo', 'pro']);
 const VALID_INTERVALS = new Set(['month', 'year']);
@@ -182,8 +182,8 @@ export default async function handler(req, res) {
         });
       }
 
-      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=success`;
-      const cancelUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=canceled`;
+      const returnUrl = `${_b.siteOrigin}/r/${retailer.slug /* slug required */}/admin?billing=success`;
+      const cancelUrl = `${_b.siteOrigin}/r/${retailer.slug /* slug required */}/admin?billing=canceled`;
       const checkout = await stripe('POST', '/v1/checkout/sessions', {
         mode: 'subscription',
         customer: customerId,
@@ -204,7 +204,7 @@ export default async function handler(req, res) {
       if (!retailer.stripe_customer_id) {
         return jsonResp(res, 400, { error: 'No Stripe customer on file. Subscribe to a plan first.' });
       }
-      const returnUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin?billing=managed`;
+      const returnUrl = `${_b.siteOrigin}/r/${retailer.slug /* slug required */}/admin?billing=managed`;
       const portal = await stripe('POST', '/v1/billing_portal/sessions', {
         customer: retailer.stripe_customer_id,
         return_url: returnUrl,
@@ -343,7 +343,9 @@ export default async function handler(req, res) {
           business_profile: {
             name: retailer.name,
             mcc: '5499', // Grocery / specialty foods
-            url: 'https://demohubhq.com/r/' + (retailer.slug || ''),
+            // EXEMPT: business_profile.url is shown to CARDHOLDERS (statements, disputes).
+            // It must be the real public site whatever environment created the account.
+            url: 'https://demohubhq.com/r/' + (retailer.slug || ''),   // check-binding-allow: cardholder-facing
             product_description: 'In-store brand demo coordination',
           },
           metadata: { retailer_id: retailer.id, retailer_slug: retailer.slug || '' },
@@ -354,7 +356,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ stripe_account_id: acctId, stripe_account_status: 'pending' }),
         });
       }
-      const baseUrl = `${SITE_ORIGIN}/r/${retailer.slug /* slug required */}/admin`;
+      const baseUrl = `${_b.siteOrigin}/r/${retailer.slug /* slug required */}/admin`;
       const link = await stripe('POST', '/v1/account_links', {
         account: acctId,
         refresh_url: baseUrl + '?connect=refresh',

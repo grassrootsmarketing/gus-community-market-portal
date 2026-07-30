@@ -8,8 +8,8 @@ import { randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link as siteLink } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
 const FROM_BOOKINGS = 'Demohub <bookings@demohubhq.com>';
@@ -183,7 +183,9 @@ function getBrandSessionFromReq(req, body) {
     || null;
 }
 async function sendMagicLink(email, link, isNew, code) {
-  if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — printing link to logs'); console.log('MAGIC LINK:', link, code ? '  CODE:' + code : ''); return; }
+  // The link and the code are credentials. If there is no provider key we send nothing and log
+  // nothing — writing them to log storage is a credential leak, not a debugging aid.
+  if (!_b.resendApiKey) return;
   const subject = isNew ? 'Welcome to Demohub — verify your brand account' : 'Sign in to your Demohub brand account';
   const codeBlock = code ? `
       <div style="background:#fbf7f0;border:1.5px solid #ede3d0;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center;">
@@ -202,11 +204,7 @@ async function sendMagicLink(email, link, isNew, code) {
       <p style="font-size:13px;color:#6b6a64;margin-top:32px;">If you didn't request this, you can safely ignore the email.</p>
     </div>
   `;
-  await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: FROM_EMAIL, to: email, subject, html: body, reply_to: REPLY_TO }),
-  });
+  await sendMailQuietly({ from: FROM_EMAIL, to: email, subject, html: body, replyTo: REPLY_TO }, { binding: _b });
 }
 async function verifySession(sessionToken) {
   if (!sessionToken) return null;
@@ -232,7 +230,7 @@ async function verifySessionFull(sessionToken) {
 function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
   const fn = escapeText(first_name || 'there');
   const bn = escapeText(brand_name || 'your brand');
-  const ex = escapeText(example_retailer_url || 'https://demohubhq.com/r/gus');
+  const ex = escapeText(example_retailer_url || siteLink(_b, '/r/gus'));
   const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
@@ -244,7 +242,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 </td></tr>
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
-<p style="margin:0 0 14px;">You're in. Your ${bn} brand profile is live: <strong><a href="https://demohubhq.com/brand/dashboard" style="color:#2a5b32;">https://demohubhq.com/brand/dashboard</a></strong></p>
+<p style="margin:0 0 14px;">You're in. Your ${bn} brand profile is live: <strong><a href="${siteLink(_b, '/brand/dashboard')}" style="color:#2a5b32;">${siteLink(_b, '/brand/dashboard')}</a></strong></p>
 <p style="margin:0 0 14px;">Here's the idea: you fill out your info once, and that profile follows you to every Demohub retailer. No more re-typing your COI details into the third clipboard at the third store this month.</p>
 <p style="margin:0 0 8px;">Two things to do now so your next booking pre-fills cleanly:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">
@@ -258,7 +256,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: https://demohubhq.com/brand/dashboard\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
+  const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: ${siteLink(_b, '/brand/dashboard')}\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
   const subject = `Welcome to Demohub, ${first_name || 'there'} — one profile for every retailer`;
   return { subject, html: htmlBody, text };
 }
@@ -348,7 +346,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
     14: `2 weeks until your COI expires`,
     3:  `${days_left} day${days_left === 1 ? '' : 's'} until your COI expires`,
   };
-  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: https://demohubhq.com/brand/dashboard#compliance\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
+  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: ${siteLink(_b, '/brand/dashboard#compliance')}\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
@@ -366,7 +364,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
           <li>You're done — every Demohub retailer sees the new doc instantly.</li>
         </ol>
       </div>
-      <a href="https://demohubhq.com/brand/dashboard#compliance" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
+      <a href="${siteLink(_b, '/brand/dashboard#compliance')}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
       <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email — a human reads everything.</p>
     </div>
   </body></html>`;
@@ -413,18 +411,9 @@ function retailerCoiWarningEmail({ tier, retailer_name, brand_name, brand_contac
 }
 
 async function sendWelcome({ to, subject, html, text }) {
-  if (!RESEND_API_KEY) { console.warn('RESEND_API_KEY missing — skipping welcome to', to); return false; }
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM_BOOKINGS, to, reply_to: REPLY_TO, subject, html, text }),
-    });
-    return r.ok;
-  } catch (e) {
-    console.warn('Welcome send failed:', e?.message || e);
-    return false;
-  }
+  if (!_b.resendApiKey) { console.warn('mail provider not configured — skipping welcome to', to); return false; }
+  const r = await sendMailQuietly({ from: FROM_BOOKINGS, to, replyTo: REPLY_TO, subject, html, text }, { binding: _b });
+  return !!r.ok;
 }
 
 const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Bring your own sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot. No solicitation outside the demo area.';
@@ -557,7 +546,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ brand_id: brandId, email, token: code, expires_at: expires }),
         }),
       ]);
-      const link = `https://demohubhq.com/brand/verify?t=${token}`;
+      const link = siteLink(_b, `/brand/verify?t=${token}`);
       await sendMagicLink(email, link, !existing, code);
 
       // Day-0 welcome — only on a brand-new signup. Best-effort, never blocks signup.
@@ -567,7 +556,7 @@ export default async function handler(req, res) {
           const built = brandDay0Email({
             first_name: firstName,
             brand_name: companyName,
-            example_retailer_url: 'https://demohubhq.com/r/gus',
+            example_retailer_url: siteLink(_b, '/r/gus'),
           });
           const ok = await sendWelcome({ to: email, subject: built.subject, html: built.html, text: built.text });
           if (ok) {
@@ -633,7 +622,7 @@ export default async function handler(req, res) {
             body: JSON.stringify({ brand_id: member.brand_id, email: member.email, token: code, expires_at: expires }),
           }),
         ]);
-        const link = `https://demohubhq.com/brand/verify?t=${token}`;
+        const link = siteLink(_b, `/brand/verify?t=${token}`);
         // Fire-and-forget email — don't block response on Resend latency
         sendMagicLink(member.email, link, false, code).catch(e => console.warn('brand login email failed:', e?.message || e));
       }
@@ -759,7 +748,7 @@ export default async function handler(req, res) {
 
       // Tell the retailer the outcome.
       const retailerEmail = demo.retailers && demo.retailers.billing_email;
-      if (retailerEmail && RESEND_API_KEY) {
+      if (retailerEmail && _b.resendApiKey) {
         try {
           const brandName = demo.company_name || 'A brand';
           const subject = decision === 'accept'
@@ -768,12 +757,8 @@ export default async function handler(req, res) {
           const line = decision === 'accept'
             ? `${escapeText(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeText(String(movedTo.date))}${movedTo.time ? ' at ' + escapeText(String(movedTo.time)) : ''}</strong>.`
             : `${escapeText(brandName)} declined the new date, so their demo stays on <strong>${escapeText(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeText(String(demo.demo_time)) : ''}</strong>.`;
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: FROM_BOOKINGS, to: retailerEmail, reply_to: 'david@demohubhq.com', subject,
-              html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">&mdash; Demohub</p></div>` }),
-          });
+          await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'david@demohubhq.com', subject,
+            html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">&mdash; Demohub</p></div>` }, { binding: _b });
         } catch (_) {}
       }
       return jsonResp(res, 200, { ok: true, decision, moved_to: movedTo });
@@ -1265,15 +1250,12 @@ export default async function handler(req, res) {
           method: 'POST',
           body: JSON.stringify({ brand_id: v.brand_id, email, token, expires_at: expires }),
         });
-        const link = `https://demohubhq.com/brand/verify?t=${token}`;
-        if (RESEND_API_KEY) {
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+        const link = siteLink(_b, `/brand/verify?t=${token}`);
+        if (_b.resendApiKey) {
+          await sendMailQuietly({
               from: FROM_EMAIL,
               to: email,
-              reply_to: REPLY_TO,
+              replyTo: REPLY_TO,
               subject: `You've been invited to ${brand?.company_name || 'a brand'}'s Demohub account`,
               html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
                 <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 12px;">You're invited.</h1>
@@ -1281,8 +1263,7 @@ export default async function handler(req, res) {
                 <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Accept invite &rarr;</a>
                 <p style="font-size:13px;color:#6b6a64;margin-top:32px;">Link expires in 30 minutes. If you weren't expecting this, you can ignore the email.</p>
               </div>`,
-            }),
-          });
+          }, { binding: _b });
         }
       } catch (e) { console.warn('Invitation email failed:', e); }
       return jsonResp(res, 200, { ok: true, member: Array.isArray(created) ? created[0] : null });
@@ -1451,9 +1432,8 @@ export default async function handler(req, res) {
         if (!rr.ok) return res.status(500).json({ error: 'token_issue_failed' });
         const v = await rr.json();
         const tok = Array.isArray(v) ? v[0] : v;
-        const origin = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
         return res.status(200).json({ ok: true, rotated: !!rotate, token: tok,
-          calendar_url: `${origin}/api/brand-account?action=cal&token=${tok}` });
+          calendar_url: siteLink(_b, `/api/brand-account?action=cal&token=${tok}`) });
       } catch (_) { return res.status(500).json({ error: 'token_issue_failed' }); }
     }
 
@@ -1759,7 +1739,7 @@ export default async function handler(req, res) {
 
               const retailerDisplayName = (ret.branding && (ret.branding.contact_name || ret.branding.contactName)) || ret.name || '';
               const firstName = String(retailerDisplayName).trim().split(/\s+/)[0] || ret.name || 'there';
-              const adminUrl = `https://demohubhq.com/r/${ret.slug /* slug required */}/admin`;
+              const adminUrl = siteLink(_b, `/r/${ret.slug /* slug required */}/admin`);
               const built = retailerCoiWarningEmail({
                 tier: tier.days, retailer_name: firstName, brand_name: brandName,
                 brand_contact_name: brandContactName, expires_label: expiresLabel,
@@ -1814,7 +1794,7 @@ export default async function handler(req, res) {
             const pendingCount = Array.isArray(pendingBookings) ? pendingBookings.length : 0;
             const expCoiCount = Array.isArray(expiringCoi) ? expiringCoi.length : 0;
             const newBrandsCount = Array.isArray(newBrands) ? newBrands.length : 0;
-            const adminUrl = `https://demohubhq.com/r/${ret.slug}/admin`;
+            const adminUrl = siteLink(_b, `/r/${ret.slug}/admin`);
             const subject = `${monthLabel} at ${ret.name} — ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
             const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">

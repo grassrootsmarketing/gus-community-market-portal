@@ -27,6 +27,7 @@ import { applyRefundToBooking } from './_refund-ledger.js';
 export const config = { api: { bodyParser: false } };
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 
 // stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
 // fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
@@ -123,7 +124,6 @@ async function sb(path, opts = {}) {
 // -----------------------------------------------------------------------------
 // Email helpers (best-effort, never block webhook 200)
 // -----------------------------------------------------------------------------
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function htmlEscape(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -180,17 +180,13 @@ export async function createDemoForConfirmedBooking(ctx) {
 
 // Returns {ok, id, reason}. Callers that must NOT report success on failure use sendEmailOrThrow().
 async function sendResendEmail({ to, subject, html }) {
-  if (!RESEND_API_KEY || !to) return { ok: false, reason: 'not_configured_or_no_to' };
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM_ADDRESS, to, reply_to: 'david@demohubhq.com', subject, html }),
-    });
-    let id = null, reason = null;
-    try { const j = await r.json(); id = j && j.id; if (!r.ok) reason = (j && j.message) || ('HTTP ' + r.status); } catch (_) { if (!r.ok) reason = 'HTTP ' + r.status; }
-    return { ok: r.ok, id, reason };
-  } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
+  if (!to) return { ok: false, reason: 'not_configured_or_no_to' };
+  let b = null;
+  try { b = await bind(); } catch (e) { return { ok: false, reason: (e && e.code) || 'binding_invalid' }; }
+  if (!b.resendApiKey) return { ok: false, reason: 'not_configured_or_no_to' };
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html }, { binding: b });
+  // _mail.js does not surface the provider message id; success/failure is still reported faithfully.
+  return { ok: !!r.ok, id: null, reason: r.ok ? null : (r.code || null) };
 }
 
 // R12-P0-3: fail-closed email. A missing key, network error or non-2xx MUST throw so the fulfilment
@@ -234,7 +230,7 @@ function refundConfirmationEmail({ brandName, retailerName, venueName, demoDate,
 
 function paymentFailedEmail({ brandName, retailerName, retailerSlug, venueName, demoDate, demoTime, errorMsg }) {
   const dateLabel = demoDate ? new Date(demoDate + 'T00:00:00Z').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric', timeZone:'UTC' }) : '';
-  const retryUrl = 'https://www.demohubhq.com/r/' + encodeURIComponent(retailerSlug || '');
+  const retryUrl = link(_b, '/r/' + encodeURIComponent(retailerSlug || ''));
   return '<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,Roboto,Helvetica,sans-serif;color:#1c1c1a;">' +
 '<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">' +
 '<tr><td style="padding:28px 32px;background:#0f2c17;">' + _brandHeaderHTML() + '</td></tr>' +
@@ -316,7 +312,7 @@ async function createBrandMagicLink(brand_id, email) {
       method: 'POST',
       body: JSON.stringify({ brand_id, email: String(email).toLowerCase(), token, expires_at: expires }),
     });
-    return `https://demohubhq.com/brand/signin?token=${token}`;
+    return link(_b, `/brand/signin?token=${token}`);
   } catch (_) { return null; }
 }
 
@@ -354,9 +350,9 @@ ${skuRowsHtml('#0f2c17')}
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time)}</td></tr>
 </table>
-${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;border-left:4px solid #ed682f;border-radius:10px;padding:15px 18px;margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;margin-bottom:6px;">Action required &mdash; Certificate of Insurance</div><div style="font-size:14px;line-height:1.55;color:#a14e2a;">Your demo is <strong>automatically cancelled</strong> unless a current Certificate of Insurance is on file by <strong>${H(coiDeadline)}</strong> &mdash; that is 3 days (72 hours) before your demo, so the store can order product with confidence. Retailers require it to let you perform. <a href="https://demohubhq.com/brand/dashboard" style="color:#a14e2a;font-weight:700;text-decoration:underline;">Upload your COI now &rarr;</a></div></div>` : ''}
+${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;border-left:4px solid #ed682f;border-radius:10px;padding:15px 18px;margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;margin-bottom:6px;">Action required &mdash; Certificate of Insurance</div><div style="font-size:14px;line-height:1.55;color:#a14e2a;">Your demo is <strong>automatically cancelled</strong> unless a current Certificate of Insurance is on file by <strong>${H(coiDeadline)}</strong> &mdash; that is 3 days (72 hours) before your demo, so the store can order product with confidence. Retailers require it to let you perform. <a href="${link(_b, '/brand/dashboard')}" style="color:#a14e2a;font-weight:700;text-decoration:underline;">Upload your COI now &rarr;</a></div></div>` : ''}
 <div style="text-align:center;margin:0 0 20px;">
-<a href="${manageBookingUrl || 'https://demohubhq.com/brand/signin'}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
+<a href="${manageBookingUrl || link(_b, '/brand/signin')}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
 </div>
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
 </td></tr>
@@ -367,7 +363,9 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 // Notify assigned store staff after payment. Mirrors the Wave 8 block in api/booking.js.
 async function notifyStaffForBooking(ctx) {
   try {
-    if (!RESEND_API_KEY || !ctx || !ctx.retailer_id) return;
+    if (!ctx || !ctx.retailer_id) return;
+    const _mb = await bind();
+    if (!_mb.resendApiKey) return;
     const H = htmlEscape;
     // Declared here, not borrowed from the brand-email scope - a bare reference
     // across functions throws and would kill the staff notification entirely.
@@ -405,7 +403,7 @@ ${skuList.length ? `<div style="background:#f4f7ef;border:1px solid #2a5b3222;bo
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time || '—')}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(venueName || '—')}</td></tr>
 </table>
-<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${H(retailerSlug)}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="${link(_b, `/r/${H(retailerSlug)}/admin`)}" style="color:#2a5b32;">View full booking &rarr;</a></p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
 </table></body></html>`;
@@ -537,9 +535,10 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
 // durable outbox path so both send exactly the same messages. THROWS on failure so the outbox can
 // mark the row unfinished and retry (the legacy caller keeps its own try/catch).
 export async function sendPromotionEmails(ctx, bookingId) {
+  const _pb = await bind();   // links below are built from the bound origin
   const slug = (ctx.retailers && ctx.retailers.slug) || '';
   const magicLink = await createBrandMagicLink(ctx.brand_id, ctx.contact_email);
-  const rebookUrl = slug ? `https://demohubhq.com/r/${slug}?prefill=1` : 'https://demohubhq.com';
+  const rebookUrl = slug ? link(_pb, `/r/${slug}?prefill=1`) : link(_pb, '/');
   // COI: if the brand has no COI on file, the confirmation warns the demo is cancelled unless it's
   // uploaded by the day before the demo.
   let coiDeadline = null;

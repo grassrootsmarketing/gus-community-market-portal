@@ -10,7 +10,7 @@
 //   SUPABASE_SERVICE_KEY
 //   SEED_SECRET  (any strong random string; required in body to prevent abuse)
 
-import { getBinding, sendBindingFailure } from './_env.js';
+import { getBinding, sendBindingFailure, link } from './_env.js';
 let _b = null;
 const SEED_SECRET = process.env.SEED_SECRET;
 
@@ -271,7 +271,7 @@ export default async function handler(req, res) {
       reset,
       retailer,
       summary,
-      view_url: `https://www.demohubhq.com/r/${DEMO_SLUG}`,
+      view_url: link(_b, `/r/${DEMO_SLUG}`),
     });
   } catch (e) {
     console.error('seed-demo error:', e);

@@ -18,6 +18,7 @@ import { drainFulfillments } from './_fulfillment.js';
 //                                 id, else park requires_review. Never blind-resubmits.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly } from './_mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -88,7 +89,6 @@ function backoff(attempts) { return new Date(Date.now() + Math.min(60, Math.pow(
 // owed a refund while nobody is looking at the database. One email per case id (deduped by the
 // case's own alert_status, not per retry), never containing secrets or card data.
 const ALERT_TO = process.env.ALERT_EMAIL || 'david@demohubhq.com';
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const ENV_LABEL = process.env.VERCEL_ENV || 'unknown';
 
 function alertHtml(c) {
@@ -108,21 +108,14 @@ ${row('charge', c.stripe_charge_id)}${row('refund', c.stripe_refund_id)}${row('o
 }
 
 async function sendAlertEmail(c) {
-  if (!RESEND_API_KEY) return { ok: false, reason: 'resend_not_configured' };
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + RESEND_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        from: 'Demohub Alerts <bookings@demohubhq.com>', to: ALERT_TO,
-        subject: `[Demohub ${ENV_LABEL}] payment exception: ${c.kind} (${c.reason || 'review'})`,
-        html: alertHtml(c),
-      }),
-    });
-    let id = null, reason = null;
-    try { const j = await r.json(); id = j && j.id; if (!r.ok) reason = (j && j.message) || ('HTTP ' + r.status); } catch (_) { if (!r.ok) reason = 'HTTP ' + r.status; }
-    return { ok: r.ok, id, reason };
-  } catch (e) { return { ok: false, reason: (e && e.message) || String(e) }; }
+  if (!_b.resendApiKey) return { ok: false, reason: 'resend_not_configured' };
+  const r = await sendMailQuietly({
+    from: 'Demohub Alerts <bookings@demohubhq.com>', to: ALERT_TO,
+    subject: `[Demohub ${ENV_LABEL}] payment exception: ${c.kind} (${c.reason || 'review'})`,
+    html: alertHtml(c),
+  }, { binding: _b });
+  // _mail.js does not surface the provider message id; the send outcome is still recorded.
+  return { ok: !!r.ok, id: null, reason: r.ok ? null : (r.code || null) };
 }
 
 // Per-run send cap. A systemic failure can open cases in bulk; emailing every one would bury the

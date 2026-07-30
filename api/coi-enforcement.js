@@ -14,8 +14,8 @@ import { coiCoverageState, coiCutoff, localMidnightUtc } from './_coi-lib.js';
 import { FLAGS, coiEnforcementEffective } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -34,15 +34,9 @@ async function sb(path, opts = {}) {
 }
 
 async function sendEmail({ to, subject, htmlBody }) {
-  if (!RESEND_API_KEY || !to) return { ok: false };
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM_ADDRESS, to, reply_to: 'david@demohubhq.com', subject, html: htmlBody }),
-    });
-    return { ok: r.ok };
-  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+  if (!_b.resendApiKey || !to) return { ok: false };
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+  return r.ok ? { ok: true } : { ok: false, error: r.code };
 }
 
 function dateLabel(dstr) {
@@ -68,30 +62,30 @@ function reminderEmail({ contact_name, retailerName, venueName, demoDate, cutoff
 <h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 14px;">Upload your COI for your ${html(retailerName)} demo</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 16px;">Hi${contact_name ? ' ' + html(contact_name) : ''}, your demo at <strong>${html(retailerName)}</strong>${venueName ? ' (' + html(venueName) + ')' : ''} on <strong>${html(dateLabel(demoDate))}</strong> needs a current Certificate of Insurance on file.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">Upload it by <strong>${html(cutoffLabel(cutoffDate, tz))}</strong> or this demo is automatically cancelled and refunded. One COI on file covers all of your demos.</p>
-<div style="text-align:center;margin:0 0 8px;"><a href="https://demohubhq.com/brand/dashboard" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Upload your COI</a></div>`);
+<div style="text-align:center;margin:0 0 8px;"><a href="${link(_b, '/brand/dashboard')}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Upload your COI</a></div>`);
 }
 function finalWarningEmail({ contact_name, retailerName, venueName, demoDate, cutoffDate, tz }) {
   return shell(`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:12px;">Final notice</div>
 <h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 14px;">Your ${html(dateLabel(demoDate))} demo cancels tomorrow</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 16px;">Hi${contact_name ? ' ' + html(contact_name) : ''}, your demo at <strong>${html(retailerName)}</strong>${venueName ? ' (' + html(venueName) + ')' : ''} still has no Certificate of Insurance on file.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">If it is not uploaded by <strong>${html(cutoffLabel(cutoffDate, tz))}</strong>, the demo is automatically cancelled and your payment refunded. The store locks its schedule and product orders 72 hours ahead, which is why the deadline is firm.</p>
-<div style="text-align:center;margin:0 0 8px;"><a href="https://demohubhq.com/brand/dashboard" style="background:#a14e2a;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Upload your COI now</a></div>`);
+<div style="text-align:center;margin:0 0 8px;"><a href="${link(_b, '/brand/dashboard')}" style="background:#a14e2a;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Upload your COI now</a></div>`);
 }
 function cancellationEmail({ contact_name, retailerName, venueName, demoDate, amountCents, retailerSlug }) {
   const amt = amountCents != null ? '$' + (amountCents / 100).toFixed(2) : 'your payment';
-  const rebook = retailerSlug ? `https://demohubhq.com/r/${retailerSlug}` : 'https://demohubhq.com';
+  const rebook = retailerSlug ? link(_b, `/r/${retailerSlug}`) : link(_b, '/');
   return shell(`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:12px;">Demo cancelled</div>
 <h1 style="font-family:Georgia,serif;font-size:26px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 14px;">Your ${html(dateLabel(demoDate))} demo at ${html(retailerName)} was cancelled</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 16px;">Hi${contact_name ? ' ' + html(contact_name) : ''}, this demo${venueName ? ' at ' + html(venueName) : ''} was cancelled because a current Certificate of Insurance was not on file 72 hours before the demo. Retailers require it to let you perform.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">A full refund of <strong>${html(amt)}</strong> has been issued to your original payment method. Refunds take 5 to 10 business days to appear.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">Upload a COI and you can re-book right away. One COI on file covers all of your future demos.</p>
-<div style="text-align:center;margin:0 0 8px;"><a href="https://demohubhq.com/brand/dashboard" style="background:#0f2c17;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;margin-right:8px;">Upload your COI</a><a href="${rebook}" style="background:white;color:#0f2c17;border:1.5px solid rgba(15,44,23,0.15);padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">Re-book</a></div>`);
+<div style="text-align:center;margin:0 0 8px;"><a href="${link(_b, '/brand/dashboard')}" style="background:#0f2c17;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;margin-right:8px;">Upload your COI</a><a href="${rebook}" style="background:white;color:#0f2c17;border:1.5px solid rgba(15,44,23,0.15);padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">Re-book</a></div>`);
 }
 function staffCancelNotice({ brand_name, retailerName, venueName, demoDate, retailerSlug }) {
   return shell(`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:12px;">Demo removed from the schedule</div>
 <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo was auto-cancelled for a missing COI</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 8px;"><strong>${html(brand_name || 'A brand')}</strong> did not have a current Certificate of Insurance on file, so their demo${venueName ? ' at ' + html(venueName) : ''} on <strong>${html(dateLabel(demoDate))}</strong> was automatically cancelled and refunded. Do not order product or staff for it.</p>
-<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:14px 0 0;"><a href="https://demohubhq.com/r/${html(retailerSlug || '')}/admin" style="color:#2a5b32;">Open your admin &rarr;</a></p>`);
+<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:14px 0 0;"><a href="${link(_b, `/r/${html(retailerSlug || '')}/admin`)}" style="color:#2a5b32;">Open your admin &rarr;</a></p>`);
 }
 
 // ---- Refund (keeps-all branch), idempotent via Idempotency-Key ----
@@ -128,7 +122,7 @@ async function fetchComplianceCoi(brandEmail) {
 
 async function notifyStaff(booking) {
   try {
-    if (!RESEND_API_KEY || !booking.retailer_id) return;
+    if (!_b.resendApiKey || !booking.retailer_id) return;
     const staff = await sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&select=email,notification_prefs,venue_ids`);
     const targets = (staff || []).filter(s => {
       const p = s.notification_prefs || {};

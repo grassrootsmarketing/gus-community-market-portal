@@ -7,6 +7,7 @@
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link as siteLink } from './_mail.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind() — the exported guards work even when this file's own handler
@@ -15,8 +16,8 @@ let _b = null;
 async function bind() { _b = await getBinding(); return _b; }
 
 // R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin
-// — never from client-controllable forwarded-host headers. Defaults to the canonical www host.
-const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
+// — never from client-controllable forwarded-host headers. The origin comes from the validated
+// binding (siteLink), so it can never default to production from a preview deployment.
 
 // R2-05: viewer-role staff accounts are read-only. Uses the shared sb() helper (throws on error,
 // so a lookup failure lands in the caller's try/deny path). Owner has no retailer_admins row.
@@ -28,7 +29,6 @@ async function callerRoleAuth(retailerId, email) {
   } catch (_) { return null; }
 }
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -189,7 +189,7 @@ function invitationEmail({ retailerName, roleName, link, code, inviterEmail }) {
 <div style="border-top:1px solid rgba(15,44,23,0.08);padding-top:22px;margin-top:6px;">
 <div style="font-size:13px;color:#6b6a64;font-weight:600;margin-bottom:10px;">Or use a code:</div>
 <div style="font-family:'SF Mono',Menlo,Consolas,monospace;font-size:32px;font-weight:700;color:#0f2c17;letter-spacing:0.08em;line-height:1;padding:14px 0;background:#f9f7f2;border-radius:8px;text-align:center;margin-bottom:10px;">${codeDisplay}</div>
-<div style="font-size:12px;color:#6b6a64;line-height:1.5;">Go to <a href="https://demohubhq.com/signin" style="color:#2a5b32;">demohubhq.com/signin</a>, enter your email, then paste this code. Expires in 24 hours.</div>
+<div style="font-size:12px;color:#6b6a64;line-height:1.5;">Go to <a href="${siteLink(_b, '/signin')}" style="color:#2a5b32;">demohubhq.com/signin</a>, enter your email, then paste this code. Expires in 24 hours.</div>
 </div>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>If you don't recognize this invitation, you can safely ignore this email.</td></tr>
@@ -313,16 +313,9 @@ export default async function handler(req, res) {
             });
           }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-          const origin = SITE_ORIGIN;
-          const link = `${origin}/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`;
-          if (RESEND_API_KEY && token) {
-            try {
-              await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
-              });
-            } catch (_) { /* swallow */ }
+          const link = siteLink(_b, `/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`);
+          if (_b.resendApiKey && token) {
+            await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
           }
         }
       }
@@ -363,16 +356,9 @@ export default async function handler(req, res) {
             }
             const token = Array.isArray(tokens) ? tokens[0]?.token : null;
             if (!token) continue;
-            const origin = SITE_ORIGIN;
-            const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
-            if (RESEND_API_KEY) {
-              try {
-                await fetch('https://api.resend.com/emails', {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ from: FROM_ADDRESS, to: adminRow.email, reply_to: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }),
-                });
-              } catch (_) { /* swallow */ }
+            const link = siteLink(_b, `/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`);
+            if (_b.resendApiKey) {
+              await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
             }
           }
         }
@@ -580,7 +566,7 @@ export default async function handler(req, res) {
       try {
         const retailers = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=name,slug`);
         const retailer = Array.isArray(retailers) ? retailers[0] : null;
-        if (retailer && RESEND_API_KEY) {
+        if (retailer && _b.resendApiKey) {
           const code = generateLoginCode();
           let tokens;
           try {
@@ -595,20 +581,15 @@ export default async function handler(req, res) {
             });
           }
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-          const origin = SITE_ORIGIN;
-          const link = `${origin}/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`;
+          const link = siteLink(_b, `/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`);
           const roleName = (role === 'viewer') ? 'viewer' : 'admin';
-          await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: FROM_ADDRESS,
-              to: normalizedEmail,
-              reply_to: 'david@demohubhq.com',
-              subject: `${v.email} invited you to ${retailer.name} on Demohub`,
-              html: invitationEmail({ retailerName: retailer.name, roleName, link, code, inviterEmail: v.email }),
-            }),
-          });
+          await sendMailQuietly({
+            from: FROM_ADDRESS,
+            to: normalizedEmail,
+            replyTo: 'david@demohubhq.com',
+            subject: `${v.email} invited you to ${retailer.name} on Demohub`,
+            html: invitationEmail({ retailerName: retailer.name, roleName, link, code, inviterEmail: v.email }),
+          }, { binding: _b });
         }
       } catch (e) { console.warn('Invitation email failed:', e); }
       return res.status(200).json({ ok: true, admin: Array.isArray(created) ? created[0] : null });
@@ -1055,22 +1036,13 @@ async function handleOwnerAction(action, req, res, body) {
       }
       diag.token_found = !!token;
       if (token) {
-        const origin = SITE_ORIGIN;
-        const link = `${origin}/owner?token=${encodeURIComponent(token)}`;
-        if (RESEND_API_KEY) {
-          try {
-            const r = await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }),
-            });
-            const j = await r.json().catch(() => null);
-            diag.resend_ok = r.ok;
-            diag.resend_response = j;
-            if (!r.ok) diag.resend_error = `HTTP ${r.status}: ${JSON.stringify(j)}`;
-          } catch (e) { diag.resend_error = e?.message || String(e); }
+        const link = siteLink(_b, `/owner?token=${encodeURIComponent(token)}`);
+        if (_b.resendApiKey) {
+          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }, { binding: _b });
+          diag.resend_ok = !!r.ok;
+          if (!r.ok) diag.resend_error = r.code || 'mail_send_failed';
         } else {
-          diag.resend_error = 'RESEND_API_KEY not set';
+          diag.resend_error = 'mail provider not configured';
         }
       }
     }
@@ -1218,8 +1190,7 @@ async function handleOwnerAction(action, req, res, body) {
       const endedAt = new Date();
       const mins = Math.max(1, Math.round((endedAt - startedAt) / 60000));
       const writes = summaryRow.writes_count || 0;
-      const RESEND_API_KEY = process.env.RESEND_API_KEY;
-      if (RESEND_API_KEY) {
+      if (_b.resendApiKey) {
         const html = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,sans-serif;color:#1c1c1a;">
           <div style="max-width:520px;margin:0 auto;background:white;border-radius:16px;padding:32px;border:1px solid rgba(15,44,23,0.08);">
             <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">Support session ended</div>
@@ -1234,17 +1205,13 @@ async function handleOwnerAction(action, req, res, body) {
             <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;">To prevent future support access, toggle 'Allow Demohub support access' OFF in Settings.</p>
           </div>
         </body></html>`;
-        fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: 'Demohub <support@demohubhq.com>',
-            to: retailerInfo.billing_email,
-            reply_to: 'david@demohubhq.com',
-            subject: `Demohub support just accessed ${retailerInfo.name}`,
-            html,
-          }),
-        }).catch(e => console.warn('support summary email failed:', e?.message || e));
+        sendMailQuietly({
+          from: 'Demohub <support@demohubhq.com>',
+          to: retailerInfo.billing_email,
+          replyTo: 'david@demohubhq.com',
+          subject: `Demohub support just accessed ${retailerInfo.name}`,
+          html,
+        }, { binding: _b }).catch(e => console.warn('support summary email failed:', e?.message || e));
       }
     }
     clearSessionCookie(res);

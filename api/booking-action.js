@@ -8,8 +8,8 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 // build-bust: 2026-07-09-phase-b
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -117,7 +117,7 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
 ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed &mdash; typically within 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="https://demohubhq.com/r/gus" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="${link(_b, '/r/gus')}" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
@@ -141,7 +141,7 @@ function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dat
 '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' cancelled your demo for <strong>' + html(brand_name || 'your brand') + '</strong> on ' + html(dateLabel) + ' at ' + html(demo_time) + ' (' + html(venueName) + ').</p>' +
 (reason ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ' + html(reason) + '</p>' : '') +
 refundLine +
-'<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">To pick a different date, head back to <a href="https://www.demohubhq.com/brand/dashboard" style="color:#2a5b32;">your Demohub dashboard</a>.</p>' +
+'<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">To pick a different date, head back to <a href="' + link(_b, '/brand/dashboard') + '" style="color:#2a5b32;">your Demohub dashboard</a>.</p>' +
 '</td></tr>' +
 '<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>' +
 '</table></body></html>';
@@ -227,21 +227,15 @@ async function handleReschedulePropose(req, res, body) {
   if (!brandEmail && demo.brand_id) {
     try { const b = await sb(`brands?id=eq.${encodeURIComponent(demo.brand_id)}&select=email`); brandEmail = (Array.isArray(b) && b[0]) ? b[0].email : null; } catch (_) {}
   }
-  if (brandEmail && RESEND_API_KEY) {
-    try {
-      const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
-      const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
-      const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
-      await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          from: FROM_ADDRESS, to: brandEmail, reply_to: 'david@demohubhq.com',
-          subject: `${retailerName} proposed a new date for your demo`,
-          html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
-        }),
-      });
-    } catch (_) {}
+  if (brandEmail && _b.resendApiKey) {
+    const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
+    const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
+    const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
+    await sendMailQuietly({
+      from: FROM_ADDRESS, to: brandEmail, replyTo: 'david@demohubhq.com',
+      subject: `${retailerName} proposed a new date for your demo`,
+      html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
+    }, { binding: _b });
   }
   return res.status(200).json({ ok: true, demo_id, new_date, new_time: new_time || demo.demo_time });
 }
@@ -265,7 +259,7 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 <tr><td style="padding:12px 16px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#2a5b32;border-top:1px solid #ede3d0;">To</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-weight:700;border-top:1px solid #ede3d0;">${html(toLabel)}</td></tr>
 </table>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Your booking and payment stay exactly as they are &mdash; only the date changes if you accept.</p>
-<a href="https://demohubhq.com/brand/dashboard" style="display:inline-block;background:#0f2c17;color:white;padding:13px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">Review and respond &rarr;</a>
+<a href="${link(_b, '/brand/dashboard')}" style="display:inline-block;background:#0f2c17;color:white;padding:13px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">Review and respond &rarr;</a>
 <p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:18px 0 0;">Accept or decline from your dashboard. Decline and the demo stays on its original date.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
@@ -541,7 +535,7 @@ export default async function handler(req, res) {
 
     // 3) Send email (best-effort)
     let emailOk = false;
-    if (RESEND_API_KEY && booking.contact_email) {
+    if (_b.resendApiKey && booking.contact_email) {
       const dateLabel = booking.demo_date ? new Date(booking.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
       let subject, htmlBody;
       if (action === 'confirm') {
@@ -554,14 +548,8 @@ export default async function handler(req, res) {
         subject = `Your ${retailer?.name || 'demo'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       }
-      try {
-        const r = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: FROM_ADDRESS, to: booking.contact_email, reply_to: 'david@demohubhq.com', subject, html: htmlBody }),
-        });
-        emailOk = r.ok;
-      } catch (_) { emailOk = false; }
+      const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'david@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+      emailOk = r.ok;
     }
 
     return res.status(200).json({

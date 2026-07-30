@@ -9,7 +9,8 @@ import { FLAGS, maxCartSize } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 const STRIPE = process.env.STRIPE_SECRET_KEY;
 let _b = null;
-const SITE = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
+// SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
+// fallback here is what let a preview deployment send customers to production on checkout return.
 const PLATFORM_FEE_CENTS = 500;
 
 function rest(path, opts = {}) {
@@ -111,8 +112,8 @@ export default async function handler(req, res) {
       // limit and break checkout for large carts. Fulfilment resolves allocations from the ledger
       // by payment_group_id; only a non-sensitive count is kept for at-a-glance dashboards.
       'metadata[booking_count]': String(bookings.length),
-      success_url: `${SITE}/r/${slug}/?paid=1&bookings=${bookings.map(b => b.id).join(',')}`,
-      cancel_url: `${SITE}/r/${slug}/?cancelled=1`,
+      success_url: `${_b.siteOrigin}/r/${slug}/?paid=1&bookings=${bookings.map(b => b.id).join(',')}`,
+      cancel_url: `${_b.siteOrigin}/r/${slug}/?cancelled=1`,
       'payment_intent_data[metadata][payment_group_id]': gid,
       'payment_intent_data[metadata][retailer_id]': retailerId,
     };

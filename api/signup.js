@@ -5,8 +5,8 @@
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 const REPLY_TO = 'david@demohubhq.com';
 
@@ -324,21 +324,16 @@ export default async function handler(req, res) {
       });
     } catch (_) { /* settings table may differ; non-fatal */ }
 
-    const base = 'https://demohubhq.com';
-    const adminUrl = `${base}/r/${slug}/admin`;
-    const publicUrl = `${base}/r/${slug}`;
+    const adminUrl = link(_b, `/r/${slug}/admin`);
+    const publicUrl = link(_b, `/r/${slug}`);
 
     // 4) Send Day-0 welcome email (best-effort) + stamp welcome_day0_sent_at
     let emailOk = false;
-    if (RESEND_API_KEY) {
+    if (_b.resendApiKey) {
       try {
         const firstName = (contact_name || '').trim().split(/\s+/)[0] || retailer_name;
         const built = retailerDay0Email({ first_name: firstName, admin_url: adminUrl, public_booking_url: publicUrl });
-        const r = await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ from: FROM_ADDRESS, to: billing_email, reply_to: REPLY_TO, subject: built.subject, html: built.html, text: built.text }),
-        });
+        const r = await sendMailQuietly({ from: FROM_ADDRESS, to: billing_email, replyTo: REPLY_TO, subject: built.subject, html: built.html, text: built.text }, { binding: _b });
         emailOk = r.ok;
         if (emailOk) {
           // Stamp welcome_day0_sent_at. Wrap in try/catch — if the migration hasn't run yet,
@@ -355,7 +350,7 @@ export default async function handler(req, res) {
 
     // ===== David-notification: ping david@demohubhq.com on every new retailer signup =====
     // Best-effort. Failure never blocks signup response.
-    if (RESEND_API_KEY) {
+    if (_b.resendApiKey) {
       try {
         const tierLabel = (store_count > 1) ? 'Pro (multi-store)' : 'Solo (single-store)';
         const subj = `New Demohub signup: ${retailer_name}`;
@@ -377,22 +372,18 @@ export default async function handler(req, res) {
 <div style="margin-top:22px;padding-top:16px;border-top:1px solid #ede3d0;font-size:13px;">
 <a href="${adminUrl}" style="color:#2a5b32;font-weight:700;text-decoration:none;">Open their admin &rarr;</a>
 <br><a href="${publicUrl}" style="color:#6b6a64;text-decoration:none;">View their public booking page</a>
-<br><a href="${base}/owner" style="color:#6b6a64;text-decoration:none;">Owner panel (verification queue)</a>
+<br><a href="${link(_b, '/owner')}" style="color:#6b6a64;text-decoration:none;">Owner panel (verification queue)</a>
 </div>
 </td></tr>
 </table>
 </body></html>`;
-        await fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: FROM_ADDRESS,
-            to: 'david@demohubhq.com',
-            reply_to: normalizedEmail,
-            subject: subj,
-            html: bodyHtml,
-          }),
-        });
+        await sendMailQuietly({
+          from: FROM_ADDRESS,
+          to: 'david@demohubhq.com',
+          replyTo: normalizedEmail,
+          subject: subj,
+          html: bodyHtml,
+        }, { binding: _b });
       } catch (e) { console.warn('signup ping failed (non-blocking):', e?.message || e); }
     }
 

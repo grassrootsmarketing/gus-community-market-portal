@@ -7,8 +7,8 @@ import crypto from 'node:crypto';
 import { createChallenge, consumeChallenge } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
 function rest(path, opts = {}) {
   return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
@@ -66,8 +66,8 @@ export async function provisionOrClaimVerifiedBrand(email, password, profile = {
 }
 
 async function sendCode(email, code) {
-  if (!RESEND_API_KEY) return;
-  try { await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: `<p>Your code is <strong>${code}</strong> (expires in 30 min).</p>` }) }); } catch (_) {}
+  if (!_b.resendApiKey) return;
+  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: `<p>Your code is <strong>${code}</strong> (expires in 30 min).</p>` }, { binding: _b });
 }
 
 export default async function handler(req, res) {

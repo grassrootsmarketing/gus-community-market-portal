@@ -37,8 +37,23 @@ for (const f of files) {
   }
 
   // 2. Concrete project refs. Comments are fine; code is not.
-  const code = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, '');
-  const refs = code.match(/\b[a-z]{20}\.supabase\.(co|in)\b/g) || [];
+  // Strip comments WITHOUT eating URL literals.
+  //
+  // The previous version was `src.replace(/\/\/[^\n]*/g, '')`, which treats the `//` inside
+  // every `https://` as the start of a line comment and deletes the rest of the line. Every rule
+  // that searched for a project ref, a provider endpoint or a hardcoded origin was therefore
+  // blind, and the check reported clean while enforcing nothing. Mask schemes first.
+  const SCHEME = '\u0000SCHEME\u0000';
+  const code = src
+    .replace(/https?:\/\//g, SCHEME)          // protect URLs
+    .replace(/^\s*\/\/[^\n]*$/gm, '')         // whole-line comments only
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .split(SCHEME).join('https://');           // restore for pattern matching
+  // Obviously-synthetic refs in tests (a single repeated character) are fixtures, not real
+  // projects, and are required to prove the guard rejects an unknown ref.
+  const codeNoFixtures = code.replace(/\b([a-z])\1{19}\.supabase\.(co|in)\b/g, '');
+  const refs = codeNoFixtures.match(/\b[a-z]{20}\.supabase\.(co|in)\b/g) || [];
   if (refs.length) {
     // the binding module's RETIRED_REFS deny-list and negative test fixtures are allowed
     const allowed = rel === BINDING || (isTest(rel) && /RETIRED_REFS|deny/i.test(src));
@@ -62,7 +77,29 @@ for (const f of files) {
     problems.push(`${rel}: browser Supabase client — client DB access must go through /api`);
   }
 
-  // 6. Runtime migration endpoints.
+  // 6. Provider credentials and provider endpoints must live in their approved module only.
+  //    Codex finding C: 24 direct Resend calls across 11 files, each with its own env read,
+  //    meant the email containment in _env.js was decorative.
+  if (rel !== 'api/_mail.js' && /api\.resend\.com/.test(code)) {
+    problems.push(`${rel}: direct mail-provider call — all email goes through api/_mail.js`);
+  }
+  if (rel !== 'api/_mail.js' && rel !== BINDING && /process\.env\.RESEND_API_KEY/.test(code)) {
+    problems.push(`${rel}: reads RESEND_API_KEY directly — take it from the validated binding`);
+  }
+
+  // 7. Security-sensitive links must be built from the bound origin, not a hardcoded host.
+  // An occurrence may be exempted ONLY with an inline marker on the same line, which forces the
+  // reason to be written down next to the code rather than living in someone's memory.
+  if (!/^(tools|tests)\//.test(rel) && rel !== BINDING && /\.js$/.test(rel)) {
+    const offenders = code.split('\n').filter(l =>
+      /https:\/\/(www\.)?demohubhq\.com/.test(l) && !/check-binding-allow:/.test(l)
+      && !/@demohubhq\.com/.test(l));
+    if (offenders.length) {
+      problems.push(`${rel}: hardcoded production origin (${offenders.length} line(s)) — build links with link(binding, path), or add an inline "check-binding-allow: <reason>"`);
+    }
+  }
+
+  // 8. Runtime migration endpoints.
   if (/require\(['"]pg['"]\)|from ['"]pg['"]/.test(code) && !isTest(rel)) {
     problems.push(`${rel}: direct PostgreSQL connection in application code`);
   }

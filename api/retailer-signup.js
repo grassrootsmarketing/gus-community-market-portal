@@ -8,9 +8,8 @@ import { FLAGS } from './_flags.js';
 import { createChallenge, consumeChallenge } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const SITE_ORIGIN = process.env.SITE_ORIGIN || 'https://www.demohubhq.com';
 
 function rest(path, opts = {}) {
   return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {
@@ -58,13 +57,9 @@ export async function provisionVerifiedRetailer(email, storeName) {
 }
 
 async function sendCode(email, code) {
-  if (!RESEND_API_KEY) return;
-  try {
-    await fetch('https://api.resend.com/emails', { method: 'POST',
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
-        html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }) });
-  } catch (_) {}
+  if (!_b.resendApiKey) return;
+  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
+    html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
 }
 
 export default async function handler(req, res) {
@@ -97,7 +92,7 @@ export default async function handler(req, res) {
     if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug });
     const prov = await provisionVerifiedRetailer(email, r.payload && r.payload.store_name);
     setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
-    return res.status(200).json({ ok: true, slug: prov.slug, session_id: prov.session_id, admin_url: `${SITE_ORIGIN}/r/${prov.slug}/admin`, public_url: `${SITE_ORIGIN}/r/${prov.slug}` });
+    return res.status(200).json({ ok: true, slug: prov.slug, session_id: prov.session_id, admin_url: link(_b, `/r/${prov.slug}/admin`), public_url: link(_b, `/r/${prov.slug}`) });
   }
   return res.status(400).json({ error: 'unknown action' });
 }

@@ -158,6 +158,11 @@ function assembleBinding(env, targets) {
     stripeKey,
     stripeMode,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || null,
+    // [C] Provider credentials come from the binding, never from a direct env read in a route.
+    // A missing key is not silently tolerated: _mail.js refuses to send rather than logging
+    // the code or link it was meant to deliver.
+    resendApiKey: env.RESEND_API_KEY ? String(env.RESEND_API_KEY).trim() : null,
+    anthropicApiKey: env.ANTHROPIC_API_KEY ? String(env.ANTHROPIC_API_KEY).trim() : null,
     emailMode,
     emailAllowlist,
     expectedDbEnvironment: target.dbEnvironment,
@@ -288,6 +293,20 @@ export function supabase(b) {
     publicUrl: (bucket, path) => `${base}/storage/v1/object/public/${bucket}/${path}`,
   };
   return { rest, json, rpc, storage };
+}
+
+// ---------------------------------------------------------------------------
+// [C] Validated absolute links.
+// ---------------------------------------------------------------------------
+// Magic links, verification links, calendar feeds, checkout return URLs, admin links and COI
+// links must all point at the origin this deployment is actually bound to. ~42 call sites
+// previously hardcoded https://demohubhq.com, which means a preview deployment emailed links
+// that dropped the recipient into PRODUCTION. That is how a staging test reaches a live user.
+export function link(binding, path = '/') {
+  const base = String(binding.siteOrigin || '').replace(/\/+$/, '');
+  if (!base) throw new BindingError('site_origin_not_configured');
+  const p = String(path || '/');
+  return base + (p.startsWith('/') ? p : '/' + p);
 }
 
 // ---------------------------------------------------------------------------

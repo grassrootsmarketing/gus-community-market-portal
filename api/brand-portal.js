@@ -8,8 +8,8 @@
 // this endpoint touches them.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link as siteLink } from './_mail.js';
 let _b = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -113,16 +113,9 @@ export default async function handler(req, res) {
           body: JSON.stringify({ email, retailer_id: retailer.id }),
         });
         const token = Array.isArray(tokens) ? tokens[0]?.token : null;
-        const origin = `https://${req.headers['x-forwarded-host'] || req.headers.host || 'demohubhq.com'}`.replace(/\/$/, '');
-        const link = `${origin}/b/${retailer_slug}/?token=${encodeURIComponent(token)}`;
-        if (RESEND_API_KEY && token) {
-          try {
-            await fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({ from: FROM_ADDRESS, to: email, reply_to: 'david@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }),
-            });
-          } catch (_) { /* swallow */ }
+        const link = siteLink(_b, `/b/${retailer_slug}/?token=${encodeURIComponent(token)}`);
+        if (_b.resendApiKey && token) {
+          await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }, { binding: _b });
         }
       }
       // Always respond 200 to prevent email enumeration

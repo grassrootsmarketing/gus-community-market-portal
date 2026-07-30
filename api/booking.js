@@ -7,6 +7,7 @@ import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
 import { requireBrandSession } from './_booking-identity.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -15,7 +16,10 @@ const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours befor
 // Wave 7: include Demohub TOS in agreement scope (and hash) so brand explicitly
 // agrees to platform terms each time the conduct contract is signed.
 const DEMOHUB_TOS_VERSION = '2026-06-29';
-const DEMOHUB_TOS_URL = 'https://www.demohubhq.com/terms';
+// EXEMPT: this URL is stored on the signed brand_retailer_agreements record as evidence of what
+// the brand agreed to. Making it environment-relative would write a staging URL into a legal
+// record, and the terms a brand accepted are the ones published at the real address.
+const DEMOHUB_TOS_URL = 'https://www.demohubhq.com/terms';   // check-binding-allow: persisted legal reference
 
 async function sha256Hex(str) {
   const enc = new TextEncoder().encode(str || '');
@@ -171,7 +175,7 @@ async function createBrandMagicLink(brand_id, email) {
       method: 'POST',
       body: JSON.stringify({ brand_id, email: String(email).toLowerCase(), token, expires_at: expires }),
     });
-    return `https://demohubhq.com/brand/verify?t=${token}`;
+    return link(_b, `/brand/verify?t=${token}`);
   } catch (e) {
     console.warn('createBrandMagicLink failed (non-fatal):', e?.message || e);
     return null;
@@ -404,8 +408,7 @@ export default async function handler(req, res) {
           // Wave 7: email the brand a receipt of what they just signed.
           // Best-effort — does not block the booking flow if Resend is unavailable.
           try {
-            const RESEND = process.env.RESEND_API_KEY;
-            if (RESEND && Array.isArray(newAgreement) && newAgreement[0]) {
+            if (_b.resendApiKey && Array.isArray(newAgreement) && newAgreement[0]) {
               const a = newAgreement[0];
               const signedDate = new Date(a.signed_at).toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' });
               const expiresDate = new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
@@ -432,21 +435,17 @@ export default async function handler(req, res) {
 <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin:18px 0 8px;">Cancellation policy you agreed to</div>
 <div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;font-size:13px;line-height:1.6;color:#3a3a36;white-space:pre-wrap;margin-bottom:18px;">${html(CURRENT_CANCEL_POLICY)}</div>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">You also agreed to <a href="${DEMOHUB_TOS_URL}" style="color:#2a5b32;">Demohub's Terms of Service</a> (version ${DEMOHUB_TOS_VERSION}) as part of this agreement.</p>
-<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">If you ever need this agreement again, your <a href="https://www.demohubhq.com/brand/dashboard" style="color:#2a5b32;">Demohub brand portal</a> has a copy under Agreements.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:18px 0 0;">If you ever need this agreement again, your <a href="${link(_b, '/brand/dashboard')}" style="color:#2a5b32;">Demohub brand portal</a> has a copy under Agreements.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-              await fetch('https://api.resend.com/emails', {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  from: FROM_ADDRESS,
-                  to: String(contact_email).toLowerCase(),
-                  reply_to: 'david@demohubhq.com',
-                  subject: subj,
-                  html: htmlBody,
-                }),
-              });
+              await sendMailQuietly({
+                from: FROM_ADDRESS,
+                to: String(contact_email).toLowerCase(),
+                replyTo: 'david@demohubhq.com',
+                subject: subj,
+                html: htmlBody,
+              }, { binding: _b });
 
               // Send a parallel copy to the retailer so they have an audit trail too.
               // Different subject so it's distinguishable in their inbox.
@@ -475,17 +474,13 @@ export default async function handler(req, res) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-                await fetch('https://api.resend.com/emails', {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${RESEND}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    from: FROM_ADDRESS,
-                    to: RETAILER_BILLING_EMAIL,
-                    reply_to: 'david@demohubhq.com',
-                    subject: retailerSubj,
-                    html: retailerHtmlBody,
-                  }),
-                });
+                await sendMailQuietly({
+                  from: FROM_ADDRESS,
+                  to: RETAILER_BILLING_EMAIL,
+                  replyTo: 'david@demohubhq.com',
+                  subject: retailerSubj,
+                  html: retailerHtmlBody,
+                }, { binding: _b });
               }
             }
           } catch (e) { console.warn('agreement email skipped:', e?.message || e); }
@@ -636,11 +631,10 @@ export default async function handler(req, res) {
 
     // Send confirmation email
     const dateLabel = new Date(demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
     let emailOk = false;
     let emailErr = null;
 
-    if (!RESEND_API_KEY) {
+    if (!_b.resendApiKey) {
       emailErr = 'RESEND_API_KEY not configured on server';
     } else {
       // FIRE-AND-FORGET: don't block booking response on Resend latency (~500-800ms).
@@ -652,48 +646,40 @@ export default async function handler(req, res) {
       // Stripe webhook AFTER payment succeeds, so an unpaid/abandoned booking never emails.
       const magicLinkPromise = awaitingPayment ? Promise.resolve(null) : createBrandMagicLink(brandId, contact_email);
       if (!awaitingPayment) magicLinkPromise.then(magicLink => {
-        fetch('https://api.resend.com/emails', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from: FROM_ADDRESS,
-            to: contact_email,
-            reply_to: 'david@demohubhq.com',
-            subject: `Your demo booking at ${RETAILER_NAME}`,
-            html: emailBody({
-              contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel,
-              retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY,
-              // P8 additions
-              manageBookingUrl: magicLink || 'https://demohubhq.com/brand/signin',
-              rebookUrl: `https://demohubhq.com/r/${retailer_slug}?prefill=1`,
-            }),
+        sendMailQuietly({
+          from: FROM_ADDRESS,
+          to: contact_email,
+          replyTo: 'david@demohubhq.com',
+          subject: `Your demo booking at ${RETAILER_NAME}`,
+          html: emailBody({
+            contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel,
+            retailerName: RETAILER_NAME, cancellationPolicy: CANCELLATION_POLICY,
+            // P8 additions
+            manageBookingUrl: magicLink || link(_b, '/brand/signin'),
+            rebookUrl: link(_b, `/r/${retailer_slug}?prefill=1`),
           }),
-        }).then(r => { if (!r.ok) console.warn('confirmation email non-2xx:', r.status); }).catch(e => console.warn('confirmation email failed:', e?.message || e));
+        }, { binding: _b }).then(r => { if (!r.ok) console.warn('confirmation email non-2xx:', r.code); }).catch(e => console.warn('confirmation email failed:', e?.message || e));
       });
       emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
-      if (isNewBrand && RESEND_API_KEY) {   /* was RESEND_KEY — undefined here */
+      if (isNewBrand && _b.resendApiKey) {   /* was RESEND_KEY — undefined here */
         try {
           const welcomeSubj = `Your Demohub brand account is set up`;
           const welcomeHtml = brandWelcomeEmail({
             contact_name,
             brand_name,
             retailer_name: RETAILER_NAME,
-            signin_url: `https://demohubhq.com/brand/signin?email=${encodeURIComponent(String(contact_email).toLowerCase())}`,
+            signin_url: link(_b, `/brand/signin?email=${encodeURIComponent(String(contact_email).toLowerCase())}`),
           });
           // Fire-and-forget welcome email; don't block booking response.
-          fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              from: FROM_ADDRESS,
-              to: contact_email,
-              reply_to: 'david@demohubhq.com',
-              subject: welcomeSubj,
-              html: welcomeHtml,
-            }),
-          }).catch(e => console.warn('brand welcome email failed:', e?.message || e));
+          sendMailQuietly({
+            from: FROM_ADDRESS,
+            to: contact_email,
+            replyTo: 'david@demohubhq.com',
+            subject: welcomeSubj,
+            html: welcomeHtml,
+          }, { binding: _b }).catch(e => console.warn('brand welcome email failed:', e?.message || e));
           console.log(`brand-welcome: sent to ${contact_email} after first booking`);
         } catch (welcomeErr) {
           console.warn('brand welcome email failed (non-blocking):', welcomeErr?.message || welcomeErr);
@@ -710,9 +696,8 @@ export default async function handler(req, res) {
     // OR venue_ids contains the booked venue. Idempotent-ish: booking has bookings.id which is unique.
     // Best-effort — doesn't block booking success.
     try {
-      const RESEND_KEY = process.env.RESEND_API_KEY;
       // Skip staff alerts for unpaid ('pending_payment') bookings — the webhook fires them after payment.
-      if (RESEND_KEY && bookingId && !awaitingPayment) {
+      if (_b.resendApiKey && bookingId && !awaitingPayment) {
         // Fetch staff whose prefs include on_scheduled and either no venue restriction or this venue
         const bookedVenueId = venue?.id || null;
         const staffUrl = `${_b.supabaseUrl}/rest/v1/internal_contacts?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&select=id,name,email,notification_prefs,venue_ids`;
@@ -747,22 +732,18 @@ export default async function handler(req, res) {
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(venue?.name || '—')}</td></tr>
 </table>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${html(RETAILER_NAME)}</strong> added you to their team with new-demo alerts on.</p>
-<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="https://demohubhq.com/r/${retailer_slug}/admin" style="color:#2a5b32;">View full booking &rarr;</a></p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="${link(_b, `/r/${retailer_slug}/admin`)}" style="color:#2a5b32;">View full booking &rarr;</a></p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
 </table></body></html>`;
             // Fire one email per staff member (Resend handles up to 100/sec)
-            Promise.allSettled(targetStaff.map(s => fetch('https://api.resend.com/emails', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                from: FROM_ADDRESS,
-                to: s.email,
-                reply_to: 'david@demohubhq.com',
-                subject: staffSubj,
-                html: staffHtml,
-              }),
-            }))).catch(e => console.warn('staff-notify failed:', e?.message || e));
+            Promise.allSettled(targetStaff.map(s => sendMailQuietly({
+              from: FROM_ADDRESS,
+              to: s.email,
+              replyTo: 'david@demohubhq.com',
+              subject: staffSubj,
+              html: staffHtml,
+            }, { binding: _b }))).catch(e => console.warn('staff-notify failed:', e?.message || e));
             console.log(`staff-notify: sent to ${targetStaff.length} staff for booking ${bookingId}`);
           }
         }
