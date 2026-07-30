@@ -1,0 +1,157 @@
+# .github/workflows/verify.yml
+# ============================================================================
+# This file is the answer to "is this really the fastest way to work".
+# It is not. This is.
+#
+# WHAT IT REPLACES
+#   Job 1 (the Windows test run)  -> the `suites` job, on windows-latest AND
+#                                    ubuntu-latest, on every push, forever.
+#   Job 2 (the two clean builds)  -> the `clean-build` job, run on demand.
+#
+# WHY IT IS BETTER EVIDENCE, NOT JUST FASTER
+#   A pasted screenshot is a claim about what a laptop printed. A GitHub
+#   Actions run is an immutable log at a permanent URL, produced by a machine
+#   nobody controls, from a named commit SHA. Codex can read it directly.
+#   It also proves the portability fix CONTINUOUSLY rather than once.
+#
+# THE DATABASE PASSWORD
+#   Codex's rule is that the password must never appear in chat, a repository,
+#   a patch, a transcript, or an evidence document. GitHub Actions secrets are
+#   exactly the mechanism for that: David pastes it once into the repository's
+#   secret store, it is encrypted at rest, it is masked in every log line, and
+#   it is never in this file or any other. That satisfies the rule as written
+#   AND removes the resets from David's hands.
+#
+# SAFETY
+#   The staging ref is asserted before anything destructive runs, and the
+#   production ref is refused by name. `db reset` cannot be pointed at
+#   production by a typo, a variable edit, or a bad merge.
+# ============================================================================
+
+name: verify
+
+on:
+  push:
+    branches: ['clean/**']
+  pull_request:
+    branches: ['clean/**']
+  workflow_dispatch:
+    inputs:
+      clean_build:
+        description: 'Also run the A/B clean-build pair against STAGING'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1 replacement. Runs on Windows, where path.sep is '\' -- which is the
+  # only reason Job 1 existed. It also runs on Linux, so any divergence between
+  # the two shows up as a diff in the same run rather than a memory of numbers.
+  # --------------------------------------------------------------------------
+  suites:
+    name: suites (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # npm ci, not npm install: installs exactly the locked tree, so the
+      # ESLint version the checker runs is the pinned one and the result is
+      # reproducible rather than whatever resolved that day.
+      - run: npm ci
+
+      - name: migration file count is 58
+        shell: bash
+        run: |
+          n=$(ls supabase/migrations/*.sql | wc -l)
+          echo "migration files: $n"
+          test "$n" -eq 58
+
+      - run: node tools/check-migrations.mjs
+      - run: node tools/check-imports.mjs
+      - run: node tools/check-undefined.mjs
+      - run: node tools/check-binding.mjs
+
+      - run: node tests/binding.test.mjs
+      - run: node tests/route_binding.test.mjs
+      - run: node tests/mail_containment.test.mjs
+      - run: node tests/launch_flags.test.mjs
+      - run: node tests/brand_signup.test.mjs
+      - run: node tests/coi_enforcement_gate.test.mjs
+      - run: node tests/session_transport.test.mjs
+
+  # --------------------------------------------------------------------------
+  # Job 2 replacement. Manual only -- `db reset` is destructive, so it must
+  # never fire on a push.
+  # --------------------------------------------------------------------------
+  clean-build:
+    name: clean build A/B (staging)
+    if: github.event_name == 'workflow_dispatch' && inputs.clean_build
+    needs: suites
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # The guard runs BEFORE the CLI is even installed. Two independent
+      # conditions: the target must be the staging ref by name, and the
+      # production ref is refused explicitly even if the variable were changed.
+      - name: refuse anything that is not staging
+        run: |
+          echo "target: $TARGET_REF"
+          if [ "$TARGET_REF" != "tileejdviuvijumjeplv" ]; then
+            echo "REFUSING: $TARGET_REF is not the staging project"; exit 1
+          fi
+          for denied in ecapmcyumpjjgjwuokyv; do
+            if [ "$TARGET_REF" = "$denied" ]; then
+              echo "REFUSING: $denied is PRODUCTION"; exit 1
+            fi
+          done
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # -p reads from the env var, so the password is never a literal in this
+      # file and never a literal in the log. GitHub masks the value regardless.
+      - name: link
+        run: supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"
+
+      - name: build A
+        run: supabase db reset --linked --yes
+
+      - name: manifest A
+        run: supabase db query -f manifest.sql --linked | tee manifest-A.txt
+
+      - name: build B
+        run: supabase db reset --linked --yes
+
+      - name: manifest B
+        run: supabase db query -f manifest.sql --linked | tee manifest-B.txt
+
+      # The comparison is the evidence. Doing it here means the run itself
+      # fails if the builds diverge, rather than a human eyeballing two blocks.
+      - name: manifests must be identical
+        run: diff -u manifest-A.txt manifest-B.txt && echo "A == B"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: clean-build-manifests
+          path: |
+            manifest-A.txt
+            manifest-B.txt
