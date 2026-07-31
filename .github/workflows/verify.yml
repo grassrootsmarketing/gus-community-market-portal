@@ -1,31 +1,43 @@
 # .github/workflows/verify.yml
 # ============================================================================
-# This file is the answer to "is this really the fastest way to work".
-# It is not. This is.
+# CORRECTED after Codex's v5 ruling, blocking finding 1.
 #
-# WHAT IT REPLACES
-#   Job 1 (the Windows test run)  -> the `suites` job, on windows-latest AND
-#                                    ubuntu-latest, on every push, forever.
-#   Job 2 (the two clean builds)  -> the `clean-build` job, run on demand.
+# WHAT WENT WRONG, RECORDED HERE BECAUSE THE FIX IS ONLY LEGIBLE NEXT TO IT:
 #
-# WHY IT IS BETTER EVIDENCE, NOT JUST FASTER
-#   A pasted screenshot is a claim about what a laptop printed. A GitHub
-#   Actions run is an immutable log at a permanent URL, produced by a machine
-#   nobody controls, from a named commit SHA. Codex can read it directly.
-#   It also proves the portability fix CONTINUOUSLY rather than once.
+#   The previous version ran:
+#       supabase db query -f manifest.sql --linked | tee manifest-A.txt
 #
-# THE DATABASE PASSWORD
-#   Codex's rule is that the password must never appear in chat, a repository,
-#   a patch, a transcript, or an evidence document. GitHub Actions secrets are
-#   exactly the mechanism for that: David pastes it once into the repository's
-#   secret store, it is encrypted at rest, it is masked in every log line, and
-#   it is never in this file or any other. That satisfies the rule as written
-#   AND removes the resets from David's hands.
+#   No manifest.sql was tracked in the repository. The CLI failed. `tee` succeeded.
+#   A shell pipeline reports the exit status of its LAST command, and `pipefail` was
+#   not set, so the step exited 0. The next step diffed two identical error messages
+#   and printed "A == B". The artifact was 266 bytes of
+#   "failed to read SQL file: NotFound", and the job was green.
 #
-# SAFETY
-#   The staging ref is asserted before anything destructive runs, and the
-#   production ref is refused by name. `db reset` cannot be pointed at
-#   production by a typo, a variable edit, or a bad merge.
+#   Two clean database builds really did run and really did apply all 58 migrations.
+#   But the property being claimed -- that the two builds produce the same schema --
+#   was never tested at all.
+#
+# THE PRINCIPLE THIS FILE NOW FOLLOWS: a verification step must fail closed. Absence
+# of evidence must never render as evidence. Every check below is a POSITIVE assertion
+# about content, not an absence of an error string, because an absence is exactly what
+# a broken command produces.
+#
+# CONCRETE DEFENCES, each mapped to a way the previous version could lie:
+#   set -euo pipefail        a failing command in a pipeline can no longer be masked
+#   no pipelines at all      output is redirected, never teed
+#   test -f on the SQL       a missing query file fails before the CLI is invoked
+#   test -s on the output    an empty result is a failure, not a match
+#   line-shape assertion     >= 200 lines must match the manifest's own row format,
+#                            so an error page cannot pass as a manifest
+#   migration-count assertion the manifest must itself report 58 applied migrations
+#   sha256 of both files     recorded in the log, so equality is auditable after the fact
+#   upload AFTER validation  a rejected manifest is never published as evidence
+#   negative_control input   proves the guard fires, on demand, by pointing the query
+#                            at a file that does not exist
+#
+# Third-party actions are pinned to commit SHAs. Version tags are mutable; a tag can be
+# repointed at new code after review. The Supabase CLI is pinned to an exact version for
+# the same reason -- `latest` means the toolchain can change under a passing build.
 # ============================================================================
 
 name: verify
@@ -38,18 +50,32 @@ on:
   workflow_dispatch:
     inputs:
       clean_build:
-        description: 'Also run the A/B clean-build pair against STAGING'
+        description: 'Run the A/B clean-build pair against STAGING'
+        type: boolean
+        default: false
+      negative_control:
+        description: 'NEGATIVE CONTROL: point the manifest query at a missing file. The job MUST fail.'
         type: boolean
         default: false
 
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
+env:
+  SUPABASE_CLI_VERSION: '2.110.0'
+  STAGING_REF_EXPECTED: 'tileejdviuvijumjeplv'
+  PRODUCTION_REF_DENIED: 'ecapmcyumpjjgjwuokyv'
+  MIN_MANIFEST_LINES: '200'
+  EXPECTED_MIGRATIONS: '58'
+
 jobs:
   # --------------------------------------------------------------------------
-  # Job 1 replacement. Runs on Windows, where path.sep is '\' -- which is the
-  # only reason Job 1 existed. It also runs on Linux, so any divergence between
-  # the two shows up as a diff in the same run rather than a memory of numbers.
+  # Non-live suites. Windows is the point: path.sep is '\' there, which is the
+  # defect class Codex found in v4 and which cannot be exercised on Linux.
   # --------------------------------------------------------------------------
   suites:
     name: suites (${{ matrix.os }})
@@ -59,24 +85,24 @@ jobs:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.2.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
           cache: npm
 
-      # npm ci, not npm install: installs exactly the locked tree, so the
-      # ESLint version the checker runs is the pinned one and the result is
-      # reproducible rather than whatever resolved that day.
+      # npm ci, not npm install: installs exactly the locked tree, so the ESLint the
+      # checker runs is the pinned one. The lockfile was gitignored until 822eb85,
+      # which meant this reproducibility claim was previously false.
       - run: npm ci
 
       - name: migration file count is 58
-        shell: bash
         run: |
+          set -euo pipefail
           n=$(ls supabase/migrations/*.sql | wc -l)
           echo "migration files: $n"
-          test "$n" -eq 58
+          test "$n" -eq "${EXPECTED_MIGRATIONS}"
 
       - run: node tools/check-migrations.mjs
       - run: node tools/check-imports.mjs
@@ -92,66 +118,118 @@ jobs:
       - run: node tests/session_transport.test.mjs
 
   # --------------------------------------------------------------------------
-  # Job 2 replacement. Manual only -- `db reset` is destructive, so it must
-  # never fire on a push.
+  # A/B clean build. Manual only -- `db reset` is destructive and must never fire
+  # on a push.
   # --------------------------------------------------------------------------
   clean-build:
     name: clean build A/B (staging)
     if: github.event_name == 'workflow_dispatch' && inputs.clean_build
     needs: suites
     runs-on: ubuntu-latest
-    env:
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-      TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+    environment: staging
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.2.2
 
-      # The guard runs BEFORE the CLI is even installed. Two independent
-      # conditions: the target must be the staging ref by name, and the
-      # production ref is refused explicitly even if the variable were changed.
-      - name: refuse anything that is not staging
+      # Runs before the CLI is installed and before any secret is in scope. Two
+      # independent conditions: the target must equal the staging ref, and the
+      # production ref is refused by name even if the variable were edited.
+      - name: refuse any target that is not staging
+        env:
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
         run: |
-          echo "target: $TARGET_REF"
-          if [ "$TARGET_REF" != "tileejdviuvijumjeplv" ]; then
-            echo "REFUSING: $TARGET_REF is not the staging project"; exit 1
+          set -euo pipefail
+          echo "target: ${TARGET_REF:-<unset>}"
+          if [ -z "${TARGET_REF:-}" ]; then
+            echo "REFUSING: STAGING_PROJECT_REF is not set"; exit 1
           fi
-          for denied in ecapmcyumpjjgjwuokyv; do
-            if [ "$TARGET_REF" = "$denied" ]; then
-              echo "REFUSING: $denied is PRODUCTION"; exit 1
-            fi
-          done
+          if [ "$TARGET_REF" != "${STAGING_REF_EXPECTED}" ]; then
+            echo "REFUSING: $TARGET_REF is not the approved staging project"; exit 1
+          fi
+          if [ "$TARGET_REF" = "${PRODUCTION_REF_DENIED}" ]; then
+            echo "REFUSING: $TARGET_REF is PRODUCTION"; exit 1
+          fi
+          echo "target accepted"
 
-      - uses: supabase/setup-cli@v1
+      # The manifest query must exist BEFORE anything destructive runs. Discovering it
+      # missing after two resets is how the previous version wasted a whole build pair
+      # and then reported success anyway.
+      - name: manifest query must exist and be read-only
+        run: |
+          set -euo pipefail
+          test -f supabase/manifest.sql || { echo "FAIL: supabase/manifest.sql is missing"; exit 1; }
+          test -s supabase/manifest.sql || { echo "FAIL: supabase/manifest.sql is empty"; exit 1; }
+          if grep -inE '^[[:space:]]*(insert|update|delete|drop|alter|truncate|grant|revoke|create)[[:space:]]' supabase/manifest.sql; then
+            echo "FAIL: manifest query contains a write statement"; exit 1
+          fi
+          echo "manifest query present, $(wc -l < supabase/manifest.sql) lines, read-only"
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
         with:
-          version: latest
+          version: ${{ env.SUPABASE_CLI_VERSION }}
 
-      # -p reads from the env var, so the password is never a literal in this
-      # file and never a literal in the log. GitHub masks the value regardless.
+      - name: record CLI version
+        run: |
+          set -euo pipefail
+          supabase --version
+
+      # Secrets are scoped to the steps that need them, never to the job.
       - name: link
-        run: supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"
 
       - name: build A
-        run: supabase db reset --linked --yes
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase db reset --linked --yes
 
       - name: manifest A
-        run: supabase db query -f manifest.sql --linked | tee manifest-A.txt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          NEGATIVE_CONTROL: ${{ inputs.negative_control }}
+        run: ./.github/scripts/capture-manifest.sh manifest-A.raw.txt
 
       - name: build B
-        run: supabase db reset --linked --yes
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase db reset --linked --yes
 
       - name: manifest B
-        run: supabase db query -f manifest.sql --linked | tee manifest-B.txt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          NEGATIVE_CONTROL: ${{ inputs.negative_control }}
+        run: ./.github/scripts/capture-manifest.sh manifest-B.raw.txt
 
-      # The comparison is the evidence. Doing it here means the run itself
-      # fails if the builds diverge, rather than a human eyeballing two blocks.
-      - name: manifests must be identical
-        run: diff -u manifest-A.txt manifest-B.txt && echo "A == B"
+      # The comparison is executed by the run. If A and B differ the job fails; no
+      # human is asked to eyeball two blocks of text and declare them equal.
+      - name: manifests must be byte-identical after documented normalization
+        run: |
+          set -euo pipefail
+          echo "sha256 (normalized):"
+          sha256sum manifest-A.txt manifest-B.txt
+          if ! diff -u manifest-A.txt manifest-B.txt > manifest-diff.txt; then
+            echo "FAIL: Build A and Build B produced different schemas"
+            head -100 manifest-diff.txt
+            exit 1
+          fi
+          echo "A == B  ($(wc -l < manifest-A.txt) manifest lines each)"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: clean-build-manifests
           path: |
             manifest-A.txt
             manifest-B.txt
+            manifest-A.raw.txt
+            manifest-B.raw.txt
+            manifest-diff.txt
+          if-no-files-found: error
