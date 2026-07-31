@@ -491,9 +491,18 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   const revEmail = `${uniq('coi')}@fixture.test`;
   const revBrandId = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
     email: revEmail, company_name: 'COI Review Co' }) })).body[0].id);
-  const revSess = track('brand_account_sessions', (await db('brand_account_sessions', { method: 'POST',
-    body: JSON.stringify({ brand_id: revBrandId, token: uniq('tok'),
-      expires_at: new Date(Date.now() + 36e5).toISOString() }) })).body[0].token);
+  // Establish the session the way section 5 does -- mint a magic-link token, then let the
+  // ROUTE issue the cookie. My first attempt inserted straight into brand_account_sessions,
+  // which returned nothing and threw "Cannot read properties of undefined". Fabricating a
+  // session row would also have skipped the very code path that decides what a valid brand
+  // session is.
+  const revTok = (await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({
+    brand_id: revBrandId, email: revEmail, token: 'tk-' + uniq('c'),
+    expires_at: new Date(Date.now() + 3600e3).toISOString() }) })).body[0];
+  const revVerify = await callRoute('brand-account.js', req({ body: { action: 'verify', token: revTok.token } }));
+  const revSess = revVerify.cookie('dh_brand_session');
+  ok('the review fixture brand has a real session from the verify route', !!revSess,
+     `${revVerify.statusCode} ${JSON.stringify(revVerify.body).slice(0, 120)}`);
 
   const up1 = await callRoute('brand-account.js', req({
     body: { action: 'upload-coi', file: dataUrl('one'), expires: future },
