@@ -57,6 +57,10 @@ on:
         description: 'NEGATIVE CONTROL: point the manifest query at a missing file. The job MUST fail.'
         type: boolean
         default: false
+      staging_gate:
+        description: 'Run the staging integration gate (real routes, real staging database) TWICE'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -233,3 +237,78 @@ jobs:
             manifest-B.raw.txt
             manifest-diff.txt
           if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # STAGING INTEGRATION GATE -- Codex v5 blocking finding 2.
+  #
+  # These suites existed but were wired into nothing: not in package.json, not in any
+  # workflow, no execution evidence. A test that is never run is indistinguishable from
+  # a test that does not exist, which is the same species of defect as a checker with an
+  # exemption or a manifest step that cannot fail.
+  #
+  # Runs ONLY on manual dispatch, ONLY after the corrected clean-build gate, and ONLY
+  # against the disposable staging project. The `environment: staging` binding means a
+  # human must approve before it touches anything.
+  #
+  # TWO CONSECUTIVE PASSES from one immutable commit: pass-2 `needs` pass-1, so they
+  # cannot interleave and cannot run from different source. One green run can be luck --
+  # a leftover fixture, a warm cache, an ordering accident. Two consecutive runs from the
+  # same SHA is the weakest claim that is still worth making.
+  # --------------------------------------------------------------------------
+  staging-gate-pass-1:
+    name: staging gate (pass 1)
+    if: github.event_name == 'workflow_dispatch' && inputs.staging_gate
+    needs: clean-build
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: assert target is the approved staging project
+        env:
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: ./.github/scripts/assert-staging.sh
+      - name: staging suites
+        env:
+          SB_REF: ${{ vars.STAGING_PROJECT_REF }}
+          SB_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+          SB_KEY: ${{ secrets.STAGING_SB_KEY }}
+          LEDGER_TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+          ALLOW_STAGING_LEDGER_TESTS: 'yes'
+        run: |
+          set -euo pipefail
+          echo "commit under test: ${GITHUB_SHA}"
+          npm run test:staging
+
+  staging-gate-pass-2:
+    name: staging gate (pass 2, consecutive, same commit)
+    if: github.event_name == 'workflow_dispatch' && inputs.staging_gate
+    needs: staging-gate-pass-1
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262   # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: assert target is the approved staging project
+        env:
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: ./.github/scripts/assert-staging.sh
+      - name: staging suites
+        env:
+          SB_REF: ${{ vars.STAGING_PROJECT_REF }}
+          SB_URL: https://${{ vars.STAGING_PROJECT_REF }}.supabase.co
+          SB_KEY: ${{ secrets.STAGING_SB_KEY }}
+          LEDGER_TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+          ALLOW_STAGING_LEDGER_TESTS: 'yes'
+        run: |
+          set -euo pipefail
+          echo "commit under test: ${GITHUB_SHA}"
+          npm run test:staging
