@@ -14,7 +14,7 @@
     "check:columns": "node tools/check-sql-columns.mjs && node tools/check-js-columns.mjs",
     "test:routes": "node tests/route_flows.test.mjs",
     "test:live": "node tests/live_entitlements.test.mjs && node tests/live_flows.test.mjs",
-    "test:ledger": "node tests/payment_ledger_adversarial.mjs",
+    "test:ledger": "node tests/_seed_ledger_fixtures.mjs && node tests/payment_ledger_adversarial.mjs",
     "test:staging": "npm run check:columns && npm run test:routes && npm run test:live && npm run test:ledger"
   }
 }

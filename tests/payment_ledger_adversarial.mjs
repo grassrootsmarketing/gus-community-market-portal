@@ -9,7 +9,25 @@
 //   retailer test-a (platform_keeps_all=true, venue fee $30), test-b (connected, venue fee $45),
 //   brands brand1@fixture.test / brand2@fixture.test.
 
-const SB_URL = process.env.SB_URL;
+// SB_URL CONVENTION -- this file and tests/_live.mjs disagreed, and nothing noticed until
+// they were finally run inside the SAME job.
+//
+//   tests/_live.mjs   expects the PROJECT BASE      https://<ref>.supabase.co
+//                     and appends /rest/v1/ itself.
+//   this file         expected the REST BASE        https://<ref>.supabase.co/rest/v1
+//                     and appended the path directly.
+//
+// One SB_URL cannot satisfy both. With the project base set, every call here resolved to
+// https://<ref>.supabase.co/bookings and PostgREST answered
+//     404 {"error":"requested path is invalid"}
+//
+// Neither convention is wrong; having two undocumented ones is. This now accepts EITHER
+// and normalises to the REST base, so the variable means the same thing everywhere and a
+// future caller cannot get it subtly wrong.
+const SB_URL_RAW = process.env.SB_URL;
+const SB_URL = SB_URL_RAW
+  ? SB_URL_RAW.replace(/\/+$/, '').replace(/\/rest\/v1$/, '') + '/rest/v1'
+  : SB_URL_RAW;
 const SB_KEY = process.env.SB_KEY;
 if (!SB_URL || !SB_KEY) { console.error('SB_URL and SB_KEY required'); process.exit(2); }
 
@@ -107,7 +125,7 @@ const DENY_PROJECT_REFS    = [
   'eubbgurdwqmwqduamwhn',   // retired staging — retired by the binding incident
 ];
 function assertSafeTarget() {
-  const host = (SB_URL || '').replace(/^https?:\/\//, '').split('.')[0];
+  const host = (SB_URL_RAW || '').replace(/^https?:\/\//, '').split('.')[0];
   const fail = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
   if (!host) fail('cannot determine Supabase project ref from SB_URL');
   if (DENY_PROJECT_REFS.includes(host)) fail(`SB_URL points at a DENIED (production) project: ${host}`);
