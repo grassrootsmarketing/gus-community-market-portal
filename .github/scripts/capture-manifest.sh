@@ -48,24 +48,20 @@ echo "--- gate 2: the query runs and exits zero"
 # something passes is not -- so this attempts a fixed THREE times, prints every attempt
 # and its stderr, and after the last one fails the job exactly as before. Nothing is
 # swallowed and no attempt is hidden.
-ATTEMPTS=3
-attempt=1
-while : ; do
-  echo "    attempt ${attempt}/${ATTEMPTS}"
-  if supabase db query -f "$MANIFEST_SQL" --linked > "$RAW" 2> "$RAW.err"; then
-    break
-  fi
-  echo "    attempt ${attempt} failed:"
-  sed 's/^/      /' "$RAW.err" || true
-  if [ "$attempt" -ge "$ATTEMPTS" ]; then
-    echo "FAIL: supabase db query exited non-zero on all ${ATTEMPTS} attempts"
-    echo "----- last stderr -----"; cat "$RAW.err" || true
-    echo "----- last stdout -----"; head -40 "$RAW" || true
-    exit 1
-  fi
-  attempt=$((attempt + 1))
-  sleep $((attempt * 5))
-done
+# shellcheck source=/dev/null
+source "$(dirname "$0")/retry-transient.sh"
+
+# Codex v6: the previous version's comment claimed it retried "only a transient" while the
+# code retried EVERY query error. retry_transient classifies explicitly and fails
+# immediately on anything permanent -- syntax, permission, missing file, assertion.
+_run_query() { supabase db query -f "$MANIFEST_SQL" --linked > "$RAW" 2> "$RAW.err"; }
+if ! retry_transient "manifest query" _run_query; then
+  echo "FAIL: supabase db query did not succeed"
+  echo "----- last stderr -----"; cat "$RAW.err" || true
+  echo "----- last stdout -----"; head -40 "$RAW" || true
+  exit 1
+fi
+
 if [ -s "$RAW.err" ]; then
   echo "note: stderr was non-empty:"; cat "$RAW.err"
 fi

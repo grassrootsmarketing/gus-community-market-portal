@@ -177,6 +177,14 @@ jobs:
           supabase --version
 
       # Secrets are scoped to the steps that need them, never to the job.
+      # `supabase link` performs a NON-DESTRUCTIVE remote project status lookup, and that
+      # lookup is where HEAD failed with
+      #     Unexpected error retrieving remote project status: {"message":"Unauthorized"}
+      # The retry added earlier covered only capture-manifest.sh, so it could not help here.
+      # Codex v6 directs the same bounded transient handling be applied to this call.
+      #
+      # If all three attempts return 401 the job FAILS and says why: a persistent 401 means
+      # the credential is invalid, not infrastructure noise.
       - name: link
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -184,7 +192,9 @@ jobs:
           TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"
+          source ./.github/scripts/retry-transient.sh
+          _link() { supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"; }
+          retry_transient "supabase link" _link
 
       - name: build A
         env:

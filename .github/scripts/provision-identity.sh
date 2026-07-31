@@ -63,6 +63,17 @@ case "$DB_ENVIRONMENT" in
   *) echo "FAIL: '$DB_ENVIRONMENT' is not a value deployment_identity.environment accepts"; exit 1 ;;
 esac
 
+# --- validate the ref FORMAT before it is ever substituted into SQL ----------
+# Codex v6 hardening. CI protects this with an exact staging-ref assertion, but the same
+# script is meant to run at PRODUCTION cutover, where that assertion will not apply. A ref
+# is exactly twenty lowercase letters -- the same shape 0050's CHECK constraint enforces --
+# so anything carrying a quote, whitespace, a shell metacharacter or SQL punctuation is
+# refused before it can reach a sed substitution and then a SQL string literal.
+if ! printf '%s' "$PROJECT_REF" | grep -qE '^[a-z]{20}$'; then
+  echo "REFUSING: '$PROJECT_REF' is not a valid Supabase project ref (expected exactly 20 lowercase letters)"
+  exit 1
+fi
+
 # --- refuse production and retired projects, in source -----------------------
 for d in ecapmcyumpjjgjwuokyv eubbgurdwqmwqduamwhn; do
   if [ "$PROJECT_REF" = "$d" ]; then
