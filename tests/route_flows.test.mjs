@@ -313,6 +313,147 @@ console.log('\n— 9: COI retrieval authorisation through /api/coi-file —');
   ok("one brand's session cannot fetch ANOTHER brand's certificate", cross.statusCode === 401 || cross.statusCode === 403, `${cross.statusCode} ${JSON.stringify(cross.body)}`);
 }
 
+// ---------------------------------------------------------------------------
+// 10. A CORRECTLY SIGNED webhook, and the same event replayed — Codex v5 finding 2.
+//
+// Section 8 above proves the handler REFUSES an unsigned and a forged event. That is a
+// negative test, and Codex's point is that refusing is not the same as working: nothing
+// had ever driven a VALID signature through this route. So this section computes a real
+// Stripe signature over the exact bytes and sends it to the real handler.
+//
+// Then it sends the identical event a second time. Replay idempotency was previously
+// proven in live_flows GROUP 7 — at the DATABASE layer, by calling the RPC directly. That
+// skips signature verification, body parsing and the inbox write, which is precisely
+// where a duplicate would be introduced.
+// ---------------------------------------------------------------------------
+console.log('\n— 10: a correctly signed webhook, and its replay, through the real handler —');
+{
+  const { createHmac } = await import('node:crypto');
+
+  // Exactly how Stripe signs: HMAC-SHA256 over "<timestamp>.<raw body>" with the endpoint
+  // secret. tests/_route.mjs sets STRIPE_WEBHOOK_SECRET to 'whsec_harness', so the handler
+  // and this test derive the same signature from the same secret without either hardcoding
+  // the digest.
+  const sign = (payload, secret = 'whsec_harness') => {
+    const t = Math.floor(Date.now() / 1000);
+    const v1 = createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex');
+    return `t=${t},v1=${v1}`;
+  };
+
+  const eventId = 'evt_' + uniq('sig');
+  const payload = JSON.stringify({
+    id: eventId,
+    type: 'checkout.session.completed',
+    data: { object: { id: 'cs_' + uniq('s'), object: 'checkout.session', payment_status: 'unpaid' } },
+  });
+
+  const first = await callRoute('stripe-webhook.js', rawReq(payload, { signature: sign(payload) }));
+  ok('a CORRECTLY signed webhook is accepted by the real handler',
+     first.statusCode >= 200 && first.statusCode < 300,
+     `${first.statusCode} ${JSON.stringify(first.body).slice(0, 160)}`);
+
+  const inboxAfterFirst = await db(`webhook_events?event_id=eq.${eventId}&select=event_id`);
+  const n1 = Array.isArray(inboxAfterFirst.body) ? inboxAfterFirst.body.length : -1;
+  ok('the signed event is recorded exactly once', n1 === 1, `rows=${n1}`);
+
+  const stripeCallsBefore = spy.calls.stripe.length;
+
+  // THE REPLAY. Byte-identical payload, freshly signed — Stripe retries carry the same
+  // event id, and the id is what must make this a no-op.
+  const second = await callRoute('stripe-webhook.js', rawReq(payload, { signature: sign(payload) }));
+  ok('the replayed event is still accepted (Stripe must not be told to retry forever)',
+     second.statusCode >= 200 && second.statusCode < 300,
+     `${second.statusCode} ${JSON.stringify(second.body).slice(0, 160)}`);
+
+  const inboxAfterSecond = await db(`webhook_events?event_id=eq.${eventId}&select=event_id`);
+  const n2 = Array.isArray(inboxAfterSecond.body) ? inboxAfterSecond.body.length : -1;
+  ok('the replay creates NO second inbox row', n2 === 1, `rows=${n2}`);
+
+  ok('the replay makes NO additional Stripe call',
+     spy.calls.stripe.length === stripeCallsBefore,
+     `${stripeCallsBefore} -> ${spy.calls.stripe.length}`);
+
+  // A tampered body must fail even though the signature is well-formed, because the digest
+  // covers the bytes. Without this, "signed" could mean "has a signature header".
+  const tampered = payload.replace('unpaid', 'paid');
+  const forged = await callRoute('stripe-webhook.js', rawReq(tampered, { signature: sign(payload) }));
+  ok('a body altered after signing is REFUSED', forged.statusCode >= 400,
+     `${forged.statusCode} ${JSON.stringify(forged.body).slice(0, 140)}`);
+}
+
+// ---------------------------------------------------------------------------
+// 11. Calendar: issue, rotate, revoke, and feed authorisation — through the ROUTES.
+//
+// live_flows GROUP 4 exercises issue/resolve/revoke by calling the RPCs directly. That
+// proves the database contract and nothing about api/brand-account.js or api/cal.js:
+// not the session cookie, not the mutation-method guard, not the feed's key comparison.
+// Codex asked for these specifically "through the application routes".
+// ---------------------------------------------------------------------------
+console.log('\n— 11: calendar issue / rotate / revoke / feed auth, through the routes —');
+{
+  const issued = await callRoute('brand-account.js',
+    req({ body: { action: 'cal_token' }, cookies: { dh_brand_session: brandCookie } }));
+  const tok1 = issued.body && issued.body.token;
+  ok('cal_token issues a token through the route', issued.statusCode === 200 && !!tok1,
+     `${issued.statusCode} ${JSON.stringify(issued.body).slice(0, 140)}`);
+
+  const reissued = await callRoute('brand-account.js',
+    req({ body: { action: 'cal_token' }, cookies: { dh_brand_session: brandCookie } }));
+  ok('re-issuing without rotate returns the SAME token', reissued.body && reissued.body.token === tok1,
+     `${tok1} vs ${reissued.body && reissued.body.token}`);
+
+  const rotated = await callRoute('brand-account.js',
+    req({ body: { action: 'cal_token', rotate: true }, cookies: { dh_brand_session: brandCookie } }));
+  const tok2 = rotated.body && rotated.body.token;
+  ok('rotate issues a DIFFERENT token', !!tok2 && tok2 !== tok1, `${tok1} -> ${tok2}`);
+  ok('rotate reports itself as a rotation', rotated.body && rotated.body.rotated === true,
+     JSON.stringify(rotated.body).slice(0, 120));
+
+  const noSession = await callRoute('brand-account.js', req({ body: { action: 'cal_token' } }));
+  ok('cal_token without a brand cookie is refused', noSession.statusCode === 401,
+     `${noSession.statusCode} ${JSON.stringify(noSession.body)}`);
+
+  const getToken = await callRoute('brand-account.js',
+    { method: 'GET', query: { action: 'cal_token' }, socket: {},
+      headers: { cookie: `dh_brand_session=${encodeURIComponent(brandCookie)}`, origin: ORIGIN } });
+  ok('cal_token refuses GET (it mutates)', getToken.statusCode === 405 || getToken.statusCode >= 400,
+     `${getToken.statusCode} ${JSON.stringify(getToken.body).slice(0, 120)}`);
+
+  const revoked = await callRoute('brand-account.js',
+    req({ body: { action: 'cal_revoke' }, cookies: { dh_brand_session: brandCookie } }));
+  ok('cal_revoke succeeds through the route', revoked.statusCode === 200,
+     `${revoked.statusCode} ${JSON.stringify(revoked.body).slice(0, 140)}`);
+
+  const afterRevoke = await db(`calendar_tokens?brand_id=eq.${brandId}&revoked_at=is.null&select=token`);
+  ok('no live calendar token survives revocation',
+     Array.isArray(afterRevoke.body) && afterRevoke.body.length === 0,
+     JSON.stringify(afterRevoke.body).slice(0, 140));
+
+  // --- feed authorisation, api/cal.js ---
+  // The slug is public: it appears in every booking link. The feed key is the only thing
+  // standing between that slug and a retailer's entire demo schedule.
+  const feedKey = 'fk_' + uniq('k').replace(/-/g, '');
+  await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: feedKey }) });
+
+  const noKey = await callRoute('cal.js', { method: 'GET', query: { slug: retailerSlug }, socket: {}, headers: {} });
+  ok('the calendar feed refuses a request with NO key', noKey.statusCode === 401, `${noKey.statusCode}`);
+
+  const wrongKey = await callRoute('cal.js',
+    { method: 'GET', query: { slug: retailerSlug, key: 'x'.repeat(feedKey.length) }, socket: {}, headers: {} });
+  ok('the calendar feed refuses a WRONG key of the same length', wrongKey.statusCode === 401, `${wrongKey.statusCode}`);
+
+  const rightKey = await callRoute('cal.js',
+    { method: 'GET', query: { slug: retailerSlug, key: feedKey }, socket: {}, headers: {} });
+  ok('the calendar feed serves iCal for the CORRECT key',
+     rightKey.statusCode === 200 && String(rightKey.body || '').includes('BEGIN:VCALENDAR'),
+     `${rightKey.statusCode} ${String(rightKey.body || '').slice(0, 60)}`);
+
+  const unknownSlug = await callRoute('cal.js',
+    { method: 'GET', query: { slug: 'no-such-retailer-' + uniq('z'), key: feedKey }, socket: {}, headers: {} });
+  ok('an unknown slug does not leak a 401-vs-404 distinction that confirms existence',
+     unknownSlug.statusCode === 404 || unknownSlug.statusCode === 401, `${unknownSlug.statusCode}`);
+}
+
 console.log('\n— teardown —');
 for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 spy.restore();
