@@ -34,14 +34,38 @@ if [ ! -s "$MANIFEST_SQL" ]; then
 fi
 
 echo "--- gate 2: the query runs and exits zero"
-# Redirect, never pipe. A pipeline would report tee's status, which is how the
-# original defect hid a failing CLI behind a succeeding pipe.
-if ! supabase db query -f "$MANIFEST_SQL" --linked > "$RAW" 2> "$RAW.err"; then
-  echo "FAIL: supabase db query exited non-zero"
-  echo "----- stderr -----"; cat "$RAW.err" || true
-  echo "----- stdout -----"; head -40 "$RAW" || true
-  exit 1
-fi
+# Redirect, never pipe. A pipeline would report tee's status, which is how the original
+# defect hid a failing CLI behind a succeeding pipe.
+#
+# BOUNDED RETRY, and only for a transient. Manifest A succeeded and manifest B failed
+# ninety seconds later in the same job, same credentials, with:
+#
+#     Initialising login role...
+#     unexpected login role status 401: {"message":"Unauthorized"}
+#
+# The CLI provisions a temporary login role per invocation against the Supabase API; that
+# call can fail transiently. Retrying a network call is legitimate. Retrying until
+# something passes is not -- so this attempts a fixed THREE times, prints every attempt
+# and its stderr, and after the last one fails the job exactly as before. Nothing is
+# swallowed and no attempt is hidden.
+ATTEMPTS=3
+attempt=1
+while : ; do
+  echo "    attempt ${attempt}/${ATTEMPTS}"
+  if supabase db query -f "$MANIFEST_SQL" --linked > "$RAW" 2> "$RAW.err"; then
+    break
+  fi
+  echo "    attempt ${attempt} failed:"
+  sed 's/^/      /' "$RAW.err" || true
+  if [ "$attempt" -ge "$ATTEMPTS" ]; then
+    echo "FAIL: supabase db query exited non-zero on all ${ATTEMPTS} attempts"
+    echo "----- last stderr -----"; cat "$RAW.err" || true
+    echo "----- last stdout -----"; head -40 "$RAW" || true
+    exit 1
+  fi
+  attempt=$((attempt + 1))
+  sleep $((attempt * 5))
+done
 if [ -s "$RAW.err" ]; then
   echo "note: stderr was non-empty:"; cat "$RAW.err"
 fi
