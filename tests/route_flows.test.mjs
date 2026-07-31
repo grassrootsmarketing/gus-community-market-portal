@@ -215,12 +215,13 @@ let bookingId = null;
 
   // Give the brand a valid COI, then book.
   const future = new Date(); future.setUTCFullYear(future.getUTCFullYear() + 1);
+  // NOTE: this fixture patch remains ONLY to reach the booking assertions below. Section 12
+  // is where a certificate now travels the real path -- upload, pending, owner review,
+  // approval -- because Codex v6 correctly identified that a direct
+  // coi_verification_status='passed' PATCH proved the booking gate worked while proving
+  // nothing about how any real certificate would ever reach that state.
   await db(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify({
     default_coi_url: 'coi-docs/probe.pdf', default_coi_expires: future.toISOString().slice(0, 10),
-    // 'passed' is what api/brand-account.js writes after verification. api/_coi-coverage.js
-    // accepts only 'passed' or 'approved' — 'verified' is NOT in that set, and an earlier draft of
-    // this test used it and was correctly refused. Recorded because the strictness is the point:
-    // pending / flagged / unknown must never silently count as covered.
     coi_verification_status: 'passed' }) });
 
   const okBooking = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: day(1), demo_time: '10:00' }, cookies: { dh_brand_session: brandCookie } }));
@@ -461,6 +462,156 @@ console.log('\n— 11: calendar issue / rotate / revoke / feed auth, through the
     req({ method: 'GET', query: { slug: 'no-such-retailer-' + uniq('z'), key: feedKey } }));
   ok('an unknown slug does not leak a 401-vs-404 distinction that confirms existence',
      unknownSlug.statusCode === 404 || unknownSlug.statusCode === 401, `${unknownSlug.statusCode}`);
+}
+
+// ---------------------------------------------------------------------------
+// 12. THE COI PATH THAT DID NOT EXIST — upload, pending, owner review, book.
+//
+// Codex v6: with COI_UPLOAD_ENABLED=true and COI_AI_VERIFICATION_ENABLED=false, an upload
+// lands 'pending' and only a human can move it. Before migration 0058 and the owner routes,
+// nothing could — a brand could upload a perfectly valid certificate and never be able to
+// book. This section walks the whole path through real routes.
+// ---------------------------------------------------------------------------
+console.log('\n— 12: COI upload -> pending -> owner review -> book —');
+{
+  // A synthetic, non-personal fixture. Must start with %PDF (the handler sniffs magic bytes,
+  // so a renamed file is refused) and exceed the 3KB floor that rejects "documents" too small
+  // to be certificates.
+  const pdf = (tag) => {
+    const head = `%PDF-1.4\n% fixture ${tag}\n`;
+    return Buffer.from(head + 'x'.repeat(4096)).toString('base64');
+  };
+  const dataUrl = (tag) => `data:application/pdf;base64,${pdf(tag)}`;
+  const future = new Date(Date.now() + 400 * 864e5).toISOString().slice(0, 10);
+  // Section 6's day() is block-scoped to section 6. check-undefined caught the reference,
+  // which is the whole reason that checker runs before anything reaches a database.
+  const dayN = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+  // A brand of its own, so section 6's fixture patch cannot mask anything here.
+  const revEmail = `${uniq('coi')}@fixture.test`;
+  const revBrandId = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
+    email: revEmail, company_name: 'COI Review Co' }) })).body[0].id);
+  const revSess = track('brand_account_sessions', (await db('brand_account_sessions', { method: 'POST',
+    body: JSON.stringify({ brand_id: revBrandId, token: uniq('tok'),
+      expires_at: new Date(Date.now() + 36e5).toISOString() }) })).body[0].token);
+
+  const up1 = await callRoute('brand-account.js', req({
+    body: { action: 'upload-coi', file: dataUrl('one'), expires: future },
+    cookies: { dh_brand_session: revSess } }));
+  ok('upload-coi succeeds through the route', up1.statusCode === 200,
+     `${up1.statusCode} ${JSON.stringify(up1.body).slice(0, 160)}`);
+
+  const b1 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status,default_coi_url`)).body || [];
+  ok('the upload lands PENDING, not approved',
+     b1[0] && b1[0].coi_verification_status === 'pending', JSON.stringify(b1[0]));
+  ok('the stored certificate is a storage PATH, not a public URL',
+     b1[0] && b1[0].default_coi_url && !/^https?:\/\//.test(String(b1[0].default_coi_url)),
+     String(b1[0] && b1[0].default_coi_url).slice(0, 80));
+
+  const v1rows = (await db(`coi_verifications?brand_id=eq.${revBrandId}&select=id,status,review_decision&order=created_at.desc`)).body || [];
+  ok('an audit record was written', v1rows.length >= 1 && v1rows[0].review_decision === null,
+     JSON.stringify(v1rows[0]));
+  const v1 = v1rows[0] && v1rows[0].id;
+
+  // --- a pending certificate cannot book ---
+  const blocked = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(9), demo_time: '11:00' },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a PENDING certificate cannot book', blocked.statusCode === 400 && blocked.body && blocked.body.error === 'coi_required',
+     `${blocked.statusCode} ${JSON.stringify(blocked.body).slice(0, 140)}`);
+
+  // --- only the platform owner may review ---
+  const anonReview = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' } }));
+  ok('an ANONYMOUS caller cannot review', anonReview.statusCode === 401, `${anonReview.statusCode}`);
+
+  const brandReview = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a BRAND session cannot review', brandReview.statusCode === 401, `${brandReview.statusCode}`);
+
+  const retailerReview = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' },
+    cookies: { dh_retailer_session: staffCookie } }));
+  ok('a RETAILER session cannot review', retailerReview.statusCode === 401, `${retailerReview.statusCode}`);
+
+  // --- the owner queue and viewer ---
+  const queue = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-queue' }, cookies: { dh_owner_session: ownerCookie } }));
+  ok('the owner queue returns 200', queue.statusCode === 200, `${queue.statusCode}`);
+  ok('the queue contains this pending record',
+     Array.isArray(queue.body && queue.body.queue) && queue.body.queue.some(r => r.id === v1),
+     JSON.stringify((queue.body && queue.body.queue || []).map(r => r.id)).slice(0, 120));
+  ok('the queue does NOT hand out a document URL',
+     !JSON.stringify(queue.body || {}).includes('coi_url'), 'coi_url present in queue payload');
+
+  const view = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-view', verification_id: v1 }, cookies: { dh_owner_session: ownerCookie } }));
+  ok('owner-coi-view mints a short-lived link', view.statusCode === 200 && view.body && view.body.expires_in <= 120,
+     `${view.statusCode} ${JSON.stringify(view.body).slice(0, 120)}`);
+
+  // --- approve, then the brand can book ---
+  const approve = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved', notes: 'fixture review' },
+    cookies: { dh_owner_session: ownerCookie } }));
+  ok('the owner can APPROVE through the route', approve.statusCode === 200, `${approve.statusCode} ${JSON.stringify(approve.body).slice(0,140)}`);
+
+  const b2 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
+  ok('approval moves the brand to approved', b2[0] && b2[0].coi_verification_status === 'approved', JSON.stringify(b2[0]));
+
+  const booked = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(9), demo_time: '11:00' },
+    cookies: { dh_brand_session: revSess } }));
+  ok('an APPROVED certificate can book', booked.statusCode === 200 || booked.statusCode === 201,
+     `${booked.statusCode} ${JSON.stringify(booked.body).slice(0, 160)}`);
+  const bid = booked.body && (booked.body.booking_id || booked.body.id || (booked.body.booking && booked.body.booking.id));
+  if (bid) track('bookings', bid);
+
+  // --- a replacement returns the brand to pending ---
+  const up2 = await callRoute('brand-account.js', req({
+    body: { action: 'upload-coi', file: dataUrl('two'), expires: future },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a replacement upload succeeds', up2.statusCode === 200, `${up2.statusCode}`);
+  const b3 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
+  ok('a replacement returns the brand to PENDING', b3[0] && b3[0].coi_verification_status === 'pending', JSON.stringify(b3[0]));
+
+  const v2rows = (await db(`coi_verifications?brand_id=eq.${revBrandId}&review_decision=is.null&select=id&order=created_at.desc`)).body || [];
+  const v2 = v2rows[0] && v2rows[0].id;
+  ok('the replacement produced a new un-reviewed record', !!v2 && v2 !== v1, `${v1} -> ${v2}`);
+
+  // --- THE STALE CASE: approving the OLD record must be refused ---
+  const stale = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' },
+    cookies: { dh_owner_session: ownerCookie } }));
+  ok('approving a STALE record is refused', stale.statusCode === 409 && stale.body && stale.body.error === 'stale_review',
+     `${stale.statusCode} ${JSON.stringify(stale.body).slice(0, 140)}`);
+
+  // --- reject the replacement; it must not be able to book ---
+  const reject = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v2, decision: 'rejected', notes: 'fixture rejection' },
+    cookies: { dh_owner_session: ownerCookie } }));
+  ok('the owner can REJECT through the route', reject.statusCode === 200, `${reject.statusCode}`);
+
+  const b4 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
+  ok('rejection moves the brand to rejected', b4[0] && b4[0].coi_verification_status === 'rejected', JSON.stringify(b4[0]));
+
+  const rejectedBooking = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(10), demo_time: '12:00' },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a REJECTED certificate cannot book', rejectedBooking.statusCode === 400 && rejectedBooking.body && rejectedBooking.body.error === 'coi_required',
+     `${rejectedBooking.statusCode} ${JSON.stringify(rejectedBooking.body).slice(0, 140)}`);
+
+  const audit = (await db(`coi_verifications?id=eq.${v2}&select=review_decision,reviewed_by,reviewed_at,review_notes`)).body || [];
+  ok('the rejected record is retained for audit with who and when',
+     audit[0] && audit[0].review_decision === 'rejected' && !!audit[0].reviewed_by && !!audit[0].reviewed_at,
+     JSON.stringify(audit[0]));
+
+  // --- clean up through the application route ---
+  const removed = await callRoute('brand-account.js', req({ body: { action: 'remove-coi' }, cookies: { dh_brand_session: revSess } }));
+  ok('remove-coi succeeds through the route', removed.statusCode === 200, `${removed.statusCode}`);
+  const b5 = (await db(`brands?id=eq.${revBrandId}&select=default_coi_url`)).body || [];
+  ok('the certificate is detached from the brand', b5[0] && !b5[0].default_coi_url, JSON.stringify(b5[0]));
+
+  for (const r of ((await db(`coi_verifications?brand_id=eq.${revBrandId}&select=id`)).body || [])) {
+    await db(`coi_verifications?id=eq.${r.id}`, { method: 'DELETE' });
+  }
 }
 
 console.log('\n— teardown —');
