@@ -682,15 +682,30 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
   ok('/api/checkout registers a payment attempt', co.statusCode === 200,
      `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
 
-  // The attempt row is authoritative — the session id the handler must match is the one
-  // checkout registered, not one this test invents.
-  const attempt = ((await db(`payment_attempts?select=session_id,payment_group_id,amount_total_cents&order=created_at.desc&limit=1`)).body || [])[0];
-  ok('an attempt row exists with a session id', !!(attempt && attempt.session_id), JSON.stringify(attempt));
+  // Read what the HANDLER returned, not columns I guessed at. My first attempt queried
+  // payment_attempts for amount_total_cents, which does not exist -- PostgREST answered with
+  // an error object rather than an array, `amount` became undefined, JSON.stringify dropped
+  // p_amount from the RPC body, and apply_verified_payment then had no matching overload:
+  //
+  //     PGRST202 ... Searched for the function public.apply_verified_payment with
+  //     parameters p_application_fee, p_charge, p_connect_dest, ...   (no p_amount)
+  //
+  // Eleven assertions failed and every one of them traced back to that single undefined.
+  // /api/checkout already returns session_id, payment_group_id and total_cents, so the
+  // authoritative values come from the route that created them.
+  const sessionId = co.body && co.body.session_id;
+  const groupId   = co.body && co.body.payment_group_id;
+  const amount    = co.body && co.body.total_cents;
+  ok('checkout returned a session id, group id and total', !!sessionId && !!groupId && Number.isFinite(amount),
+     JSON.stringify({ sessionId, groupId, amount }));
 
-  const sessionId = attempt && attempt.session_id;
+  // Cross-check against the attempt row so this still proves the handler REGISTERED the
+  // attempt rather than merely reporting one back to us.
+  const attemptRow = ((await db(`payment_attempts?session_id=eq.${encodeURIComponent(String(sessionId))}&select=session_id,payment_group_id`)).body || [])[0];
+  ok('an attempt row exists for that exact session id',
+     !!(attemptRow && attemptRow.payment_group_id === groupId), JSON.stringify(attemptRow));
   const piId = 'pi_' + uniq('paid');
   const chargeId = 'ch_' + uniq('paid');
-  const amount = attempt && attempt.amount_total_cents;
 
   // The fixture the handler will retrieve. latest_charge is EXPANDED, because
   // stripe-webhook.js reads charge.destination / application_fee_amount / transfer from it.
@@ -705,7 +720,7 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
     id: 'evt_' + uniq('paid'), type: 'checkout.session.completed',
     data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
                       payment_status: 'paid', amount_total: amount, currency: 'usd',
-                      payment_intent: piId, metadata: { payment_group_id: attempt && attempt.payment_group_id } } },
+                      payment_intent: piId, metadata: { payment_group_id: groupId } } },
   });
 
   const resendBefore = spy.calls.resend.length;
@@ -718,7 +733,7 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
   const bAfter = ((await db(`bookings?id=eq.${payBooking}&select=payment_status,status`)).body || [])[0];
   ok('the booking is promoted to paid', bAfter && bAfter.payment_status === 'paid', JSON.stringify(bAfter));
 
-  const grp = ((await db(`payment_groups?id=eq.${attempt && attempt.payment_group_id}&select=status`)).body || [])[0];
+  const grp = ((await db(`payment_groups?id=eq.${groupId}&select=status`)).body || [])[0];
   ok('the payment group is settled exactly once', grp && grp.status !== 'frozen', JSON.stringify(grp));
 
   // STAFF NOTIFICATION. Contained: every recipient must be the approved sink, never the
@@ -761,7 +776,7 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
     id: 'evt_' + uniq('mismatch'), type: 'checkout.session.completed',
     data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
                       payment_status: 'paid', amount_total: (amount || 0) + 500, currency: 'usd',
-                      payment_intent: piId, metadata: { payment_group_id: attempt && attempt.payment_group_id } } },
+                      payment_intent: piId, metadata: { payment_group_id: groupId } } },
   });
   const mism = await callRoute('stripe-webhook.js', rawReq(wrongAmountEvent, { signature: sign(wrongAmountEvent) }));
   ok('a mismatched amount does not 500 the webhook', mism.statusCode >= 200 && mism.statusCode < 500, `${mism.statusCode}`);
