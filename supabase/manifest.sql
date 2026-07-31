@@ -55,8 +55,8 @@ s_table as (
   select '02_table' as section,
          c.relnamespace::regnamespace::text || '.' || c.relname as key,
          'table ' || c.relnamespace::regnamespace::text || '.' || c.relname
-           || ' kind=' || c.relkind
-           || ' persistence=' || c.relpersistence as detail
+           || ' kind=' || c.relkind::text
+           || ' persistence=' || c.relpersistence::text as detail
   from pg_class c
   where c.relkind in ('r', 'p', 'v', 'm')
     and c.relnamespace::regnamespace::text in ('public', 'storage')
@@ -72,8 +72,8 @@ s_column as (
          'column ' || a.attrelid::regclass::text || '.' || a.attname
            || ' type='      || format_type(a.atttypid, a.atttypmod)
            || ' notnull='   || a.attnotnull::text
-           || ' identity='  || coalesce(nullif(a.attidentity,  ''), '-')
-           || ' generated=' || coalesce(nullif(a.attgenerated, ''), '-')
+           || ' identity='  || coalesce(nullif(a.attidentity::text,  ''), '-')
+           || ' generated=' || coalesce(nullif(a.attgenerated::text, ''), '-')
            || ' default='   || coalesce(pg_get_expr(d.adbin, d.adrelid), '-') as detail
   from pg_attribute a
   join pg_class c on c.oid = a.attrelid
@@ -91,7 +91,7 @@ s_constraint as (
   select '04_constraint' as section,
          con.conrelid::regclass::text || '.' || con.conname as key,
          'constraint ' || con.conrelid::regclass::text || '.' || con.conname
-           || ' type=' || con.contype
+           || ' type=' || con.contype::text
            || ' def='  || pg_get_constraintdef(con.oid) as detail
   from pg_constraint con
   join pg_class c on c.oid = con.conrelid
@@ -119,7 +119,7 @@ s_function as (
          'function ' || p.pronamespace::regnamespace::text || '.' || p.proname
            || '(' || pg_get_function_identity_arguments(p.oid) || ')'
            || ' security_definer=' || p.prosecdef::text
-           || ' volatility='       || p.provolatile
+           || ' volatility='       || p.provolatile::text
            || ' body_md5='         || md5(pg_get_functiondef(p.oid)) as detail
   from pg_proc p
   where p.pronamespace::regnamespace::text in ('public', 'storage')
@@ -171,7 +171,7 @@ s_policy as (
   select '09_policy' as section,
          pol.polrelid::regclass::text || '.' || pol.polname as key,
          'policy ' || pol.polrelid::regclass::text || '.' || pol.polname
-           || ' cmd='        || pol.polcmd
+           || ' cmd='        || pol.polcmd::text
            || ' permissive=' || pol.polpermissive::text
            || ' roles='      || coalesce(
                 (select string_agg(r.rolname, ',' order by r.rolname)
