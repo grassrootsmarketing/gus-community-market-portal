@@ -29,7 +29,7 @@
 #   test -s on the output    an empty result is a failure, not a match
 #   line-shape assertion     >= 200 lines must match the manifest's own row format,
 #                            so an error page cannot pass as a manifest
-#   migration-count assertion the manifest must itself report 58 applied migrations
+#   migration-count assertion the manifest must itself report EXPECTED_MIGRATIONS applied
 #   sha256 of both files     recorded in the log, so equality is auditable after the fact
 #   upload AFTER validation  a rejected manifest is never published as evidence
 #   negative_control input   proves the guard fires, on demand, by pointing the query
@@ -74,7 +74,10 @@ env:
   STAGING_REF_EXPECTED: 'tileejdviuvijumjeplv'
   PRODUCTION_REF_DENIED: 'ecapmcyumpjjgjwuokyv'
   MIN_MANIFEST_LINES: '200'
-  EXPECTED_MIGRATIONS: '58'
+  # 58 -> 59 with 0058_coi_manual_review.sql. Codex v6: update every explicit count
+  # assertion and rerun the clean-build gate rather than falsifying the number or
+  # folding the change into an already-applied migration.
+  EXPECTED_MIGRATIONS: '59'
 
 jobs:
   # --------------------------------------------------------------------------
@@ -101,7 +104,7 @@ jobs:
       # which meant this reproducibility claim was previously false.
       - run: npm ci
 
-      - name: migration file count is 58
+      - name: migration file count matches EXPECTED_MIGRATIONS
         run: |
           set -euo pipefail
           n=$(ls supabase/migrations/*.sql | wc -l)
