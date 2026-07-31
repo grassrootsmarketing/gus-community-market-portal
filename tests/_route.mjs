@@ -67,11 +67,30 @@ export const ENV = {
 export function installSpy() {
   const real = globalThis.fetch;
   const calls = { stripe: [], resend: [], supabase: 0, other: [] };
+  const fixtures = { paymentIntents: {}, checkoutSessions: {} };
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('api.stripe.com')) {
       calls.stripe.push({ url: u, method: (opts.method || 'GET'), body: String(opts.body || '').slice(0, 300) });
       // Shapes the handlers actually consume.
+      // TEST-CONTROLLED FIXTURES — Codex v6.
+      // The previous spy returned an invented shape for every Stripe GET, which is fine for
+      // proving a route does not call Stripe but useless for proving it handles a PAID
+      // outcome: api/stripe-webhook.js retrieves the PaymentIntent with
+      //     GET /v1/payment_intents/{id}?expand[]=latest_charge
+      // and applies the ledger from the CHARGE it finds there. A test that cannot control
+      // that object cannot drive a real payment through the handler.
+      //
+      // Fixtures are keyed by id and set by the test. An unregistered id falls through to
+      // the generic shape below, so nothing that does not opt in changes behaviour.
+      const piMatch = u.match(/\/v1\/payment_intents\/([^?\/]+)/);
+      if (piMatch && fixtures.paymentIntents[decodeURIComponent(piMatch[1])]) {
+        return jsonRes(fixtures.paymentIntents[decodeURIComponent(piMatch[1])]);
+      }
+      const csMatch = u.match(/\/v1\/checkout\/sessions\/([^?\/]+)/);
+      if (csMatch && fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]) {
+        return jsonRes(fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]);
+      }
       if (u.includes('/checkout/sessions')) {
         return jsonRes({ id: 'cs_test_' + Math.random().toString(36).slice(2, 10), url: 'https://checkout.stripe.test/x' });
       }
@@ -87,7 +106,7 @@ export function installSpy() {
     calls.other.push(u.slice(0, 120));
     return real(url, opts);
   };
-  return { calls, restore: () => { globalThis.fetch = real; } };
+  return { calls, fixtures, restore: () => { globalThis.fetch = real; } };
 }
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 

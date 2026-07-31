@@ -623,6 +623,157 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   }
 }
 
+// ---------------------------------------------------------------------------
+// 13. THE PAID PATH — signed paid event, staff notification, replay safety.
+//
+// Codex v6: section 10 proved signature verification and inbox dedup, but its event set
+// payment_status:'unpaid'. That proves nothing about verified payment application, ledger
+// promotion, demo materialisation, brand confirmation, staff notification, or replay
+// safety for ANY of those effects. This drives the real money path end to end:
+//
+//   /api/book      creates the bookings
+//   /api/checkout  creates and REGISTERS the payment attempt
+//   signed PAID checkout.session.completed through api/stripe-webhook.js
+//   replay of the identical event
+//
+// Stripe is never contacted: the session and PaymentIntent are test-controlled fixtures on
+// the spy, so the handler retrieves exactly the objects this test defines.
+// ---------------------------------------------------------------------------
+console.log('\n— 13: paid webhook, staff notification, replay —');
+{
+  const { createHmac } = await import('node:crypto');
+  const sign = (payload, secret = 'whsec_harness') => {
+    const t = Math.floor(Date.now() / 1000);
+    return `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex')}`;
+  };
+  const dayP = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+
+  // A staff member who should be notified. notification_prefs and venue_ids are the two
+  // columns that did not exist until 0057 — the defect that made ALL staff notification
+  // silently impossible.
+  const staffEmail = `${uniq('staff')}@fixture.test`;
+  track('internal_contacts', (await db('internal_contacts', { method: 'POST', body: JSON.stringify({
+    retailer_id: retailerId, name: 'Notified Staff', email: staffEmail,
+    notification_prefs: { new_booking: true, payment: true }, venue_ids: [venueId] }) })).body?.[0]?.id);
+
+  // A brand with an APPROVED certificate, reached through section 12's real review path
+  // rather than by patching a status column.
+  const payEmail = `${uniq('pay')}@fixture.test`;
+  const payBrand = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
+    email: payEmail, company_name: 'Paying Brand',
+    default_coi_url: 'brands/paying.pdf', default_coi_expires: dayP(400),
+    coi_verification_status: 'approved' }) })).body[0].id);
+  const payTok = (await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({
+    brand_id: payBrand, email: payEmail, token: 'tk-' + uniq('p'),
+    expires_at: new Date(Date.now() + 36e5).toISOString() }) })).body[0];
+  const paySess = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: payTok.token } }))).cookie('dh_brand_session');
+  ok('the paying brand has a real session', !!paySess);
+
+  const bk = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(21), demo_time: '13:00' },
+    cookies: { dh_brand_session: paySess } }));
+  ok('the paying brand books through /api/book', bk.statusCode === 200 || bk.statusCode === 201,
+     `${bk.statusCode} ${JSON.stringify(bk.body).slice(0, 160)}`);
+  const payBooking = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
+  if (payBooking) track('bookings', payBooking);
+
+  const co = await callRoute('checkout.js', req({
+    body: { booking_ids: [payBooking] }, cookies: { dh_brand_session: paySess } }));
+  ok('/api/checkout registers a payment attempt', co.statusCode === 200,
+     `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
+
+  // The attempt row is authoritative — the session id the handler must match is the one
+  // checkout registered, not one this test invents.
+  const attempt = ((await db(`payment_attempts?select=session_id,payment_group_id,amount_total_cents&order=created_at.desc&limit=1`)).body || [])[0];
+  ok('an attempt row exists with a session id', !!(attempt && attempt.session_id), JSON.stringify(attempt));
+
+  const sessionId = attempt && attempt.session_id;
+  const piId = 'pi_' + uniq('paid');
+  const chargeId = 'ch_' + uniq('paid');
+  const amount = attempt && attempt.amount_total_cents;
+
+  // The fixture the handler will retrieve. latest_charge is EXPANDED, because
+  // stripe-webhook.js reads charge.destination / application_fee_amount / transfer from it.
+  spy.fixtures.paymentIntents[piId] = {
+    id: piId, object: 'payment_intent', amount_received: amount, currency: 'usd',
+    on_behalf_of: null,
+    latest_charge: { id: chargeId, object: 'charge', destination: null,
+                     application_fee_amount: null, transfer: null, application_fee: null },
+  };
+
+  const paidEvent = JSON.stringify({
+    id: 'evt_' + uniq('paid'), type: 'checkout.session.completed',
+    data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
+                      payment_status: 'paid', amount_total: amount, currency: 'usd',
+                      payment_intent: piId, metadata: { payment_group_id: attempt && attempt.payment_group_id } } },
+  });
+
+  const resendBefore = spy.calls.resend.length;
+  const stripeBefore = spy.calls.stripe.length;
+
+  const paid1 = await callRoute('stripe-webhook.js', rawReq(paidEvent, { signature: sign(paidEvent) }));
+  ok('a signed PAID event is accepted', paid1.statusCode >= 200 && paid1.statusCode < 300,
+     `${paid1.statusCode} ${JSON.stringify(paid1.body).slice(0, 160)}`);
+
+  const bAfter = ((await db(`bookings?id=eq.${payBooking}&select=payment_status,status`)).body || [])[0];
+  ok('the booking is promoted to paid', bAfter && bAfter.payment_status === 'paid', JSON.stringify(bAfter));
+
+  const grp = ((await db(`payment_groups?id=eq.${attempt && attempt.payment_group_id}&select=status`)).body || [])[0];
+  ok('the payment group is settled exactly once', grp && grp.status !== 'frozen', JSON.stringify(grp));
+
+  // STAFF NOTIFICATION. Contained: every recipient must be the approved sink, never the
+  // staff member's real address, because EMAIL_ALLOWLIST is the only permitted destination
+  // outside production.
+  const mails = spy.calls.resend.slice(resendBefore);
+  ok('at least one email was attempted after payment', mails.length > 0, `${mails.length}`);
+  const recipients = mails.flatMap(m => Array.isArray(m.to) ? m.to : [m.to]).filter(Boolean);
+  ok('EVERY recipient is the approved sink',
+     recipients.length > 0 && recipients.every(r => String(r).includes('sink@fixture.test')),
+     JSON.stringify(recipients).slice(0, 200));
+  ok('a staff notification was among them',
+     mails.some(m => /staff|booking|paid|confirmed|demo/i.test(String(m.subject || '') + String(m.html || '').slice(0, 400))),
+     JSON.stringify(mails.map(m => m.subject)).slice(0, 200));
+
+  const demosAfter = ((await db(`demos?booking_id=eq.${payBooking}&select=id`)).body) || [];
+  const demoCount1 = demosAfter.length;
+
+  // --- THE REPLAY ---
+  const resendMid = spy.calls.resend.length;
+  const stripeMid = spy.calls.stripe.length;
+
+  const paid2 = await callRoute('stripe-webhook.js', rawReq(paidEvent, { signature: sign(paidEvent) }));
+  ok('the replayed paid event is still accepted', paid2.statusCode >= 200 && paid2.statusCode < 300,
+     `${paid2.statusCode}`);
+
+  const inbox = ((await db(`processed_stripe_events?event_id=eq.${JSON.parse(paidEvent).id}&select=event_id`)).body) || [];
+  ok('the replay creates NO second inbox row', inbox.length === 1, `rows=${inbox.length}`);
+  ok('the replay sends NO second email', spy.calls.resend.length === resendMid,
+     `${resendMid} -> ${spy.calls.resend.length}`);
+  ok('the replay makes NO additional Stripe call', spy.calls.stripe.length === stripeMid,
+     `${stripeMid} -> ${spy.calls.stripe.length}`);
+  const demos2 = ((await db(`demos?booking_id=eq.${payBooking}&select=id`)).body) || [];
+  ok('the replay materialises NO second demo', demos2.length === demoCount1,
+     `${demoCount1} -> ${demos2.length}`);
+  for (const d of demos2) track('demos', d.id);
+
+  // --- a mismatched amount must fail closed ---
+  const wrongAmountEvent = JSON.stringify({
+    id: 'evt_' + uniq('mismatch'), type: 'checkout.session.completed',
+    data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
+                      payment_status: 'paid', amount_total: (amount || 0) + 500, currency: 'usd',
+                      payment_intent: piId, metadata: { payment_group_id: attempt && attempt.payment_group_id } } },
+  });
+  const mism = await callRoute('stripe-webhook.js', rawReq(wrongAmountEvent, { signature: sign(wrongAmountEvent) }));
+  ok('a mismatched amount does not 500 the webhook', mism.statusCode >= 200 && mism.statusCode < 500, `${mism.statusCode}`);
+  const bMism = ((await db(`bookings?id=eq.${payBooking}&select=payment_status`)).body || [])[0];
+  ok('a mismatched amount promotes nothing further', bMism && bMism.payment_status === 'paid', JSON.stringify(bMism));
+
+  // --- tampering after signing ---
+  const tampered = paidEvent.replace('"paid"', '"unpaid"');
+  const t2 = await callRoute('stripe-webhook.js', rawReq(tampered, { signature: sign(paidEvent) }));
+  ok('a paid event altered after signing is REFUSED', t2.statusCode >= 400, `${t2.statusCode}`);
+}
+
 console.log('\n— teardown —');
 for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 spy.restore();
