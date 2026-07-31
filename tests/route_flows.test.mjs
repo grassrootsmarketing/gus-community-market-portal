@@ -352,7 +352,11 @@ console.log('\n— 10: a correctly signed webhook, and its replay, through the r
      first.statusCode >= 200 && first.statusCode < 300,
      `${first.statusCode} ${JSON.stringify(first.body).slice(0, 160)}`);
 
-  const inboxAfterFirst = await db(`webhook_events?event_id=eq.${eventId}&select=event_id`);
+  // The inbox table is processed_stripe_events. My first attempt guessed 'webhook_events',
+  // which does not exist, so PostgREST returned an object rather than an array and the
+  // assertion reported rows=-1. Guessing a table name is the same error as guessing a
+  // request shape: the test fails for a reason that has nothing to do with the product.
+  const inboxAfterFirst = await db(`processed_stripe_events?event_id=eq.${eventId}&select=event_id,status`);
   const n1 = Array.isArray(inboxAfterFirst.body) ? inboxAfterFirst.body.length : -1;
   ok('the signed event is recorded exactly once', n1 === 1, `rows=${n1}`);
 
@@ -365,7 +369,7 @@ console.log('\n— 10: a correctly signed webhook, and its replay, through the r
      second.statusCode >= 200 && second.statusCode < 300,
      `${second.statusCode} ${JSON.stringify(second.body).slice(0, 160)}`);
 
-  const inboxAfterSecond = await db(`webhook_events?event_id=eq.${eventId}&select=event_id`);
+  const inboxAfterSecond = await db(`processed_stripe_events?event_id=eq.${eventId}&select=event_id,status`);
   const n2 = Array.isArray(inboxAfterSecond.body) ? inboxAfterSecond.body.length : -1;
   ok('the replay creates NO second inbox row', n2 === 1, `rows=${n2}`);
 
@@ -413,9 +417,11 @@ console.log('\n— 11: calendar issue / rotate / revoke / feed auth, through the
   ok('cal_token without a brand cookie is refused', noSession.statusCode === 401,
      `${noSession.statusCode} ${JSON.stringify(noSession.body)}`);
 
+  // Built with req(), not by hand. api/brand-account.js reads the body off the request
+  // stream, so a plain object without .on() throws 'req.on is not a function' -- a harness
+  // defect that would have been reported as a route failure.
   const getToken = await callRoute('brand-account.js',
-    { method: 'GET', query: { action: 'cal_token' }, socket: {},
-      headers: { cookie: `dh_brand_session=${encodeURIComponent(brandCookie)}`, origin: ORIGIN } });
+    req({ method: 'GET', query: { action: 'cal_token' }, cookies: { dh_brand_session: brandCookie } }));
   ok('cal_token refuses GET (it mutates)', getToken.statusCode === 405 || getToken.statusCode >= 400,
      `${getToken.statusCode} ${JSON.stringify(getToken.body).slice(0, 120)}`);
 
@@ -435,21 +441,21 @@ console.log('\n— 11: calendar issue / rotate / revoke / feed auth, through the
   const feedKey = 'fk_' + uniq('k').replace(/-/g, '');
   await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: feedKey }) });
 
-  const noKey = await callRoute('cal.js', { method: 'GET', query: { slug: retailerSlug }, socket: {}, headers: {} });
+  const noKey = await callRoute('cal.js', req({ method: 'GET', query: { slug: retailerSlug } }));
   ok('the calendar feed refuses a request with NO key', noKey.statusCode === 401, `${noKey.statusCode}`);
 
   const wrongKey = await callRoute('cal.js',
-    { method: 'GET', query: { slug: retailerSlug, key: 'x'.repeat(feedKey.length) }, socket: {}, headers: {} });
+    req({ method: 'GET', query: { slug: retailerSlug, key: 'x'.repeat(feedKey.length) } }));
   ok('the calendar feed refuses a WRONG key of the same length', wrongKey.statusCode === 401, `${wrongKey.statusCode}`);
 
   const rightKey = await callRoute('cal.js',
-    { method: 'GET', query: { slug: retailerSlug, key: feedKey }, socket: {}, headers: {} });
+    req({ method: 'GET', query: { slug: retailerSlug, key: feedKey } }));
   ok('the calendar feed serves iCal for the CORRECT key',
      rightKey.statusCode === 200 && String(rightKey.body || '').includes('BEGIN:VCALENDAR'),
      `${rightKey.statusCode} ${String(rightKey.body || '').slice(0, 60)}`);
 
   const unknownSlug = await callRoute('cal.js',
-    { method: 'GET', query: { slug: 'no-such-retailer-' + uniq('z'), key: feedKey }, socket: {}, headers: {} });
+    req({ method: 'GET', query: { slug: 'no-such-retailer-' + uniq('z'), key: feedKey } }));
   ok('an unknown slug does not leak a 401-vs-404 distinction that confirms existence',
      unknownSlug.statusCode === 404 || unknownSlug.statusCode === 401, `${unknownSlug.statusCode}`);
 }
