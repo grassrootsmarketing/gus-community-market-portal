@@ -126,16 +126,33 @@ s_function as (
     and p.prokind = 'f'
 ),
 
--- 6b. FUNCTION BODIES -------------------------------------------------------
--- Emitted separately and verbatim so a drift in body_md5 above can be diagnosed from
--- the same artifact rather than requiring another database round trip. Newlines are
--- collapsed to a marker so each function stays on one line and the diff stays readable.
+-- 6b. FUNCTION BODIES, CHUNKED --------------------------------------------
+-- The full definition, emitted in 200-character chunks with a zero-padded sequence
+-- number rather than as one enormous row.
+--
+-- WHY CHUNKED: the Supabase CLI renders results as a bordered table sized to the widest
+-- value. A single row holding a multi-thousand-character function body makes that table
+-- pathologically wide and risks the renderer truncating or wrapping the very content the
+-- comparison depends on. A truncated body still compares equal to another truncated body,
+-- which is the same class of false green this whole correction exists to eliminate.
+--
+-- Chunking keeps every row short, so nothing can be silently cut, while preserving the
+-- complete definition. Ordering by the padded sequence keeps reassembly deterministic.
 s_function_body as (
   select '06b_function_body' as section,
          p.pronamespace::regnamespace::text || '.' || p.proname
-           || '(' || pg_get_function_identity_arguments(p.oid) || ')' as key,
-         replace(replace(pg_get_functiondef(p.oid), E'\n', ' <NL> '), E'\r', '') as detail
+           || '(' || pg_get_function_identity_arguments(p.oid) || ')#'
+           || lpad(g.i::text, 4, '0') as key,
+         substr(
+           replace(replace(pg_get_functiondef(p.oid), chr(10), ' <NL> '), chr(13), ''),
+           (g.i - 1) * 200 + 1, 200) as detail
   from pg_proc p
+  cross join lateral generate_series(
+    1,
+    greatest(1, ceil(
+      length(replace(replace(pg_get_functiondef(p.oid), chr(10), ' <NL> '), chr(13), ''))::numeric / 200
+    )::int)
+  ) as g(i)
   where p.pronamespace::regnamespace::text in ('public', 'storage')
     and p.prokind = 'f'
 ),

@@ -53,14 +53,34 @@ if [ ! -s "$RAW" ]; then
 fi
 
 # NORMALIZATION, and nothing beyond it.
-# Removed: CRs, trailing whitespace, blank lines, and psql's "(N rows)" footer.
-# NOT removed and NOT reordered: anything inside a definition. A policy whose USING
-# clause has reordered predicates is a different policy, and sorting that away would
-# hide exactly the drift this comparison exists to detect.
-echo "--- normalizing (CRs, trailing spaces, blank lines, row-count footer)"
-sed -e 's/\r$//' -e 's/[[:space:]]*$//' "$RAW" \
-  | grep -vE '^\([0-9]+ rows?\)$' \
-  | grep -vE '^$' > "$NORM"
+#
+# The Supabase CLI renders query results as a bordered Unicode table:
+#
+#     +--------------------------------------------------+
+#     | manifest_line                                     |
+#     +--------------------------------------------------+
+#     | 01_schema | public | schema public                |
+#
+# so the payload arrives wrapped in box-drawing characters and padded with trailing
+# spaces. Stripping that is presentation, not content -- it is the same rows either way.
+#
+# Removed: CRs, the leading and trailing box borders, trailing whitespace, the border
+# rules, the column header, psql's "(N rows)" footer, and blank lines.
+# NOT removed and NOT reordered: anything inside a value. A policy whose USING clause has
+# reordered predicates is a different policy, and sorting that away would hide exactly the
+# drift this comparison exists to detect.
+echo "--- normalizing (box borders, CRs, padding, header, row-count footer)"
+# Border rules are dropped by keeping only lines that contain at least one alphanumeric
+# character. That is deliberately a WEAK filter: an error message contains alphanumerics
+# and therefore SURVIVES normalization, so gate 4 below still has to catch it. Filtering
+# here on the manifest row shape would make gate 4 tautological -- a check that can only
+# ever pass, which is the exact species of blind control this correction is fixing.
+sed -e 's/\r$//' "$RAW" \
+  | sed -e 's/^[[:space:]]*[|\xe2\x94\x82][[:space:]]*//' \
+        -e 's/[[:space:]]*[|\xe2\x94\x82]*[[:space:]]*$//' \
+  | grep -a '[A-Za-z0-9]' \
+  | grep -avxF 'manifest_line' \
+  | grep -avE '^\([0-9]+ rows?\)$' > "$NORM"
 
 echo "--- gate 4: at least ${MIN_MANIFEST_LINES} rows carry the manifest's own row format"
 # The strongest available check. An error page, a usage message, a login prompt or a
