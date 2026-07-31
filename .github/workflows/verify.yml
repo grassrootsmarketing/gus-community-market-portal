@@ -226,6 +226,22 @@ jobs:
           fi
           echo "A == B  ($(wc -l < manifest-A.txt) manifest lines each)"
 
+      # Provision the deployment identity AFTER both manifests are captured, so the
+      # comparison above describes the schema as the migration chain builds it, not as
+      # an operator afterwards configures it.
+      #
+      # This step exists because the staging gate proved a freshly reset database serves
+      # ZERO requests: deployment_identity is empty, set_deployment_identity is
+      # deliberately unreachable from service_role, and the binding layer fails closed on
+      # an unprovisioned identity. Every one of those is correct in isolation; together
+      # they mean the cutover needs an explicit privileged step, and that step now exists
+      # in version control and is exercised on every build rather than living in someone's
+      # memory.
+      - name: provision deployment identity (the production cutover step)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: ./.github/scripts/provision-identity.sh preview '${{ vars.STAGING_PROJECT_REF }}'
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

@@ -1,0 +1,46 @@
+-- supabase/provision-identity.sql.template
+-- ============================================================================
+-- THE STEP A FRESHLY BUILT DATABASE CANNOT SERVE TRAFFIC WITHOUT.
+--
+-- Found by the staging integration gate on its first execution: 39 of 49 route
+-- assertions returned 503 with
+--
+--     BINDING_INVALID {"code":"identity_not_provisioned","target":"preview"}
+--
+-- The chain, and every link in it is behaving correctly:
+--   * 0050 creates deployment_identity and set_deployment_identity(), revoked from
+--     public, anon and authenticated.
+--   * 0051 re-grants execute on public functions to service_role but DELIBERATELY
+--     excludes set_deployment_identity, so a running request can never rewrite which
+--     environment the database claims to be. That exclusion is a security property and
+--     is kept.
+--   * `supabase db reset` leaves deployment_identity EMPTY.
+--   * api/_env.js treats an unprovisioned identity as a FAILURE rather than as
+--     unknown-but-fine. Also correct: fail closed.
+--
+-- The consequence is operational, not a bug in any one of those pieces: a database
+-- built from the migration chain serves ZERO requests until an operator provisions the
+-- identity through a privileged channel the application itself cannot reach.
+--
+-- That matters directly for the production cutover Codex ordered -- a FRESH production
+-- project. Without this step the sequence is: create project, apply migrations, deploy,
+-- and 503 on every request with a message that names no cause.
+--
+-- WHY A TEMPLATE, AND WHY IT IS RENDERED RATHER THAN PARAMETERISED:
+--   `supabase db query -f` takes no bind parameters. Hardcoding a project ref would put
+--   an environment-specific literal in the repository and invite exactly the copy-paste
+--   accident this project has spent weeks eliminating. So the ref is substituted at run
+--   time by .github/scripts/provision-identity.sh, which refuses any ref that is not the
+--   approved target.
+--
+-- THIS IS NOT TEST SCAFFOLDING. CI runs the same rendered statement an operator runs at
+-- production cutover. Hiding it inside the test harness would have made the suite pass
+-- while leaving the cutover runbook silently incomplete -- a green check standing in for
+-- a step nobody had written down.
+-- ============================================================================
+
+select public.set_deployment_identity(
+  '__ENVIRONMENT__',
+  '__PROJECT_REF__',
+  'provisioned by CI after clean build'
+);
