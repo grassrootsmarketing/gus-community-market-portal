@@ -6,18 +6,16 @@
 //       explicit audited waiver for that booking.
 // pending / flagged / rejected / unknown NEVER silently count as covered.
 
-const APPROVED = new Set(['passed', 'approved']);
+// SUPERSEDED BY api/_coi-policy.js -- kept as a thin delegation so existing callers keep
+// working while there is exactly ONE implementation of the rule.
+//
+// Codex v6 found that this file (strict) and api/_coi-lib.js (lenient) gave opposite
+// answers for the same certificate, and that live routes consumed both. Deleting either
+// one would have been a bigger change than the correction warrants; making both call the
+// same decision removes the disagreement without moving any caller.
+import { coiDecision } from './_coi-policy.js';
 
 export function coiCovered(brand, demoDate, opts = {}) {
-  const b = brand || {};
-  const dd = String(demoDate || '').slice(0, 10);
-  if (!dd) return { covered: false, reason: 'no_demo_date' };
-  if (opts.waived === true) return { covered: true, reason: 'retailer_waived' };
-  if (!b.default_coi_url) return { covered: false, reason: 'no_certificate' };
-  const status = String(b.coi_verification_status || '').toLowerCase();
-  if (!APPROVED.has(status)) return { covered: false, reason: `not_verified(${status || 'none'})` };
-  const exp = b.default_coi_expires ? String(b.default_coi_expires).slice(0, 10) : null;
-  if (!exp) return { covered: false, reason: 'no_expiry' };
-  if (exp < dd) return { covered: false, reason: 'expired' };
-  return { covered: true, reason: 'verified' };
+  const d = coiDecision(brand, [], demoDate, opts);
+  return { covered: d.covered, reason: d.reason };
 }

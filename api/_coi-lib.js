@@ -1,3 +1,5 @@
+import { coiDecision } from './_coi-policy.js';
+
 // Shared COI status + cutoff helpers for the enforcement cron and the retailer
 // COI-status endpoint. Pure functions, no I/O, single source of truth (work order Phase 2).
 
@@ -14,33 +16,26 @@
 //   'covered' - certificate on file and valid on the demo date
 //   'unknown' - certificate on file but no expiry we can trust
 //   'missing' - nothing on file
+// SUPERSEDED: this function used to answer "file + expiry?" WITHOUT consulting
+// coi_verification_status, so a pending, flagged or REJECTED certificate counted as
+// coverage here while api/book.js refused the very same document. It now delegates to the
+// one canonical decision.
+//
+// The three-state return is preserved because callers depend on the distinction between
+// "no cover" and "we cannot read the expiry" -- cancelling a demo because our own parsing
+// failed would be its own defect. 'unknown' still never means covered.
 export function coiCoverageState(brand, coiRecords, demoDate) {
-  const dd = String(demoDate || '').slice(0, 10);
-  if (!dd) return 'missing';
-  let sawUndated = false;
-
-  if (brand && brand.default_coi_url) {
-    const exp = brand.default_coi_expires ? String(brand.default_coi_expires).slice(0, 10) : null;
-    if (!exp) sawUndated = true;
-    else if (exp >= dd) return 'covered';
-  }
-
-  if (Array.isArray(coiRecords)) {
-    for (const r of coiRecords) {
-      if (!r) continue;
-      const dt = String(r.doc_type || '').toLowerCase();
-      if (dt !== 'coi' && dt !== 'certificate_of_insurance' && dt !== 'insurance') continue;
-      const exp = r.expires_at ? String(r.expires_at).slice(0, 10) : null;
-      if (!exp) { sawUndated = true; continue; }
-      if (exp >= dd) return 'covered';
-    }
-  }
-
-  return sawUndated ? 'unknown' : 'missing';
+  const d = coiDecision(brand, coiRecords, demoDate);
+  if (d.state === 'covered' || d.state === 'waived') return 'covered';
+  if (d.state === 'unknown') return 'unknown';
+  // not_verified and expired are hard refusals, not ambiguity: we read the document fine
+  // and it does not entitle anyone to book.
+  if (d.state === 'not_verified' || d.state === 'expired') return 'missing';
+  return 'missing';
 }
 
-// Kept for callers that only need a yes/no. Deliberately strict: 'unknown' is
-// not 'covered'. Anything that can cancel a demo must use coiCoverageState().
+// Kept for callers that only need a yes/no. Deliberately strict: 'unknown' is not
+// 'covered'. Anything that can cancel a demo must use coiCoverageState().
 export function hasCurrentCoi(brand, coiRecords, demoDate) {
   return coiCoverageState(brand, coiRecords, demoDate) === 'covered';
 }

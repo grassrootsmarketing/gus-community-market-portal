@@ -527,7 +527,7 @@ export default async function handler(req, res) {
       let coiState = 'missing';
       try {
         if (brandId && _b.serviceKey) {
-          const cr = await fetch(`${_b.supabaseUrl}/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires`, {
+          const cr = await fetch(`${_b.supabaseUrl}/rest/v1/brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status`, {
             headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
           });
           if (cr.ok) {

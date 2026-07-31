@@ -79,7 +79,7 @@ export default async function handler(req, res) {
   const verifByBrand = {};
   if (brandIds.length) {
     const inList = brandIds.map(id => `"${id}"`).join(',');
-    const brands = await sb(`brands?id=in.(${inList})&select=id,default_coi_url,default_coi_expires,company_name,contact_name,email,phone,website,logo_url`);
+    const brands = await sb(`brands?id=in.(${inList})&select=id,default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone,website,logo_url`);
     for (const br of (brands || [])) brandsById[br.id] = br;
     // Latest verification per brand, so the retailer sees insurer/limits/flags, not just a link.
     try {

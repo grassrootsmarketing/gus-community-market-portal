@@ -120,6 +120,7 @@ jobs:
       - run: node tests/brand_signup.test.mjs
       - run: node tests/coi_enforcement_gate.test.mjs
       - run: node tests/session_transport.test.mjs
+      - run: node tests/coi_policy_matrix.test.mjs
 
   # --------------------------------------------------------------------------
   # A/B clean build. Manual only -- `db reset` is destructive and must never fire

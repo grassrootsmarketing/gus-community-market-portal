@@ -176,9 +176,9 @@ export default async function handler(req, res) {
         // get enforced rather than silently skipped.
         let brandRows = null;
         if (b.brand_id) {
-          brandRows = await sb(`brands?id=eq.${encodeURIComponent(b.brand_id)}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires`);
+          brandRows = await sb(`brands?id=eq.${encodeURIComponent(b.brand_id)}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires,coi_verification_status`);
         } else if (b.contact_email) {
-          brandRows = await sb(`brands?email=eq.${encodeURIComponent(String(b.contact_email).toLowerCase())}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires`);
+          brandRows = await sb(`brands?email=eq.${encodeURIComponent(String(b.contact_email).toLowerCase())}&select=id,email,company_name,contact_name,default_coi_url,default_coi_expires,coi_verification_status`);
         }
         const brand = brandRows && brandRows[0];
         if (!brand) { log.skipped++; log.errors.push({ booking: b.id, reason: 'brand not found' }); continue; }
