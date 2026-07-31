@@ -701,7 +701,9 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
 
   // Cross-check against the attempt row so this still proves the handler REGISTERED the
   // attempt rather than merely reporting one back to us.
-  const attemptRow = ((await db(`payment_attempts?session_id=eq.${encodeURIComponent(String(sessionId))}&select=session_id,payment_group_id`)).body || [])[0];
+  // stripe_checkout_session_id, not session_id. Sixth wrong identifier in this file today,
+  // and the sixth to be a direct-database assertion. Read from 0032, not guessed.
+  const attemptRow = ((await db(`payment_attempts?stripe_checkout_session_id=eq.${encodeURIComponent(String(sessionId))}&select=stripe_checkout_session_id,payment_group_id,status`)).body || [])[0];
   ok('an attempt row exists for that exact session id',
      !!(attemptRow && attemptRow.payment_group_id === groupId), JSON.stringify(attemptRow));
   const piId = 'pi_' + uniq('paid');
