@@ -19,6 +19,7 @@ import {
   readCookies as parseCookies,
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
+import { signedCoiUrl } from './_coi-storage.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind() — the exported guards work even when this file's own handler
@@ -791,6 +792,118 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, retailers: rows || [], status: wantedStatus });
       } catch (e) {
         return res.status(500).json({ error: 'Query failed: ' + (e?.message || e) });
+      }
+    }
+
+    // ========================================================================
+    // OWNER COI REVIEW — Codex v6 launch blocker.
+    //
+    // Before these three actions existed, an uploaded certificate could not be approved by
+    // anyone: AI verification is off for the closed launch, so a real upload lands
+    // 'pending', and the canonical rule in api/_coi-policy.js accepts only
+    // 'passed'/'approved'. There was no route between those two facts.
+    //
+    // Built on the EXISTING platform-owner session, per Codex's instruction not to invent
+    // another authentication system. Every action re-verifies the owner cookie; none of
+    // them trusts a body or query parameter for identity.
+    // ========================================================================
+
+    // ---- OWNER-COI-QUEUE: the newest un-reviewed record per brand ----
+    if (action === 'owner-coi-queue') {
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      try {
+        // Only review-relevant metadata. No raw document URL is returned here -- viewing is
+        // a separate, deliberately separate action, so the queue cannot become a way to
+        // enumerate durable certificate links.
+        const rows = await sb('coi_verifications?review_decision=is.null&select=id,brand_id,status,insurer_name,insured_name,policy_expiry,gl_each_occurrence,flags,created_at&order=created_at.desc&limit=200');
+        const list = Array.isArray(rows) ? rows : [];
+        // Newest record per brand: an older pending row is superseded by a newer upload and
+        // approving it would be the stale case 0058 refuses anyway.
+        const seen = new Set();
+        const latest = [];
+        for (const r of list) { if (r && r.brand_id && !seen.has(r.brand_id)) { seen.add(r.brand_id); latest.push(r); } }
+        let brands = [];
+        if (latest.length) {
+          const ids = latest.map(r => r.brand_id).join(',');
+          brands = await sb(`brands?id=in.(${ids})&select=id,company_name,email,default_coi_url,default_coi_expires,coi_verification_status`) || [];
+        }
+        const byId = {}; for (const b of brands) byId[b.id] = b;
+        return res.status(200).json({ ok: true, queue: latest.map(r => ({
+          ...r,
+          // `stale` tells the reviewer up front that this record no longer describes the
+          // brand's current certificate, rather than letting them read it and then be
+          // refused at the point of approval.
+          stale: !!(byId[r.brand_id] && byId[r.brand_id].default_coi_url !== undefined &&
+                    byId[r.brand_id].default_coi_url !== (r.coi_url ?? byId[r.brand_id].default_coi_url)),
+          brand: byId[r.brand_id] ? {
+            id: byId[r.brand_id].id, company_name: byId[r.brand_id].company_name,
+            email: byId[r.brand_id].email, coi_verification_status: byId[r.brand_id].coi_verification_status,
+            default_coi_expires: byId[r.brand_id].default_coi_expires,
+          } : null,
+        })) });
+      } catch (e) {
+        return res.status(500).json({ error: 'Query failed: ' + (e?.message || e) });
+      }
+    }
+
+    // ---- OWNER-COI-VIEW: short-lived signed URL for the exact document under review ----
+    if (action === 'owner-coi-view') {
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      const { verification_id } = body || {};
+      if (!isUuid(verification_id)) return res.status(400).json({ error: 'Invalid verification_id' });
+      try {
+        const rows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=id,brand_id,coi_url`);
+        const rec = Array.isArray(rows) ? rows[0] : null;
+        if (!rec) return res.status(404).json({ error: 'verification record not found' });
+        if (!rec.coi_url) return res.status(404).json({ error: 'this record has no document' });
+        // A storage PATH is stored, never a public URL. The signed link is minted per
+        // request and expires in two minutes, so nothing durable is ever handed out.
+        const key = String(rec.coi_url).replace(/^.*\/coi-docs\//, '');
+        const url = await signedCoiUrl(key, 120);
+        return res.status(200).json({ ok: true, verification_id, url, expires_in: 120 });
+      } catch (e) {
+        return res.status(500).json({ error: 'Could not produce a viewing link' });
+      }
+    }
+
+    // ---- OWNER-COI-REVIEW: approve or reject, atomically, via 0058 ----
+    if (action === 'owner-coi-review') {
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      const { verification_id, decision, notes } = body || {};
+      if (!isUuid(verification_id)) return res.status(400).json({ error: 'Invalid verification_id' });
+      if (decision !== 'approved' && decision !== 'rejected') {
+        return res.status(400).json({ error: 'decision must be approved or rejected' });
+      }
+      const trimmed = notes == null ? null : String(notes).slice(0, 2000);
+      try {
+        // The RPC does the whole review in ONE transaction and owns the staleness rule.
+        // Doing it here as two PATCHes could leave a brand approved while the row describing
+        // the approved document had already been replaced.
+        const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/review_coi_verification`, {
+          method: 'POST',
+          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_verification_id: verification_id, p_decision: decision,
+                                 p_reviewer: owner.email, p_notes: trimmed }),
+        });
+        const txt = await r.text();
+        if (!r.ok) {
+          // A stale approval is a legitimate refusal, not a server fault, and the reviewer
+          // needs to be told which one it was.
+          if (/stale review/i.test(txt)) {
+            return res.status(409).json({ error: 'stale_review',
+              message: 'This record no longer describes the brand\'s current certificate. Re-open the queue and review the latest upload.' });
+          }
+          if (/not found/i.test(txt)) return res.status(404).json({ error: 'verification record not found' });
+          return res.status(400).json({ error: 'review_failed' });
+        }
+        let row = null; try { const j = JSON.parse(txt); row = Array.isArray(j) ? j[0] : j; } catch (_) {}
+        return res.status(200).json({ ok: true, verification_id, decision,
+          reviewed_by: owner.email, reviewed_at: row && row.reviewed_at ? row.reviewed_at : null });
+      } catch (e) {
+        return res.status(500).json({ error: 'review_failed' });
       }
     }
 
