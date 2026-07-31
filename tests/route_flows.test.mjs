@@ -430,7 +430,10 @@ console.log('\n— 11: calendar issue / rotate / revoke / feed auth, through the
   ok('cal_revoke succeeds through the route', revoked.statusCode === 200,
      `${revoked.statusCode} ${JSON.stringify(revoked.body).slice(0, 140)}`);
 
-  const afterRevoke = await db(`calendar_tokens?brand_id=eq.${brandId}&revoked_at=is.null&select=token`);
+  // brand_calendar_tokens, not calendar_tokens. Third table name I have guessed wrong in
+  // this file. PostgREST names the correct relation in its hint, which is the only reason
+  // each one cost a single run instead of a debugging session.
+  const afterRevoke = await db(`brand_calendar_tokens?brand_id=eq.${brandId}&revoked_at=is.null&select=token`);
   ok('no live calendar token survives revocation',
      Array.isArray(afterRevoke.body) && afterRevoke.body.length === 0,
      JSON.stringify(afterRevoke.body).slice(0, 140));
