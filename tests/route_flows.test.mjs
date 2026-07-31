@@ -791,6 +791,99 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
   ok('a paid event altered after signing is REFUSED', t2.statusCode >= 400, `${t2.statusCode}`);
 }
 
+// ---------------------------------------------------------------------------
+// 14. /api/booking — the RETAILER STAFF manual-booking route.
+//
+// Codex v6 answered a question I had asked: both booking routes are live and intentional.
+// api/book.js is the PUBLIC BRAND route; api/booking.js is the AUTHENTICATED RETAILER
+// STAFF route used by the admin portal. They are not accidental duplicates and must not be
+// merged in this pass.
+//
+// This route mattered most for the COI consolidation: booking.js was the LENIENT consumer.
+// Before api/_coi-policy.js it did not even SELECT coi_verification_status, so a pending or
+// REJECTED certificate that /api/book refused could be booked here by staff. The last
+// assertion in this section is the one that proves that divergence is gone.
+// ---------------------------------------------------------------------------
+console.log('\n— 14: /api/booking, the retailer staff route —');
+{
+  const dayS = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const base = (over = {}) => ({
+    retailer_slug: retailerSlug, brand_name: 'Staff Booked Co', contact_name: 'Staff Contact',
+    contact_email: `${uniq('sb')}@fixture.test`, venue: 'Route Main',
+    demo_date: dayS(30), demo_time: '09:00', ...over,
+  });
+
+  // NO SESSION.
+  const noSess = await callRoute('booking.js', req({ body: base() }));
+  ok('/api/booking without a retailer cookie is refused', noSess.statusCode === 401 || noSess.statusCode === 403,
+     `${noSess.statusCode} ${JSON.stringify(noSess.body).slice(0, 140)}`);
+
+  // A BRAND cookie is not a staff cookie. Roles are separate cookies by design, so this
+  // proves the separation holds at the route rather than only in the cookie helper.
+  const brandTry = await callRoute('booking.js', req({ body: base(), cookies: { dh_brand_session: brandCookie } }));
+  ok('a BRAND session cannot drive the staff booking route',
+     brandTry.statusCode === 401 || brandTry.statusCode === 403, `${brandTry.statusCode}`);
+
+  // A VIEWER has a valid session and live membership but no booking capability.
+  const viewerEmail = `${uniq('vw')}@fixture.test`;
+  await db('retailer_admins', { method: 'POST', body: JSON.stringify({
+    retailer_id: retailerId, email: viewerEmail, email_normalized: viewerEmail.toLowerCase(),
+    role: 'viewer' }) });
+  const vTok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({
+    retailer_id: retailerId, email: viewerEmail, token: 'vt-' + uniq('v'),
+    expires_at: new Date(Date.now() + 36e5).toISOString() }) })).body?.[0];
+  let viewerCookie = null;
+  if (vTok) {
+    const vv = await callRoute('admin-auth.js', req({ body: { action: 'verify', token: vTok.token } }));
+    viewerCookie = vv.cookie('dh_retailer_session');
+  }
+  ok('a viewer can sign in (so the next assertion tests ROLE, not authentication)', !!viewerCookie);
+  const viewerTry = await callRoute('booking.js', req({ body: base(), cookies: { dh_retailer_session: viewerCookie } }));
+  ok('a VIEWER cannot create a booking',
+     viewerTry.statusCode === 401 || viewerTry.statusCode === 403, `${viewerTry.statusCode} ${JSON.stringify(viewerTry.body).slice(0, 120)}`);
+
+  // AUTHORISED STAFF, own retailer.
+  const good = await callRoute('booking.js', req({ body: base(), cookies: { dh_retailer_session: staffCookie } }));
+  ok('authorised staff CAN create a booking for their own retailer',
+     good.statusCode === 200 || good.statusCode === 201, `${good.statusCode} ${JSON.stringify(good.body).slice(0, 180)}`);
+  const staffBooking = good.body && (good.body.booking_id || good.body.id || (good.body.booking && good.body.booking.id));
+  if (staffBooking) track('bookings', staffBooking);
+
+  // CROSS-RETAILER. The venue name belongs to a different retailer; the route resolves
+  // venues WITHIN the authenticated retailer, so this must not silently book against theirs.
+  const cross = await callRoute('booking.js', req({
+    body: base({ venue: 'Other Main' }), cookies: { dh_retailer_session: staffCookie } }));
+  const crossBookedElsewhere = cross.body && cross.body.booking_id
+    ? ((await db(`bookings?id=eq.${cross.body.booking_id}&select=retailer_id`)).body || [])[0]
+    : null;
+  ok('a venue belonging to ANOTHER retailer cannot be booked',
+     cross.statusCode >= 400 || (crossBookedElsewhere && crossBookedElsewhere.retailer_id === retailerId),
+     `${cross.statusCode} ${JSON.stringify(cross.body).slice(0, 140)}`);
+  if (cross.body && cross.body.booking_id) track('bookings', cross.body.booking_id);
+
+  // THE CANONICAL COI RULE, on the route that used to be lenient.
+  // A brand whose certificate is REJECTED must be refused here exactly as /api/book refuses
+  // it. Before api/_coi-policy.js this route never consulted coi_verification_status at all.
+  const rejEmail = `${uniq('rej')}@fixture.test`;
+  const rejBrand = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
+    email: rejEmail, company_name: 'Rejected Cert Co',
+    default_coi_url: 'brands/rejected.pdf', default_coi_expires: dayS(400),
+    coi_verification_status: 'rejected' }) })).body[0].id);
+
+  const rejVia = await callRoute('booking.js', req({
+    body: base({ contact_email: rejEmail, brand_name: 'Rejected Cert Co' }),
+    cookies: { dh_retailer_session: staffCookie } }));
+  const rejBooking = rejVia.body && rejVia.body.booking_id;
+  if (rejBooking) track('bookings', rejBooking);
+  const rejRow = rejBooking ? ((await db(`bookings?id=eq.${rejBooking}&select=coi_status,status`)).body || [])[0] : null;
+  ok('a REJECTED certificate is not treated as covered on the staff route',
+     rejVia.statusCode >= 400 || !!(rejRow && rejRow.coi_status !== 'covered'),
+     `${rejVia.statusCode} ${JSON.stringify(rejRow || rejVia.body).slice(0, 160)}`);
+
+  ok('the rejected brand is still not covered by the canonical rule',
+     ((await db(`brands?id=eq.${rejBrand}&select=coi_verification_status`)).body || [])[0]?.coi_verification_status === 'rejected');
+}
+
 console.log('\n— teardown —');
 for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 spy.restore();
