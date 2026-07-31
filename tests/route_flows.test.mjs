@@ -829,9 +829,15 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
   await db('retailer_admins', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, email: viewerEmail, email_normalized: viewerEmail.toLowerCase(),
     role: 'viewer' }) });
+  // Section 4 ends by testing LOGOUT, which kills staffCookie server-side. Reusing it here
+  // produced 401 'Invalid session' and read like the staff route rejecting a valid admin.
+  // Both sessions in this section are minted fresh.
+  //
+  // admin_tokens is inserted the way section 4 does it — email and retailer_id only. My first
+  // attempt supplied token and expires_at explicitly, which is the shape brand_account_tokens
+  // needs, not this table's.
   const vTok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({
-    retailer_id: retailerId, email: viewerEmail, token: 'vt-' + uniq('v'),
-    expires_at: new Date(Date.now() + 36e5).toISOString() }) })).body?.[0];
+    retailer_id: retailerId, email: viewerEmail }) })).body?.[0];
   let viewerCookie = null;
   if (vTok) {
     const vv = await callRoute('admin-auth.js', req({ body: { action: 'verify', token: vTok.token } }));
@@ -842,8 +848,15 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
   ok('a VIEWER cannot create a booking',
      viewerTry.statusCode === 401 || viewerTry.statusCode === 403, `${viewerTry.statusCode} ${JSON.stringify(viewerTry.body).slice(0, 120)}`);
 
-  // AUTHORISED STAFF, own retailer.
-  const good = await callRoute('booking.js', req({ body: base(), cookies: { dh_retailer_session: staffCookie } }));
+  // AUTHORISED STAFF, own retailer — a FRESH session, for the reason above.
+  const sTok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({
+    retailer_id: retailerId, email: `staff-${retailerSlug}@fixture.test` }) })).body?.[0];
+  const freshStaff = sTok
+    ? (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: sTok.token } }))).cookie('dh_retailer_session')
+    : null;
+  ok('a fresh staff session was minted for this section', !!freshStaff);
+
+  const good = await callRoute('booking.js', req({ body: base(), cookies: { dh_retailer_session: freshStaff } }));
   ok('authorised staff CAN create a booking for their own retailer',
      good.statusCode === 200 || good.statusCode === 201, `${good.statusCode} ${JSON.stringify(good.body).slice(0, 180)}`);
   const staffBooking = good.body && (good.body.booking_id || good.body.id || (good.body.booking && good.body.booking.id));
@@ -852,7 +865,7 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
   // CROSS-RETAILER. The venue name belongs to a different retailer; the route resolves
   // venues WITHIN the authenticated retailer, so this must not silently book against theirs.
   const cross = await callRoute('booking.js', req({
-    body: base({ venue: 'Other Main' }), cookies: { dh_retailer_session: staffCookie } }));
+    body: base({ venue: 'Other Main' }), cookies: { dh_retailer_session: freshStaff } }));
   const crossBookedElsewhere = cross.body && cross.body.booking_id
     ? ((await db(`bookings?id=eq.${cross.body.booking_id}&select=retailer_id`)).body || [])[0]
     : null;
@@ -872,7 +885,7 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
 
   const rejVia = await callRoute('booking.js', req({
     body: base({ contact_email: rejEmail, brand_name: 'Rejected Cert Co' }),
-    cookies: { dh_retailer_session: staffCookie } }));
+    cookies: { dh_retailer_session: freshStaff } }));
   const rejBooking = rejVia.body && rejVia.body.booking_id;
   if (rejBooking) track('bookings', rejBooking);
   const rejRow = rejBooking ? ((await db(`bookings?id=eq.${rejBooking}&select=coi_status,status`)).body || [])[0] : null;
