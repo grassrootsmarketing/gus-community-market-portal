@@ -848,6 +848,17 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
   ok('a VIEWER cannot create a booking',
      viewerTry.statusCode === 401 || viewerTry.statusCode === 403, `${viewerTry.statusCode} ${JSON.stringify(viewerTry.body).slice(0, 120)}`);
 
+  // A brand that IS covered. base() generates a random contact_email, which makes
+  // api/booking.js create a brand with no certificate at all — and the canonical rule now
+  // correctly refuses that with coi_state 'missing'. That refusal is the consolidation
+  // working: before api/_coi-policy.js this route booked uncovered brands without asking.
+  // The happy path therefore needs a genuinely covered brand.
+  const okEmail = `${uniq('cov')}@fixture.test`;
+  track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
+    email: okEmail, company_name: 'Covered Co',
+    default_coi_url: 'brands/covered.pdf', default_coi_expires: dayS(400),
+    coi_verification_status: 'approved' }) })).body[0].id);
+
   // AUTHORISED STAFF, own retailer — a FRESH session, for the reason above.
   const sTok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, email: `staff-${retailerSlug}@fixture.test` }) })).body?.[0];
@@ -856,7 +867,9 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
     : null;
   ok('a fresh staff session was minted for this section', !!freshStaff);
 
-  const good = await callRoute('booking.js', req({ body: base(), cookies: { dh_retailer_session: freshStaff } }));
+  const good = await callRoute('booking.js', req({
+    body: base({ contact_email: okEmail, brand_name: 'Covered Co' }),
+    cookies: { dh_retailer_session: freshStaff } }));
   ok('authorised staff CAN create a booking for their own retailer',
      good.statusCode === 200 || good.statusCode === 201, `${good.statusCode} ${JSON.stringify(good.body).slice(0, 180)}`);
   const staffBooking = good.body && (good.body.booking_id || good.body.id || (good.body.booking && good.body.booking.id));
@@ -865,7 +878,8 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
   // CROSS-RETAILER. The venue name belongs to a different retailer; the route resolves
   // venues WITHIN the authenticated retailer, so this must not silently book against theirs.
   const cross = await callRoute('booking.js', req({
-    body: base({ venue: 'Other Main' }), cookies: { dh_retailer_session: freshStaff } }));
+    body: base({ venue: 'Other Main', contact_email: okEmail, brand_name: 'Covered Co' }),
+    cookies: { dh_retailer_session: freshStaff } }));
   const crossBookedElsewhere = cross.body && cross.body.booking_id
     ? ((await db(`bookings?id=eq.${cross.body.booking_id}&select=retailer_id`)).body || [])[0]
     : null;
