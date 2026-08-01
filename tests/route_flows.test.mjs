@@ -667,22 +667,25 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
 }
 
 // ---------------------------------------------------------------------------
-// 13. THE PAID PATH — signed paid event, staff notification, replay safety.
+// 13. THE PAID PATH — THREE bookings, ONE payment, exact-once fulfilment.
 //
-// Codex v6: section 10 proved signature verification and inbox dedup, but its event set
-// payment_status:'unpaid'. That proves nothing about verified payment application, ledger
-// promotion, demo materialisation, brand confirmation, staff notification, or replay
-// safety for ANY of those effects. This drives the real money path end to end:
+// Codex v6-FINAL blocker B4. The previous section paid a SINGLE booking and then made claims
+// it never proved: it asserted `status !== 'frozen'` (which pending/failed also satisfy), never
+// asserted the demo count equalled one, labelled the brand email a "staff notification" via a
+// broad regex, and ran its mismatch case against an ALREADY-paid group. This rewrite proves the
+// real multi-demo money path end to end, with exact counts, against the actual routes and RPCs:
 //
-//   /api/book      creates the bookings
-//   /api/checkout  creates and REGISTERS the payment attempt
-//   signed PAID checkout.session.completed through api/stripe-webhook.js
-//   replay of the identical event
+//   /api/book      creates THREE bookings for one retailer, each on its own slot
+//   /api/checkout  claims ONE payment group with three immutable allocations
+//   signed PAID checkout.session.completed  → apply_verified_payment → the fulfilment outbox
+//   replay of the identical event           → zero second effects of any kind
+//   a FRESH mismatched event                → promotes nothing, opens exactly one case
+//   the refund route on ONE booking         → changes only that booking, never fans out
 //
-// Stripe is never contacted: the session and PaymentIntent are test-controlled fixtures on
-// the spy, so the handler retrieves exactly the objects this test defines.
+// Stripe is never contacted: the Session, PaymentIntent and Charge are test-controlled fixtures
+// on the spy, so the handler retrieves exactly the objects this test defines.
 // ---------------------------------------------------------------------------
-console.log('\n— 13: paid webhook, staff notification, replay —');
+console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, refund —');
 {
   const { createHmac } = await import('node:crypto');
   const sign = (payload, secret = 'whsec_harness') => {
@@ -690,17 +693,23 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
     return `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex')}`;
   };
   const dayP = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const setOf = (arr) => JSON.stringify([...arr].map(String).sort());
+  const idList = (arr) => arr.map(encodeURIComponent).join(',');
 
-  // A staff member who should be notified. notification_prefs and venue_ids are the two
-  // columns that did not exist until 0057 — the defect that made ALL staff notification
-  // silently impossible.
+  // Deterministic auto-confirm. With auto_confirm_bookings ON, each paid booking's outbox row
+  // carries target_status='confirmed', so fulfilment materialises EXACTLY one demo per booking.
+  // Asserting an exact demo count (Codex B4 §5) requires a KNOWN value, not the fixture default.
+  await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: true }) });
+
+  // A staff member who MUST receive the "new demo scheduled" alert. notifyStaffForBooking fires
+  // ONLY when notification_prefs.on_scheduled is true — the old fixture set {new_booking,payment},
+  // so no staff mail was ever sent and the old regex was matching the brand email's word "booking".
   const staffEmail = `${uniq('staff')}@fixture.test`;
   track('internal_contacts', (await db('internal_contacts', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, name: 'Notified Staff', email: staffEmail,
-    notification_prefs: { new_booking: true, payment: true }, venue_ids: [venueId] }) })).body?.[0]?.id);
+    notification_prefs: { on_scheduled: true }, venue_ids: [venueId] }) })).body?.[0]?.id);
 
-  // A brand with an APPROVED certificate, reached through section 12's real review path
-  // rather than by patching a status column.
+  // A brand with an APPROVED certificate, signed in through the real verify route.
   const payEmail = `${uniq('pay')}@fixture.test`;
   const payBrand = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
     email: payEmail, company_name: 'Paying Brand',
@@ -712,126 +721,212 @@ console.log('\n— 13: paid webhook, staff notification, replay —');
   const paySess = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: payTok.token } }))).cookie('dh_brand_session');
   ok('the paying brand has a real session', !!paySess);
 
-  const bk = await callRoute('book.js', req({
-    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(21), demo_time: '13:00' },
-    cookies: { dh_brand_session: paySess } }));
-  ok('the paying brand books through /api/book', bk.statusCode === 200 || bk.statusCode === 201,
-     `${bk.statusCode} ${JSON.stringify(bk.body).slice(0, 160)}`);
-  const payBooking = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
-  if (payBooking) track('bookings', payBooking);
+  // THREE bookings for the SAME retailer, each on its own slot so three DISTINCT demos exist
+  // (createDemoForConfirmedBooking dedupes by retailer+venue+date+time).
+  const bookingIds = [];
+  for (let i = 0; i < 3; i++) {
+    const bk = await callRoute('book.js', req({
+      body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(21 + i), demo_time: '13:00' },
+      cookies: { dh_brand_session: paySess } }));
+    const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
+    if (id) { track('bookings', id); bookingIds.push(id); }
+  }
+  ok('three bookings were created through /api/book', bookingIds.length === 3, `${bookingIds.length}`);
 
+  // ONE checkout for all three booking ids.
   const co = await callRoute('checkout.js', req({
-    body: { booking_ids: [payBooking] }, cookies: { dh_brand_session: paySess } }));
-  ok('/api/checkout registers a payment attempt', co.statusCode === 200,
+    body: { booking_ids: bookingIds }, cookies: { dh_brand_session: paySess } }));
+  ok('/api/checkout accepts all three bookings in a SINGLE call', co.statusCode === 200,
      `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
-
-  // Read what the HANDLER returned, not columns I guessed at. My first attempt queried
-  // payment_attempts for amount_total_cents, which does not exist -- PostgREST answered with
-  // an error object rather than an array, `amount` became undefined, JSON.stringify dropped
-  // p_amount from the RPC body, and apply_verified_payment then had no matching overload:
-  //
-  //     PGRST202 ... Searched for the function public.apply_verified_payment with
-  //     parameters p_application_fee, p_charge, p_connect_dest, ...   (no p_amount)
-  //
-  // Eleven assertions failed and every one of them traced back to that single undefined.
-  // /api/checkout already returns session_id, payment_group_id and total_cents, so the
-  // authoritative values come from the route that created them.
   const sessionId = co.body && co.body.session_id;
   const groupId   = co.body && co.body.payment_group_id;
-  const amount    = co.body && co.body.total_cents;
-  ok('checkout returned a session id, group id and total', !!sessionId && !!groupId && Number.isFinite(amount),
-     JSON.stringify({ sessionId, groupId, amount }));
+  const total     = co.body && co.body.total_cents;
+  ok('checkout returned a session id, group id and total', !!sessionId && !!groupId && Number.isFinite(total),
+     JSON.stringify({ sessionId, groupId, total }));
 
-  // Cross-check against the attempt row so this still proves the handler REGISTERED the
-  // attempt rather than merely reporting one back to us.
-  // stripe_checkout_session_id, not session_id. Sixth wrong identifier in this file today,
-  // and the sixth to be a direct-database assertion. Read from 0032, not guessed.
-  const attemptRow = ((await db(`payment_attempts?stripe_checkout_session_id=eq.${encodeURIComponent(String(sessionId))}&select=stripe_checkout_session_id,payment_group_id,status`)).body || [])[0];
-  ok('an attempt row exists for that exact session id',
-     !!(attemptRow && attemptRow.payment_group_id === groupId), JSON.stringify(attemptRow));
+  // ---- BEFORE PAYMENT ----------------------------------------------------------------------
+  const groupsForBookings = ((await db(`payment_allocations?booking_id=in.(${idList(bookingIds)})&select=payment_group_id`)).body) || [];
+  const distinctGroups = [...new Set(groupsForBookings.map(a => a.payment_group_id))];
+  ok('the three bookings belong to EXACTLY ONE payment group',
+     distinctGroups.length === 1 && distinctGroups[0] === groupId, JSON.stringify(distinctGroups));
+
+  const openAttempts = ((await db(`payment_attempts?payment_group_id=eq.${groupId}&status=eq.open&select=stripe_checkout_session_id`)).body) || [];
+  ok('exactly ONE open attempt is bound to the returned session',
+     openAttempts.length === 1 && openAttempts[0].stripe_checkout_session_id === sessionId, JSON.stringify(openAttempts));
+
+  const allocs = ((await db(`payment_allocations?payment_group_id=eq.${groupId}&select=booking_id,customer_amount`)).body) || [];
+  ok('exactly THREE allocations exist for the group', allocs.length === 3, `${allocs.length}`);
+  ok('the allocation booking-id set equals the exact three booked ids',
+     setOf(allocs.map(a => a.booking_id)) === setOf(bookingIds), JSON.stringify(allocs.map(a => a.booking_id)));
+  const allocSum = allocs.reduce((s, a) => s + Number(a.customer_amount || 0), 0);
+  ok('the allocation sum equals the checkout total', allocSum === Number(total), `${allocSum} vs ${total}`);
+
+  const preBookings = ((await db(`bookings?id=in.(${idList(bookingIds)})&select=id,payment_status,status`)).body) || [];
+  ok('all three bookings are unpaid and pending_payment before payment',
+     preBookings.length === 3 && preBookings.every(b => b.payment_status !== 'paid' && b.status === 'pending_payment'),
+     JSON.stringify(preBookings));
+
+  // ---- THE SIGNED PAID EVENT ---------------------------------------------------------------
   const piId = 'pi_' + uniq('paid');
   const chargeId = 'ch_' + uniq('paid');
-
-  // The fixture the handler will retrieve. latest_charge is EXPANDED, because
-  // stripe-webhook.js reads charge.destination / application_fee_amount / transfer from it.
+  // latest_charge is EXPANDED because stripe-webhook.js reads charge.destination /
+  // application_fee_amount / transfer off it. amount_received matches the ledger total.
   spy.fixtures.paymentIntents[piId] = {
-    id: piId, object: 'payment_intent', amount_received: amount, currency: 'usd',
-    on_behalf_of: null,
+    id: piId, object: 'payment_intent', amount_received: total, currency: 'usd', on_behalf_of: null,
     latest_charge: { id: chargeId, object: 'charge', destination: null,
                      application_fee_amount: null, transfer: null, application_fee: null },
   };
-
   const paidEvent = JSON.stringify({
     id: 'evt_' + uniq('paid'), type: 'checkout.session.completed',
     data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
-                      payment_status: 'paid', amount_total: amount, currency: 'usd',
+                      payment_status: 'paid', amount_total: total, currency: 'usd',
                       payment_intent: piId, metadata: { payment_group_id: groupId } } },
   });
 
   const resendBefore = spy.calls.resend.length;
   const stripeBefore = spy.calls.stripe.length;
-
   const paid1 = await callRoute('stripe-webhook.js', rawReq(paidEvent, { signature: sign(paidEvent) }));
   ok('a signed PAID event is accepted', paid1.statusCode >= 200 && paid1.statusCode < 300,
      `${paid1.statusCode} ${JSON.stringify(paid1.body).slice(0, 160)}`);
 
-  const bAfter = ((await db(`bookings?id=eq.${payBooking}&select=payment_status,status`)).body || [])[0];
-  ok('the booking is promoted to paid', bAfter && bAfter.payment_status === 'paid', JSON.stringify(bAfter));
+  // ---- AFTER FIRST DELIVERY ----------------------------------------------------------------
+  const grp1 = ((await db(`payment_groups?id=eq.${groupId}&select=status`)).body || [])[0];
+  ok('the payment group status is exactly paid', grp1 && grp1.status === 'paid', JSON.stringify(grp1));
+  const att1 = ((await db(`payment_attempts?stripe_checkout_session_id=eq.${encodeURIComponent(sessionId)}&select=status`)).body || [])[0];
+  ok('the payment attempt status is exactly paid', att1 && att1.status === 'paid', JSON.stringify(att1));
 
-  const grp = ((await db(`payment_groups?id=eq.${groupId}&select=status`)).body || [])[0];
-  ok('the payment group is settled exactly once', grp && grp.status !== 'frozen', JSON.stringify(grp));
+  const postBookings = ((await db(`bookings?id=in.(${idList(bookingIds)})&select=id,payment_status`)).body) || [];
+  ok('all and only the three bookings are paid',
+     postBookings.length === 3 && postBookings.every(b => b.payment_status === 'paid'), JSON.stringify(postBookings));
 
-  // STAFF NOTIFICATION. Contained: every recipient must be the approved sink, never the
-  // staff member's real address, because EMAIL_ALLOWLIST is the only permitted destination
-  // outside production.
-  const mails = spy.calls.resend.slice(resendBefore);
-  ok('at least one email was attempted after payment', mails.length > 0, `${mails.length}`);
-  const recipients = mails.flatMap(m => Array.isArray(m.to) ? m.to : [m.to]).filter(Boolean);
-  ok('EVERY recipient is the approved sink',
-     recipients.length > 0 && recipients.every(r => String(r).includes('sink@fixture.test')),
-     JSON.stringify(recipients).slice(0, 200));
-  ok('a staff notification was among them',
-     mails.some(m => /staff|booking|paid|confirmed|demo/i.test(String(m.subject || '') + String(m.html || '').slice(0, 400))),
-     JSON.stringify(mails.map(m => m.subject)).slice(0, 200));
+  const fulfil1 = ((await db(`booking_fulfillments?payment_group_id=eq.${groupId}&select=booking_id,demo_created,emails_sent`)).body) || [];
+  ok('exactly one fulfilment row exists per booking',
+     fulfil1.length === 3 && setOf(fulfil1.map(f => f.booking_id)) === setOf(bookingIds), `${fulfil1.length}`);
+  ok('every fulfilment row recorded its demo and its emails',
+     fulfil1.every(f => f.demo_created === true && f.emails_sent === true), JSON.stringify(fulfil1));
 
-  const demosAfter = ((await db(`demos?booking_id=eq.${payBooking}&select=id`)).body) || [];
-  const demoCount1 = demosAfter.length;
+  const demos1 = ((await db(`demos?booking_id=in.(${idList(bookingIds)})&select=id,booking_id`)).body) || [];
+  for (const d of demos1) track('demos', d.id);
+  ok('exactly THREE demos were materialised — one per booking',
+     demos1.length === 3 && setOf(demos1.map(d => d.booking_id)) === setOf(bookingIds), `${demos1.length}`);
 
-  // --- THE REPLAY ---
+  // EXACT email counts by message type. Recipients are all the contained sink; the two message
+  // types are told apart by their distinct, constant subject phrases — NOT a broad regex.
+  const mails1 = spy.calls.resend.slice(resendBefore);
+  const recips1 = mails1.flatMap(m => Array.isArray(m.to) ? m.to : [m.to]).filter(Boolean);
+  ok('every post-payment recipient is the approved sink',
+     recips1.length > 0 && recips1.every(r => String(r) === 'sink@fixture.test'), JSON.stringify(recips1).slice(0, 200));
+  const brandMails1 = mails1.filter(m => String(m.subject || '').includes('Your demo booking at'));
+  const staffMails1 = mails1.filter(m => String(m.subject || '').includes('New demo scheduled:'));
+  ok('exactly THREE brand confirmation emails — one per booking', brandMails1.length === 3,
+     JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
+  ok('exactly THREE staff notification emails — one per booking', staffMails1.length === 3,
+     JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
+  ok('no OTHER emails were sent by the paid path', mails1.length === 6, `${mails1.length}`);
+
+  const cases1 = ((await db(`reconciliation_cases?payment_group_id=eq.${groupId}&select=id`)).body) || [];
+  ok('the VALID payment produced NO reconciliation case', cases1.length === 0, `${cases1.length}`);
+
+  // ---- THE REPLAY: the identical event must produce zero second effects --------------------
   const resendMid = spy.calls.resend.length;
-  const stripeMid = spy.calls.stripe.length;
-
+  const stripeMid  = spy.calls.stripe.length;
   const paid2 = await callRoute('stripe-webhook.js', rawReq(paidEvent, { signature: sign(paidEvent) }));
-  ok('the replayed paid event is still accepted', paid2.statusCode >= 200 && paid2.statusCode < 300,
-     `${paid2.statusCode}`);
+  ok('the replayed identical event is still accepted', paid2.statusCode >= 200 && paid2.statusCode < 300, `${paid2.statusCode}`);
+  const inbox = ((await db(`processed_stripe_events?event_id=eq.${encodeURIComponent(JSON.parse(paidEvent).id)}&select=event_id`)).body) || [];
+  ok('replay creates NO second inbox row', inbox.length === 1, `rows=${inbox.length}`);
+  ok('replay sends NO further email', spy.calls.resend.length === resendMid, `${resendMid} -> ${spy.calls.resend.length}`);
+  ok('replay makes NO further Stripe call', spy.calls.stripe.length === stripeMid, `${stripeMid} -> ${spy.calls.stripe.length}`);
+  const demos2 = ((await db(`demos?booking_id=in.(${idList(bookingIds)})&select=id`)).body) || [];
+  ok('replay materialises NO second demo', demos2.length === 3, `${demos2.length}`);
+  const fulfil2 = ((await db(`booking_fulfillments?payment_group_id=eq.${groupId}&select=booking_id`)).body) || [];
+  ok('replay creates NO second fulfilment row', fulfil2.length === 3, `${fulfil2.length}`);
+  const postBookings2 = ((await db(`bookings?id=in.(${idList(bookingIds)})&select=payment_status`)).body) || [];
+  ok('replay applies NO second payment (bookings unchanged)',
+     postBookings2.length === 3 && postBookings2.every(b => b.payment_status === 'paid'), JSON.stringify(postBookings2));
 
-  const inbox = ((await db(`processed_stripe_events?event_id=eq.${JSON.parse(paidEvent).id}&select=event_id`)).body) || [];
-  ok('the replay creates NO second inbox row', inbox.length === 1, `rows=${inbox.length}`);
-  ok('the replay sends NO second email', spy.calls.resend.length === resendMid,
-     `${resendMid} -> ${spy.calls.resend.length}`);
-  ok('the replay makes NO additional Stripe call', spy.calls.stripe.length === stripeMid,
-     `${stripeMid} -> ${spy.calls.stripe.length}`);
-  const demos2 = ((await db(`demos?booking_id=eq.${payBooking}&select=id`)).body) || [];
-  ok('the replay materialises NO second demo', demos2.length === demoCount1,
-     `${demoCount1} -> ${demos2.length}`);
-  for (const d of demos2) track('demos', d.id);
+  // ---- A FRESH MISMATCHED EVENT: promotes nothing, opens exactly one case ------------------
+  const mmBk = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(40), demo_time: '15:00' },
+    cookies: { dh_brand_session: paySess } }));
+  const mmBookingId = mmBk.body && (mmBk.body.booking_id || mmBk.body.id || (mmBk.body.booking && mmBk.body.booking.id));
+  if (mmBookingId) track('bookings', mmBookingId);
+  const mmCo = await callRoute('checkout.js', req({ body: { booking_ids: [mmBookingId] }, cookies: { dh_brand_session: paySess } }));
+  const mmSession = mmCo.body && mmCo.body.session_id;
+  const mmGroup   = mmCo.body && mmCo.body.payment_group_id;
+  const mmTotal   = mmCo.body && mmCo.body.total_cents;
+  ok('a FRESH unpaid group/session exists for the mismatch case',
+     !!mmSession && !!mmGroup && mmGroup !== groupId, JSON.stringify({ mmSession, mmGroup }));
 
-  // --- a mismatched amount must fail closed ---
-  const wrongAmountEvent = JSON.stringify({
-    id: 'evt_' + uniq('mismatch'), type: 'checkout.session.completed',
-    data: { object: { id: sessionId, object: 'checkout.session', mode: 'payment',
-                      payment_status: 'paid', amount_total: (amount || 0) + 500, currency: 'usd',
-                      payment_intent: piId, metadata: { payment_group_id: groupId } } },
+  const mmPi = 'pi_' + uniq('mm');
+  spy.fixtures.paymentIntents[mmPi] = {
+    id: mmPi, object: 'payment_intent', amount_received: mmTotal, currency: 'usd', on_behalf_of: null,
+    latest_charge: { id: 'ch_' + uniq('mm'), object: 'charge', destination: null,
+                     application_fee_amount: null, transfer: null, application_fee: null },
+  };
+  const mmEvent = JSON.stringify({
+    id: 'evt_' + uniq('mm'), type: 'checkout.session.completed',
+    data: { object: { id: mmSession, object: 'checkout.session', mode: 'payment', payment_status: 'paid',
+                      amount_total: Number(mmTotal) + 500, currency: 'usd',
+                      payment_intent: mmPi, metadata: { payment_group_id: mmGroup } } },
   });
-  const mism = await callRoute('stripe-webhook.js', rawReq(wrongAmountEvent, { signature: sign(wrongAmountEvent) }));
-  ok('a mismatched amount does not 500 the webhook', mism.statusCode >= 200 && mism.statusCode < 500, `${mism.statusCode}`);
-  const bMism = ((await db(`bookings?id=eq.${payBooking}&select=payment_status`)).body || [])[0];
-  ok('a mismatched amount promotes nothing further', bMism && bMism.payment_status === 'paid', JSON.stringify(bMism));
+  const mmResendBefore = spy.calls.resend.length;
+  const mm1 = await callRoute('stripe-webhook.js', rawReq(mmEvent, { signature: sign(mmEvent) }));
+  ok('a mismatched-amount event does not 500 the webhook', mm1.statusCode >= 200 && mm1.statusCode < 500, `${mm1.statusCode}`);
+  const mmBookingRow = ((await db(`bookings?id=eq.${mmBookingId}&select=payment_status`)).body || [])[0];
+  ok('the mismatched event promotes NOTHING', mmBookingRow && mmBookingRow.payment_status !== 'paid', JSON.stringify(mmBookingRow));
+  const mmGrpRow = ((await db(`payment_groups?id=eq.${mmGroup}&select=status`)).body || [])[0];
+  ok('the mismatched group stays in a safe (unpaid, unfrozen) state',
+     mmGrpRow && mmGrpRow.status !== 'paid' && mmGrpRow.status !== 'frozen', JSON.stringify(mmGrpRow));
+  ok('the mismatched event sent NO confirmation email', spy.calls.resend.length === mmResendBefore,
+     `${mmResendBefore} -> ${spy.calls.resend.length}`);
+  const mmCases1 = ((await db(`reconciliation_cases?payment_group_id=eq.${mmGroup}&reason=eq.amount_mismatch&select=id`)).body) || [];
+  ok('exactly ONE amount_mismatch reconciliation case is linked to the group', mmCases1.length === 1, `${mmCases1.length}`);
 
-  // --- tampering after signing ---
+  const mm2 = await callRoute('stripe-webhook.js', rawReq(mmEvent, { signature: sign(mmEvent) }));
+  ok('the replayed mismatch event does not 500', mm2.statusCode >= 200 && mm2.statusCode < 500, `${mm2.statusCode}`);
+  const mmCases2 = ((await db(`reconciliation_cases?payment_group_id=eq.${mmGroup}&reason=eq.amount_mismatch&select=id`)).body) || [];
+  ok('replay does NOT create a duplicate reconciliation case', mmCases2.length === 1, `${mmCases2.length}`);
+
+  // ---- TAMPERING AFTER SIGNING -------------------------------------------------------------
   const tampered = paidEvent.replace('"paid"', '"unpaid"');
-  const t2 = await callRoute('stripe-webhook.js', rawReq(tampered, { signature: sign(paidEvent) }));
-  ok('a paid event altered after signing is REFUSED', t2.statusCode >= 400, `${t2.statusCode}`);
+  const tRes = await callRoute('stripe-webhook.js', rawReq(tampered, { signature: sign(paidEvent) }));
+  ok('a paid event altered after signing is REFUSED', tRes.statusCode >= 400, `${tRes.statusCode}`);
+
+  // ---- REFUND FAN-OUT REGRESSION (ledger) --------------------------------------------------
+  // Cancelling ONE booking in the multi-demo group issues a LEDGER refund: booking-action.js
+  // reserves the exact amount against THAT booking's own immutable allocation and converges via
+  // apply_refund_event. It must flip only that booking and that allocation — the other two
+  // allocations' refunded_amount must stay 0 (the "does not fan out" property, at allocation level).
+  const rTok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({
+    retailer_id: retailerId, email: `staff-${retailerSlug}@fixture.test` }) })).body?.[0];
+  const refundSess = rTok
+    ? (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: rTok.token } }))).cookie('dh_retailer_session')
+    : null;
+  ok('a retailer admin session was minted for the refund', !!refundSess);
+
+  const refundTarget = bookingIds[0];
+  const rr = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: refundTarget, force_refund: true },
+    cookies: { dh_retailer_session: refundSess } }));
+  ok('the cancel+refund route succeeds for one booking', rr.statusCode === 200,
+     `${rr.statusCode} ${JSON.stringify(rr.body).slice(0, 200)}`);
+
+  const refundedRow = ((await db(`bookings?id=eq.${refundTarget}&select=payment_status,status`)).body || [])[0];
+  ok('the targeted booking is refunded', refundedRow && refundedRow.payment_status === 'refunded', JSON.stringify(refundedRow));
+
+  const others = bookingIds.slice(1);
+  const otherRows = ((await db(`bookings?id=in.(${idList(others)})&select=id,payment_status`)).body) || [];
+  ok('the refund does NOT fan out — the other two bookings stay paid',
+     otherRows.length === 2 && otherRows.every(b => b.payment_status === 'paid'), JSON.stringify(otherRows));
+
+  const allocAfter = ((await db(`payment_allocations?payment_group_id=eq.${groupId}&select=booking_id,customer_amount,refunded_amount`)).body) || [];
+  ok('all three allocations still exist after the single refund', allocAfter.length === 3, `${allocAfter.length}`);
+  const targetAlloc = allocAfter.find(a => a.booking_id === refundTarget);
+  const otherAllocs = allocAfter.filter(a => a.booking_id !== refundTarget);
+  ok('only the refunded allocation carries a refunded_amount — the other two stay zero',
+     !!targetAlloc && Number(targetAlloc.refunded_amount) === Number(targetAlloc.customer_amount)
+       && otherAllocs.length === 2 && otherAllocs.every(a => Number(a.refunded_amount || 0) === 0),
+     JSON.stringify(allocAfter));
 }
 
 // ---------------------------------------------------------------------------
