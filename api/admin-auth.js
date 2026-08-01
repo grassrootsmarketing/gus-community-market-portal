@@ -914,6 +914,18 @@ export default async function handler(req, res) {
         if (!r.ok) {
           // A stale approval is a legitimate refusal, not a server fault, and the reviewer
           // needs to be told which one it was.
+          // 0060 makes reviews immutable, so a second decision is refused BEFORE staleness
+          // is even considered. The operator needs to know which refusal they hit: one
+          // means "look at the newer upload", the other means "this was already decided".
+          // Collapsing both into a generic 400 tells them nothing.
+          if (/already decided/i.test(txt)) {
+            return res.status(409).json({ error: 'already_decided',
+              message: 'This certificate has already been decided. A new decision requires a new upload from the brand.' });
+          }
+          if (/removed record/i.test(txt)) {
+            return res.status(410).json({ error: 'removed',
+              message: 'That certificate was removed by the brand.' });
+          }
           if (/stale review/i.test(txt)) {
             return res.status(409).json({ error: 'stale_review',
               message: 'This record no longer describes the brand\'s current certificate. Re-open the queue and review the latest upload.' });

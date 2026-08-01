@@ -589,8 +589,42 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   const stale = await callRoute('admin-auth.js', req({
     body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' },
     cookies: { dh_owner_session: ownerCookie } }));
-  ok('approving a STALE record is refused', stale.statusCode === 409 && stale.body && stale.body.error === 'stale_review',
+  // 0060 makes reviews IMMUTABLE, so re-approving v1 -- which was already approved earlier
+  // in this section -- is refused as already_decided BEFORE staleness is considered. Both
+  // are correct refusals of the same attack; the assertion accepts either and names which.
+  ok('re-deciding an already-decided record is refused',
+     stale.statusCode === 409 && stale.body && (stale.body.error === 'already_decided' || stale.body.error === 'stale_review'),
      `${stale.statusCode} ${JSON.stringify(stale.body).slice(0, 140)}`);
+
+  // The PURELY stale case, which is Codex's actual attack: a never-decided record that has
+  // been superseded by a newer upload. v1 above cannot test this because it carries a
+  // decision already.
+  const up3 = await callRoute('brand-account.js', req({
+    body: { action: 'upload-coi', file: dataUrl('three'), expires: future },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a third upload succeeds', up3.statusCode === 200, `${up3.statusCode}`);
+  const openRows = (await db(`coi_verifications?brand_id=eq.${revBrandId}&review_decision=is.null&select=id,superseded_at&order=created_at.desc`)).body || [];
+  const newest = openRows.find(r => !r.superseded_at);
+  const superseded = openRows.find(r => r.superseded_at);
+  ok('the earlier open version is marked superseded', !!superseded, JSON.stringify(openRows).slice(0, 160));
+  if (superseded) {
+    const staleApprove = await callRoute('admin-auth.js', req({
+      body: { action: 'owner-coi-review', verification_id: superseded.id, decision: 'approved' },
+      cookies: { dh_owner_session: ownerCookie } }));
+    ok('approving a SUPERSEDED, never-decided record is refused as stale',
+       staleApprove.statusCode === 409 && staleApprove.body && staleApprove.body.error === 'stale_review',
+       `${staleApprove.statusCode} ${JSON.stringify(staleApprove.body).slice(0, 140)}`);
+    const viewStale = await callRoute('admin-auth.js', req({
+      body: { action: 'owner-coi-view', verification_id: superseded.id },
+      cookies: { dh_owner_session: ownerCookie } }));
+    ok('viewing a superseded record is refused', viewStale.statusCode === 409, `${viewStale.statusCode}`);
+  }
+  if (newest) {
+    const rows2 = (await db(`coi_verifications?id=eq.${newest.id}&select=storage_path`)).body || [];
+    ok('each upload has its OWN immutable storage path',
+       !!(rows2[0] && rows2[0].storage_path && rows2[0].storage_path.includes(revBrandId) && rows2[0].storage_path.includes(newest.id)),
+       JSON.stringify(rows2[0]));
+  }
 
   // --- reject the replacement; it must not be able to book ---
   const reject = await callRoute('admin-auth.js', req({
