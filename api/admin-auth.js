@@ -816,7 +816,16 @@ export default async function handler(req, res) {
         // Only review-relevant metadata. No raw document URL is returned here -- viewing is
         // a separate, deliberately separate action, so the queue cannot become a way to
         // enumerate durable certificate links.
-        const rows = await sb('coi_verifications?review_decision=is.null&select=id,brand_id,status,insurer_name,insured_name,policy_expiry,gl_each_occurrence,flags,created_at&order=created_at.desc&limit=200');
+        // QUEUE STARVATION -- Codex v6-FINAL B3. This used to take the newest 200 raw
+        // unreviewed rows and THEN dedupe by brand, so one brand uploading 200 times hid
+        // every other brand from the operator. Query the authoritative CURRENT pointers
+        // instead: at most one review item per brand, by construction.
+        const brandRows = await sb('brands?current_coi_verification_id=not.is.null&coi_verification_status=in.(pending,flagged)&select=current_coi_verification_id&limit=500');
+        const currentIds = (Array.isArray(brandRows) ? brandRows : [])
+          .map(b => b && b.current_coi_verification_id).filter(Boolean);
+        const rows = currentIds.length
+          ? await sb(`coi_verifications?id=in.(${currentIds.join(',')})&review_decision=is.null&removed_at=is.null&superseded_at=is.null&select=id,brand_id,status,insurer_name,insured_name,policy_expiry,gl_each_occurrence,flags,created_at&order=created_at.desc`)
+          : [];
         const list = Array.isArray(rows) ? rows : [];
         // Newest record per brand: an older pending row is superseded by a newer upload and
         // approving it would be the stale case 0058 refuses anyway.
@@ -854,13 +863,26 @@ export default async function handler(req, res) {
       const { verification_id } = body || {};
       if (!isUuid(verification_id)) return res.status(400).json({ error: 'Invalid verification_id' });
       try {
-        const rows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=id,brand_id,coi_url`);
+        const rows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=id,brand_id,storage_path,coi_url,removed_at,superseded_at,review_decision`);
         const rec = Array.isArray(rows) ? rows[0] : null;
         if (!rec) return res.status(404).json({ error: 'verification record not found' });
-        if (!rec.coi_url) return res.status(404).json({ error: 'this record has no document' });
+
+        // Codex v6-FINAL B1/B2: view the bytes belonging to THIS verification, and refuse
+        // anything that is not the brand's current reviewable document. Previously this
+        // signed whatever path the record held, which — while uploads shared one path —
+        // meant viewing an old record displayed the newest bytes.
+        if (rec.removed_at) return res.status(410).json({ error: 'removed', message: 'That certificate was removed by the brand.' });
+        if (rec.superseded_at) return res.status(409).json({ error: 'superseded', message: 'A newer certificate has been uploaded. Review that one instead.' });
+
+        const bRows = await sb(`brands?id=eq.${encodeURIComponent(rec.brand_id)}&select=current_coi_verification_id`);
+        const cur = Array.isArray(bRows) && bRows[0] ? bRows[0].current_coi_verification_id : null;
+        if (cur !== rec.id) return res.status(409).json({ error: 'not_current', message: 'That record is not the brand\'s current certificate.' });
+
+        const storedPath = rec.storage_path || rec.coi_url;
+        if (!storedPath) return res.status(404).json({ error: 'this record has no document' });
         // A storage PATH is stored, never a public URL. The signed link is minted per
         // request and expires in two minutes, so nothing durable is ever handed out.
-        const key = String(rec.coi_url).replace(/^.*\/coi-docs\//, '');
+        const key = String(storedPath).replace(/^.*\/coi-docs\//, '');
         const url = await signedCoiUrl(key, 120);
         return res.status(200).json({ ok: true, verification_id, url, expires_in: 120 });
       } catch (e) {

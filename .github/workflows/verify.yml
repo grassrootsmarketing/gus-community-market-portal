@@ -77,7 +77,7 @@ env:
   # 58 -> 59 with 0058_coi_manual_review.sql. Codex v6: update every explicit count
   # assertion and rerun the clean-build gate rather than falsifying the number or
   # folding the change into an already-applied migration.
-  EXPECTED_MIGRATIONS: '61'
+  EXPECTED_MIGRATIONS: '62'
 
 jobs:
   # --------------------------------------------------------------------------

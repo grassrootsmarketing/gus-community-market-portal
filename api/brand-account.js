@@ -1167,20 +1167,61 @@ export default async function handler(req, res) {
     }
 
     if (action === 'remove-coi') {
+      // Codex v6-FINAL B2. This used to null two brand columns and return 200. It did not
+      // delete the object, reset the verification status, mark the record removed, or stop
+      // owner-coi-view signing the retained path. A certificate carries legal names,
+      // policy numbers and signatures; leaving those bytes behind after the person asked
+      // for removal is a data-retention defect, and my test made it look fine by asserting
+      // only that a pointer was null.
+      //
+      // DETACH FIRST, DELETE SECOND. Coverage ends inside the transaction; the bytes go
+      // afterwards through a durable queue that retries and stays visible while it fails.
+      // A storage outage can therefore never leave a brand covered, and "we could not
+      // delete it yet" never looks like "it is gone".
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const removed = await patchBrandResilient(
-        brandId,
-        { default_coi_url: null, default_coi_expires: null },
-        { coi_warn_30_sent_at: null, coi_warn_14_sent_at: null, coi_warn_3_sent_at: null,
-          default_coi_filename: null, default_coi_mime: null, updated_at: new Date().toISOString() },
-      );
-      if (!removed.ok) {
-        console.error('COI remove failed for brand', brandId, removed.detail);
+
+      const rmResp = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/remove_current_coi`, {
+        method: 'POST',
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p_brand_id: brandId, p_actor: 'brand:' + brandId }),
+      });
+      if (!rmResp.ok) {
+        const detail = await rmResp.text().catch(() => '');
+        console.error('remove_current_coi failed', rmResp.status, detail.slice(0, 200));
         return jsonResp(res, 500, { error: 'coi_remove_failed', message: 'We could not remove that certificate. Try again in a moment.' });
       }
-      return jsonResp(res, 200, { ok: true });
+
+      // Best-effort immediate drain. The queue is what makes deletion durable; this only
+      // shortens the window. Failures stay queued rather than being reported as success.
+      let purged = 0, stillPending = 0;
+      try {
+        const qResp = await sb(`storage_cleanup_queue?status=eq.pending&bucket=eq.coi-docs&select=id,object_path&limit=25`);
+        const tasks = qResp && qResp.ok ? await qResp.json() : [];
+        for (const t of (Array.isArray(tasks) ? tasks : [])) {
+          let ok = false, err = null;
+          try {
+            const del = await fetch(`${_b.supabaseUrl}/storage/v1/object/coi-docs/${t.object_path}`, {
+              method: 'DELETE',
+              headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey },
+            });
+            // A 404 means the object is already gone, which is the desired end state.
+            ok = del.ok || del.status === 404;
+            if (!ok) err = 'storage delete ' + del.status;
+          } catch (e) { err = String(e && e.message ? e.message : e).slice(0, 200); }
+          await fetch(`${_b.supabaseUrl}/rest/v1/rpc/complete_storage_cleanup`, {
+            method: 'POST',
+            headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ p_id: t.id, p_ok: ok, p_error: err }),
+          }).catch(() => {});
+          if (ok) purged++; else stillPending++;
+        }
+      } catch (_) { /* the queue remains; a drain failure is not a removal failure */ }
+
+      // 200 means coverage has ended and the bytes are accounted for — either deleted now
+      // or durably queued. It does not claim deletion has completed.
+      return jsonResp(res, 200, { ok: true, purged, cleanup_pending: stillPending });
     }
 
     if (action === 'remove-avatar') {
