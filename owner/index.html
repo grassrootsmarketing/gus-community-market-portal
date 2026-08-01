@@ -489,7 +489,8 @@ function renderDashboard(d) {
       <button class="owner-tab active" data-tab="overview">Overview</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
       <button class="owner-tab" data-tab="billing">Billing</button>
-      <button class="owner-tab" data-tab="status">Status</button>
+      <button class="owner-tab" data-tab="coi">COI Review</button>
+<button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
       ${growthHero}
@@ -521,6 +522,7 @@ function wireTabs() {
       if (tab === 'analytics') renderAnalytics('30d');
       if (tab === 'billing') renderBilling();
       if (tab === 'status') renderStatusManager();
+      if (tab === 'coi') loadCoiQueue();
     });
   });
 }
@@ -963,6 +965,141 @@ async function doImpersonate(retailer_id, retailer_name) {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// COI Review — Codex v6-FINAL B3.
+//
+// The three owner actions existed in api/admin-auth.js and in tests, and nothing in the
+// product called them. A review path an operator cannot reach is not a launch path, and
+// asking David to hand-craft authenticated API requests is not an operational answer.
+//
+// Deliberately minimal, and deliberately inside the existing owner panel and its existing
+// session — no second admin app, no second auth system.
+//
+// The signed document URL is opened and discarded. It is never written to localStorage,
+// never put in the address bar, and never stored on the element, because it grants
+// two-minute read access to someone's insurance certificate.
+// ---------------------------------------------------------------------------
+let _coiQueue = [];
+
+async function loadCoiQueue() {
+  const el = document.getElementById('coiQueueBody');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'owner-coi-queue' }),
+    });
+    const j = await r.json();
+    if (!r.ok) { el.textContent = j.error === 'Owner authentication required' ? 'Sign in as the platform owner to review certificates.' : ('Could not load the queue: ' + (j.error || r.status)); return; }
+    _coiQueue = Array.isArray(j.queue) ? j.queue : [];
+    renderCoiQueue();
+  } catch (e) {
+    el.textContent = 'Could not load the queue.';
+  }
+}
+
+function _esc(v) {
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function renderCoiQueue() {
+  const el = document.getElementById('coiQueueBody');
+  if (!el) return;
+  if (!_coiQueue.length) { el.innerHTML = '<p style="color:var(--forest-700);">Nothing waiting for review.</p>'; return; }
+  el.innerHTML = _coiQueue.map(r => {
+    const b = r.brand || {};
+    const flags = Array.isArray(r.flags) && r.flags.length ? r.flags.join(', ') : '—';
+    return `<div style="border:1px solid rgba(15,44,23,0.15); border-radius:8px; padding:12px; margin-bottom:10px;">
+      <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div>
+          <strong>${_esc(b.company_name || 'Unnamed brand')}</strong>
+          <div style="font-size:12px; color:var(--forest-700);">${_esc(b.email || '')}</div>
+        </div>
+        <div style="font-size:12px; color:var(--forest-700); text-align:right;">
+          uploaded ${_esc(String(r.created_at || '').slice(0, 16).replace('T', ' '))}<br>
+          status ${_esc(r.status || 'pending')} · expiry ${_esc(r.policy_expiry || '—')}
+        </div>
+      </div>
+      <div style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || '—')} · insured ${_esc(r.insured_name || '—')} · flags ${_esc(flags)}</div>
+      <textarea id="coiNotes-${_esc(r.id)}" maxlength="2000" placeholder="Review notes (optional)" style="width:100%; margin-top:8px; padding:6px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;" rows="2"></textarea>
+      <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+        <button onclick="viewCoiDoc('${_esc(r.id)}')" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.25); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit;">View document</button>
+        <button onclick="decideCoi('${_esc(r.id)}','approved')" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Approve</button>
+        <button onclick="decideCoi('${_esc(r.id)}','rejected')" style="background:#8a1c1c; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Reject</button>
+        <span id="coiMsg-${_esc(r.id)}" style="font-size:12px; align-self:center;"></span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function viewCoiDoc(id) {
+  const msg = document.getElementById('coiMsg-' + id);
+  if (msg) { msg.style.color = 'var(--forest-700)'; msg.textContent = 'Opening…'; }
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'owner-coi-view', verification_id: id }),
+    });
+    const j = await r.json();
+    if (!r.ok || !j.url) {
+      // 409/410 are meaningful refusals, not errors to swallow: the record is superseded,
+      // removed, or no longer current. Surface them WITHOUT changing any state.
+      if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = j.message || j.error || ('Could not open (' + r.status + ')'); }
+      return;
+    }
+    window.open(j.url, '_blank', 'noopener');
+    if (msg) msg.textContent = '';
+    // j.url is intentionally not retained anywhere.
+  } catch (_) {
+    if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Could not open the document.'; }
+  }
+}
+
+async function decideCoi(id, decision) {
+  const msg = document.getElementById('coiMsg-' + id);
+  const notesEl = document.getElementById('coiNotes-' + id);
+  const notes = notesEl ? notesEl.value.slice(0, 2000) : null;
+  if (!confirm(decision === 'approved'
+      ? 'Approve this certificate? The brand will be able to book.'
+      : 'Reject this certificate? The brand will not be able to book.')) return;
+  if (msg) { msg.style.color = 'var(--forest-700)'; msg.textContent = 'Saving…'; }
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'owner-coi-review', verification_id: id, decision, notes }),
+    });
+    const j = await r.json();
+    if (!r.ok) {
+      // stale_review / already decided: show it and do NOT mutate the list, so the
+      // operator sees why rather than a silent no-op.
+      if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = j.message || j.error || ('Failed (' + r.status + ')'); }
+      return;
+    }
+    if (msg) { msg.style.color = '#0f2c17'; msg.textContent = decision === 'approved' ? 'Approved' : 'Rejected'; }
+    loadCoiQueue();
+  } catch (_) {
+    if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Could not save that decision.'; }
+  }
+}
+
 </script>
+
+<div class="tab-pane" data-pane="coi">
+  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+    <h3 style="margin:0;">COI Review</h3>
+    <button onclick="loadCoiQueue()" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Refresh</button>
+  </div>
+  <p style="margin:0 0 12px; color:var(--forest-700); font-size:13px;">
+    Certificates awaiting a decision. One item per brand &mdash; the brand&rsquo;s current document.
+    Approving lets that brand book; rejecting does not.
+  </p>
+  <div id="coiQueueBody">Loading&hellip;</div>
+</div>
+
 </body>
 </html>

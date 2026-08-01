@@ -124,6 +124,7 @@ jobs:
       - run: node tests/coi_enforcement_gate.test.mjs
       - run: node tests/session_transport.test.mjs
       - run: node tests/coi_policy_matrix.test.mjs
+      - run: node api/_coi-lib.test.js
 
   # --------------------------------------------------------------------------
   # A/B clean build. Manual only -- `db reset` is destructive and must never fire
@@ -256,8 +257,12 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: ./.github/scripts/provision-identity.sh preview '${{ vars.STAGING_PROJECT_REF }}'
 
+      # Codex v6-FINAL: the header claimed manifests are uploaded only after validation,
+      # but `if: always()` published them on failure too — under the same artifact name.
+      # A rejected manifest that carries the evidence name is exactly the confusion this
+      # gate exists to prevent, so success-only it is. Failure diagnostics go up under a
+      # name that cannot be mistaken for validated evidence.
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
         with:
           name: clean-build-manifests
           path: |
@@ -267,6 +272,19 @@ jobs:
             manifest-B.raw.txt
             manifest-diff.txt
           if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: failed-clean-build-diagnostics
+          path: |
+            manifest-A.raw.txt
+            manifest-B.raw.txt
+            manifest-A.txt
+            manifest-B.txt
+            manifest-diff.txt
+            provision.err
+            verify.err
 
   # --------------------------------------------------------------------------
   # STAGING INTEGRATION GATE -- Codex v5 blocking finding 2.
