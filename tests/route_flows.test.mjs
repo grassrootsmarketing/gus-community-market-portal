@@ -623,7 +623,16 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
     body: { action: 'upload-coi', file: dataUrl('three'), expires: future },
     cookies: { dh_brand_session: revSess } }));
   ok('a third upload succeeds', up3.statusCode === 200, `${up3.statusCode}`);
-  const openRows = (await db(`coi_verifications?brand_id=eq.${revBrandId}&review_decision=is.null&select=id,superseded_at&order=created_at.desc`)).body || [];
+
+  // A FOURTH upload, because supersession only applies to rows that are still OPEN. By this
+  // point v1 is approved and v2 rejected, so the third upload had nothing to supersede --
+  // it was the only open version. Two open versions are required to test the rule at all,
+  // which my previous assertion did not arrange.
+  const up4 = await callRoute('brand-account.js', req({
+    body: { action: 'upload-coi', file: dataUrl('four'), expires: future },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a fourth upload succeeds', up4.statusCode === 200, `${up4.statusCode}`);
+  const openRows = (await db(`coi_verifications?brand_id=eq.${revBrandId}&review_decision=is.null&select=id,superseded_at,created_at&order=created_at.desc`)).body || [];
   const newest = openRows.find(r => !r.superseded_at);
   const superseded = openRows.find(r => r.superseded_at);
   ok('the earlier open version is marked superseded', !!superseded, JSON.stringify(openRows).slice(0, 160));
