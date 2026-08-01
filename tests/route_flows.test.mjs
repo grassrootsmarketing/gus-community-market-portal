@@ -596,6 +596,26 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
      stale.statusCode === 409 && stale.body && (stale.body.error === 'already_decided' || stale.body.error === 'stale_review'),
      `${stale.statusCode} ${JSON.stringify(stale.body).slice(0, 140)}`);
 
+  // --- reject the replacement; it must not be able to book ---
+  const reject = await callRoute('admin-auth.js', req({
+    body: { action: 'owner-coi-review', verification_id: v2, decision: 'rejected', notes: 'fixture rejection' },
+    cookies: { dh_owner_session: ownerCookie } }));
+  ok('the owner can REJECT through the route', reject.statusCode === 200, `${reject.statusCode}`);
+
+  const b4 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
+  ok('rejection moves the brand to rejected', b4[0] && b4[0].coi_verification_status === 'rejected', JSON.stringify(b4[0]));
+
+  const rejectedBooking = await callRoute('book.js', req({
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(10), demo_time: '12:00' },
+    cookies: { dh_brand_session: revSess } }));
+  ok('a REJECTED certificate cannot book', rejectedBooking.statusCode === 400 && rejectedBooking.body && rejectedBooking.body.error === 'coi_required',
+     `${rejectedBooking.statusCode} ${JSON.stringify(rejectedBooking.body).slice(0, 140)}`);
+
+  const audit = (await db(`coi_verifications?id=eq.${v2}&select=review_decision,reviewed_by,reviewed_at,review_notes`)).body || [];
+  ok('the rejected record is retained for audit with who and when',
+     audit[0] && audit[0].review_decision === 'rejected' && !!audit[0].reviewed_by && !!audit[0].reviewed_at,
+     JSON.stringify(audit[0]));
+
   // The PURELY stale case, which is Codex's actual attack: a never-decided record that has
   // been superseded by a newer upload. v1 above cannot test this because it carries a
   // decision already.
@@ -625,26 +645,6 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
        !!(rows2[0] && rows2[0].storage_path && rows2[0].storage_path.includes(revBrandId) && rows2[0].storage_path.includes(newest.id)),
        JSON.stringify(rows2[0]));
   }
-
-  // --- reject the replacement; it must not be able to book ---
-  const reject = await callRoute('admin-auth.js', req({
-    body: { action: 'owner-coi-review', verification_id: v2, decision: 'rejected', notes: 'fixture rejection' },
-    cookies: { dh_owner_session: ownerCookie } }));
-  ok('the owner can REJECT through the route', reject.statusCode === 200, `${reject.statusCode}`);
-
-  const b4 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
-  ok('rejection moves the brand to rejected', b4[0] && b4[0].coi_verification_status === 'rejected', JSON.stringify(b4[0]));
-
-  const rejectedBooking = await callRoute('book.js', req({
-    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(10), demo_time: '12:00' },
-    cookies: { dh_brand_session: revSess } }));
-  ok('a REJECTED certificate cannot book', rejectedBooking.statusCode === 400 && rejectedBooking.body && rejectedBooking.body.error === 'coi_required',
-     `${rejectedBooking.statusCode} ${JSON.stringify(rejectedBooking.body).slice(0, 140)}`);
-
-  const audit = (await db(`coi_verifications?id=eq.${v2}&select=review_decision,reviewed_by,reviewed_at,review_notes`)).body || [];
-  ok('the rejected record is retained for audit with who and when',
-     audit[0] && audit[0].review_decision === 'rejected' && !!audit[0].reviewed_by && !!audit[0].reviewed_at,
-     JSON.stringify(audit[0]));
 
   // --- clean up through the application route ---
   const removed = await callRoute('brand-account.js', req({ body: { action: 'remove-coi' }, cookies: { dh_brand_session: revSess } }));
