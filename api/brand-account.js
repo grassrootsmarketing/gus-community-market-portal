@@ -4,7 +4,7 @@
 // Privacy: NEVER expose brand_id to retailer-side endpoints. All retailer
 // admin queries continue to filter by retailer_id only.
 
-import { randomBytes, randomInt, scrypt, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
@@ -1038,10 +1038,18 @@ export default async function handler(req, res) {
       // Optional expiry supplied at upload time
       const expChk = validateCoiExpiry(body.expires);
       if (!expChk.ok) return jsonResp(res, 400, { error: expChk.error, message: expChk.message });
-      const path = `brands/${brandId}.${ext}`;
-      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/coi-docs/${path}?upsert=true`, {
+      // IMMUTABLE PATH PER UPLOAD -- Codex v6-FINAL B1.
+      // This used to be `brands/${brandId}.${ext}` with upsert=true, so every replacement
+      // OVERWROTE the previous certificate. That single fact produced the attack he found:
+      // reject the newest record, and the older one -- still pointing at the same path --
+      // could be approved while displaying the rejected bytes. Bytes are now never
+      // overwritten, so a verification record refers to exactly the document reviewed.
+      const verificationId = randomUUID();
+      const path = `brands/${brandId}/${verificationId}.${ext}`;
+      const contentSha256 = createHash('sha256').update(bytes).digest('hex');
+      const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/coi-docs/${path}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime, 'x-upsert': 'true' },
+        headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey, 'Content-Type': mime },
         body: bytes,
       });
       if (!uploadResp.ok) {
@@ -1072,31 +1080,66 @@ export default async function handler(req, res) {
       // verification could not read one.
       const docExpiry = (vdata && vdata.earliest_expiry && /^\d{4}-\d{2}-\d{2}$/.test(vdata.earliest_expiry)) ? vdata.earliest_expiry : null;
 
-      const core = { default_coi_url: publicUrl };
-      const effectiveExpiry = docExpiry || expChk.value;
-      if (effectiveExpiry) core.default_coi_expires = effectiveExpiry;
-      const extras = {
-        coi_warn_30_sent_at: null, coi_warn_14_sent_at: null, coi_warn_3_sent_at: null,
-        default_coi_filename: originalName, default_coi_mime: mime,
-        coi_verification_status: verificationStatus,
-        updated_at: new Date().toISOString(),
-      };
-      const wrote = await patchBrandResilient(brandId, core, extras);
-      if (!wrote.ok) {
-        console.error('COI DB write failed for brand', brandId, wrote.detail);
-        return jsonResp(res, 500, { error: 'coi_save_failed', message: 'Your file uploaded but we could not attach it to your account. Try again; if it keeps failing, email david@demohubhq.com.' });
-      }
-      if (wrote.degraded) console.warn('COI saved with reduced metadata for brand', brandId, wrote.detail);
+      // The document's own expiry is authoritative when we could read one; the value the
+      // brand typed is the fallback. This was defined in the block replaced below and is
+      // restored here — check-undefined caught its absence before anything ran.
+      const effectiveExpiry = docExpiry || expChk.value || null;
 
-      // Audit row for the retailer view. Best-effort: never fail the upload over it.
+      // ATOMIC FINALIZATION -- Codex v6-FINAL B1.
+      //
+      // This block previously did three independent things: PATCH the brand row, then a
+      // best-effort insert into coi_verifications wrapped in `try { } catch(_) {}`. Two
+      // problems he named, both real:
+      //
+      //   * sb() returns a Response. An HTTP 4xx or 5xx does NOT throw, so that catch
+      //     could never fire and a failed audit insert was silently accepted. The brand
+      //     was told the upload succeeded with no reviewable record in existence --
+      //     pending forever, with nothing for an owner to approve.
+      //   * a review could land between the brand update and the audit insert, and a
+      //     booking could land after the bytes changed but before the status reset.
+      //
+      // finalize_coi_upload does all of it in one transaction: supersede older open
+      // versions, write the audit row, move the current pointer, set the status.
+      const finalizeResp = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/finalize_coi_upload`, {
+        method: 'POST',
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          p_brand_id: brandId, p_verification_id: verificationId, p_storage_path: path,
+          p_content_sha256: contentSha256, p_expires: effectiveExpiry || null,
+          p_status: verificationStatus,
+        }),
+      });
+
+      if (!finalizeResp.ok) {
+        // FAIL CLOSED, AND CLEAN UP. The object exists but nothing references it, so it
+        // is deleted rather than left as an orphan holding someone's insurance document.
+        // Reporting success here is what produced the pending-forever dead end.
+        const detail = await finalizeResp.text().catch(() => '');
+        try {
+          await fetch(`${_b.supabaseUrl}/storage/v1/object/coi-docs/${path}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${_b.serviceKey}`, apikey: _b.serviceKey },
+          });
+        } catch (_) {}
+        console.error('finalize_coi_upload failed', finalizeResp.status, detail.slice(0, 200));
+        return jsonResp(res, 500, { error: 'coi_save_failed',
+          message: 'Your file uploaded but we could not attach it to your account. Try again; if it keeps failing, email david@demohubhq.com.' });
+      }
+
+      // Metadata that is not part of the atomic decision. A failure here cannot leave the
+      // brand in a bad state, because the pointer and status are already durable.
       try {
-        await sb('coi_verifications', {
-          method: 'POST',
+        await sb(`brands?id=eq.${encodeURIComponent(brandId)}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ default_coi_filename: originalName, default_coi_mime: mime }),
+        });
+      } catch (_) {}
+
+      try {
+        await sb(`coi_verifications?id=eq.${encodeURIComponent(verificationId)}`, {
+          method: 'PATCH',
           body: JSON.stringify({
-            brand_id: brandId,
-            coi_url: publicUrl,
-            status: verificationStatus,
-            confidence: vdata && typeof vdata.confidence === 'number' ? vdata.confidence : null,
+            confidence: vdata ? (vdata.confidence ?? null) : null,
             is_coi: vdata ? !!vdata.is_coi : null,
             insured_name: vdata ? (vdata.insured_name || null) : null,
             insurer_name: vdata ? (vdata.insurer_name || null) : null,
