@@ -2475,6 +2475,10 @@ END:VEVENT
             window.state.internalContacts = data.internal_contacts || [];
             window.state.demos = (data.demos || []).map(d => ({
                 id: d.id,
+                // The BOOKING id, kept separate from the demo id. Cancel/refund operates on the booking
+                // (api/booking-action queries bookings.id); reschedule operates on the demo id. Conflating
+                // them sent a demo id as booking_id and 404'd the real cancel path.
+                booking_id: d.booking_id || null,
                 date: d.demo_date,
                 time: d.demo_time,
                 company: d.company_name,
@@ -4163,9 +4167,8 @@ END:VEVENT
             }
         }
 
-        async function cancelDemoConfirm(demoId, brandName, dateStr, timeStr) {
-            if (!demoId) { DhModal.toast('Missing demo id', 'error'); return; }
-            const label = brandName + ' on ' + dateStr + ' at ' + timeStr;
+        async function cancelDemoConfirm(bookingId, brandName, dateStr, timeStr) {
+            if (!bookingId) { DhModal.toast('This demo has no linked booking to cancel.', 'error'); return; }
             const ok = await DhModal.confirm({
                 title: 'Cancel this demo?',
                 message: '<div>Cancel the demo with <strong>' + escapeHtml(brandName) + '</strong> on ' + escapeHtml(dateStr) + ' at ' + escapeHtml(timeStr) + '?</div>' +
@@ -4179,17 +4182,25 @@ END:VEVENT
             try {
                 const r = await fetch('/api/booking-action', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ booking_id: demoId, action: 'cancel' }),
+                    body: JSON.stringify({ booking_id: bookingId, action: 'cancel' }),
                     credentials: 'same-origin',
                 });
                 const j = await r.json();
                 if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-                let msg = 'Demo cancelled.';
-                if (j.refund_status === 'issued') msg = 'Demo cancelled. Refund issued to the brand.';
-                else if (j.refund_status === 'pending_manual') msg = 'Demo cancelled. Refund is at your discretion per your policy.';
-                else if (j.refund_status === 'refund_failed') msg = 'Demo cancelled, but the refund did not go through. Check Stripe.';
-                else if (j.refund_status === 'not_paid') msg = 'Demo cancelled. No charge was captured, so no refund needed.';
-                DhModal.toast(msg, 'success');
+                // Refund copy tracks the BACKEND's exact vocabulary. A merely SUBMITTED refund is not
+                // "issued"/"completed" — the charge.refunded webhook confirms it later.
+                let refundMsg = '';
+                if (j.refund_status === 'submitted') refundMsg = ' Refund submitted to the brand — Stripe will confirm it shortly.';
+                else if (j.refund_status === 'pending_manual') refundMsg = ' Refund is at your discretion per your policy.';
+                else if (j.refund_status === 'refund_failed') refundMsg = ' The refund did NOT go through — check Stripe.';
+                else if (j.refund_status === 'not_paid') refundMsg = ' No charge was captured, so no refund is needed.';
+                // A partial completion — booking cancelled and any refund maybe submitted, but the calendar
+                // demo did NOT cancel — must NEVER show the normal green success toast.
+                if (j.demo_cancelled === false) {
+                    DhModal.toast('The booking was cancelled and any refund may already be submitted, but the calendar demo could not be cancelled and still needs reconciliation' + (j.reconciliation_case_id ? ' (case ' + String(j.reconciliation_case_id).slice(0, 8) + ').' : '.') + refundMsg, 'error');
+                } else {
+                    DhModal.toast('Demo cancelled.' + refundMsg, 'success');
+                }
                 await refreshAll();
             } catch (e) {
                 DhModal.toast('Cancel failed: ' + (e.message || e), 'error');
@@ -4257,7 +4268,11 @@ END:VEVENT
                 const cancelled = status === 'cancelled' || status === 'declined';
                 const cancelBtn = cancelled
                     ? '<span style="font-size:0.72rem; color:var(--ink-500);">—</span>'
-                    : '<button class="js-cancel-demo" data-id="' + escapeHtml(String(d.id || d.booking_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>';
+                    : (d.booking_id
+                        // Cancel/refund is a BOOKING operation — send booking_id, never the demo id.
+                        ? '<button class="js-cancel-demo" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>'
+                        // A demo with no linked booking (historical/manual) has no paid booking to refund/cancel here.
+                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">—</span>');
                 // Reschedule: propose a new date instead of cancelling (keeps the booking + payment).
                 const canResched = status === 'confirmed' && d.id;
                 const rescheduleBtn = d.reschedule_to_date
@@ -4272,7 +4287,7 @@ END:VEVENT
                 + '<td style="text-align:right; white-space:nowrap;">' + rescheduleBtn + cancelBtn + '</td>'
                 + '</tr>';
             }).join('');
-            tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time); }); });
+            tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.bookingId, b.dataset.company, b.dataset.date, b.dataset.time); }); });
             tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time); }); });
         }
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.

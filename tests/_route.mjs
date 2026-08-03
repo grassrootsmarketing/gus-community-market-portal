@@ -68,6 +68,10 @@ export function installSpy() {
   const real = globalThis.fetch;
   const calls = { stripe: [], resend: [], supabase: 0, other: [] };
   const fixtures = { paymentIntents: {}, checkoutSessions: {} };
+  // Test-only fault injection on the REAL staging passthrough. A test can force a specific Supabase
+  // request (matched by url substring + optional method) to fail, so failure/reconciliation paths are
+  // exercised deterministically WITHOUT any production code seam. Never touched by production.
+  const faults = [];
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('api.stripe.com')) {
@@ -102,11 +106,16 @@ export function installSpy() {
       calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '' });
       return jsonRes({ id: 'email_test' });
     }
-    if (u.includes(SB_REF)) { calls.supabase++; return real(url, opts); }
+    if (u.includes(SB_REF)) {
+      calls.supabase++;
+      const fault = faults.find(f => u.includes(f.url) && (!f.method || String(opts.method || 'GET').toUpperCase() === f.method));
+      if (fault) return { ok: false, status: fault.status || 500, json: async () => ({ message: fault.message || 'injected_fault' }), text: async () => JSON.stringify({ message: fault.message || 'injected_fault' }) };
+      return real(url, opts);
+    }
     calls.other.push(u.slice(0, 120));
     return real(url, opts);
   };
-  return { calls, fixtures, restore: () => { globalThis.fetch = real; } };
+  return { calls, fixtures, faults, restore: () => { globalThis.fetch = real; } };
 }
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 

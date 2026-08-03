@@ -127,6 +127,7 @@ jobs:
       - run: node api/_coi-lib.test.js
       - run: node tests/check_sql_columns.test.mjs
       - run: node tests/retired_routes.test.mjs
+      - run: node tests/admin_cancel_wiring.test.mjs
 
   # --------------------------------------------------------------------------
   # A/B clean build. Manual only -- `db reset` is destructive and must never fire

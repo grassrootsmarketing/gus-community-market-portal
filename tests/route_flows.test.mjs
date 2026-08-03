@@ -956,6 +956,54 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   const allocRetry = ((await db(`payment_allocations?payment_group_id=eq.${groupId}&select=refunded_amount`)).body) || [];
   ok('exactly one allocation carries a refund after the retry (no new refund)',
      allocRetry.filter(a => Number(a.refunded_amount || 0) > 0).length === 1, JSON.stringify(allocRetry));
+
+  // ---- C3 CLOSE-OUT (Codex): shipped-path identifier + forced-failure reconciliation ----
+  // (Codex #3) A demo id is NOT a booking id. The route must refuse it — this is precisely the
+  // identifier the old admin UI mistakenly sent, which 404'd the real cancel path.
+  const aDemoId = ((demos1.find(d => d.booking_id === bookingIds[1]) || demos1[0] || {}).id);
+  const wrongId = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: aDemoId }, cookies: { dh_retailer_session: refundSess } }));
+  ok('cancel with a DEMO id (not a booking id) is refused 404',
+     wrongId.statusCode === 404, `${wrongId.statusCode} ${JSON.stringify(wrongId.body).slice(0, 120)}`);
+
+  // (Codex #6) Force the demo PATCH to fail: the booking cancels and the refund submits, but the demo
+  // does not cancel — the route must open EXACTLY ONE deduplicated settlement_exception and return its id.
+  const failBk = bookingIds[1];
+  spy.faults.push({ url: `demos?booking_id=eq.${failBk}`, method: 'PATCH', status: 500, message: 'injected_demo_patch_failure' });
+  const f1 = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+  ok('a forced demo-cancel failure still returns 200 (booking cancelled, refund submitted)',
+     f1.statusCode === 200, `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 160)}`);
+  ok('the response reports demo_cancelled:false', f1.body && f1.body.demo_cancelled === false, JSON.stringify(f1.body).slice(0, 160));
+  ok('the response returns a reconciliation_case_id', !!(f1.body && f1.body.reconciliation_case_id), JSON.stringify(f1.body).slice(0, 160));
+  const caseRows = ((await db(`reconciliation_cases?dedupe_key=eq.demo-cancel:${failBk}&select=id,kind`)).body) || [];
+  track('reconciliation_cases', caseRows[0] && caseRows[0].id);
+  ok('exactly ONE settlement_exception case is keyed to the booking',
+     caseRows.length === 1 && caseRows[0].kind === 'settlement_exception', JSON.stringify(caseRows));
+  ok('the returned case_id matches the persisted case', f1.body && caseRows[0] && f1.body.reconciliation_case_id === caseRows[0].id);
+  const stripeAfterF1 = spy.calls.stripe.length;
+
+  // (Codex #7) Replay: the booking is already cancelled → refused; no second case, no second Stripe refund.
+  const f2 = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+  ok('replaying the cancel on an already-cancelled booking is refused', f2.statusCode === 409, `${f2.statusCode}`);
+  const caseRows2 = ((await db(`reconciliation_cases?dedupe_key=eq.demo-cancel:${failBk}&select=id`)).body) || [];
+  ok('replay does NOT create a second reconciliation case', caseRows2.length === 1, `${caseRows2.length}`);
+  ok('replay makes NO further Stripe refund call', spy.calls.stripe.length === stripeAfterF1, `${stripeAfterF1} -> ${spy.calls.stripe.length}`);
+  spy.faults.length = 0;
+
+  // (Codex #8) Force BOTH the demo cancel AND the reconciliation write to fail: the route must NOT
+  // report ok:true — it returns an explicit non-success that the state may already have changed.
+  const failBk2 = bookingIds[2];
+  spy.faults.push({ url: `demos?booking_id=eq.${failBk2}`, method: 'PATCH', status: 500, message: 'injected_demo_patch_failure' });
+  spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 500, message: 'injected_open_case_failure' });
+  const g1 = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: failBk2, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+  ok('when BOTH the demo cancel and the reconciliation write fail, the route does NOT return ok:true',
+     g1.statusCode >= 400 && !(g1.body && g1.body.ok === true), `${g1.statusCode} ${JSON.stringify(g1.body).slice(0, 160)}`);
+  ok('the both-failed response marks reconciliation_recorded:false',
+     g1.body && g1.body.reconciliation_recorded === false, JSON.stringify(g1.body).slice(0, 160));
+  spy.faults.length = 0;
 }
 
 // ---------------------------------------------------------------------------

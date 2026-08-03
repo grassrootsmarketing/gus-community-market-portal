@@ -363,6 +363,7 @@ export default async function handler(req, res) {
     let refundStatus = 'not_paid';
     let refundInfo = null;
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
+    let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
     if (action === 'decline') {
       // Declining an un-hosted demo ALWAYS refunds in full. The retailer chose not to host
@@ -437,13 +438,22 @@ export default async function handler(req, res) {
       } catch (e) {
         demoCancelConverged = false;
         console.error('demo cancel did NOT converge for booking', booking_id, '-', (e && e.message) || e);
+        // Durable AND deduplicated: open the reconciliation case through the shared _open_case RPC with a
+        // stable per-booking key, so a retry (or the charge.refunded replay) cannot pile up duplicate
+        // cases. The RPC returns the case id (existing or newly created).
         try {
-          await sb('reconciliation_cases', { method: 'POST', body: JSON.stringify({
-            kind: 'settlement_exception',
-            reason: 'demo_not_cancelled_after_booking_cancel',
-            details: { booking_id, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
-          }) });
-        } catch (_) { /* best-effort persistence; the response flag below still surfaces the divergence */ }
+          const _c = await sbRpc('_open_case', {
+            p_kind: 'settlement_exception', p_dedupe: 'demo-cancel:' + booking_id,
+            p_reason: 'demo_not_cancelled_after_booking_cancel',
+            p_group: null, p_request: null, p_operation: null,
+            p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+            p_details: { booking_id, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
+          });
+          demoCancelCaseId = Array.isArray(_c) ? _c[0] : _c;   // RETURNS uuid
+        } catch (caseErr) {
+          demoCancelCaseId = null;
+          console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
+        }
       }
     }
 
@@ -545,6 +555,21 @@ export default async function handler(req, res) {
       emailOk = r.ok;
     }
 
+    // The demo failed to cancel AND its durable reconciliation case could not be recorded. Do NOT
+    // report success: the booking was cancelled and any refund may already be submitted, but the
+    // calendar demo is still live and the divergence is unrecorded. Tell the caller explicitly.
+    if (action === 'cancel' && demoCancelConverged === false && !demoCancelCaseId) {
+      return res.status(500).json({
+        ok: false,
+        action,
+        booking_id,
+        demo_cancelled: false,
+        reconciliation_recorded: false,
+        refund_status: refundStatus,
+        message: 'The booking was cancelled and any refund may already be submitted, but the demo could not be cancelled and the exception could not be recorded. Reconcile the demo manually.',
+      });
+    }
+
     return res.status(200).json({
       ok: true,
       action,
@@ -553,9 +578,10 @@ export default async function handler(req, res) {
       email_sent: emailOk,
       refund_status: action === 'cancel' ? refundStatus : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
-      // false ⇒ the demo did not cancel and a reconciliation case was opened; the caller must not
-      // treat the cancellation as fully complete.
+      // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was
+      // opened. The caller must NOT treat the cancellation as fully complete.
       demo_cancelled: action === 'cancel' ? demoCancelConverged : undefined,
+      reconciliation_case_id: (action === 'cancel' && demoCancelConverged === false) ? (demoCancelCaseId || undefined) : undefined,
     });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });

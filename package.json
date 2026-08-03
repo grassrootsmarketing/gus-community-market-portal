@@ -10,7 +10,7 @@
   },
   "scripts": {
     "check": "node tools/check-migrations.mjs && node tools/check-imports.mjs && node tools/check-undefined.mjs && node tools/check-binding.mjs",
-    "test": "node tests/binding.test.mjs && node tests/route_binding.test.mjs && node tests/mail_containment.test.mjs && node tests/launch_flags.test.mjs && node tests/brand_signup.test.mjs && node tests/coi_enforcement_gate.test.mjs && node tests/session_transport.test.mjs && node tests/coi_policy_matrix.test.mjs && node api/_coi-lib.test.js && node tests/check_sql_columns.test.mjs && node tests/retired_routes.test.mjs",
+    "test": "node tests/binding.test.mjs && node tests/route_binding.test.mjs && node tests/mail_containment.test.mjs && node tests/launch_flags.test.mjs && node tests/brand_signup.test.mjs && node tests/coi_enforcement_gate.test.mjs && node tests/session_transport.test.mjs && node tests/coi_policy_matrix.test.mjs && node api/_coi-lib.test.js && node tests/check_sql_columns.test.mjs && node tests/retired_routes.test.mjs && node tests/admin_cancel_wiring.test.mjs",
     "check:columns": "node tools/check-sql-columns.mjs && node tools/check-js-columns.mjs",
     "test:routes": "node tests/route_flows.test.mjs",
     "test:live": "node tests/live_entitlements.test.mjs && node tests/live_flows.test.mjs",
