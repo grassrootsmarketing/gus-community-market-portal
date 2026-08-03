@@ -362,6 +362,7 @@ export default async function handler(req, res) {
 
     let refundStatus = 'not_paid';
     let refundInfo = null;
+    let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
     if (action === 'decline') {
       // Declining an un-hosted demo ALWAYS refunds in full. The retailer chose not to host
@@ -420,13 +421,30 @@ export default async function handler(req, res) {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
+    // 2) Cancel the demo on the calendar. `demos` has no cancelled_at column — the cancellation
+    //    audit timestamp lives on bookings.cancelled_at (set above) — so patch only the existing
+    //    `status` column. This MUST converge: a refunded/cancelled booking that leaves a live
+    //    'confirmed' demo on the retailer calendar is a real inconsistency. The refund may already
+    //    be in flight, so a failure is NOT swallowed into a clean success — it is recorded as a
+    //    durable reconciliation case and surfaced in the response (demo_cancelled:false).
     if (action === 'cancel' && booking.status === 'confirmed') {
       try {
         await sb(`demos?booking_id=eq.${encodeURIComponent(booking_id)}&status=in.(confirmed,scheduled)`, {
           method: 'PATCH',
-          body: JSON.stringify({ status: 'cancelled', cancelled_at: new Date().toISOString() }),
+          body: JSON.stringify({ status: 'cancelled' }),
         });
-      } catch (e) { console.warn('demos cancel PATCH failed:', (e && e.message) || e); }
+        demoCancelConverged = true;
+      } catch (e) {
+        demoCancelConverged = false;
+        console.error('demo cancel did NOT converge for booking', booking_id, '-', (e && e.message) || e);
+        try {
+          await sb('reconciliation_cases', { method: 'POST', body: JSON.stringify({
+            kind: 'settlement_exception',
+            reason: 'demo_not_cancelled_after_booking_cancel',
+            details: { booking_id, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
+          }) });
+        } catch (_) { /* best-effort persistence; the response flag below still surfaces the divergence */ }
+      }
     }
 
     let demoId = null;
@@ -535,6 +553,9 @@ export default async function handler(req, res) {
       email_sent: emailOk,
       refund_status: action === 'cancel' ? refundStatus : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
+      // false ⇒ the demo did not cancel and a reconciliation case was opened; the caller must not
+      // treat the cancellation as fully complete.
+      demo_cancelled: action === 'cancel' ? demoCancelConverged : undefined,
     });
   } catch (e) {
     return res.status(500).json({ error: String(e?.message || e) });

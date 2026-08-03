@@ -927,6 +927,35 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
      !!targetAlloc && Number(targetAlloc.refunded_amount) === Number(targetAlloc.customer_amount)
        && otherAllocs.length === 2 && otherAllocs.every(a => Number(a.refunded_amount || 0) === 0),
      JSON.stringify(allocAfter));
+
+  // C3: the cancel must also cancel the booking's DEMO on the calendar. The old code PATCHed a
+  // nonexistent demos.cancelled_at and swallowed the error, leaving a live 'confirmed' demo behind.
+  ok('the cancel response reports the demo cancelled (converged)', rr.body && rr.body.demo_cancelled === true,
+     JSON.stringify(rr.body).slice(0, 160));
+  const targetDemo = ((await db(`demos?booking_id=eq.${refundTarget}&select=status`)).body || [])[0];
+  ok('the refunded booking’s demo is now cancelled', targetDemo && targetDemo.status === 'cancelled', JSON.stringify(targetDemo));
+  const otherDemos = ((await db(`demos?booking_id=in.(${idList(others)})&select=booking_id,status`)).body) || [];
+  ok('the other two demos remain confirmed', otherDemos.length === 2 && otherDemos.every(d => d.status === 'confirmed'),
+     JSON.stringify(otherDemos));
+  const activeFeed = ((await db(`demos?booking_id=in.(${idList(bookingIds)})&status=in.(confirmed,scheduled)&select=booking_id`)).body) || [];
+  ok('the cancelled demo no longer appears in the active (confirmed/scheduled) feed',
+     activeFeed.length === 2 && !activeFeed.some(d => d.booking_id === refundTarget), JSON.stringify(activeFeed.map(d => d.booking_id)));
+
+  // C3: replay/retry of the same cancel must NOT cancel or refund another allocation.
+  const stripeBeforeRetry = spy.calls.stripe.length;
+  const rr2 = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: refundTarget, force_refund: true },
+    cookies: { dh_retailer_session: refundSess } }));
+  ok('re-cancelling the already-cancelled booking is refused', rr2.statusCode === 409,
+     `${rr2.statusCode} ${JSON.stringify(rr2.body).slice(0, 120)}`);
+  ok('the retry issued no further Stripe refund call', spy.calls.stripe.length === stripeBeforeRetry,
+     `${stripeBeforeRetry} -> ${spy.calls.stripe.length}`);
+  const othersAfterRetry = ((await db(`bookings?id=in.(${idList(others)})&select=payment_status`)).body) || [];
+  ok('the retry did not fan out — the other two bookings are still paid',
+     othersAfterRetry.length === 2 && othersAfterRetry.every(b => b.payment_status === 'paid'), JSON.stringify(othersAfterRetry));
+  const allocRetry = ((await db(`payment_allocations?payment_group_id=eq.${groupId}&select=refunded_amount`)).body) || [];
+  ok('exactly one allocation carries a refund after the retry (no new refund)',
+     allocRetry.filter(a => Number(a.refunded_amount || 0) > 0).length === 1, JSON.stringify(allocRetry));
 }
 
 // ---------------------------------------------------------------------------
