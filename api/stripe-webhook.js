@@ -22,7 +22,6 @@
 // disable the built-in body parser and read the stream manually.
 
 import { createHmac, timingSafeEqual, randomBytes } from 'crypto';
-import { applyRefundToBooking } from './_refund-ledger.js';
 
 export const config = { api: { bodyParser: false } };
 

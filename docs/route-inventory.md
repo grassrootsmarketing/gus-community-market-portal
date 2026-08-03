@@ -7,7 +7,8 @@ service key (the systemic gap the F5 program closes).
 | Route | Auth | Class | Notes |
 |---|---|---|---|
 | admin.js | admin session | T | generic proxy (venues/retailers/contacts/compliance/settings) — being replaced by named commands |
-| booking-action.js | admin session | T | confirm/decline/cancel/reschedule + refund |
+| booking-action.js | admin session | T | confirm/decline/cancel/reschedule + refund — **the sole canonical retailer cancellation/refund route** (reserves the immutable payment_allocation, converges via apply_refund_event; a one-booking refund never fans out) |
+| refund-booking.js | — | — | **RETIRED (410)** — legacy per-booking decline refund; wrote a nonexistent `bookings.amount_refunded` column and 500'd on paid bookings. Dead helpers `_refund-recovery.js` / `_refund-ledger.js` removed. Refunds now go through booking-action.js. |
 | coi-status.js | admin session | T | COI waive |
 | venues-bulk-import.js | admin session | T | CSV venue import |
 | stripe.js | admin session | T | billing/Connect |
