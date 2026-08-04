@@ -1576,6 +1576,19 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
+            // Snapshot the chosen SKUs HERE too: actuallySubmitBookings runs after the agreement
+            // step in its own scope and cannot see submitContactInfo's local productSkus. Referencing
+            // it without this threw "productSkus is not defined" and killed the booking before Stripe.
+            const productSkus = (function () {
+                const src = window._bookSkuSource || [];
+                if (!src.length) return null;
+                const picked = [];
+                document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
+                    const p = src[Number(cb.dataset.i)];
+                    if (p && p.name) picked.push({ name: p.name, size: p.size || '', sku: p.sku || '' });
+                });
+                return picked.length ? picked : null;
+            })();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
             errMsg.textContent = '';
