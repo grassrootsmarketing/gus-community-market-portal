@@ -1919,6 +1919,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             document.getElementById('brandSignInErr1').textContent = '';
             document.getElementById('brandSignInErr2').textContent = '';
             document.getElementById('brandSignInCode').value = '';
+            // Carry over the email already typed in the booking form so it isn't entered twice.
+            const _bookEmail = ((document.getElementById('bookContactEmail') || {}).value || '').trim();
+            const _siEmail = document.getElementById('brandSignInEmail');
+            if (_siEmail && _bookEmail && !_siEmail.value.trim()) _siEmail.value = _bookEmail;
             setTimeout(() => { const e = document.getElementById('brandSignInEmail'); if (e) e.focus(); }, 100);
         }
         function closeBrandSignIn() {
