@@ -17,9 +17,19 @@ export default async function handler(req, res) {
 
   // public: nothing sensitive — short build id only, no env/config footprint
   if (!authed) {
+    // TEMP (prod-cutover diagnosis — reverted immediately): binding failure code + env presence.
+    // No secret VALUES; ref prefix + snapshot are the same redacted labels the operator view exposes.
+    let binding_error = null, snap = null;
+    try { snap = diagnosticSnapshot(await getBinding()); }
+    catch (e) { binding_error = e instanceof BindingError ? e.code : ('X:' + String((e && e.message) || e).slice(0, 60)); }
     return res.status(200).json({
       ok: true,
       build: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+      vercel_env: process.env.VERCEL_ENV || null,
+      has_site_origin: !!process.env.SITE_ORIGIN,
+      site_origin: process.env.SITE_ORIGIN || null,
+      url_ref: ((process.env.SUPABASE_URL || '').match(/^https:\/\/([a-z]{20})\./) || [])[1] || null,
+      binding_error, snap,
       now: new Date().toISOString(),
     });
   }
