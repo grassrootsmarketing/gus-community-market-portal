@@ -1944,9 +1944,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = 'Sending…';
             try {
-                const r = await fetch('/api/brand-account?action=login', {
+                // Unified passwordless flow: brand-signup 'request' emails a 6-digit code to ANY
+                // address (new OR returning); redeem_brand_signup at verify creates-or-logs-in by
+                // email. brand-account/login only sent to EXISTING accounts, so first-time brands
+                // hit a dead end (no code). Carry the booking-form profile so a new brand is named.
+                const _bn = ((document.getElementById('bookBrandName')||{}).value || '').trim();
+                const _cn = ((document.getElementById('bookContactName')||{}).value || '').trim();
+                const _ph = ((document.getElementById('bookContactPhone')||{}).value || '').trim();
+                const r = await fetch('/api/brand-signup', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ email }),
+                    body: JSON.stringify({ action: 'request', email, company_name: _bn || undefined, contact_name: _cn || undefined, phone: _ph || undefined }),
                 });
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok) { err.textContent = j.error || j.message || 'Could not send code.'; btn.disabled=false; btn.textContent=orig; return; }
@@ -1967,9 +1974,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = 'Verifying…';
             try {
-                const r = await fetch('/api/brand-account?action=verify-code', {
+                const r = await fetch('/api/brand-signup', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ email, code }),
+                    body: JSON.stringify({ action: 'verify', email, code }),
                 });
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok) { err.textContent = j.error || j.message || 'Invalid code.'; btn.disabled=false; btn.textContent=orig; return; }
