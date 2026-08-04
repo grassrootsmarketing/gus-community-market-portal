@@ -650,8 +650,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 if (p.has('paid')) {
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
-                    // Clear the cart client-side before we leave.
-                    try { cart = []; if (typeof updateCart === 'function') updateCart(); } catch(_){}
+                    // Clear the cart client-side before we leave. No redraw: the assign() below
+                    // navigates away, and `cart` is in-memory only (declared at the top of this
+                    // script, never persisted), so there is nothing left to keep in sync.
+                    cart = [];
                     // SEAMLESS: the brand is signed in (cookie set at booking), so drop them straight
                     // into their dashboard instead of showing an interstitial card. The dashboard shows
                     // a welcome/confirmation banner via ?booked=N. Maximum booking→product stickiness.

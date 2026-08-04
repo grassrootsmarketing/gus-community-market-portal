@@ -57,12 +57,6 @@ try {
 // ---------------------------------------------------------------------------
 const ACCEPTED = [
   {
-    file: 'r/gus/index.html', name: 'updateCart',
-    why: 'Guarded by `typeof updateCart === "function"`, which is never true, so no throw. ' +
-         'It IS dead: the real function is updateCartDisplay (line ~1319), so the cart is ' +
-         'emptied in state without the UI refreshing. Cosmetic staleness, not a crash.',
-  },
-  {
     file: 'r/gus/index.html', name: 'renderBigCalendar',
     why: 'Orphaned block copied from the admin page. The bigCalPrev/Next/Today buttons live ' +
          'in r/gus/admin/index.html, which defines its own renderBigCalendar. On THIS page ' +
