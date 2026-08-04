@@ -1474,7 +1474,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // Need signing , populate modal with policies
                 const dp = (j.policies && j.policies.demo_policy) || '';
                 const cp = (j.policies && j.policies.cancellation_policy) || '';
-                const rn = (j.policies && j.policies.retailer_name) || RETAILER_NAME || 'this retailer';
+                const rn = (j.policies && j.policies.retailer_name) || 'this retailer';
                 document.getElementById('agreementDemoPolicy').textContent = dp;
                 document.getElementById('agreementCancelPolicy').textContent = cp;
                 document.getElementById('agreementRetailerLabel').textContent = 'Sign before booking at ' + rn;
