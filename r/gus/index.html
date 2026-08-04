@@ -504,7 +504,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
-                <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
+                <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
+                     (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
+                     redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
