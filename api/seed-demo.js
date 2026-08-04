@@ -120,6 +120,7 @@ async function ensureRetailer() {
       name: DEMO_NAME,
       billing_email: DEMO_EMAIL,
       is_demo: true,
+      billing_tier: 'pro',   // demo showcases the full multi-store experience (venue-limit trigger: pro=999)
       auto_confirm_bookings: true,
       cancellation_mode: 'refundable',
       demo_policy: 'Arrive 15 minutes before your slot to set up. Bring sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot.',
@@ -130,6 +131,14 @@ async function ensureRetailer() {
 }
 
 async function seed(retailerId, opts = {}) {
+  // Ensure the demo tenant is on the Pro tier before inserting venues. Idempotent, and it
+  // also lifts a demo retailer that was created before this tier was set (else the venue-limit
+  // trigger caps it at the Solo limit of 1 and the 5-store seed fails on the 2nd venue).
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ billing_tier: 'pro' }),
+  }).catch(e => console.warn('tier patch:', (e && e.message) || e));
+
   // Venues (5 stores)
   const createdVenues = [];
   for (const s of DEMO_STORES) {
