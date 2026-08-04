@@ -17,9 +17,14 @@ export default async function handler(req, res) {
 
   // public: nothing sensitive — short build id only, no env/config footprint
   if (!authed) {
+    // TEMP (prod-cutover diagnosis only — reverted immediately after): expose ONLY the binding
+    // failure code (a label, never values) so the operator can see why production won't bind.
+    let binding_error = null;
+    try { await getBinding(); } catch (e) { binding_error = e instanceof BindingError ? e.code : 'binding_invalid'; }
     return res.status(200).json({
       ok: true,
       build: (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+      binding_error,
       now: new Date().toISOString(),
     });
   }
