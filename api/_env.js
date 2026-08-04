@@ -20,13 +20,13 @@
 // validation CANNOT pass with a placeholder — required by Codex §8.2 closing paragraph.
 export const TARGETS = {
   production: {
-    projectRef: null,          // R3: exact new Production ref
+    projectRef: 'dkgjvsstbgnhcfboqqnd',   // R3 cutover: fresh production project (demohub-prod)
     dbEnvironment: 'production',
     stripeMode: 'live',
     emailMode: 'real',
   },
   preview: {
-    projectRef: null,          // R3: exact new Staging ref
+    projectRef: 'tileejdviuvijumjeplv',   // staging (demohub-rebuild-check)
     dbEnvironment: 'staging',
     stripeMode: 'test',
     emailMode: 'sink',
