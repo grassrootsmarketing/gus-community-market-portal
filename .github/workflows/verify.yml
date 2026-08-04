@@ -114,6 +114,7 @@ jobs:
       - run: node tools/check-migrations.mjs
       - run: node tools/check-imports.mjs
       - run: node tools/check-undefined.mjs
+      - run: node tools/check-html-undef.mjs
       - run: node tools/check-binding.mjs
 
       - run: node tests/binding.test.mjs
