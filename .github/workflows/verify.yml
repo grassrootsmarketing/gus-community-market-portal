@@ -44,9 +44,9 @@ name: verify
 
 on:
   push:
-    branches: ['clean/**']
+    branches: ['clean/**', 'launch/**']
   pull_request:
-    branches: ['clean/**']
+    branches: ['clean/**', 'launch/**']
   workflow_dispatch:
     inputs:
       clean_build:
