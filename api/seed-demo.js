@@ -118,8 +118,7 @@ async function ensureRetailer() {
     body: JSON.stringify({
       slug: DEMO_SLUG,
       name: DEMO_NAME,
-      email: DEMO_EMAIL,
-      description: 'A live demo of Demohub retailer admin. Read-only, nightly reset.',
+      billing_email: DEMO_EMAIL,
       is_demo: true,
       auto_confirm_bookings: true,
       cancellation_mode: 'refundable',
@@ -177,9 +176,10 @@ async function seed(retailerId, opts = {}) {
     }).catch(e => console.warn('team insert:', (e && e.message) || e));
   }
 
-  // Brand contacts (7 fictional brands)
+  // Brand contacts (7 fictional brands) — capture ids so COIs can link via brand_contact_id
+  const brandContactIdByCompany = new Map();
   for (const b of DEMO_BRANDS) {
-    await sb('brand_contacts', {
+    const row = await sb('brand_contacts', {
       method: 'POST',
       body: JSON.stringify({
         retailer_id: retailerId,
@@ -188,7 +188,8 @@ async function seed(retailerId, opts = {}) {
         email: b.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '@example.com',
         phone: '(555) 812-4409',
       }),
-    }).catch(e => console.warn('brand_contact insert:', (e && e.message) || e));
+    }).catch(e => { console.warn('brand_contact insert:', (e && e.message) || e); return null; });
+    if (Array.isArray(row) && row[0]) brandContactIdByCompany.set(b, row[0].id);
   }
 
   // Compliance records (COIs — one current, one expiring in 14 days for the tour visual)
@@ -196,20 +197,20 @@ async function seed(retailerId, opts = {}) {
   const later = new Date(); later.setDate(later.getDate() + 180);
   const isoDate = d => d.toISOString().slice(0, 10);
   const compRows = [
-    { brand: 'Bluebell Creamery',     status: 'current',        expires: isoDate(later) },
-    { brand: 'Peak Provisions Jerky', status: 'expiring_soon',  expires: isoDate(soon) },
-    { brand: 'Marigold Snacks',       status: 'current',        expires: isoDate(later) },
-    { brand: 'Cedar & Sage Kombucha', status: 'current',        expires: isoDate(later) },
+    { brand: 'Bluebell Creamery',     verified: true, expires: isoDate(later) },
+    { brand: 'Peak Provisions Jerky', verified: true, expires: isoDate(soon) },
+    { brand: 'Marigold Snacks',       verified: true, expires: isoDate(later) },
+    { brand: 'Cedar & Sage Kombucha', verified: true, expires: isoDate(later) },
   ];
   for (const c of compRows) {
     await sb('compliance_records', {
       method: 'POST',
       body: JSON.stringify({
         retailer_id: retailerId,
-        brand_name: c.brand,
-        record_type: 'coi',
-        status: c.status,
+        brand_contact_id: brandContactIdByCompany.get(c.brand) || null,
+        doc_type: 'coi',
         expires_at: c.expires,
+        verified: c.verified,
       }),
     }).catch(e => console.warn('compliance insert:', (e && e.message) || e));
   }
