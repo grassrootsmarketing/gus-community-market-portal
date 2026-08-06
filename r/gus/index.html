@@ -708,6 +708,40 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 if (f) f.click();
             }
         });
+
+        // ===== Phone formatting: digits in, xxx-xxx-xxxx out =====
+        // Delegated on type="tel" for the same reason as the handler above, and so any
+        // future phone field is covered without being wired up individually.
+        function _phoneDigits(s) { return String(s || '').replace(/\D/g, ''); }
+        function _phoneFormat(d) {
+            d = d.slice(0, 10);                       // NANP length; extra digits are dropped
+            if (d.length <= 3) return d;
+            if (d.length <= 6) return d.slice(0, 3) + '-' + d.slice(3);
+            return d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
+        }
+        // Backspacing onto a hyphen would delete the separator, which the reformat below
+        // immediately puts back — so the key appears dead until pressed twice. Stepping the
+        // caret over the hyphen first makes the browser delete the digit the user meant.
+        document.addEventListener('keydown', function (e) {
+            const el = e.target;
+            if (!el || el.type !== 'tel' || e.key !== 'Backspace') return;
+            const p = el.selectionStart;
+            if (p === el.selectionEnd && p > 0 && el.value[p - 1] === '-') el.setSelectionRange(p - 1, p - 1);
+        });
+        document.addEventListener('input', function (e) {
+            const el = e.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
+            // Count digits left of the caret, reformat, then put the caret back after that
+            // many digits — otherwise inserting mid-number throws the cursor to the end.
+            const wanted = _phoneDigits(el.value.slice(0, el.selectionStart || 0)).length;
+            el.value = _phoneFormat(_phoneDigits(el.value));
+            let pos = 0, seen = 0;
+            while (pos < el.value.length && seen < wanted) {
+                if (/\d/.test(el.value[pos])) seen++;
+                pos++;
+            }
+            try { el.setSelectionRange(pos, pos); } catch (_) {}
+        });
         document.addEventListener('change', async function (e) {
             if (!e.target || e.target.id !== 'bookCoiFile') return;
             const file = e.target.files && e.target.files[0];
