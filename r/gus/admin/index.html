@@ -4784,7 +4784,7 @@ END:VEVENT
                     </div>`;
                 }).join('');
             } catch (e) {
-                list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${e.message}</div>`;
+                list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${escapeHtml(e.message)}</div>`;
             }
         }
         // Team invite: dynamic per-person rows
@@ -4936,7 +4936,9 @@ END:VEVENT
             if (failed === 0) { closeTeamInvite(); loadTeam(); }
             else {
                 prog.style.display = 'none';
-                err.innerHTML = `<div style="font-weight:600; margin-bottom:6px;">${sent} sent, ${failed} failed.</div>` + failures.map(f => '<div style="font-size:0.82rem;">' + f + '</div>').join('');
+                // Each failure line is `${email}: ${serverError}` — both attacker-influenceable,
+                // so they are escaped rather than concatenated raw into innerHTML.
+                err.innerHTML = `<div style="font-weight:600; margin-bottom:6px;">${sent} sent, ${failed} failed.</div>` + failures.map(f => '<div style="font-size:0.82rem;">' + escapeHtml(f) + '</div>').join('');
                 err.style.display = 'block';
                 loadTeam();
             }
