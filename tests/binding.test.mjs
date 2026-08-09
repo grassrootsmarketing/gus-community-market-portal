@@ -193,22 +193,44 @@ await expectFail('12b. production without REAL_EMAIL_ENABLED',
   }
 }
 
-// extra: placeholder targets (the real shipped state before R3) can never validate production
+// 17. R3 cutover: the SHIPPED map now binds production and staging to real, distinct, non-retired
+// refs, and the two environments cannot cross-bind. Refs are read from the shipped map (ref-agnostic).
 {
   _resetBindingCache();
   const { TARGETS: SHIPPED } = await import('../api/_env.js');
-  ok('17. shipped production ref is unset until R3', SHIPPED.production.projectRef === null);
-  const f = makeFetch({ environment: 'production', project_ref: PROD_REF });
-  let err = null;
-  try {
-    await getBinding({
-      env: baseEnv({ VERCEL_ENV: 'production', SUPABASE_URL: `https://${PROD_REF}.supabase.co`,
-                     STRIPE_SECRET_KEY: 'sk_live_fake', REAL_EMAIL_ENABLED: 'true' }),
-      fetch: f,   // NOTE: no targets override — uses the shipped map
-    });
-  } catch (e) { err = e; }
-  ok('17b. production cannot validate on placeholders', err && err.code === 'target_ref_not_configured');
-  ok('17c. and made zero outbound calls', f.calls.length === 0);
+  const prodRef = SHIPPED.production.projectRef;
+  const stageRef = SHIPPED.preview.projectRef;
+  ok('17. production ref is configured (R3 cutover)', /^[a-z]{20}$/.test(prodRef || ''), `(${prodRef})`);
+  ok('17b. staging ref is configured', /^[a-z]{20}$/.test(stageRef || ''), `(${stageRef})`);
+  ok('17c. production and staging refs differ', !!(prodRef && stageRef && prodRef !== stageRef));
+  ok('17d. neither shipped ref is a retired ref', !RETIRED_REFS.has(prodRef) && !RETIRED_REFS.has(stageRef));
+
+  // production cannot bind the staging project (shipped map, no override) — and never reaches the DB
+  {
+    _resetBindingCache();
+    const f = makeFetch({ environment: 'production', project_ref: stageRef });
+    let err = null;
+    try { await getBinding({ env: baseEnv({ VERCEL_ENV: 'production', SUPABASE_URL: `https://${stageRef}.supabase.co`, STRIPE_SECRET_KEY: 'sk_live_fake', REAL_EMAIL_ENABLED: 'true' }), fetch: f }); } catch (e) { err = e; }
+    ok('17e. production cannot target the staging ref', err && err.code === 'project_ref_mismatch', `(got ${err && err.code})`);
+    ok('17f. and made zero outbound calls', f.calls.length === 0);
+  }
+  // staging (preview) cannot bind the production project
+  {
+    _resetBindingCache();
+    const f = makeFetch({ environment: 'staging', project_ref: prodRef });
+    let err = null;
+    try { await getBinding({ env: baseEnv({ SUPABASE_URL: `https://${prodRef}.supabase.co` }), fetch: f }); } catch (e) { err = e; }
+    ok('17g. staging cannot target the production ref', err && err.code === 'project_ref_mismatch', `(got ${err && err.code})`);
+    ok('17h. and made zero outbound calls', f.calls.length === 0);
+  }
+  // neither shipped environment can bind a retired ref, whatever the URL says
+  for (const ref of RETIRED_REFS) {
+    _resetBindingCache();
+    const f = makeFetch({ environment: 'production', project_ref: ref });
+    let err = null;
+    try { await getBinding({ env: baseEnv({ VERCEL_ENV: 'production', SUPABASE_URL: `https://${ref}.supabase.co`, STRIPE_SECRET_KEY: 'sk_live_fake', REAL_EMAIL_ENABLED: 'true' }), fetch: f }); } catch (e) { err = e; }
+    ok(`17i. ${ref.slice(0, 6)}… still denied on the shipped map`, err && err.code === 'retired_project_ref', `(got ${err && err.code})`);
+  }
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===\n`);

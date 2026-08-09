@@ -504,7 +504,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
-                <div class="form-group" id="bookPasswordGroup"><label class="form-label">Create a password *</label><input type="password" class="form-input" id="bookPassword" placeholder="8+ characters" autocomplete="new-password"></div>
+                <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
+                     (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
+                     redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
                 <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
@@ -648,8 +650,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 if (p.has('paid')) {
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
-                    // Clear the cart client-side before we leave.
-                    try { cart = []; if (typeof updateCart === 'function') updateCart(); } catch(_){}
+                    // Clear the cart client-side before we leave. No redraw: the assign() below
+                    // navigates away, and `cart` is in-memory only (declared at the top of this
+                    // script, never persisted), so there is nothing left to keep in sync.
+                    cart = [];
                     // SEAMLESS: the brand is signed in (cookie set at booking), so drop them straight
                     // into their dashboard instead of showing an interstitial card. The dashboard shows
                     // a welcome/confirmation banner via ?booked=N. Maximum booking→product stickiness.
@@ -673,6 +677,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const bp = window._brandProfile;
             if (!bp || !bp.default_coi_url) return false;
             if (!bp.default_coi_expires) return false;   // no readable expiry is not proof
+            // The server rule (api/_coi-policy.js) also requires a verified document, and this
+            // check used to omit it while claiming to mirror coiCoverageState(). That gap is the
+            // lenient definition Codex v6 eliminated server-side, left behind on the client: an
+            // upload sitting at 'pending' read as covered here, the panel vanished, and the
+            // booking then failed at /api/book with coi_required and no explanation.
+            const st = String(bp.coi_verification_status || '').toLowerCase();
+            if (st !== 'passed' && st !== 'approved') return false;
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
             return String(bp.default_coi_expires).slice(0, 10) >= latest;
@@ -688,8 +699,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (signedIn && !ok) {
                 const bp = window._brandProfile;
                 const msg = document.getElementById('bookCoiMsg');
+                const st = String(bp.coi_verification_status || '').toLowerCase();
                 if (msg && bp.default_coi_url && !bp.default_coi_expires) {
                     msg.textContent = 'We could not read an expiry date from the certificate on your profile. Upload a clearer copy and you can book straight away.';
+                } else if (msg && bp.default_coi_url && (st === 'pending' || st === 'flagged')) {
+                    // Do not promise this clears itself. With COI_AI_VERIFICATION_ENABLED off every
+                    // upload lands here, and only a human decision moves it.
+                    msg.textContent = 'Your certificate is uploaded and waiting to be reviewed. You will get an email once it is approved, and you can book straight after that.';
+                } else if (msg && bp.default_coi_url && st === 'rejected') {
+                    msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and we will review it again.';
                 } else if (msg && bp.default_coi_url) {
                     msg.textContent = 'The certificate on your profile has expired. Upload a current one and you can book straight away.';
                 }
@@ -703,6 +721,40 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const f = document.getElementById('bookCoiFile');
                 if (f) f.click();
             }
+        });
+
+        // ===== Phone formatting: digits in, xxx-xxx-xxxx out =====
+        // Delegated on type="tel" for the same reason as the handler above, and so any
+        // future phone field is covered without being wired up individually.
+        function _phoneDigits(s) { return String(s || '').replace(/\D/g, ''); }
+        function _phoneFormat(d) {
+            d = d.slice(0, 10);                       // NANP length; extra digits are dropped
+            if (d.length <= 3) return d;
+            if (d.length <= 6) return d.slice(0, 3) + '-' + d.slice(3);
+            return d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
+        }
+        // Backspacing onto a hyphen would delete the separator, which the reformat below
+        // immediately puts back — so the key appears dead until pressed twice. Stepping the
+        // caret over the hyphen first makes the browser delete the digit the user meant.
+        document.addEventListener('keydown', function (e) {
+            const el = e.target;
+            if (!el || el.type !== 'tel' || e.key !== 'Backspace') return;
+            const p = el.selectionStart;
+            if (p === el.selectionEnd && p > 0 && el.value[p - 1] === '-') el.setSelectionRange(p - 1, p - 1);
+        });
+        document.addEventListener('input', function (e) {
+            const el = e.target;
+            if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
+            // Count digits left of the caret, reformat, then put the caret back after that
+            // many digits — otherwise inserting mid-number throws the cursor to the end.
+            const wanted = _phoneDigits(el.value.slice(0, el.selectionStart || 0)).length;
+            el.value = _phoneFormat(_phoneDigits(el.value));
+            let pos = 0, seen = 0;
+            while (pos < el.value.length && seen < wanted) {
+                if (/\d/.test(el.value[pos])) seen++;
+                pos++;
+            }
+            try { el.setSelectionRange(pos, pos); } catch (_) {}
         });
         document.addEventListener('change', async function (e) {
             if (!e.target || e.target.id !== 'bookCoiFile') return;
@@ -1472,7 +1524,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // Need signing , populate modal with policies
                 const dp = (j.policies && j.policies.demo_policy) || '';
                 const cp = (j.policies && j.policies.cancellation_policy) || '';
-                const rn = (j.policies && j.policies.retailer_name) || RETAILER_NAME || 'this retailer';
+                const rn = (j.policies && j.policies.retailer_name) || 'this retailer';
                 document.getElementById('agreementDemoPolicy').textContent = dp;
                 document.getElementById('agreementCancelPolicy').textContent = cp;
                 document.getElementById('agreementRetailerLabel').textContent = 'Sign before booking at ' + rn;
@@ -1574,6 +1626,19 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
+            // Snapshot the chosen SKUs HERE too: actuallySubmitBookings runs after the agreement
+            // step in its own scope and cannot see submitContactInfo's local productSkus. Referencing
+            // it without this threw "productSkus is not defined" and killed the booking before Stripe.
+            const productSkus = (function () {
+                const src = window._bookSkuSource || [];
+                if (!src.length) return null;
+                const picked = [];
+                document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
+                    const p = src[Number(cb.dataset.i)];
+                    if (p && p.name) picked.push({ name: p.name, size: p.size || '', sku: p.sku || '' });
+                });
+                return picked.length ? picked : null;
+            })();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
             errMsg.textContent = '';
@@ -1917,6 +1982,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             document.getElementById('brandSignInErr1').textContent = '';
             document.getElementById('brandSignInErr2').textContent = '';
             document.getElementById('brandSignInCode').value = '';
+            // Carry over the email already typed in the booking form so it isn't entered twice.
+            const _bookEmail = ((document.getElementById('bookContactEmail') || {}).value || '').trim();
+            const _siEmail = document.getElementById('brandSignInEmail');
+            if (_siEmail && _bookEmail && !_siEmail.value.trim()) _siEmail.value = _bookEmail;
             setTimeout(() => { const e = document.getElementById('brandSignInEmail'); if (e) e.focus(); }, 100);
         }
         function closeBrandSignIn() {
@@ -1938,9 +2007,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = 'Sending…';
             try {
-                const r = await fetch('/api/brand-account?action=login', {
+                // Unified passwordless flow: brand-signup 'request' emails a 6-digit code to ANY
+                // address (new OR returning); redeem_brand_signup at verify creates-or-logs-in by
+                // email. brand-account/login only sent to EXISTING accounts, so first-time brands
+                // hit a dead end (no code). Carry the booking-form profile so a new brand is named.
+                const _bn = ((document.getElementById('bookBrandName')||{}).value || '').trim();
+                const _cn = ((document.getElementById('bookContactName')||{}).value || '').trim();
+                const _ph = ((document.getElementById('bookContactPhone')||{}).value || '').trim();
+                const r = await fetch('/api/brand-signup', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ email }),
+                    body: JSON.stringify({ action: 'request', email, company_name: _bn || undefined, contact_name: _cn || undefined, phone: _ph || undefined }),
                 });
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok) { err.textContent = j.error || j.message || 'Could not send code.'; btn.disabled=false; btn.textContent=orig; return; }
@@ -1961,9 +2037,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const orig = btn.textContent;
             btn.disabled = true; btn.textContent = 'Verifying…';
             try {
-                const r = await fetch('/api/brand-account?action=verify-code', {
+                const r = await fetch('/api/brand-signup', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ email, code }),
+                    body: JSON.stringify({ action: 'verify', email, code }),
                 });
                 const j = await r.json().catch(() => ({}));
                 if (!r.ok) { err.textContent = j.error || j.message || 'Invalid code.'; btn.disabled=false; btn.textContent=orig; return; }

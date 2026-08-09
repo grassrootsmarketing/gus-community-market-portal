@@ -118,9 +118,9 @@ async function ensureRetailer() {
     body: JSON.stringify({
       slug: DEMO_SLUG,
       name: DEMO_NAME,
-      email: DEMO_EMAIL,
-      description: 'A live demo of Demohub retailer admin. Read-only, nightly reset.',
+      billing_email: DEMO_EMAIL,
       is_demo: true,
+      billing_tier: 'pro',   // demo showcases the full multi-store experience (venue-limit trigger: pro=999)
       auto_confirm_bookings: true,
       cancellation_mode: 'refundable',
       demo_policy: 'Arrive 15 minutes before your slot to set up. Bring sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot.',
@@ -131,6 +131,14 @@ async function ensureRetailer() {
 }
 
 async function seed(retailerId, opts = {}) {
+  // Ensure the demo tenant is on the Pro tier before inserting venues. Idempotent, and it
+  // also lifts a demo retailer that was created before this tier was set (else the venue-limit
+  // trigger caps it at the Solo limit of 1 and the 5-store seed fails on the 2nd venue).
+  await sb(`retailers?id=eq.${encodeURIComponent(retailerId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ billing_tier: 'pro' }),
+  }).catch(e => console.warn('tier patch:', (e && e.message) || e));
+
   // Venues (5 stores)
   const createdVenues = [];
   for (const s of DEMO_STORES) {
@@ -177,9 +185,10 @@ async function seed(retailerId, opts = {}) {
     }).catch(e => console.warn('team insert:', (e && e.message) || e));
   }
 
-  // Brand contacts (7 fictional brands)
+  // Brand contacts (7 fictional brands) — capture ids so COIs can link via brand_contact_id
+  const brandContactIdByCompany = new Map();
   for (const b of DEMO_BRANDS) {
-    await sb('brand_contacts', {
+    const row = await sb('brand_contacts', {
       method: 'POST',
       body: JSON.stringify({
         retailer_id: retailerId,
@@ -188,7 +197,8 @@ async function seed(retailerId, opts = {}) {
         email: b.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '@example.com',
         phone: '(555) 812-4409',
       }),
-    }).catch(e => console.warn('brand_contact insert:', (e && e.message) || e));
+    }).catch(e => { console.warn('brand_contact insert:', (e && e.message) || e); return null; });
+    if (Array.isArray(row) && row[0]) brandContactIdByCompany.set(b, row[0].id);
   }
 
   // Compliance records (COIs — one current, one expiring in 14 days for the tour visual)
@@ -196,20 +206,20 @@ async function seed(retailerId, opts = {}) {
   const later = new Date(); later.setDate(later.getDate() + 180);
   const isoDate = d => d.toISOString().slice(0, 10);
   const compRows = [
-    { brand: 'Bluebell Creamery',     status: 'current',        expires: isoDate(later) },
-    { brand: 'Peak Provisions Jerky', status: 'expiring_soon',  expires: isoDate(soon) },
-    { brand: 'Marigold Snacks',       status: 'current',        expires: isoDate(later) },
-    { brand: 'Cedar & Sage Kombucha', status: 'current',        expires: isoDate(later) },
+    { brand: 'Bluebell Creamery',     verified: true, expires: isoDate(later) },
+    { brand: 'Peak Provisions Jerky', verified: true, expires: isoDate(soon) },
+    { brand: 'Marigold Snacks',       verified: true, expires: isoDate(later) },
+    { brand: 'Cedar & Sage Kombucha', verified: true, expires: isoDate(later) },
   ];
   for (const c of compRows) {
     await sb('compliance_records', {
       method: 'POST',
       body: JSON.stringify({
         retailer_id: retailerId,
-        brand_name: c.brand,
-        record_type: 'coi',
-        status: c.status,
+        brand_contact_id: brandContactIdByCompany.get(c.brand) || null,
+        doc_type: 'coi',
         expires_at: c.expires,
+        verified: c.verified,
       }),
     }).catch(e => console.warn('compliance insert:', (e && e.message) || e));
   }
