@@ -644,7 +644,18 @@ export default async function handler(req, res) {
         // after confirmation). Surfacing them closes that blind window.
         sb(`bookings?brand_id=eq.${brandId}&status=eq.pending&payment_status=eq.paid&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
-      const profile = (await profileR.json())[0] || null;
+      // select=* above is deliberate — the client reads fifteen-odd columns and enumerating them
+      // here is how one silently goes missing later. But `*` on brands also ships password_hash
+      // and cal_feed_token straight into the browser, so they are stripped on the way out.
+      // A denylist, not an allowlist: a new column reaching the client is a bug we can see,
+      // whereas a needed column quietly disappearing is one we cannot.
+      const PROFILE_NEVER_SEND = ['password_hash', 'cal_feed_token', 'cal_feed_key'];
+      const profileRaw = (await profileR.json())[0] || null;
+      let profile = null;
+      if (profileRaw) {
+        profile = { ...profileRaw };
+        for (const k of PROFILE_NEVER_SEND) delete profile[k];
+      }
       const demos = await demosR.json();
       const contacts = await contactsR.json();
       let pending_bookings = [];

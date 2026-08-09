@@ -677,6 +677,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const bp = window._brandProfile;
             if (!bp || !bp.default_coi_url) return false;
             if (!bp.default_coi_expires) return false;   // no readable expiry is not proof
+            // The server rule (api/_coi-policy.js) also requires a verified document, and this
+            // check used to omit it while claiming to mirror coiCoverageState(). That gap is the
+            // lenient definition Codex v6 eliminated server-side, left behind on the client: an
+            // upload sitting at 'pending' read as covered here, the panel vanished, and the
+            // booking then failed at /api/book with coi_required and no explanation.
+            const st = String(bp.coi_verification_status || '').toLowerCase();
+            if (st !== 'passed' && st !== 'approved') return false;
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
             return String(bp.default_coi_expires).slice(0, 10) >= latest;
@@ -692,8 +699,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (signedIn && !ok) {
                 const bp = window._brandProfile;
                 const msg = document.getElementById('bookCoiMsg');
+                const st = String(bp.coi_verification_status || '').toLowerCase();
                 if (msg && bp.default_coi_url && !bp.default_coi_expires) {
                     msg.textContent = 'We could not read an expiry date from the certificate on your profile. Upload a clearer copy and you can book straight away.';
+                } else if (msg && bp.default_coi_url && (st === 'pending' || st === 'flagged')) {
+                    // Do not promise this clears itself. With COI_AI_VERIFICATION_ENABLED off every
+                    // upload lands here, and only a human decision moves it.
+                    msg.textContent = 'Your certificate is uploaded and waiting to be reviewed. You will get an email once it is approved, and you can book straight after that.';
+                } else if (msg && bp.default_coi_url && st === 'rejected') {
+                    msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and we will review it again.';
                 } else if (msg && bp.default_coi_url) {
                     msg.textContent = 'The certificate on your profile has expired. Upload a current one and you can book straight away.';
                 }
