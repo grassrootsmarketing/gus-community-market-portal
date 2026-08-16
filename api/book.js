@@ -35,6 +35,11 @@ export default async function handler(req, res) {
   const cov = coiCovered(brand, body.demo_date);
   if (!cov.covered) return res.status(400).json({ error: 'coi_required', reason: cov.reason });
 
+  // 3b) Contact info (name + phone) required to book — retailers must be able to reach the brand.
+  if (!brand.contact_name || !String(brand.contact_name).trim() || !brand.phone || !String(brand.phone).trim()) {
+    return res.status(400).json({ error: 'contact_required', reason: 'missing_contact_name_or_phone' });
+  }
+
   // 4) create the booking — server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,

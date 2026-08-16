@@ -1583,6 +1583,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
 
             // COI gate. Convenience only - api/booking enforces this server-side, so a
             // console-edited page still cannot book uninsured.
+            // Contact info (name + phone) required to book — mirrors the server gate in api/book.js.
+            if (window._brandProfile && (!((window._brandProfile.contact_name)||'').trim() || !((window._brandProfile.phone)||'').trim())) {
+                errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
+                errMsg.style.display = 'block';
+                return;
+            }
             if (window._brandProfile && !_updateBookCoiGate()) {
                 errMsg.textContent = 'Upload your Certificate of Insurance above to book.';
                 errMsg.style.display = 'block';

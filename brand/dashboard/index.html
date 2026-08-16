@@ -978,12 +978,15 @@ function renderOverview() {
   const _coiDone = _st.coiOk;
   const _profileDone = _st.profileDone;
   const _logoDone = _st.hasLogo;
+  // Booking requires only name + phone (reachability). Website/company complete the verified badge
+  // but don't block booking — so the "required to book" state tracks name + phone, not full profile.
+  const _contactReady = !(_st.profileMissing||[]).includes('your name') && !(_st.profileMissing||[]).includes('phone number');
   const _checkItems = [
     { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Stores require proof of insurance before you can demo. Upload it once and every retailer you book with can see it.", href: '#compliance', cta: 'Upload COI' },
-    { key: 'profile', core: true, done: _profileDone, req: false, title: 'Add your contact information',
-      sub: _profileDone
-        ? 'Company name, your name, phone, email, and website.'
-        : 'Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>. Retailers see these on every booking.',
+    { key: 'profile', core: true, done: _contactReady, req: true, title: 'Add your contact information',
+      sub: _contactReady
+        ? 'Name and phone are on file. Add company, email &amp; website to complete your verified badge.'
+        : 'Retailers must be able to reach you — add your <strong>name</strong> and <strong>phone number</strong> to book. Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>.',
       href: '#profile', cta: 'Add details' },
     { key: 'logo', core: true, done: _logoDone, req: false, title: 'Add your brand logo', sub: 'Retailers see it on every booking page. Brands without one look unfinished.', href: '#profile', cta: 'Add logo' },
   ];
