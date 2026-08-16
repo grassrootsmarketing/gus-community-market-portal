@@ -344,7 +344,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div id="brandSignInPill" style="padding:28px 32px 48px; text-align:right;">
             <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:9px 16px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.85rem; cursor:pointer; font-family:inherit; box-shadow:0 2px 8px rgba(15,44,23,0.06);">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                Have an account? <strong style="color:#2a5b32;">Sign in</strong>
+                Brand? <strong style="color:#2a5b32;">Sign in or sign up</strong>
             </button>
         </div>
         <div class="brand-signin-banner" id="brandSigninBannerLanding">
@@ -376,7 +376,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div id="brandSignInPillClient" style="padding:24px 0 32px; text-align:right;">
                     <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit; box-shadow:0 2px 8px rgba(15,44,23,0.06);">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                        Sign in for faster booking
+                        Sign in or sign up
                     </button>
                 </div>
                 <div class="page-header">
@@ -578,15 +578,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div style="background:white; border-radius:20px; box-shadow:0 24px 60px rgba(15,44,23,0.35); max-width:440px; width:100%; padding:32px 28px; position:relative;">
             <button type="button" onclick="closeBrandSignIn()" aria-label="Close" style="position:absolute; top:14px; right:18px; background:none; border:none; font-size:1.8rem; color:#6b6a64; cursor:pointer; padding:4px 8px; line-height:1;">&times;</button>
             <div style="text-align:center; margin-bottom:20px;">
-                <h2 style="font-family:'Instrument Serif',Georgia,serif; font-size:1.75rem; font-weight:400; color:#0f2c17; margin:0 0 8px; line-height:1.2;">Sign in to your Demohub brand account</h2>
-                <p style="font-size:0.9rem; color:#6b6a64; margin:0; line-height:1.5;">Your info, COI, and demo history follow you to every retailer.</p>
+                <h2 style="font-family:'Instrument Serif',Georgia,serif; font-size:1.75rem; font-weight:400; color:#0f2c17; margin:0 0 8px; line-height:1.2;">Sign in or create your brand account</h2>
+                <p style="font-size:0.9rem; color:#6b6a64; margin:0; line-height:1.5;">One account for every Demohub retailer. New or returning — just enter your email, no password needed.</p>
             </div>
             <div id="brandSignInStep1">
                 <label class="form-label" for="brandSignInEmail" style="display:block; margin-bottom:6px; font-size:0.78rem; font-weight:700; color:#0f2c17; text-transform:uppercase; letter-spacing:0.06em;">Email</label>
                 <input type="email" id="brandSignInEmail" placeholder="you@company.com" autocomplete="email" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1rem; font-family:inherit; margin-bottom:6px; box-sizing:border-box;">
                 <div id="brandSignInErr1" style="font-size:0.82rem; color:#a14e2a; margin-bottom:12px; min-height:1em;"></div>
                 <button type="button" id="brandSignInSendBtn" onclick="brandSignInSendCode()" style="width:100%; background:#0f2c17; color:white; border:none; padding:13px 18px; border-radius:10px; font-weight:700; font-size:0.95rem; cursor:pointer; font-family:inherit;">Send me a code</button>
-                <div style="text-align:center; margin-top:18px; font-size:0.8rem; color:#6b6a64; line-height:1.5;">New here? Just complete your first booking — we'll create your account automatically.</div>
+                <div style="text-align:center; margin-top:18px; font-size:0.8rem; color:#6b6a64; line-height:1.5;"><strong style="color:#0f2c17;">New to Demohub?</strong> Enter your email above — we'll create your account when you verify the code.</div>
             </div>
             <div id="brandSignInStep2" style="display:none;">
                 <div style="background:#fbf7f0; border-radius:10px; padding:12px 16px; margin-bottom:16px; text-align:center; font-size:0.88rem; color:#3a3a36;">
