@@ -75,9 +75,25 @@ async function _retired_provisionOrClaimVerifiedBrand(email, password, profile =
   return { ok: true, brand_id: brandId, session_token: token };
 }
 
+// Branded verification email, consistent with the retailer login template (api/admin-auth.js).
+function verificationCodeEmail(code) {
+  return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
+<table align="center" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
+<tr><td style="padding:24px 32px;background:#0f2c17;"><span style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</span></td></tr>
+<tr><td style="padding:34px 36px 30px;text-align:center;">
+<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:16px;">Verify your email</div>
+<div style="font-size:13px;color:#6b6a64;margin-bottom:12px;">Your verification code</div>
+<div style="font-size:38px;font-weight:800;letter-spacing:0.18em;color:#0f2c17;font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;margin-bottom:14px;">${code}</div>
+<div style="font-size:13px;color:#6b6a64;">This code expires in 30 minutes.</div>
+<p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email &mdash; no action will be taken.</p>
+</td></tr>
+<tr><td style="padding:16px 36px;background:#faf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:11px;color:#9a978f;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307</td></tr>
+</table></body></html>`;
+}
+
 async function sendCode(email, code) {
   if (!_b.resendApiKey) return;
-  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: `<p>Your code is <strong>${code}</strong> (expires in 30 min).</p>` }, { binding: _b });
+  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
 }
 
 const GENERIC_REQUEST_REPLY = 'If that email can receive mail, a code is on its way.';
