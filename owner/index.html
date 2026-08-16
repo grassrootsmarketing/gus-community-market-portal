@@ -187,15 +187,7 @@ function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c
 // ----- Magic-link gate -----
 function renderGate(msg) {
   topnav.style.display = 'none';
-  main.innerHTML = `<div class="card" id="migrationsCard" style="border-left: 4px solid #ed682f;">
-      <h2 style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
-        <span>Database migrations</span>
-        <button id="runMigrationsBtn" onclick="runPendingMigrations()" style="background:#0f2c17; color:white; border:none; border-radius:8px; padding:8px 16px; font-size:0.85rem; font-weight:600; cursor:pointer; font-family:inherit;">Apply pending &rarr;</button>
-      </h2>
-      <div id="migrationsList" style="font-family:'SF Mono',Menlo,Consolas,monospace; font-size:0.85rem; line-height:1.8;">Loading&hellip;</div>
-      <div id="migrationsResult" style="margin-top:12px; font-size:0.85rem;"></div>
-    </div>
-    <div class="card" id="verificationQueueCard" style="border-left: 4px solid #1f4a26;">
+  main.innerHTML = `<div class="card" id="verificationQueueCard" style="border-left: 4px solid #1f4a26;">
       <h2 style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <span>Retailer verification queue</span>
         <div style="display:flex; gap:6px; align-items:center; font-size:0.78rem; font-weight:normal;">
@@ -901,10 +893,9 @@ async function runPendingMigrations() {
     btn.textContent = 'Apply pending →';
   }
 }
-// Load status when owner panel loads
-window.addEventListener('DOMContentLoaded', () => {
-  setTimeout(loadMigrationsStatus, 800);
-});
+// Owner migration runner removed: /api/apply-migrations was retired (migrations are applied via the
+// Supabase CLI). The old widget only surfaced a scary "endpoint_retired" error on the panel.
+// loadMigrationsStatus/runPendingMigrations remain below but are never called (dead, harmless).
 
 
 async function loadSupportTools() {
