@@ -208,7 +208,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
             <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="recognizedCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
             <button type="button" id="recognizedCodeBtn" onclick="verifyRecognizedCode()" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
             <div class="error" id="recognizedCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
-            <a href="#" id="recognizedResend" onclick="event.preventDefault(); (function(el){ let p=null; try{p=JSON.parse(localStorage.getItem('demohub_signin_last_v1')||'null');}catch(_){} if(!p||!p.email)return; var ep=p.role==='brand'?'/api/brand-account':'/api/admin-auth'; var ac=p.role==='brand'?'login':'email-login'; resendLoginCode(el, p.email, ep, ac); })(this);" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
+            <a href="#" id="recognizedResend" onclick="event.preventDefault(); (function(el){ let p=null; try{p=JSON.parse(localStorage.getItem('demohub_signin_last_v1')||'null');}catch(_){} if(!p||!p.email)return; var ep=p.role==='brand'?'/api/brand-signup':'/api/admin-auth'; var ac=p.role==='brand'?'request':'email-login'; resendLoginCode(el, p.email, ep, ac); })(this);" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
         </div>
     </div>
 </div>
@@ -263,7 +263,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
                 <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" id="brandCode" placeholder="000000" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1.35rem; font-family:'SF Mono',Menlo,Consolas,monospace; letter-spacing:0.15em; text-align:center; box-sizing:border-box;">
                 <button type="button" id="brandCodeBtn" onclick="verifyLoginCode('brand')" style="width:100%; padding:12px 20px; margin-top:10px; background:var(--forest-900); color:white; border:none; border-radius:10px; font-family:inherit; font-size:1rem; font-weight:600; cursor:pointer;">Verify code &rarr;</button>
                 <div class="error" id="brandCodeErr" style="display:none; background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:8px;"></div>
-                <a href="#" id="brandResend" onclick="event.preventDefault(); resendLoginCode(this, (document.getElementById('brandEmail')||{}).value, '/api/brand-account', 'login');" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
+                <a href="#" id="brandResend" onclick="event.preventDefault(); resendLoginCode(this, (document.getElementById('brandEmail')||{}).value, '/api/brand-signup', 'request');" style="display:inline-block; margin-top:12px; font-size:0.85rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Didn't get it? Resend code</a>
               </div>
             </div>
           </div>
@@ -333,7 +333,7 @@ wireForm({
 wireForm({
   formId: 'brandForm', emailId: 'brandEmail', hintId: 'brandHint',
   btnId: 'brandBtn', errId: 'brandErr', checkId: 'brandCheck',
-  sentToId: 'brandSentTo', endpoint: '/api/brand-account', action: 'login'
+  sentToId: 'brandSentTo', endpoint: '/api/brand-signup', action: 'request'
 });
 
 // ===== Resend login code (shared, with cooldown so it can't re-trip the rate limiter) =====
@@ -373,9 +373,9 @@ window.verifyLoginCode = async function(side) {
     btn.disabled = true;
     btn.textContent = 'Verifying…';
     try {
-        const endpoint = side === 'brand' ? '/api/brand-account?action=verify-code' : '/api/admin-auth';
+        const endpoint = side === 'brand' ? '/api/brand-signup' : '/api/admin-auth';
         const payload = side === 'brand'
-            ? { email, code }
+            ? { action: 'verify', email, code }
             : { action: 'verify-code', email, code };
         const r = await fetch(endpoint, {
             method: 'POST',
@@ -443,8 +443,8 @@ window.verifyRecognizedCode = async function() {
     btn.disabled = true;
     btn.textContent = 'Verifying…';
     try {
-        const endpoint = role === 'brand' ? '/api/brand-account?action=verify-code' : '/api/admin-auth';
-        const payload = role === 'brand' ? { email, code } : { action: 'verify-code', email, code };
+        const endpoint = role === 'brand' ? '/api/brand-signup' : '/api/admin-auth';
+        const payload = role === 'brand' ? { action: 'verify', email, code } : { action: 'verify-code', email, code };
         const r = await fetch(endpoint, {
             method: 'POST',
             headers: {'Content-Type':'application/json'},
@@ -529,8 +529,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!l || !l.email) return;
     contBtn.disabled = true;
     contBtn.textContent = 'Sending…';
-    const endpoint = l.role === 'brand' ? '/api/brand-account' : '/api/admin-auth';
-    const action = l.role === 'brand' ? 'login' : 'email-login';
+    const endpoint = l.role === 'brand' ? '/api/brand-signup' : '/api/admin-auth';
+    const action = l.role === 'brand' ? 'request' : 'email-login';
     try {
       const r = await fetch(endpoint, {
         method: 'POST',
