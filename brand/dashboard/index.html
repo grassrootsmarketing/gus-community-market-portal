@@ -1451,8 +1451,7 @@ function renderProfile() {
           <div style="font-weight:600; color:var(--forest-900); margin-bottom:4px;">Brand logo</div>
           <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:10px;">Shown on your dashboard and to retailers. PNG, JPG, or WEBP up to 2MB.</div>
           <div class="avatar-actions">
-            <input type="file" id="avatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
-            <button class="btn" onclick="document.getElementById('avatarFile').click()">Upload</button>
+            <button class="btn" onclick="document.getElementById('navAvatarFile').click()">Upload</button>
             ${profile.logo_url ? `<button class="btn btn-ghost" onclick="removeAvatar()">Remove</button>` : ''}
             <span class="saved" id="avatarSaved">Saved &check;</span>
           </div>
