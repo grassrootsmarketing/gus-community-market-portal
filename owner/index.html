@@ -155,6 +155,17 @@ table.simple tr:last-child td { border-bottom:0; }
 .stat, .kpi-card, .card{transition:box-shadow .28s ease,transform .28s ease}
 .stat:hover, .kpi-card:hover{box-shadow:0 8px 30px rgba(15,44,23,.09)}
 @media (prefers-reduced-motion:reduce){.growth-hero,.gh-path,.gh-area,.gh-dot{animation:none!important;stroke-dashoffset:0!important;opacity:1!important}.stat:hover,.kpi-card:hover{transform:none!important}}
+/* Chart typography — use the site font everywhere (was inheriting the browser default / Inter) */
+.gh-chart text, .chart-svg text { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; }
+/* Growth-chart hover tooltip */
+.growth-hero .gh-chart { position:relative; }
+.gh-hit { cursor:pointer; }
+.gh-tip { position:absolute; top:4px; display:none; transform:translateX(-50%); background:rgba(8,22,13,0.96); color:#fdf9ee; border:1px solid rgba(255,255,255,0.16); border-radius:10px; padding:8px 11px; font-family:'Plus Jakarta Sans',sans-serif; font-size:.8rem; pointer-events:none; white-space:nowrap; z-index:6; box-shadow:0 8px 22px rgba(0,0,0,.35); }
+.gh-tip-label { font-weight:700; font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; color:#9fb8a4; margin-bottom:5px; }
+.gh-tip-row { display:flex; align-items:center; gap:7px; line-height:1.75; }
+.gh-tip-row .dot { width:8px; height:8px; border-radius:50%; }
+.gh-tip-row .dot.forest { background:#87b08e; } .gh-tip-row .dot.clay { background:#ed682f; }
+.gh-tip-row b { margin-left:auto; padding-left:16px; font-weight:700; }
 </style>
 </head>
 <body>
@@ -315,17 +326,65 @@ function renderGrowthChart(retailerSeries, brandSeries) {
   const grid = [0, .5, 1].map(f => { const yy = padT + iH - iH * f; return '<line x1="' + padL + '" y1="' + yy.toFixed(1) + '" x2="' + (padL + iW) + '" y2="' + yy.toFixed(1) + '" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>'; }).join('');
   const labels = R.map((p, i) => (i % 2 === 0) ? '<text x="' + x(i).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="rgba(255,255,255,0.55)">' + (p.label || '') + '</text>' : '').join('');
   const endR = R[R.length - 1] || { v: 0 }, endB = B[B.length - 1] || { v: 0 };
+  // Per-month transparent hit areas carry the values so hover can show a tooltip + guide/markers.
+  const colW = n > 1 ? iW / (n - 1) : iW;
+  const hits = R.map((p, i) => {
+    const hx = Math.max(padL, x(i) - colW / 2);
+    const hw = Math.min(colW, (padL + iW) - hx);
+    const bv = (B[i] || {}).v;
+    return '<rect class="gh-hit" x="' + hx.toFixed(1) + '" y="' + padT + '" width="' + hw.toFixed(1) + '" height="' + iH + '" fill="transparent"'
+      + ' data-label="' + (p.label || '') + '" data-r="' + p.v + '" data-b="' + (bv == null ? '' : bv) + '"'
+      + ' data-cx="' + x(i).toFixed(1) + '" data-ry="' + y(p.v).toFixed(1) + '" data-by="' + (bv == null ? '' : y(bv).toFixed(1)) + '"></rect>';
+  }).join('');
   return '<svg class="gh-chart" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="width:100%;height:210px;overflow:visible">'
     + grid
     + '<path class="gh-area" d="' + area(B) + '" fill="rgba(237,104,47,0.16)"/>'
     + '<path class="gh-area" d="' + area(R) + '" fill="rgba(135,176,142,0.20)"/>'
     + '<path class="gh-path" d="' + line(B) + '" fill="none" stroke="#ed682f" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
     + '<path class="gh-path" d="' + line(R) + '" fill="none" stroke="#87b08e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+    + '<line class="gh-guide" x1="0" y1="' + padT + '" x2="0" y2="' + (padT + iH) + '" stroke="rgba(255,255,255,0.35)" stroke-width="1" style="display:none"/>'
     + '<circle class="gh-dot" cx="' + x(B.length - 1).toFixed(1) + '" cy="' + y(endB.v).toFixed(1) + '" r="4.5" fill="#ed682f"/>'
     + '<circle class="gh-dot" cx="' + x(R.length - 1).toFixed(1) + '" cy="' + y(endR.v).toFixed(1) + '" r="4.5" fill="#87b08e"/>'
+    + '<circle class="gh-marker gh-marker-r" r="5" fill="#87b08e" stroke="#0a1a0d" stroke-width="1.5" style="display:none"/>'
+    + '<circle class="gh-marker gh-marker-b" r="5" fill="#ed682f" stroke="#0a1a0d" stroke-width="1.5" style="display:none"/>'
     + '<text class="gh-dot" x="' + (x(B.length - 1) + 8).toFixed(1) + '" y="' + (y(endB.v) + 4).toFixed(1) + '" font-size="12" font-weight="700" fill="#ed682f">' + endB.v + '</text>'
     + '<text class="gh-dot" x="' + (x(R.length - 1) + 8).toFixed(1) + '" y="' + (y(endR.v) + 4).toFixed(1) + '" font-size="12" font-weight="700" fill="#87b08e">' + endR.v + '</text>'
-    + labels + '</svg>';
+    + labels + hits + '</svg><div class="gh-tip"></div>';
+}
+
+// Wire hover on the growth chart: tooltip + vertical guide + markers at the hovered month.
+function wireGhHover() {
+  const chart = document.querySelector('.growth-hero .gh-chart');
+  if (!chart) return;
+  const tip = chart.querySelector('.gh-tip');
+  const guide = chart.querySelector('.gh-guide');
+  const mR = chart.querySelector('.gh-marker-r');
+  const mB = chart.querySelector('.gh-marker-b');
+  if (!tip) return;
+  chart.querySelectorAll('.gh-hit').forEach(hit => {
+    hit.addEventListener('mouseenter', () => {
+      const cx = hit.getAttribute('data-cx');
+      const ry = hit.getAttribute('data-ry'), by = hit.getAttribute('data-by');
+      const label = hit.getAttribute('data-label') || '';
+      const rv = hit.getAttribute('data-r') || '0', bv = hit.getAttribute('data-b');
+      if (guide) { guide.setAttribute('x1', cx); guide.setAttribute('x2', cx); guide.style.display = ''; }
+      if (mR && ry) { mR.setAttribute('cx', cx); mR.setAttribute('cy', ry); mR.style.display = ''; }
+      if (mB && by) { mB.setAttribute('cx', cx); mB.setAttribute('cy', by); mB.style.display = ''; }
+      tip.innerHTML = '<div class="gh-tip-label">' + escapeHtml(label) + '</div>'
+        + '<div class="gh-tip-row"><span class="dot forest"></span>Retailers <b>' + escapeHtml(rv) + '</b></div>'
+        + (bv === '' || bv == null ? '' : '<div class="gh-tip-row"><span class="dot clay"></span>Brands <b>' + escapeHtml(bv) + '</b></div>');
+      tip.style.display = 'block';
+      const hb = hit.getBoundingClientRect(), cb = chart.getBoundingClientRect();
+      const left = (hb.left - cb.left) + hb.width / 2;
+      tip.style.left = Math.max(tip.offsetWidth / 2 + 4, Math.min(left, cb.width - tip.offsetWidth / 2 - 4)) + 'px';
+    });
+  });
+  chart.addEventListener('mouseleave', () => {
+    tip.style.display = 'none';
+    if (guide) guide.style.display = 'none';
+    if (mR) mR.style.display = 'none';
+    if (mB) mB.style.display = 'none';
+  });
 }
 
 // Count the headline numbers up from zero. Preserves $ prefix and , grouping.
@@ -363,8 +422,8 @@ function renderBars(svg, series) {
     const x = padL + i * (barW + barGap) + barGap / 2;
     const y = h - padB - bh;
     parts.push(`<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#3a7142"/>`);
-    if (s.count > 0) parts.push(`<text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#0f2c17" font-family="Inter,sans-serif" font-weight="600">${s.count}</text>`);
-    parts.push(`<text x="${x + barW/2}" y="${h - padB + 14}" text-anchor="middle" font-size="10" fill="#6b6a64" font-family="Inter,sans-serif">${s.label || ''}</text>`);
+    if (s.count > 0) parts.push(`<text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#0f2c17" font-weight="600">${s.count}</text>`);
+    parts.push(`<text x="${x + barW/2}" y="${h - padB + 14}" text-anchor="middle" font-size="10" fill="#6b6a64">${s.label || ''}</text>`);
   });
   return `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
 }
@@ -522,6 +581,7 @@ function renderDashboard(d) {
   // Support tools card (Level 1: impersonation, Level 2: audit link)
   loadSupportTools();
   ownerCountUp();
+  wireGhHover();
 
   wireTabs();
 }
