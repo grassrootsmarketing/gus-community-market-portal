@@ -182,10 +182,10 @@ async function _brandVerifyCode() {
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = 'Signing in...';
   try {
-    const r = await fetch('/api/brand-account?action=verify-code', {
+    const r = await fetch('/api/brand-signup', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ email: String(email).trim(), code }),
+      body: JSON.stringify({ action: 'verify', email: String(email).trim(), code }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.message || j.error || 'That code did not work.');
@@ -235,10 +235,12 @@ async function submit(action, data, btn, btnText) {
   try {
     // Codex finding A: signup goes to the canonical verified flow, which writes nothing until
     // the caller proves they control the address. brand-account?action=signup now returns 410.
-    const endpoint = action === 'signup'
-      ? '/api/brand-signup'
-      : '/api/brand-account?action=' + action;
-    const payload = action === 'signup' ? { ...data, action: 'request' } : data;
+    // Unified passwordless flow: brand-signup 'request' emails a code to ANY address (new OR
+    // returning), and redeem_brand_signup at verify is create-or-login by email. This fixes both
+    // the signin tab (brand-account/login sent NOTHING for an unknown email) and the signup tab
+    // (whose code was created here but the verify step looked it up in the wrong table).
+    const endpoint = '/api/brand-signup';
+    const payload = { ...data, action: 'request' };
     const r = await fetch(endpoint, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -266,7 +268,7 @@ async function submit(action, data, btn, btnText) {
       _brl.addEventListener('click', (ev) => {
         ev.preventDefault();
         const last = window._lastBrandSend; if (!last) return;
-        _dhResend(_brl, () => fetch(last.action === 'signup' ? '/api/brand-signup' : '/api/brand-account?action=' + last.action, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(last.action === 'signup' ? { ...last.data, action:'request' } : last.data) }).catch(()=>{}));
+        _dhResend(_brl, () => fetch('/api/brand-signup', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...last.data, action:'request' }) }).catch(()=>{}));
       });
     }
   } catch (err) {
