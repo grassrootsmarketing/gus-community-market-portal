@@ -34,6 +34,10 @@ export const FLAGS = {
   // --- operational kill switches: also require exactly "true" (G0-C3) ---
   checkoutEnabled: exactTrue(process.env.CHECKOUT_ENABLED),
   coiUploadEnabled: exactTrue(process.env.COI_UPLOAD_ENABLED),
+  // Provisional holds / 24h escrow: book without a verified COI, funds are AUTHORIZED (held, not
+  // charged) and captured on confirm/verify within 24h, else the hold is cancelled. See
+  // docs/provisional-holds.md. Off = current hard-gate + immediate-charge behavior.
+  provisionalHolds: exactTrue(process.env.PROVISIONAL_HOLDS_ENABLED),
   brandInviteEnabled: exactTrue(process.env.BRAND_INVITE_ENABLED),
 };
 

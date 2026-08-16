@@ -122,6 +122,14 @@ export default async function handler(req, res) {
       'payment_intent_data[metadata][payment_group_id]': gid,
       'payment_intent_data[metadata][retailer_id]': retailerId,
     };
+    // Provisional holds (24h escrow): AUTHORIZE now, capture on confirm/verify within 24h, cancel on
+    // expiry. 24h < Stripe's ~7-day auth window, so a manual-capture hold is safe. Gated behind
+    // PROVISIONAL_HOLDS_ENABLED; off = immediate charge (current launch behavior). See
+    // docs/provisional-holds.md. Phase 1 of the build: holds ALL groups when on; Phase 2 will limit
+    // it to genuinely-provisional (unverified-COI) bookings and charge verified brands immediately.
+    if (FLAGS.provisionalHolds) {
+      params['payment_intent_data[capture_method]'] = 'manual';
+    }
     let idx = 0;
     for (const a of allocs) {
       const bk = bkById.get(a.booking_id) || {};
