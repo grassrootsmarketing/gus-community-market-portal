@@ -924,7 +924,7 @@ function updatePersistentCoiNudge() {
   const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
   banner.innerHTML = `<div style="display:flex; align-items:center; gap:14px; padding:16px 24px; background:#fff3ed; border-bottom:2px solid #ed682f55;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> Stores require proof of insurance to let you demo. Without a current one on file, your demos are <strong>at risk of cancellation</strong>. <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>. <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
   </div>`;
   banner.style.display = 'block';
 }
