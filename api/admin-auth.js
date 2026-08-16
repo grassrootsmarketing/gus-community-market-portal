@@ -969,7 +969,7 @@ export default async function handler(req, res) {
       }
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1046,12 +1046,17 @@ function randomToken(n = 32) {
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function ownerMagicLinkEmail(link) {
+function ownerMagicLinkEmail(link, code) {
+  const codeBlock = code ? `
+      <div style="font-size:13px;color:#6b6a64;margin:0 0 8px;">Your login code</div>
+      <div style="font-size:34px;font-weight:800;letter-spacing:0.18em;color:#0f2c17;font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;margin:0 0 16px;">${html(String(code))}</div>
+      <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 22px;">Enter it on the sign-in screen, or use the link below. Expires in 30 minutes.</p>`
+    : `<p style="font-size:15px;line-height:1.5;color:#3a3a36;margin:0 0 22px;">Click below to sign in to the Demohub owner panel. Link expires in 30 minutes.</p>`;
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,sans-serif;color:#1c1c1a;">
     <div style="max-width:480px;margin:0 auto;background:white;border-radius:14px;padding:32px;border:1px solid rgba(15,44,23,0.08);">
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:12px;">Owner sign in</div>
       <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:400;color:#0f2c17;margin:0 0 12px;">Open the owner panel</h1>
-      <p style="font-size:15px;line-height:1.5;color:#3a3a36;margin:0 0 22px;">Click below to sign in to the Demohub owner panel. Link expires in 30 minutes.</p>
+      ${codeBlock}
       <a href="${html(link)}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Sign in &rarr;</a>
     </div>
   </body></html>`;
@@ -1181,10 +1186,10 @@ async function handleOwnerAction(action, req, res, body) {
       diag.allowlisted = true;
       const ownerRetailerId = await ensureOwnerRetailerId();
       diag.system_retailer_id = ownerRetailerId;
-      let token = null;
+      let token = null; const code = generateLoginCode();
       if (ownerRetailerId) {
         try {
-          const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: ownerRetailerId }) });
+          const tokens = await sb('admin_tokens', { method: 'POST', body: JSON.stringify({ email, retailer_id: ownerRetailerId, code }) });
           diag.insert_ok = true;
           diag.insert_response = Array.isArray(tokens) ? tokens[0] : tokens;
           token = Array.isArray(tokens) ? tokens[0]?.token : null;
@@ -1198,7 +1203,7 @@ async function handleOwnerAction(action, req, res, body) {
       if (token) {
         const link = siteLink(_b, `/owner?token=${encodeURIComponent(token)}`);
         if (_b.resendApiKey) {
-          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link) }, { binding: _b });
+          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link, code) }, { binding: _b });
           diag.resend_ok = !!r.ok;
           if (!r.ok) diag.resend_error = r.code || 'mail_send_failed';
         } else {
@@ -1231,6 +1236,32 @@ async function handleOwnerAction(action, req, res, body) {
     if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
     // The OWNER cookie, max-age matching the 12-hour DB expiry above. Distinct from the retailer
     // cookie, so starting an impersonation no longer overwrites the owner's own session.
+    setRoleCookie(res, 'owner', session.session_id, OWNER_SESSION_MAX_AGE);
+    return res.status(200).json({ ok: true, email: tok.email });
+  }
+
+  // Parallel to owner-verify but keyed on the 6-digit code (consistent with the retailer admin
+  // login). Same 2x OWNER_EMAILS allowlist check, same 12h owner session + owner cookie — so the
+  // owner can type the code instead of clicking the magic link, which works in any window/device.
+  if (action === 'owner-verify-code') {
+    const email = String(body.email || '').trim().toLowerCase();
+    const code = String(body.code || '').replace(/\D/g, '').trim();
+    if (!email || code.length !== 6) return res.status(400).json({ error: 'Email and 6-digit code required' });
+    const rlIp = await checkRateLimit(req, 'owner-verify-code', 20);
+    const rlEmail = await checkRateLimitByKey('owner-verify-code-email:' + email.slice(0, 64), 10);
+    if (!rlIp.allowed || !rlEmail.allowed) return res.status(429).json({ error: 'Too many attempts. Try again in an hour.' });
+    if (!OWNER_EMAILS.includes(email)) return res.status(403).json({ error: 'Not authorised' });
+    const rows = await sb(`admin_tokens?email=eq.${encodeURIComponent(email)}&code=eq.${encodeURIComponent(code)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
+    const tok = Array.isArray(rows) ? rows[0] : null;
+    if (!tok) return res.status(404).json({ error: 'Invalid code' });
+    { const _e = Date.parse(String(tok.expires_at || '')); if (!Number.isFinite(_e) || _e <= Date.now()) return res.status(410).json({ error: 'Code expired' }); }
+    if (!OWNER_EMAILS.includes((tok.email || '').toLowerCase())) return res.status(403).json({ error: 'Not authorised' });
+    await sb(`admin_tokens?token=eq.${encodeURIComponent(tok.token)}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+    const ownerRetailerId = (await ensureOwnerRetailerId()) || tok.retailer_id;
+    const ownerExpires = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+    const sessions = await sb('admin_sessions', { method: 'POST', body: JSON.stringify({ email: tok.email, retailer_id: ownerRetailerId, expires_at: ownerExpires }) });
+    const session = Array.isArray(sessions) ? sessions[0] : null;
+    if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
     setRoleCookie(res, 'owner', session.session_id, OWNER_SESSION_MAX_AGE);
     return res.status(200).json({ ok: true, email: tok.email });
   }

@@ -200,6 +200,12 @@ function renderGate(msg) {
         <button type="submit" id="ownerLoginBtn">Send sign-in link</button>
         <div class="notice" id="ownerNotice"></div>
       </form>
+      <div id="ownerCodeSection" style="display:none; margin-top:16px;">
+        <label for="ownerCodeInput">Or enter the 6-digit code from the email</label>
+        <input id="ownerCodeInput" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="123456" autocomplete="one-time-code" style="letter-spacing:0.18em; text-align:center; font-family:'SF Mono',Menlo,Consolas,monospace;">
+        <button type="button" id="ownerCodeBtn">Verify &amp; sign in</button>
+        <div class="notice" id="ownerCodeNotice"></div>
+      </div>
     </div>`;
   document.getElementById('ownerLoginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -213,7 +219,34 @@ function renderGate(msg) {
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
       notice.className = 'notice success'; notice.style.display = 'block';
-      notice.textContent = 'If that address is on the owner allowlist, a sign-in link is on its way.';
+      notice.textContent = 'If that address is on the owner allowlist, a code + sign-in link are on their way.';
+      // Reveal the code path (consistent with the retailer admin). Typing the code works in any
+      // window/device, unlike the magic link which can open the wrong browser.
+      const codeSection = document.getElementById('ownerCodeSection');
+      if (codeSection) codeSection.style.display = 'block';
+      const codeBtn = document.getElementById('ownerCodeBtn');
+      const codeInput = document.getElementById('ownerCodeInput');
+      const codeNotice = document.getElementById('ownerCodeNotice');
+      if (codeBtn && !codeBtn.dataset.bound) {
+        codeBtn.dataset.bound = '1';
+        const submitCode = async () => {
+          const code = (codeInput.value || '').replace(/\D/g, '').trim();
+          codeNotice.className = 'notice'; codeNotice.style.display = 'none';
+          if (code.length !== 6) { codeNotice.className = 'notice error'; codeNotice.style.display = 'block'; codeNotice.textContent = 'Enter the 6-digit code.'; return; }
+          codeBtn.disabled = true; codeBtn.textContent = 'Verifying…';
+          try {
+            const rr = await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-verify-code', email, code }), credentials: 'same-origin' });
+            const jj = await rr.json().catch(() => ({}));
+            if (!rr.ok || !jj.ok) throw new Error(jj.error || 'That code did not work.');
+            location.reload();
+          } catch (err2) {
+            codeNotice.className = 'notice error'; codeNotice.style.display = 'block'; codeNotice.textContent = err2.message || 'Invalid code.';
+            codeBtn.disabled = false; codeBtn.textContent = 'Verify & sign in';
+          }
+        };
+        codeBtn.addEventListener('click', submitCode);
+        codeInput.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); submitCode(); } });
+      }
     } catch (err) {
       notice.className = 'notice error'; notice.style.display = 'block';
       notice.textContent = err.message;
