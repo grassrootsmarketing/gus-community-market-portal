@@ -1020,7 +1020,7 @@ return res.status(400).json({ error: 'Unknown action' });
 // Reuses admin_sessions + admin_tokens tables. Owner sessions have retailer_id = NULL.
 // ============================================================
 const OWNER_EMAILS = ['david@demohubhq.com', 'davidmichaelheiser@gmail.com'];
-const TIER_PRICES = { free: 0, starter: 79, growth: 199, enterprise: 499 };
+const TIER_PRICES = { free: 0, solo: 0, starter: 0, growth: 0, pro: 29.99, enterprise: 499 };
 
 // Ensures a sentinel "system" retailer exists for owner tokens/sessions
 // (works around admin_tokens.retailer_id and admin_sessions.retailer_id being NOT NULL)
@@ -1081,10 +1081,10 @@ async function computeOwnerMetrics() {
   // Each query wrapped: if table/column missing, default to [] instead of failing the whole metrics
   const safeQuery = async (q) => { try { return await sb(q); } catch (e) { console.error('owner metrics query failed:', q, e?.message); return []; } };
   const [retailers, brands, demos, bookings, settings] = await Promise.all([
-    safeQuery(`retailers?select=id,name,slug,created_at,logo_url,billing_email`),
+    safeQuery(`retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id`),
     safeQuery(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
     safeQuery(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
-    safeQuery(`bookings?select=id,retailer_id,brand_id,status,created_at`),
+    safeQuery(`bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at`),
     // settings has neither billing_tier nor price_per_demo. demo_fee is the real per-demo
     // price column; tier lives on retailers. safeQuery swallowed the 400, so this row of the
     // owner metrics silently contributed nothing.
@@ -1109,18 +1109,28 @@ async function computeOwnerMetrics() {
   const demosLastMonth = demos.filter(d => (d.demo_date || '').slice(0, 7) === lastMonth).length;
   const demosDeltaPct = demosLastMonth === 0 ? (demosThisMonth > 0 ? 100 : 0) : Math.round(((demosThisMonth - demosLastMonth) / demosLastMonth) * 100);
 
-  const settingsByRetailer = {}; settings.forEach(s => { settingsByRetailer[s.retailer_id] = s; });
-  const tierCounts = { free: 0, starter: 0, growth: 0, enterprise: 0 };
-  let mrrSubs = 0;
+  // Real tiers are solo/pro/enterprise (solo = free). Only ACTIVE paid subscriptions count toward
+  // MRR — a comped Pro retailer (pro tier, no active subscription) is not recurring revenue.
+  const tierCounts = { solo: 0, pro: 0, enterprise: 0 };
+  let mrrSubs = 0, paidRetailers = 0;
   retailers.forEach(r => {
-    const tier = ((settingsByRetailer[r.id]?.billing_tier) || r.billing_tier || 'free').toLowerCase();
+    let tier = (r.billing_tier || 'solo').toLowerCase();
+    if (tier === 'free') tier = 'solo';
     if (tier in tierCounts) tierCounts[tier]++;
-    mrrSubs += TIER_PRICES[tier] || 0;
+    const st = (r.billing_status || '').toLowerCase();
+    const active = st === 'active' || st === 'trialing';
+    if (active && (TIER_PRICES[tier] || 0) > 0) { mrrSubs += TIER_PRICES[tier]; paidRetailers++; }
   });
-  const perDemoRev = demos
-    .filter(d => (d.demo_date || '').slice(0, 7) === thisMonth && (d.status === 'confirmed' || d.status === 'completed'))
-    .reduce((s, d) => s + ((parseFloat(d.demo_fee) || 0) / 10), 0);
-  const mrrProjection = Math.round(mrrSubs + perDemoRev);
+  const conversionPct = totalRetailers > 0 ? Math.round((paidRetailers / totalRetailers) * 1000) / 10 : 0;
+  // GMV = demo fees processed on PAID bookings; platform revenue = flat $5/booking service fee.
+  const PLATFORM_FEE = 5;
+  const paidBookings = bookings.filter(b => b.payment_status === 'paid');
+  const paidThisMonth = paidBookings.filter(b => (b.paid_at || '').slice(0, 7) === thisMonth);
+  const gmvMonth = paidThisMonth.reduce((s, b) => s + (Number(b.amount_paid || 0) / 100), 0);
+  const gmvAll = paidBookings.reduce((s, b) => s + (Number(b.amount_paid || 0) / 100), 0);
+  const platformFeeMonth = paidThisMonth.length * PLATFORM_FEE;
+  const takeRatePct = (gmvMonth + platformFeeMonth) > 0 ? Math.round((platformFeeMonth / (gmvMonth + platformFeeMonth)) * 1000) / 10 : 0;
+  const mrrProjection = Math.round(mrrSubs);
 
   const months = [];
   for (let i = 11; i >= 0; i--) {
@@ -1165,7 +1175,7 @@ async function computeOwnerMetrics() {
 
   return {
     generated_at: new Date().toISOString(),
-    headline: { total_retailers: totalRetailers, active_retailers_30d: activeRetailers30d, total_brands: totalBrands, demos_this_month: demosThisMonth, demos_last_month: demosLastMonth, demos_delta_pct: demosDeltaPct, mrr_projection: mrrProjection, mrr_subs: Math.round(mrrSubs), mrr_per_demo: Math.round(perDemoRev), tier_counts: tierCounts },
+    headline: { total_retailers: totalRetailers, active_retailers_30d: activeRetailers30d, total_brands: totalBrands, demos_this_month: demosThisMonth, demos_last_month: demosLastMonth, demos_delta_pct: demosDeltaPct, mrr_subs: Math.round(mrrSubs * 100) / 100, mrr_projection: mrrProjection, paid_retailers: paidRetailers, conversion_pct: conversionPct, gmv_month: Math.round(gmvMonth * 100) / 100, gmv_all: Math.round(gmvAll * 100) / 100, take_rate_pct: takeRatePct, tier_counts: tierCounts },
     trends: { retailer_signups: retailerSignups, brand_signups: brandSignups, demos_per_month: demosPerMonth },
     tables: { top_retailers: topRetailers, top_brands: topBrands, pending_stuck: pendingStuck },
     watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands },

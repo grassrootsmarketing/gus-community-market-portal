@@ -475,9 +475,31 @@ function renderDashboard(d) {
         ${deltaPill(h.demos_delta_pct)}
       </div>
       <div class="stat">
-        <div class="stat-lbl">Est. MRR</div>
-        <div class="stat-num" data-count="${h.mrr_projection || 0}" data-prefix="$">$0</div>
-        <div class="stat-sub">subs $${(h.mrr_subs || 0).toLocaleString()} · per-demo $${(h.mrr_per_demo || 0).toLocaleString()}</div>
+        <div class="stat-lbl">Subscription MRR</div>
+        <div class="stat-num" data-count="${Math.round(h.mrr_subs || 0)}" data-prefix="$">$0</div>
+        <div class="stat-sub">${h.paid_retailers || 0} paying · ${h.conversion_pct || 0}% of retailers</div>
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-lbl">GMV · this month</div>
+        <div class="stat-num" data-count="${Math.round(h.gmv_month || 0)}" data-prefix="$">$0</div>
+        <div class="stat-sub">$${(h.gmv_all || 0).toLocaleString()} all-time</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Take rate</div>
+        <div class="stat-num">${h.take_rate_pct || 0}%</div>
+        <div class="stat-sub">$5 service fee per demo</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Solo → Pro conversion</div>
+        <div class="stat-num">${h.conversion_pct || 0}%</div>
+        <div class="stat-sub">${h.paid_retailers || 0} of ${h.total_retailers || 0} on a paid plan</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl">Plan mix</div>
+        <div class="stat-num" style="font-size:1.35rem;">${(h.tier_counts && h.tier_counts.solo) || 0} · ${(h.tier_counts && h.tier_counts.pro) || 0} · ${(h.tier_counts && h.tier_counts.enterprise) || 0}</div>
+        <div class="stat-sub">Solo · Pro · Enterprise</div>
       </div>
     </div>`;
 
