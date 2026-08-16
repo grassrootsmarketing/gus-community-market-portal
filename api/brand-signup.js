@@ -138,6 +138,23 @@ export default async function handler(req, res) {
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
 
+  // Cross-role guard: one email = one role. An address already registered as a RETAILER cannot
+  // also become a brand. This restores the check orphaned when brand signup moved off the
+  // (now-dead) brand-account/booking-signup path; it runs for BOTH request and verify so a brand
+  // account is never created for a retailer's email. Fail-open on lookup error so a transient
+  // Supabase blip doesn't block legitimate signups.
+  try {
+    const rr = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?billing_email=eq.${encodeURIComponent(email)}&select=id&limit=1`, {
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
+    });
+    if (rr.ok) {
+      const rows = await rr.json();
+      if (Array.isArray(rows) && rows.length) {
+        return res.status(409).json({ error: 'already_retailer', message: 'This email is registered as a retailer. Use a different email for your brand account.' });
+      }
+    }
+  } catch (_) { /* fail-open */ }
+
   if (action === 'request') {
     // Codex finding A: the REQUEST stage creates only a verification challenge. Nothing about
     // the brand, its profile, its membership or a session is written here. The old reachable
