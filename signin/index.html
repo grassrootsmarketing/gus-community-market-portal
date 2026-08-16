@@ -160,6 +160,12 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
     .page-hero-wrap .hero { padding:36px 20px 60px !important; }
     .page-hero-wrap .hero h1 { font-size:clamp(2.2rem, 9vw, 3.4rem) !important; }
 }
+/* Recognized-user path hides the 2-card grid, leaving only a small "Continue" card — shrink the
+   hero so that card sits near the top instead of below a massive empty upper space. */
+.page-hero-wrap.compact .hero { padding:34px 24px 40px !important; }
+.page-hero-wrap.compact .hero h1 { font-size:clamp(2.2rem, 4vw, 3.2rem) !important; margin-bottom:10px !important; }
+.page-hero-wrap.compact .hero .lede,
+.page-hero-wrap.compact .hero p { font-size:1.02rem !important; }
 
 </style>
 
@@ -509,6 +515,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.eyebrow').style.display = 'none';
     document.querySelector('h1').textContent = 'Welcome back';
     document.querySelector('.lede').textContent = 'Continue where you left off, or switch accounts.';
+    { const hw = document.querySelector('.page-hero-wrap'); if (hw) hw.classList.add('compact'); }
     document.getElementById('recognizedAvatar').textContent = (last.name || last.email || '?').trim().charAt(0).toUpperCase();
     document.getElementById('recognizedName').textContent = last.name || last.email.split('@')[0];
     document.getElementById('recognizedEmail').textContent = last.email;
