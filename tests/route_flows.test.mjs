@@ -46,7 +46,8 @@ let ownerRetailerId, retailerId, venueId, brandId, retailerSlug;
     email_normalized: `staff-${retailerSlug}@fixture.test`, name: 'Route Staff', role: 'admin' }) });
 
   brandId = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
-    email: `${uniq('brand')}@fixture.test`, company_name: 'Route Brand', is_verified: true }) })).body[0].id);
+    email: `${uniq('brand')}@fixture.test`, company_name: 'Route Brand', is_verified: true,
+    contact_name: 'Route Contact', phone: '555-0100' }) })).body[0].id);
 }
 
 // ---------------------------------------------------------------------------
@@ -490,7 +491,7 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   // A brand of its own, so section 6's fixture patch cannot mask anything here.
   const revEmail = `${uniq('coi')}@fixture.test`;
   const revBrandId = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
-    email: revEmail, company_name: 'COI Review Co' }) })).body[0].id);
+    email: revEmail, company_name: 'COI Review Co', contact_name: 'Review Contact', phone: '555-0101' }) })).body[0].id);
   // Establish the session the way section 5 does -- mint a magic-link token, then let the
   // ROUTE issue the cookie. My first attempt inserted straight into brand_account_sessions,
   // which returned nothing and threw "Cannot read properties of undefined". Fabricating a
@@ -712,7 +713,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // A brand with an APPROVED certificate, signed in through the real verify route.
   const payEmail = `${uniq('pay')}@fixture.test`;
   const payBrand = track('brands', (await db('brands', { method: 'POST', body: JSON.stringify({
-    email: payEmail, company_name: 'Paying Brand',
+    email: payEmail, company_name: 'Paying Brand', contact_name: 'Pay Contact', phone: '555-0102',
     default_coi_url: 'brands/paying.pdf', default_coi_expires: dayP(400),
     coi_verification_status: 'approved' }) })).body[0].id);
   const payTok = (await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({
