@@ -23,11 +23,26 @@
 BEGIN;
 
 -- ============================================================ 1. widen status CHECKs
-ALTER TABLE payment_groups DROP CONSTRAINT IF EXISTS payment_groups_status_check;
+-- Drop the existing status CHECK by DEFINITION, not by assumed name — if the inline-check name ever
+-- differed, a name-targeted DROP would silently no-op and the old (narrower) constraint would keep
+-- rejecting 'authorized'. On both tables the status check is the only CHECK whose definition
+-- mentions the status column.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.payment_groups'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%status%'
+  LOOP EXECUTE format('ALTER TABLE public.payment_groups DROP CONSTRAINT %I', r.conname); END LOOP;
+  FOR r IN SELECT conname FROM pg_constraint
+    WHERE conrelid = 'public.payment_attempts'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%status%'
+  LOOP EXECUTE format('ALTER TABLE public.payment_attempts DROP CONSTRAINT %I', r.conname); END LOOP;
+END $$;
+
 ALTER TABLE payment_groups ADD CONSTRAINT payment_groups_status_check
   CHECK (status IN ('pending','session_created','authorized','paid','partially_refunded','refunded','failed','frozen','auth_canceled'));
 
-ALTER TABLE payment_attempts DROP CONSTRAINT IF EXISTS payment_attempts_status_check;
 ALTER TABLE payment_attempts ADD CONSTRAINT payment_attempts_status_check
   CHECK (status IN ('open','authorized','expired','paid','failed','canceled'));
 

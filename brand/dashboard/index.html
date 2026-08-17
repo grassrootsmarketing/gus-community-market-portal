@@ -112,6 +112,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .demos-status.pending { background:#fff3d6; color:#a16928; }
 .demos-status.completed { background:#e8e6e1; color:var(--ink-700); }
 .demos-status.cancelled { background:#fae5e0; color:var(--clay-700); }
+.demos-status.held { background:#fff0e6; color:#b4531f; }
+.held-banner { display:flex; gap:10px; align-items:flex-start; background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:12px 14px; margin:6px 0 10px; font-size:0.88rem; line-height:1.5; color:#a14e2a; }
+.held-banner a { color:#a14e2a; font-weight:700; }
 .empty-state { padding:28px 0; text-align:center; color:var(--ink-500); font-size:0.92rem; }
 
 /* ===== Calendar view ===== */
@@ -674,17 +677,23 @@ async function loadData() {
     // rows, so a brand who just paid sees their demo right away instead of a blank page.
     if (_data && Array.isArray(_data.pending_bookings) && _data.pending_bookings.length) {
       const _pb = _data.pending_bookings.map(function (b) {
+        // Provisional holds: a 'held' booking = card authorized (NOT charged) while the COI is
+        // verified within 24h. Rendered with its own badge + "upload your COI" nudge.
+        const isHeld = b.status === 'held';
         return {
           id: 'pb_' + b.id,
           demo_date: b.demo_date,
           demo_time: b.demo_time,
-          status: 'pending',
+          status: isHeld ? 'held' : 'pending',
           product: b.product,
           product_skus: Array.isArray(b.product_skus) ? b.product_skus : null,
           retailers: b.retailers,
           venues: b.venues,
           demo_fee: null,
-          _awaitingConfirmation: true,
+          _awaitingConfirmation: !isHeld,
+          _held: isHeld,
+          _heldUnpaid: isHeld && b.payment_status !== 'authorized',
+          _heldExpires: b.held_expires_at || null,
         };
       });
       _data.demos = _pb.concat(_data.demos || []);
@@ -764,6 +773,19 @@ function markChecklistDone(key) {
 // "something broke" rather than "you finished". Confirm, then fade.
 // Reschedule proposal banner shown on a demo when the retailer wants a new date.
 // The brand accepts (moves the demo) or declines (keeps the original) in one click.
+// Provisional hold: card authorized but NOT charged; the slot is only locked in once the COI is
+// approved (and the store confirms). Deadline comes from held_expires_at (24h from authorization).
+function heldBannerHtml(d) {
+  let deadline = '';
+  if (d._heldExpires) {
+    try { deadline = new Date(d._heldExpires).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); } catch (_) {}
+  }
+  const msg = d._heldUnpaid
+    ? `This slot is held but checkout was not completed &mdash; finish payment from the store's booking page to keep it.`
+    : `Your card has a temporary hold &mdash; <strong>you have not been charged</strong>. Upload your Certificate of Insurance${deadline ? ' by <strong>' + deadline + '</strong>' : ' within 24 hours'} to lock in this demo, or the hold is released automatically.`;
+  return `<div class="held-banner"><div style="font-weight:800;">&#9203;</div><div>${msg}${d._heldUnpaid ? '' : ' <a href="#compliance">Upload COI &rarr;</a>'}</div></div>`;
+}
+
 function rescheduleBannerHtml(d) {
   const _fmt = function (dt, tm) {
     if (!dt) return '';
@@ -1133,8 +1155,8 @@ function renderOverview() {
             <div class="demos-venue">${escapeHtml(d.venues?.name || '')} · ${escapeHtml(d.demo_time || '')}</div>
             ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
-          <div class="demos-status ${d.status}">${d._awaitingConfirmation ? "Awaiting confirmation" : d.status}</div>
-        </div>${d.reschedule_to_date ? rescheduleBannerHtml(d) : ''}`;
+          <div class="demos-status ${d.status}">${d._held ? 'Slot held' : (d._awaitingConfirmation ? "Awaiting confirmation" : d.status)}</div>
+        </div>${d._held ? heldBannerHtml(d) : ''}${d.reschedule_to_date ? rescheduleBannerHtml(d) : ''}`;
       }).join('')}
     </div>`;
 
@@ -2122,9 +2144,16 @@ function renderAccount() {
     const n = parseInt(bp.get('booked'), 10) || 0;
     const banner = document.createElement('div');
     banner.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:9998;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
-    banner.textContent = n > 1
-      ? `You're booked. ${n} demos are confirmed \u2014 welcome to your dashboard.`
-      : "You're booked. Welcome to your dashboard \u2014 everything for your demo lives here.";
+    // held=1: this checkout placed a HOLD (card authorized, not charged) \u2014 the demo locks in once
+    // the COI is uploaded + approved within 24h. Don't say "booked/confirmed" for a hold.
+    if (bp.has('held')) {
+      banner.style.background = 'linear-gradient(135deg,#c2601f 0%,#a14e2a 100%)';
+      banner.innerHTML = 'Your slot is held \u2014 your card has <u>not</u> been charged. Upload your COI within 24 hours to lock it in.';
+    } else {
+      banner.textContent = n > 1
+        ? `You're booked. ${n} demos are confirmed \u2014 welcome to your dashboard.`
+        : "You're booked. Welcome to your dashboard \u2014 everything for your demo lives here.";
+    }
     document.body.insertBefore(banner, document.body.firstChild);
     setTimeout(() => { banner.style.transition = 'opacity .6s ease'; banner.style.opacity = '0'; setTimeout(() => banner.remove(), 700); }, 6000);
     history.replaceState({}, '', location.pathname + location.hash);

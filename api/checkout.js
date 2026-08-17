@@ -127,7 +127,7 @@ export default async function handler(req, res) {
       // limit and break checkout for large carts. Fulfilment resolves allocations from the ledger
       // by payment_group_id; only a non-sensitive count is kept for at-a-glance dashboards.
       'metadata[booking_count]': String(bookings.length),
-      success_url: `${_b.siteOrigin}/r/${slug}/?paid=1&bookings=${bookings.map(b => b.id).join(',')}`,
+      success_url: `${_b.siteOrigin}/r/${slug}/?paid=1${provisionalCart ? '&held=1' : ''}&bookings=${bookings.map(b => b.id).join(',')}`,
       cancel_url: `${_b.siteOrigin}/r/${slug}/?cancelled=1`,
       'payment_intent_data[metadata][payment_group_id]': gid,
       'payment_intent_data[metadata][retailer_id]': retailerId,

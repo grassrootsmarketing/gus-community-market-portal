@@ -642,7 +642,10 @@ export default async function handler(req, res) {
         // Paid bookings the retailer has not confirmed yet. Without these a brand who just
         // paid sees an empty dashboard until the store acts on it (a demo row only exists
         // after confirmation). Surfacing them closes that blind window.
-        sb(`bookings?brand_id=eq.${brandId}&status=eq.pending&payment_status=eq.paid&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
+        // Provisional holds: 'held' bookings (card authorized, not charged, awaiting COI approval)
+        // ride along with their payment_status + 24h deadline so the dashboard can show the
+        // "upload your COI" state instead of a blank page.
+        sb(`bookings?brand_id=eq.${brandId}&or=(and(status.eq.pending,payment_status.eq.paid),status.eq.held)&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,payment_status,held_expires_at,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
       // select=* above is deliberate — the client reads fifteen-odd columns and enumerating them
       // here is how one silently goes missing later. But `*` on brands also ships password_hash
@@ -660,7 +663,9 @@ export default async function handler(req, res) {
       const contacts = await contactsR.json();
       let pending_bookings = [];
       try { pending_bookings = await pendingR.json(); } catch (_) {}
-      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings });
+      // provisional_holds tells the booking page whether an unverified-COI brand may proceed
+      // (server gate in api/book.js stays authoritative either way).
+      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings, provisional_holds: FLAGS.provisionalHolds });
     }
 
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====

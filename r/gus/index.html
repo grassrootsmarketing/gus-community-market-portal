@@ -657,7 +657,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     // SEAMLESS: the brand is signed in (cookie set at booking), so drop them straight
                     // into their dashboard instead of showing an interstitial card. The dashboard shows
                     // a welcome/confirmation banner via ?booked=N. Maximum booking→product stickiness.
-                    window.location.assign('/brand/dashboard?booked=' + (bookingIds.length || 0));
+                    window.location.assign('/brand/dashboard?booked=' + (bookingIds.length || 0) + (p.has('held') ? '&held=1' : ''));
                     return;
                 } else if (p.has('cancelled')) {
                     showCancelledBanner();
@@ -689,6 +689,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             return String(bp.default_coi_expires).slice(0, 10) >= latest;
         }
 
+        // A signed-in brand booking WITHOUT an approved COI while provisional holds are on:
+        // allowed to proceed — card is held (authorized), not charged, 24h to get approved.
+        function _provisionalBooking() {
+            return !!window._provisionalHolds && !!window._brandProfile && !_brandCoiOk();
+        }
+
         // Shows/hides the inline uploader. Returns true when booking may proceed.
         function _updateBookCoiGate() {
             const grp = document.getElementById('bookCoiGroup');
@@ -696,6 +702,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const signedIn = !!window._brandProfile;
             const ok = signedIn ? _brandCoiOk() : true;   // not signed in yet: signup happens first
             grp.style.display = (signedIn && !ok) ? 'block' : 'none';
+            if (signedIn && !ok && window._provisionalHolds) {
+                // Provisional path: the uploader stays visible (uploading now is still the best
+                // move) but booking is NOT blocked — explain the hold instead.
+                const msg = document.getElementById('bookCoiMsg');
+                if (msg) msg.innerHTML = 'No approved Certificate of Insurance on file yet — you can still book. Your card gets a <strong>temporary hold (not a charge)</strong> and the slot is yours once your COI is uploaded and approved within <strong>24 hours</strong>; otherwise the hold is released automatically and you pay nothing.';
+                return true;
+            }
             if (signedIn && !ok) {
                 const bp = window._brandProfile;
                 const msg = document.getElementById('bookCoiMsg');
@@ -1596,6 +1609,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }
+            // Provisional (insurance-pending) bookings check out one at a time — the hold and its
+            // release act on the whole payment, so a held booking never shares a cart (server
+            // enforces this too: provisional_checkout_single_only).
+            if (_provisionalBooking() && cart.length > 1) {
+                errMsg.innerHTML = 'While your insurance is pending you can hold <strong>one demo slot at a time</strong>. Book this slot, upload your COI, and the rest unlock as soon as it\'s approved.';
+                errMsg.style.display = 'block';
+                return;
+            }
 
             // Verified signup/login required before booking (LG-02: no inline unverified claim).
             // Refresh session first in case they signed in in another tab.
@@ -1941,6 +1962,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     if (j && j.profile) {
                         window._brandProfile = j.profile;
                     }
+                    // Provisional holds (24h escrow): when on, an unverified-COI brand may book —
+                    // card is AUTHORIZED (held), not charged, with 24h to get the COI approved.
+                    window._provisionalHolds = !!(j && j.provisional_holds);
                 }
             } catch (e) { /* silent */ }
             renderBrandAuthUi();
