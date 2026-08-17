@@ -36,10 +36,14 @@ export async function runFulfillment(row, owner) {
   const bookingId = row.booking_id;
   let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
   try {
-    // 1. status transition (idempotent — only moves a still-pending_payment booking)
-    await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&status=eq.pending_payment`, {
-      method: 'PATCH', body: JSON.stringify({ status: row.target_status || 'pending' }),
-    });
+    // 1. status transition (idempotent — only moves a booking still awaiting this promotion).
+    // Provisional holds: a captured hold is promoted FROM 'held'; target 'held' itself is a no-op
+    // transition (the booking is already held — this row only exists to send the hold email).
+    if (row.target_status !== 'held') {
+      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&status=in.(pending_payment,held)`, {
+        method: 'PATCH', body: JSON.stringify({ status: row.target_status || 'pending' }),
+      });
+    }
 
     // 2. demo + emails via the webhook module's shared helpers
     const wh = await import('./stripe-webhook.js');
@@ -49,11 +53,17 @@ export async function runFulfillment(row, owner) {
 
     if (!demoOk) {
       if (row.target_status === 'confirmed') { await wh.createDemoForConfirmedBooking(ctx); demoOk = true; }
-      else demoOk = true;   // non-auto-confirm retailers materialise the demo on manual confirm
+      else demoOk = true;   // non-auto-confirm retailers materialise the demo on manual confirm; 'held' has no demo
     }
     if (!mailOk) {
-      if (ctx.contact_email) { await wh.sendPromotionEmails(ctx, bookingId); mailOk = true; }
-      else mailOk = true;
+      if (!ctx.contact_email) { mailOk = true; }
+      else if (row.target_status === 'held') {
+        const { sendHoldPlacedEmail } = await import('./_provisional.js');
+        await sendHoldPlacedEmail(ctx);   // throws on failure -> outbox retries
+        mailOk = true;
+      } else {
+        await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;
+      }
     }
   } catch (e) {
     err = String((e && e.message) || e).slice(0, 300);

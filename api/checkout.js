@@ -52,10 +52,20 @@ export default async function handler(req, res) {
 
   try {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
-    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email`);
+    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status`);
     if (!Array.isArray(bookings) || bookings.length === 0) return res.status(404).json({ error: 'booking_not_found' });
     // exact requested==returned set (Codex): no silent partial
     if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
+
+    // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
+    // the whole PaymentIntent, so a held booking can never share a Session with anything else —
+    // mixed or multi-booking held carts are rejected, and manual capture is applied ONLY to a held
+    // cart (verified brands keep the immediate charge even with the flag on).
+    const heldCount = bookings.filter(b => b.status === 'held').length;
+    const provisionalCart = heldCount > 0;
+    if (provisionalCart && (heldCount !== bookings.length || bookings.length !== 1)) {
+      return res.status(400).json({ error: 'provisional_checkout_single_only' });
+    }
 
     const retailerId = bookings[0].retailer_id;
     const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,platform_keeps_all`);
@@ -125,9 +135,9 @@ export default async function handler(req, res) {
     // Provisional holds (24h escrow): AUTHORIZE now, capture on confirm/verify within 24h, cancel on
     // expiry. 24h < Stripe's ~7-day auth window, so a manual-capture hold is safe. Gated behind
     // PROVISIONAL_HOLDS_ENABLED; off = immediate charge (current launch behavior). See
-    // docs/provisional-holds.md. Phase 1 of the build: holds ALL groups when on; Phase 2 will limit
-    // it to genuinely-provisional (unverified-COI) bookings and charge verified brands immediately.
-    if (FLAGS.provisionalHolds) {
+    // docs/provisional-holds.md. Manual capture applies ONLY to a held (unverified-COI) cart —
+    // verified brands are charged immediately exactly as before.
+    if (FLAGS.provisionalHolds && provisionalCart) {
       params['payment_intent_data[capture_method]'] = 'manual';
     }
     let idx = 0;

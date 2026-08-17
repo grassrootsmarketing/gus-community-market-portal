@@ -10,6 +10,8 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { coiCovered } from './_coi-coverage.js';
+import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -117,7 +119,7 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
-${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed &mdash; typically within 5&ndash;10 business days.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
+${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed &mdash; typically within 5&ndash;10 business days.</p>` : refundStatus === 'auth_released' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your card was never charged.</strong> The temporary hold has been released &mdash; depending on your bank it can take a few business days to drop off your statement.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="${link(_b, '/r/gus')}" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
@@ -128,6 +130,8 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed &mdash; typically within 5&ndash;10 business days.</p>'
+    : refundStatus === 'auth_released'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged &mdash; the temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
     : refundStatus === 'pending_manual'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
     : refundStatus === 'not_paid'
@@ -330,14 +334,48 @@ export default async function handler(req, res) {
     } catch (_) { return res.status(404).json({ error: 'Booking not found' }); }
     const booking = Array.isArray(bookings) ? bookings[0] : null;
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    // Provisional holds: a 'held' booking (auth placed, not captured) can be confirmed (captures
+    // the payment — COI must be approved first), declined, or cancelled (releases the hold, $0).
     if (action === 'cancel') {
-      if (!['pending', 'confirmed'].includes(booking.status)) {
+      if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
       }
-    } else if (booking.status !== 'pending') {
+    } else if (!['pending', 'held'].includes(booking.status)) {
       return res.status(409).json({ error: 'Booking already ' + booking.status });
     }
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+
+    // ===== Confirming a HELD booking = capture the authorization first =====
+    // Requires the auth to exist AND the brand's COI to be approved — capture is the moment the
+    // brand is actually charged, and the whole point of the hold is "no charge until insured".
+    // Capture -> apply_verified_payment (sync; the webhook replay is idempotent) -> outbox drain
+    // promotes held -> 'pending' + sends the payment email; the normal confirm flow below then
+    // finishes pending -> 'confirmed' with demo + confirmation email, exactly like a paid booking.
+    if (action === 'confirm' && booking.status === 'held') {
+      if (booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
+        return res.status(409).json({ error: 'hold_not_authorized', message: 'The brand has not completed checkout for this hold yet — there is nothing to charge. Ask them to finish payment, or decline to free the slot.' });
+      }
+      let brandRow = null;
+      try {
+        const br = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=default_coi_url,default_coi_expires,coi_verification_status`);
+        brandRow = Array.isArray(br) ? br[0] : null;
+      } catch (_) {}
+      const cov = coiCovered(brandRow || {}, booking.demo_date);
+      if (!cov.covered) {
+        return res.status(409).json({ error: 'coi_pending', reason: cov.reason, message: 'This brand\'s Certificate of Insurance is not approved yet. Approve their COI first (or decline the booking) — confirming is what charges their card.' });
+      }
+      const capd = await captureHeldBooking(booking);
+      if (!capd.ok) {
+        console.error('held-capture failed:', capd.stage, capd.error, booking_id);
+        if (capd.stage === 'capture' || capd.stage === 'verify') {
+          return res.status(502).json({ error: 'capture_failed', message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
+        }
+        return res.status(500).json({ error: 'capture_apply_failed', detail: capd.error, case_id: capd.case_id });
+      }
+      // fall through to the normal confirm flow with the promoted state
+      booking.status = 'pending';
+      booking.payment_status = 'paid';
+    }
 
     // Race check at confirmation
     if (action === 'confirm') {
@@ -365,7 +403,20 @@ export default async function handler(req, res) {
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
-    if (action === 'decline') {
+    // Provisional holds: declining/cancelling a held booking with a live authorization RELEASES the
+    // hold (cancel the PI — $0 charged, $0 Stripe fee), never refunds. The RPC inside flips the
+    // booking to declined/cancelled; the email below carries the "never charged" copy.
+    const wasAuthorized = booking.status === 'held' && booking.payment_status === 'authorized' && booking.payment_intent_id;
+    if ((action === 'decline' || action === 'cancel') && wasAuthorized) {
+      const rel = await releaseHeldBooking(booking, {
+        target: action === 'decline' ? 'declined' : 'cancelled',
+        reason: 'retailer_' + action, notify: false,
+      });
+      if (!rel.ok) {
+        return res.status(502).json({ error: 'auth_release_failed', message: 'Could not release the payment hold: ' + rel.error + '. The booking was left as-is — retry in a moment.' });
+      }
+      refundStatus = 'auth_released';
+    } else if (action === 'decline') {
       // Declining an un-hosted demo ALWAYS refunds in full. The retailer chose not to host
       // it; the brand did nothing wrong, so we never keep their money. (Distinct from cancel,
       // which can respect a cancellation policy / cutoff.)

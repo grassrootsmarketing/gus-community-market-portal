@@ -52,8 +52,27 @@ export default async function handler(req, res) {
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
     payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
-  const r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
-  if (!r.ok) { const t = await r.text(); if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' }); return res.status(500).json({ error: 'booking_failed' }); }
+  let r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
+  if (!r.ok) {
+    let t = await r.text();
+    // Slot contention (provisional holds): a VERIFIED brand booking a full slot may bump a 'held'
+    // provisional hold — insured/confirmed beats provisional by design (the held brand was told so
+    // in the hold email). Bump = release the newest hold (cancel auth, 'expired', notify) and retry.
+    // Provisional bookers never bump anyone.
+    if (t.includes('slot_full') && FLAGS.provisionalHolds && cov.covered) {
+      const { releaseHeldBooking } = await import('./_provisional.js');
+      for (let attempt = 0; attempt < 3 && !r.ok && t.includes('slot_full'); attempt++) {
+        const held = await rest(`bookings?venue_id=eq.${encodeURIComponent(venue.id)}&demo_date=eq.${encodeURIComponent(body.demo_date)}&demo_time=eq.${encodeURIComponent(body.demo_time)}&status=eq.held&select=id,status,payment_status,payment_intent_id,contact_email&order=created_at.desc&limit=1`);
+        const victim = held.ok ? (await held.json())[0] : null;
+        if (!victim) break;
+        const rel = await releaseHeldBooking(victim, { target: 'expired', reason: 'bumped_by_verified_booking', notify: true, bumped: true });
+        if (!rel.ok) { console.warn('contention bump failed for', victim.id, rel.error); break; }
+        r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
+        if (!r.ok) t = await r.text();
+      }
+    }
+    if (!r.ok) { if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' }); return res.status(500).json({ error: 'booking_failed' }); }
+  }
   const booking = (await r.json())[0];
   return res.status(200).json({ ok: true, booking_id: booking.id, next: 'checkout' });
 }

@@ -469,6 +469,49 @@ async function handleRefundEvent(event) {
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
   if (pi.metadata && pi.metadata.payment_group_id) {
+    // Provisional holds: for a manual-capture group, checkout.session.completed already fired at
+    // AUTHORIZATION time, so this event is the only signed signal that the CAPTURE happened. If the
+    // attempt's group is sitting at 'authorized', apply the verified payment now (same RPC + outbox
+    // as the immediate-charge path — the session id comes from the durable attempt binding).
+    // Any other group state keeps the R10 rule: defer to checkout.session.completed.
+    try {
+      const atts = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(pi.id)}&select=stripe_checkout_session_id,payment_group_id,status&order=created_at.desc&limit=1`);
+      const att = Array.isArray(atts) ? atts[0] : null;
+      if (att && att.stripe_checkout_session_id) {
+        const grpRows = await sb(`payment_groups?id=eq.${encodeURIComponent(att.payment_group_id)}&select=status`);
+        const grp = Array.isArray(grpRows) ? grpRows[0] : null;
+        if (grp && grp.status === 'authorized') {
+          const full = await stripeGetPaymentIntent(pi.id);
+          if (!full) throw new Error('cannot retrieve PaymentIntent ' + pi.id);   // retryable
+          const charge = (full.latest_charge && typeof full.latest_charge === 'object') ? full.latest_charge : null;
+          const chargeId = charge ? charge.id : (typeof full.latest_charge === 'string' ? full.latest_charge : null);
+          const applied = await sbRpc('apply_verified_payment', {
+            p_session_id: att.stripe_checkout_session_id, p_payment_intent: full.id, p_charge: chargeId,
+            p_amount: full.amount_received != null ? full.amount_received : full.amount,
+            p_currency: full.currency,
+            p_connect_dest: (charge && charge.destination) || full.on_behalf_of || null,
+            p_on_behalf_of: full.on_behalf_of || null,
+            p_application_fee: (charge && charge.application_fee_amount != null) ? charge.application_fee_amount : null,
+            p_transfer_id: (charge && charge.transfer) || null,
+            p_fee_id: (charge && charge.application_fee) || null,
+          });
+          const val = Array.isArray(applied) ? applied[0] : applied;
+          const outcome = val && val.outcome;
+          if (outcome === 'applied' || outcome === 'idempotent') {
+            const n = await promoteFromOutbox(val.payment_group_id);
+            console.log(`payment_intent.succeeded: capture ${outcome}, fulfilled ${n} booking(s)`, pi.id);
+          } else {
+            console.error('payment_intent.succeeded capture NOT applied:', outcome, val && val.reason, pi.id, 'case:', val && val.case_id);
+            if (!val || !val.case_id) throw new Error('capture_not_applied_without_case:' + outcome + ':' + pi.id);
+          }
+          return;
+        }
+      }
+    } catch (e) {
+      // A capture that cannot converge must be retried by Stripe, never silently dropped.
+      if (String((e && e.message) || e).startsWith('capture_not_applied') || String((e && e.message) || e).startsWith('cannot retrieve')) throw e;
+      console.warn('payment_intent.succeeded capture check failed (deferring):', (e && e.message) || e);
+    }
     console.log('payment_intent.succeeded: ledger group deferred to checkout.session.completed', pi.id);
     return;
   }
@@ -613,6 +656,24 @@ async function handlePaymentIntentFailed(event) {
   }
 }
 
+// payment_intent.canceled: a manual-capture authorization was released — by our own sweep/decline
+// (replay: the RPC answers 'idempotent') or by Stripe itself (auth aged out ~7d). Converge the
+// ledger; if THIS event is what flipped the bookings (outcome 'applied'), send the release email —
+// our own synchronous paths already notified, and they win the race by applying first.
+async function handlePaymentIntentCanceled(event) {
+  const pi = event.data.object;
+  if (!pi.metadata || !pi.metadata.payment_group_id) { console.log('payment_intent.canceled: non-ledger PI ignored', pi.id); return; }
+  const { applyAuthorizationCanceled, sendHoldReleasedEmail } = await import('./_provisional.js');
+  const val = await applyAuthorizationCanceled(pi.id, 'expired', 'stripe_payment_intent_canceled:' + (pi.cancellation_reason || 'unknown'));
+  const outcome = val && val.outcome;
+  console.log('payment_intent.canceled:', pi.id, outcome);
+  if (outcome === 'applied' && Array.isArray(val.booking_ids)) {
+    for (const bid of val.booking_ids) {
+      try { await sendHoldReleasedEmail(bid); } catch (e) { console.warn('release email failed for', bid, (e && e.message) || e); }
+    }
+  }
+}
+
 // charge.refunded: apply each refund to the EXACT booking it was issued for (P0-4/LG-06).
 // Never divide the charge's cumulative amount_refunded across every booking in the PaymentIntent.
 async function handleChargeRefunded(event) {
@@ -646,6 +707,31 @@ async function handleCheckoutSessionCompleted(event) {
   // 'applied'/'idempotent' outcome — a 'frozen'/'contradiction'/'unknown_session' promotes nothing.
   if (mode === 'payment') {
     if (session.payment_status && session.payment_status !== 'paid') {
+      // Provisional holds: a manual-capture Session completes at AUTHORIZATION with
+      // payment_status='unpaid' and its PI in 'requires_capture'. That is the hold being placed —
+      // apply it through the verified authorization RPC (group -> 'authorized', bookings -> held/
+      // authorized, 24h clock starts) and drive the hold-placed email via the outbox. Any other
+      // unpaid completion (async payment methods) keeps the old log-and-wait behavior.
+      const authPiId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
+      const authPi = await stripeGetPaymentIntent(authPiId);
+      if (authPi && authPi.status === 'requires_capture') {
+        const authCharge = (authPi.latest_charge && typeof authPi.latest_charge === 'object') ? authPi.latest_charge.id : (typeof authPi.latest_charge === 'string' ? authPi.latest_charge : null);
+        const authApplied = await sbRpc('apply_verified_authorization', {
+          p_session_id: session.id, p_payment_intent: authPi.id, p_charge: authCharge,
+          p_amount: session.amount_total != null ? session.amount_total : authPi.amount,
+          p_currency: session.currency || authPi.currency,
+        });
+        const authVal = Array.isArray(authApplied) ? authApplied[0] : authApplied;
+        const authOutcome = authVal && authVal.outcome;
+        if (authOutcome === 'applied' || authOutcome === 'idempotent') {
+          const n = await promoteFromOutbox(authVal.payment_group_id);
+          console.log(`checkout.session.completed: authorization ${authOutcome}, fulfilled ${n} booking(s)`, session.id);
+        } else {
+          console.error('checkout.session.completed authorization NOT applied:', authOutcome, authVal && authVal.reason, session.id, 'case:', authVal && authVal.case_id);
+          if (!authVal || !authVal.case_id) throw new Error('authorization_not_applied_without_case:' + authOutcome + ':' + session.id);
+        }
+        return;
+      }
       console.log('checkout.session.completed payment not paid yet:', session.id, session.payment_status); return;
     }
     const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
@@ -863,6 +949,12 @@ export default async function handler(req, res) {
         await handlePaymentIntentSucceeded(event); break;
       case 'payment_intent.payment_failed':
         await handlePaymentIntentFailed(event); break;
+      case 'payment_intent.canceled':
+        await handlePaymentIntentCanceled(event); break;
+      case 'payment_intent.amount_capturable_updated':
+        // informational: the auth is capture-ready. The authorization is applied from the signed
+        // checkout.session.completed binding, so nothing to do here.
+        console.log('payment_intent.amount_capturable_updated:', (event.data.object || {}).id); break;
       case 'charge.refunded':
         await handleChargeRefunded(event); break;
       case 'refund.created':

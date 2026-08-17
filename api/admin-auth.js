@@ -934,8 +934,36 @@ export default async function handler(req, res) {
           return res.status(400).json({ error: 'review_failed' });
         }
         let row = null; try { const j = JSON.parse(txt); row = Array.isArray(j) ? j[0] : j; } catch (_) {}
+        // Provisional holds: an APPROVED COI resolves this brand's held bookings on AUTO-CONFIRM
+        // retailers — capture each hold now (charge -> confirmed + demo + emails via the shared
+        // pipeline). Manual-confirm retailers keep the hold until they confirm in their inbox
+        // (confirm is what captures there). Best-effort: a capture hiccup never fails the review —
+        // the booking simply stays held and the retailer/sweep path picks it up.
+        let capturedHolds = 0;
+        if (decision === 'approved') {
+          try {
+            const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
+            const brandId = Array.isArray(vRows) && vRows[0] ? vRows[0].brand_id : null;
+            if (brandId) {
+              const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id`) || [];
+              if (held.length) {
+                const retailerIds = [...new Set(held.map(b => b.retailer_id))];
+                const rRows = await sb(`retailers?id=in.(${retailerIds.map(encodeURIComponent).join(',')})&select=id,auto_confirm_bookings`) || [];
+                const autoById = new Map(rRows.map(r => [r.id, !!r.auto_confirm_bookings]));
+                const { captureHeldBooking } = await import('./_provisional.js');
+                for (const b of held) {
+                  if (!autoById.get(b.retailer_id)) continue;
+                  const r2 = await captureHeldBooking(b);
+                  if (r2.ok) capturedHolds++;
+                  else console.warn('post-approval hold capture failed for', b.id, r2.stage, r2.error);
+                }
+              }
+            }
+          } catch (e) { console.warn('post-approval hold sweep skipped:', (e && e.message) || e); }
+        }
         return res.status(200).json({ ok: true, verification_id, decision,
-          reviewed_by: owner.email, reviewed_at: row && row.reviewed_at ? row.reviewed_at : null });
+          reviewed_by: owner.email, reviewed_at: row && row.reviewed_at ? row.reviewed_at : null,
+          captured_holds: capturedHolds || undefined });
       } catch (e) {
         return res.status(500).json({ error: 'review_failed' });
       }
