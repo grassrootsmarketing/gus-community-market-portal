@@ -3,6 +3,7 @@
 // by the DB trigger, server owns tenant/brand/amount. Replaces the anonymous email-based booking.
 import { requireBrandSession } from './_booking-identity.js';
 import { coiCovered } from './_coi-coverage.js';
+import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 let _b = null;
@@ -33,7 +34,11 @@ export default async function handler(req, res) {
   // 3) COI must be VERIFIED for the authenticated brand
   const brand = await one(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone`);
   const cov = coiCovered(brand, body.demo_date);
-  if (!cov.covered) return res.status(400).json({ error: 'coi_required', reason: cov.reason });
+  // Provisional holds (behind PROVISIONAL_HOLDS_ENABLED): a brand may book WITHOUT a verified COI —
+  // the booking becomes 'held' (funds authorized, not captured) with a 24h window to get COI-verified
+  // + confirmed, else the hold is released. Flag OFF = current hard gate (COI required to book).
+  const provisional = FLAGS.provisionalHolds && !cov.covered;
+  if (!cov.covered && !FLAGS.provisionalHolds) return res.status(400).json({ error: 'coi_required', reason: cov.reason });
 
   // 3b) Contact info (name + phone) required to book — retailers must be able to reach the brand.
   if (!brand.contact_name || !String(brand.contact_name).trim() || !brand.phone || !String(brand.phone).trim()) {
@@ -44,7 +49,9 @@ export default async function handler(req, res) {
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
     demo_date: body.demo_date, demo_time: body.demo_time, product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
-    status: 'pending_payment', payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
+    status: provisional ? 'held' : 'pending_payment',
+    held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
+    payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
   const r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
   if (!r.ok) { const t = await r.text(); if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' }); return res.status(500).json({ error: 'booking_failed' }); }
   const booking = (await r.json())[0];
