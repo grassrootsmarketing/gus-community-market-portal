@@ -598,6 +598,19 @@ function renderDashboard(d) {
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
     <div class="tab-pane" data-pane="status" id="statusPane"></div>
+    <!-- COI pane lives INSIDE .container like its siblings — it was appended after </script> at the
+         end of body once, which rendered it full-bleed with no max-width or gutters. -->
+    <div class="tab-pane" data-pane="coi">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
+        <h3 style="margin:0;">COI Review</h3>
+        <button onclick="loadCoiQueue()" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Refresh</button>
+      </div>
+      <p style="margin:0 0 12px; color:var(--forest-700); font-size:13px;">
+        Certificates awaiting a decision. One item per brand &mdash; the brand&rsquo;s current document.
+        Approving lets that brand book; rejecting does not.
+      </p>
+      <div id="coiQueueBody">Loading&hellip;</div>
+    </div>
   `;
 
   // Support tools card (Level 1: impersonation, Level 2: audit link)
@@ -1183,18 +1196,6 @@ async function decideCoi(id, decision) {
 }
 
 </script>
-
-<div class="tab-pane" data-pane="coi">
-  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
-    <h3 style="margin:0;">COI Review</h3>
-    <button onclick="loadCoiQueue()" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Refresh</button>
-  </div>
-  <p style="margin:0 0 12px; color:var(--forest-700); font-size:13px;">
-    Certificates awaiting a decision. One item per brand &mdash; the brand&rsquo;s current document.
-    Approving lets that brand book; rejecting does not.
-  </p>
-  <div id="coiQueueBody">Loading&hellip;</div>
-</div>
 
 </body>
 </html>
