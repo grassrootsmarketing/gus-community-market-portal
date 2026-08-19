@@ -894,10 +894,23 @@ export default async function handler(req, res) {
     if (action === 'owner-coi-review') {
       const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
-      const { verification_id, decision, notes } = body || {};
+      const { verification_id, decision, notes, expiry } = body || {};
       if (!isUuid(verification_id)) return res.status(400).json({ error: 'Invalid verification_id' });
       if (decision !== 'approved' && decision !== 'rejected') {
         return res.status(400).json({ error: 'decision must be approved or rejected' });
+      }
+      // Coverage expiry is REVIEWER-owned (LG-11 removed brand self-service; the AI parser is
+      // optional). An approval must carry the certificate's expiry or the brand ends up
+      // approved-but-never-covered: coiCovered() requires a date, so booking/capture would refuse.
+      let expiryDate = null;
+      if (decision === 'approved') {
+        if (!expiry || !/^\d{4}-\d{2}-\d{2}$/.test(String(expiry))) {
+          return res.status(400).json({ error: 'expiry_required', message: 'Enter the policy expiry date (YYYY-MM-DD) from the certificate.' });
+        }
+        expiryDate = String(expiry);
+        if (expiryDate <= new Date().toISOString().slice(0, 10)) {
+          return res.status(400).json({ error: 'expiry_in_past', message: 'That certificate is already expired — reject it instead.' });
+        }
       }
       const trimmed = notes == null ? null : String(notes).slice(0, 2000);
       try {
@@ -944,6 +957,12 @@ export default async function handler(req, res) {
           try {
             const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
             const brandId = Array.isArray(vRows) && vRows[0] ? vRows[0].brand_id : null;
+            // Write the reviewer-confirmed expiry BEFORE the hold sweep — coverage checks read it.
+            if (brandId && expiryDate) {
+              await sb(`brands?id=eq.${encodeURIComponent(brandId)}`, {
+                method: 'PATCH', body: JSON.stringify({ default_coi_expires: expiryDate }),
+              });
+            }
             if (brandId) {
               const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id`) || [];
               if (held.length) {

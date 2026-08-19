@@ -341,13 +341,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 </head>
 <body>
     <div class="view landing active" id="landingView">
-        <div id="brandSignInPill" style="padding:28px 32px 48px; text-align:right;">
+        <!-- align-self:stretch: #landingView is a column flexbox with align-items:center, which
+             shrink-wraps block children — without stretch the pill centers (text-align:right no-ops)
+             and the banner bar doesn't span the page. -->
+        <div id="brandSignInPill" style="align-self:stretch; padding:28px 32px 48px; text-align:right;">
             <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:9px 16px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.85rem; cursor:pointer; font-family:inherit; box-shadow:0 2px 8px rgba(15,44,23,0.06);">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
                 Brand? <strong style="color:#2a5b32;">Sign in or sign up</strong>
             </button>
         </div>
-        <div class="brand-signin-banner" id="brandSigninBannerLanding">
+        <div class="brand-signin-banner" id="brandSigninBannerLanding" style="align-self:stretch;">
             <div>Signed in as <strong id="brandSigninNameLanding">, </strong>, your contact info will auto-fill when you book</div>
             <div class="actions">
                 <a href="/brand/dashboard">Your brand portal &rarr;</a>
@@ -373,6 +376,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="view client" id="clientView">
         <div class="main-scroll">
             <div class="container">
+                <!-- Client-view twin of the landing sign-in strip. renderBrandAuthUi() has always
+                     targeted #brandSigninBanner/#brandSigninName; the elements were never placed,
+                     so a signed-in brand got no "Signed in as" state on the booking view. -->
+                <div class="brand-signin-banner" id="brandSigninBanner" style="border-radius:10px; margin-top:16px;">
+                    <div>Signed in as <strong id="brandSigninName"></strong> &mdash; your contact info will auto-fill when you book</div>
+                    <div class="actions">
+                        <a href="/brand/dashboard">Your brand portal &rarr;</a>
+                        <a onclick="brandPublicSignOut()">Sign out</a>
+                    </div>
+                </div>
                 <div id="brandSignInPillClient" style="padding:24px 0 32px; text-align:right;">
                     <button type="button" onclick="openBrandSignIn()" style="display:inline-flex; align-items:center; gap:8px; padding:8px 14px; background:white; color:#0f2c17; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit; box-shadow:0 2px 8px rgba(15,44,23,0.06);">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>

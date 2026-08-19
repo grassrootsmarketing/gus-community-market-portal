@@ -944,9 +944,15 @@ function updatePersistentCoiNudge() {
   const expired = exp && exp <= new Date();
   if (hasCoi && !expired) { banner.style.display = 'none'; return; }
   const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
-  banner.innerHTML = `<div style="display:flex; align-items:center; gap:14px; padding:16px 24px; background:#fff3ed; border-bottom:2px solid #ed682f55;">
+  // Full-bleed band, but the CONTENT row is bounded to the same 1100px/24px gutter as
+  // .container so the copy lines up with the dashboard below instead of hugging the viewport edge.
+  banner.innerHTML = `<div style="padding:16px 0; background:#fff3ed; border-bottom:2px solid #ed682f55;">
+    <div style="display:flex; align-items:center; gap:14px; max-width:1100px; margin:0 auto; padding:0 24px;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>. <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> ${(_data && _data.provisional_holds)
+      ? `Stores require proof of insurance. You can still book — your card is only <strong>held, not charged</strong>, until your certificate is approved — but each hold lasts just 24 hours, so upload it now.`
+      : `Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>.`} <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+    </div>
   </div>`;
   banner.style.display = 'block';
 }
@@ -1517,8 +1523,8 @@ function renderCompliance() {
       </div>
       <div class="form-row">
         <label class="label">COI expires</label>
-        <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}">
-        <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">Filled in automatically from your certificate when you upload it. Edit only if it reads wrong.</div>
+        <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}" disabled title="Set by Demohub when your certificate is reviewed">
+        <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">${profile.default_coi_expires ? 'Confirmed from your certificate during review.' : 'Set by Demohub when your certificate is reviewed — nothing for you to fill in here.'}</div>
       </div>
       <div style="margin-top:18px;display:flex;align-items:center;">
         <button class="btn" id="saveProfileBtn">Save changes</button>

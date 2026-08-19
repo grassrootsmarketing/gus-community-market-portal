@@ -1132,6 +1132,10 @@ function renderCoiQueue() {
         </div>
       </div>
       <div style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || '—')} · insured ${_esc(r.insured_name || '—')} · flags ${_esc(flags)}</div>
+      <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--forest-700);">
+        Policy expiry (from the certificate — required to approve; brands cannot set this themselves)
+        <input type="date" id="coiExpiry-${_esc(r.id)}" value="${_esc(String(r.policy_expiry || '').slice(0, 10))}" style="padding:5px 8px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;">
+      </label>
       <textarea id="coiNotes-${_esc(r.id)}" maxlength="2000" placeholder="Review notes (optional)" style="width:100%; margin-top:8px; padding:6px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;" rows="2"></textarea>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button onclick="viewCoiDoc('${_esc(r.id)}')" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.25); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit;">View document</button>
@@ -1171,15 +1175,25 @@ async function decideCoi(id, decision) {
   const msg = document.getElementById('coiMsg-' + id);
   const notesEl = document.getElementById('coiNotes-' + id);
   const notes = notesEl ? notesEl.value.slice(0, 2000) : null;
+  // The reviewer is the ONLY trusted writer of the coverage expiry (LG-11 removed brand
+  // self-service; the AI parser is optional). Approval without a date would leave the brand
+  // "approved but never covered" — the exact trap found in the first provisional-holds smoke.
+  const expEl = document.getElementById('coiExpiry-' + id);
+  const expiry = expEl ? expEl.value : '';
+  if (decision === 'approved' && !expiry) {
+    if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Enter the policy expiry from the certificate before approving.'; }
+    if (expEl && expEl.focus) expEl.focus();
+    return;
+  }
   if (!confirm(decision === 'approved'
-      ? 'Approve this certificate? The brand will be able to book.'
+      ? 'Approve this certificate? Coverage runs until ' + expiry + ' and the brand will be able to book.'
       : 'Reject this certificate? The brand will not be able to book.')) return;
   if (msg) { msg.style.color = 'var(--forest-700)'; msg.textContent = 'Saving…'; }
   try {
     const r = await fetch('/api/admin-auth', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'owner-coi-review', verification_id: id, decision, notes }),
+      body: JSON.stringify({ action: 'owner-coi-review', verification_id: id, decision, notes, expiry: expiry || null }),
     });
     const j = await r.json();
     if (!r.ok) {
