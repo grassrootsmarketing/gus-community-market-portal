@@ -483,13 +483,16 @@ export default async function handler(req, res) {
     // signup block, which is why removing that block broke both). Self-heals a brand row that
     // has no brand_members owner entry.
     async function resolveBrandMemberByEmail(addr) {
+      // EXACT match. This resolves the account for BOTH login flows from an attacker-supplied
+      // address, so an ilike wildcard (`%`) would resolve an arbitrary account. Emails are stored
+      // lowercased, and callers lowercase before calling, so eq. is correct.
       try {
-        const mR = await sb(`brand_members?email=ilike.${encodeURIComponent(addr)}&select=brand_id,email`);
+        const mR = await sb(`brand_members?email=eq.${encodeURIComponent(addr)}&select=brand_id,email`);
         const m = (await mR.json())[0];
         if (m) return m;
       } catch (_) {}
       try {
-        const bR = await sb(`brands?email=ilike.${encodeURIComponent(addr)}&select=id,email,contact_name`);
+        const bR = await sb(`brands?email=eq.${encodeURIComponent(addr)}&select=id,email,contact_name`);
         const brand = (await bR.json())[0];
         if (!brand) return null;
         try {
@@ -522,7 +525,7 @@ export default async function handler(req, res) {
 
     if (action === 'login') {
       const email = String(body.email || '').trim().toLowerCase();
-      if (!email) return jsonResp(res, 400, { error: 'Missing email' });
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return jsonResp(res, 400, { error: 'Missing email' });
       const rlIp = await checkRateLimit(req, 'brand-login-ip', 40);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many sign-in requests. Try again in an hour.' });
       const rlEmail = await checkRateLimit(req, 'brand-login-email:' + email.slice(0, 64), 15);
@@ -562,7 +565,10 @@ export default async function handler(req, res) {
     if (action === 'verify-code') {
       const email = String(body.email || '').trim().toLowerCase();
       const code = String(body.code || '').replace(/\D/g, '').trim();
-      if (!email || !code || code.length !== 6) return jsonResp(res, 400, { error: 'Email and 6-digit code required' });
+      // Validate the email FORMAT, not just presence: without this, `%`/`_` reach the lookup below
+      // and (see the eq. fix there) would have turned into SQL-ILIKE wildcards. `_` and `%` are also
+      // legal in real email local-parts, so a strict shape check is the right gate either way.
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !code || code.length !== 6) return jsonResp(res, 400, { error: 'Email and 6-digit code required' });
       // Per-IP cap AND an unspoofable per-email cap. The email cap is the real defense:
       // 12 guesses/hour against a 1,000,000 code space with 30-minute codes is hopeless,
       // and it holds no matter how many IPs an attacker forges.
@@ -572,8 +578,11 @@ export default async function handler(req, res) {
         const unavailable = rlIp.error === 'rate_limit_unavailable' || rlEmail.error === 'rate_limit_unavailable';
         return jsonResp(res, unavailable ? 503 : 429, { error: unavailable ? 'rate_limit_unavailable' : 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
       }
-      // Look up by token = code AND email = email (scoped, so 6-digit collisions across brands don't matter)
-      const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=ilike.${encodeURIComponent(email)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
+      // EXACT email match (eq., never ilike). ilike treats `%`/`_` as wildcards, so `email=%`
+      // matched EVERY brand's token row and turned this into "any unused row whose token == code",
+      // i.e. cross-account takeover. _retailer-auth.js and admin-auth verify-code both use eq. for
+      // exactly this reason; brand verify-code was the outlier.
+      const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=eq.${encodeURIComponent(email)}&used_at=is.null&select=*&order=created_at.desc&limit=1`);
       const tok = (await tR.json())[0];
       if (!tok) return jsonResp(res, 404, { error: 'Invalid code' });
       if (new Date(tok.expires_at).getTime() < Date.now()) return jsonResp(res, 410, { error: 'Code expired' });
@@ -1302,7 +1311,7 @@ export default async function handler(req, res) {
       const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || myRow.role === 'viewer') return jsonResp(res, 403, { error: 'Viewers cannot invite team members' });
-      const existing = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(email)}&select=id`)).json();
+      const existing = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=eq.${encodeURIComponent(email)}&select=id`)).json();
       if (Array.isArray(existing) && existing.length > 0) return jsonResp(res, 409, { error: 'That email is already on the team' });
       const createR = await sb('brand_members', {
         method: 'POST',
@@ -1398,7 +1407,7 @@ export default async function handler(req, res) {
     if (action === 'login-password') {
       const email = String(body.email || '').trim().toLowerCase();
       const password = String(body.password || '');
-      if (!email || !password) return jsonResp(res, 400, { error: 'Email and password required' });
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !password) return jsonResp(res, 400, { error: 'Email and password required' });
       // Same rate limits as code login to prevent brute force
       const rlIp = await checkRateLimit(req, 'brand-login-pw-ip', 60);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlIp.error || 'too_many_requests', message: 'Too many attempts. Try again in an hour.' });
@@ -1408,8 +1417,9 @@ export default async function handler(req, res) {
       // password guesses per IP against one account. checkRateLimitByKey does NOT append the IP.
       const rlAccount = await checkRateLimitByKey('brand-login-pw-account:' + email.slice(0, 64), 50);
       if (!rlAccount.allowed) return jsonResp(res, rlAccount.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlAccount.error || 'too_many_requests', message: 'Too many attempts for this account. Try again later.' });
-      // Look up brand by email (via brand_members which is the shareable auth surface)
-      const lookupR = await sb(`brand_members?email=ilike.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
+      // Look up brand by email (via brand_members which is the shareable auth surface).
+      // EXACT match — attacker-supplied email; a wildcard would resolve an arbitrary account.
+      const lookupR = await sb(`brand_members?email=eq.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
       let member = (await lookupR.json())[0];
       let storedHash = member && member.brands && member.brands.password_hash;
       if (!member) {
