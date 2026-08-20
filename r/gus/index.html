@@ -1148,7 +1148,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // admin gate removed, admin lives at /r/<slug>/admin behind the auth gate
             document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
             document.getElementById(view + 'View').classList.add('active');
-            if (view === 'admin') { renderContacts(); renderDemos(); loadSettings(); }
+            if (view === 'admin') { renderDemos(); loadSettings(); }
         }
         
         function selectLocation(location) {
@@ -2224,8 +2224,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             window.state.settings = data.settings || null;
             window.state.compliance = [];
             if (document.getElementById('demosTableBody')) renderDemos();
-            if (document.getElementById('brandContactsTableBody')) renderContacts('brand');
-            if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
             if (document.getElementById('complianceTableBody')) renderCompliance();
             applySettingsToInputs();
             updateStats();
@@ -2246,50 +2244,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
         }
 
-        // ===== Contacts (Brand + Internal), Supabase-backed =====
-        const CONTACT_CONFIGS = {
-            brand: {
-                table: 'brand_contacts',
-                stateKey: 'brandContacts',
-                tableBodyId: 'brandContactsTableBody',
-                sortSelectId: 'brandContactSort',
-                addLabel: 'Add Brand Contact',
-                editLabel: 'Edit Brand Contact',
-                companyLabel: 'Company',
-                companyField: 'company',
-                showAddress: true,
-                columns: 8,
-                emptyLabel: 'brand',
-            },
-            internal: {
-                table: 'internal_contacts',
-                stateKey: 'internalContacts',
-                tableBodyId: 'internalContactsTableBody',
-                sortSelectId: 'internalContactSort',
-                addLabel: 'Add Internal Contact',
-                editLabel: 'Edit Internal Contact',
-                companyLabel: 'Role / Title',
-                companyField: 'role',
-                showAddress: false,
-                columns: 6,
-                emptyLabel: 'internal',
-            }
-        };
-
-        function loadContacts(type) {
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return [];
-            return (window.state[cfg.stateKey] || []).map(c => ({
-                id: c.id,
-                name: c.name,
-                company: c[cfg.companyField] || '',
-                venue: c.venue,
-                address: c.address || '',
-                email: c.email,
-                phone: c.phone,
-            }));
-        }
-
+        // (The legacy embedded contact-management block — CONTACT_CONFIGS, loadContacts,
+        // renderContacts, openContactModal, saveContact, deleteContact — was deleted. It was a
+        // stale copy of the retailer admin's code with NO #contactModal markup on this page, so it
+        // was unreachable, and it lacked the admin copy's placeholder/venue-select fixes. The live
+        // implementation is r/gus/admin/index.html only.)
         function escapeHtml(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
@@ -2338,99 +2297,6 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function complianceBadgeHtml(brandId) {
             const s = getBrandComplianceStatus(brandId);
             return '<span class="comp-badge ' + s.status + '"><span class="comp-dot"></span>' + escapeHtml(s.label) + '</span>';
-        }
-
-        function renderContacts(type) {
-            if (!type) { renderContacts('brand'); renderContacts('internal'); return; }
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return;
-            const tbody = document.getElementById(cfg.tableBodyId);
-            if (!tbody) return;
-            const sortSel = document.getElementById(cfg.sortSelectId);
-            const sortBy = (sortSel && sortSel.value) || 'venue';
-            const list = loadContacts(type).slice().sort((a, b) => String(a[sortBy] || '').localeCompare(String(b[sortBy] || '')));
-            if (list.length === 0) {
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="' + cfg.columns + '">No ' + cfg.emptyLabel + ' contacts yet. Click "+ ' + cfg.addLabel + '" to get started.</td></tr>';
-                return;
-            }
-            tbody.innerHTML = list.map(c => {
-                let cells = '<td>' + escapeHtml(c.name) + '</td>'
-                    + '<td>' + escapeHtml(c.company) + '</td>'
-                    + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
-                if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
-                cells += '<td>' + escapeHtml(c.email) + '</td>'
-                    + '<td>' + escapeHtml(c.phone) + '</td>';
-                if (type === 'brand') cells += '<td>' + complianceBadgeHtml(c.id) + '</td>';
-                cells += '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + type + '\', \'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + type + '\', \'' + c.id + '\')">Delete</button></div></td>';
-                return '<tr>' + cells + '</tr>';
-            }).join('');
-        }
-
-        function openContactModal(type, id) {
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return;
-            const m = document.getElementById('contactModal');
-            document.getElementById('contactType').value = type;
-            document.getElementById('contactCompanyLabel').textContent = cfg.companyLabel;
-            document.getElementById('contactAddressGroup').style.display = cfg.showAddress ? '' : 'none';
-            const fields = ['contactName','contactCompany','contactAddress','contactEmail','contactPhone'];
-            const title = document.getElementById('contactModalTitle');
-            if (id) {
-                const c = loadContacts(type).find(x => x.id === id);
-                if (!c) return;
-                title.textContent = cfg.editLabel;
-                document.getElementById('contactId').value = c.id;
-                document.getElementById('contactName').value = c.name || '';
-                document.getElementById('contactCompany').value = c.company || '';
-                document.getElementById('contactVenue').value = c.venue || ((window.state.venues || [])[0] || {}).name || '';
-                document.getElementById('contactAddress').value = c.address || '';
-                document.getElementById('contactEmail').value = c.email || '';
-                document.getElementById('contactPhone').value = c.phone || '';
-            } else {
-                title.textContent = cfg.addLabel;
-                document.getElementById('contactId').value = '';
-                fields.forEach(f => document.getElementById(f).value = '');
-                document.getElementById('contactVenue').value = ((window.state.venues || [])[0] || {}).name || '';
-            }
-            m.classList.add('active');
-        }
-
-        function closeContactModal() {
-            document.getElementById('contactModal').classList.remove('active');
-        }
-
-        async function saveContact() {
-            if (!RETAILER_ID) { alert('Loading, try again in a moment'); return; }
-            const type = document.getElementById('contactType').value;
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return;
-            const id = document.getElementById('contactId').value;
-            const name = document.getElementById('contactName').value.trim();
-            if (!name) { alert('Name is required.'); return; }
-            const payload = {
-                retailer_id: RETAILER_ID,
-                name: name,
-                venue: document.getElementById('contactVenue').value,
-                email: document.getElementById('contactEmail').value.trim(),
-                phone: document.getElementById('contactPhone').value.trim(),
-            };
-            payload[cfg.companyField] = document.getElementById('contactCompany').value.trim();
-            if (cfg.showAddress) payload.address = document.getElementById('contactAddress').value.trim();
-            try {
-                if (id) await adminUpdate(cfg.table, id, payload);
-                else    await adminInsert(cfg.table, payload);
-            } catch (e) { alert('Save failed: ' + e.message); return; }
-            closeContactModal();
-            await refreshAll();
-        }
-
-        async function deleteContact(type, id) {
-            if (!confirm('Delete this contact?')) return;
-            const cfg = CONTACT_CONFIGS[type];
-            if (!cfg) return;
-            try { await adminDelete(cfg.table, id); }
-            catch (e) { alert('Delete failed: ' + e.message); return; }
-            await refreshAll();
         }
 
         // ===== Upcoming Demos: search + table/calendar =====
