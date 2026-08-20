@@ -246,6 +246,58 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, has_active: true, needs_re_sign: false, policies });
     }
 
+    // ---- Agreement SIGN (session-authenticated) ----
+    // The booking page moved to the secure /api/book endpoint, which ignores signed_name — so the
+    // typed signature from the demo-conduct modal was silently discarded and the modal reappeared
+    // on every visit. This captures it for the AUTHENTICATED brand, mirroring the legacy in-booking
+    // capture (supersede prior + immutable snapshot + hash).
+    if (body?.action === 'agreement-sign') {
+      const { retailer_slug: rs, signed_name: sn } = body;
+      if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
+      if (!sn || String(sn).trim().length < 2) return res.status(400).json({ error: 'signed_name required' });
+      const _sAuth = await requireBrandSession(req, body);
+      if (!_sAuth.ok) return res.status(401).json({ error: 'sign_in_required' });
+      const retResp2 = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,demo_policy,cancellation_policy`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
+      });
+      const rets2 = await retResp2.json();
+      const ret2 = Array.isArray(rets2) ? rets2[0] : null;
+      if (!ret2) return res.status(404).json({ error: 'Retailer not found' });
+      const dp2 = ret2.demo_policy || DEFAULT_DEMO_POLICY;
+      const cp2 = ret2.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
+      const hash2 = await sha256Hex(dp2 + '\n---\n' + cp2 + '\n---tos:' + DEMOHUB_TOS_VERSION);
+      const existing2 = await svcCall(`brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_sAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret2.id)}&superseded_at=is.null&select=id`);
+      const priorId2 = Array.isArray(existing2) && existing2[0] ? existing2[0].id : null;
+      if (priorId2) {
+        await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId2)}`, {
+          method: 'PATCH', body: JSON.stringify({ superseded_at: new Date().toISOString() }),
+        });
+      }
+      const created2 = await svcCall('brand_retailer_agreements', {
+        method: 'POST',
+        body: JSON.stringify({
+          brand_id: _sAuth.brandId,
+          retailer_id: ret2.id,
+          signed_name: String(sn).trim().slice(0, 200),
+          signed_email: String(_sAuth.email || '').toLowerCase(),
+          signed_ip: clientIp(req),
+          signed_user_agent: req.headers['user-agent'] || null,
+          demo_policy_snapshot: dp2,
+          cancellation_policy_snapshot: cp2,
+          policy_hash: hash2,
+        }),
+      });
+      if (priorId2 && Array.isArray(created2) && created2[0]?.id) {
+        try {
+          await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId2)}`, {
+            method: 'PATCH', body: JSON.stringify({ superseded_by: created2[0].id }),
+          });
+        } catch (_) {}
+      }
+      if (!Array.isArray(created2) || !created2[0]) return res.status(500).json({ error: 'agreement_save_failed' });
+      return res.status(200).json({ ok: true, agreement_id: created2[0].id });
+    }
+
     const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name } = body || {};
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {

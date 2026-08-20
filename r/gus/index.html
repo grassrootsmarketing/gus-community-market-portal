@@ -16,7 +16,6 @@
             --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
             --shadow-lg: 0 12px 40px rgba(13,31,18,0.12); --shadow-xl: 0 24px 60px rgba(13,31,18,0.16);
             --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
-                    renderLocationSwitcher();
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body { height: 100%; overflow: hidden; }
@@ -383,6 +382,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="view client" id="clientView">
         <div class="main-scroll">
             <div class="container">
+                <!-- Escape hatch: the booking view had NO route back to the location list — a brand
+                     who clicked the wrong store was stranded (only fix was a full reload). -->
+                <div style="padding:18px 0 0;"><a onclick="showView('landing')" style="cursor:pointer; color:var(--forest-700); font-weight:700; font-size:0.88rem; text-decoration:none;">&larr; All locations</a></div>
                 <!-- Client-view twin of the landing sign-in strip. renderBrandAuthUi() has always
                      targeted #brandSigninBanner/#brandSigninName; the elements were never placed,
                      so a signed-in brand got no "Signed in as" state on the booking view. -->
@@ -594,7 +596,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     </div>
 
     <!-- Brand sign-in modal (email + 6-digit code) -->
-    <div id="brandSignInModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.55); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:24px; font-family:'Plus Jakarta Sans',sans-serif;">
+    <div id="brandSignInModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.55); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center; padding:24px; overflow-y:auto; font-family:'Plus Jakarta Sans',sans-serif;">
         <div style="background:white; border-radius:20px; box-shadow:0 24px 60px rgba(15,44,23,0.35); max-width:440px; width:100%; padding:32px 28px; position:relative;">
             <button type="button" onclick="closeBrandSignIn()" aria-label="Close" style="position:absolute; top:14px; right:18px; background:none; border:none; font-size:1.8rem; color:#6b6a64; cursor:pointer; padding:4px 8px; line-height:1;">&times;</button>
             <div style="text-align:center; margin-bottom:20px;">
@@ -722,6 +724,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const signedIn = !!window._brandProfile;
             const ok = signedIn ? _brandCoiOk() : true;   // not signed in yet: signup happens first
             grp.style.display = (signedIn && !ok) ? 'block' : 'none';
+            // The static "held, not charged" notice is for brands the hold actually applies to.
+            // A covered brand is charged immediately — showing it to them was a false payment claim.
+            const notice = document.getElementById('bookCoiNotice');
+            if (notice) notice.style.display = (signedIn && ok) ? 'none' : '';
             if (signedIn && !ok && window._provisionalHolds) {
                 // Provisional path: the uploader stays visible (uploading now is still the best
                 // move) but booking is NOT blocked — explain the hold instead.
@@ -754,6 +760,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const f = document.getElementById('bookCoiFile');
                 if (f) f.click();
             }
+            // Venue cards/pills carry data-venue instead of inline onclick — venue names with
+            // apostrophes ("Gus's …") made the generated handler a SyntaxError-dead click.
+            const vEl = e.target && e.target.closest ? e.target.closest('[data-venue]') : null;
+            if (vEl && typeof selectLocation === 'function') selectLocation(vEl.dataset.venue);
         });
 
         // ===== Phone formatting: digits in, xxx-xxx-xxxx out =====
@@ -1042,7 +1052,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const fee = (v.demo_fee != null ? v.demo_fee : demoFee);
                 const hasLogo = !!(retailer && retailer.logo_url);
                 const heroHeight = hasLogo ? '140px' : '28px';
-                return `<div class="location-card" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')">
+                return `<div class="location-card" data-venue="${nameEsc}">
                     <div style="height:${heroHeight}; border-radius:10px 10px 0 0; overflow:hidden; position:relative;">
                         ${retailerAvatarHtml(retailer, 140)}
                     </div>
@@ -1072,7 +1082,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const fee = (v.demo_fee != null ? v.demo_fee : demoFee);
                 const hasLogo2 = !!(retailer && retailer.logo_url);
                 const heroHeight2 = hasLogo2 ? '80px' : '20px';
-                return `<div class="location-card" style="cursor:pointer;" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')">
+                return `<div class="location-card" style="cursor:pointer;" data-venue="${nameEsc}">
                     <div style="height:${heroHeight2}; border-radius:10px 10px 0 0; overflow:hidden;">
                         ${retailerAvatarHtml(retailer, 80)}
                     </div>
@@ -1119,13 +1129,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const nameEsc = (v.name || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const addrEsc = (v.address || '').replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 const fee = (v.demo_fee != null ? v.demo_fee : v._demoFee);
-                return `<div onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')" style="display:flex; align-items:center; gap:14px; padding:14px 18px; background:white; border:1px solid rgba(15,44,23,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--forest-700)'; this.style.transform='translateX(2px)';" onmouseout="this.style.borderColor='rgba(15,44,23,0.08)'; this.style.transform='translateX(0)';">
+                return `<div data-venue="${nameEsc}" style="display:flex; align-items:center; gap:14px; padding:14px 18px; background:white; border:1px solid rgba(15,44,23,0.08); border-radius:10px; cursor:pointer; transition:all 0.15s;" onmouseover="this.style.borderColor='var(--forest-700)'; this.style.transform='translateX(2px)';" onmouseout="this.style.borderColor='rgba(15,44,23,0.08)'; this.style.transform='translateX(0)';">
                     <div style="width:40px; height:40px; border-radius:8px; flex-shrink:0; overflow:hidden;">
                         ${retailerAvatarHtml(window._retailerForCompact, 40, {radius:'8px'})}
                     </div>
                     <div style="flex:1; min-width:0;">
                         <div style="font-weight:700; color:var(--forest-900); font-size:0.98rem;">${nameEsc}</div>
-                        <div style="font-size:0.84rem; color:var(--ink-500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${addrEsc || ','}</div>
+                        <div style="font-size:0.84rem; color:var(--ink-500); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${addrEsc || 'Address on request'}</div>
                     </div>
                     <div style="font-size:0.9rem; font-weight:700; color:var(--forest-900); white-space:nowrap;">$${fee}<span style="font-size:0.75rem; color:var(--ink-500); font-weight:500;"> / demo</span></div>
                     <span class="btn btn-primary" style="padding: 7px 14px; font-size: 0.82rem;">Book</span>
@@ -1159,10 +1169,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (sum) sum.textContent = location;
             showView('client');
             selectedDate = null;
+            // A stale time selection from the previous venue/date could bypass the availability
+            // gate — clear it whenever context changes.
+            selectedTime = null;
+            document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
             renderCalendar();
             applyTimeSlotAvailability();
             renderLocationSwitcher();
+            updateCartDisplay();   // price-per-demo showed a hardcoded $30 until the first add
         }
 
         // Renders the location-switcher pill row inside the booking view. Lets a brand
@@ -1183,7 +1198,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const bg = isActive ? 'var(--forest-800)' : 'white';
                 const fg = isActive ? 'white' : 'var(--ink-700)';
                 const bd = isActive ? 'var(--forest-800)' : 'rgba(15,44,23,0.15)';
-                return `<button type="button" onclick="selectLocation('${nameEsc.replace(/'/g, "\\'")}')" style="padding:9px 16px; border-radius:99px; background:${bg}; color:${fg}; border:1.5px solid ${bd}; font-size:0.88rem; font-weight:600; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; transition:all 0.15s;">${nameEsc}${badge}</button>`;
+                return `<button type="button" data-venue="${nameEsc}" style="padding:9px 16px; border-radius:99px; background:${bg}; color:${fg}; border:1.5px solid ${bd}; font-size:0.88rem; font-weight:600; cursor:pointer; font-family:inherit; display:inline-flex; align-items:center; transition:all 0.15s;">${nameEsc}${badge}</button>`;
             }).join('');
         }
         
@@ -1354,6 +1369,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function selectDate(day, disabled) {
             if (disabled) return;
             selectedDate = new Date(currentYear, currentMonth, day);
+            // New date = new availability; a slot picked for the old date must not survive
+            // (it could be outside hours or Full on this one).
+            selectedTime = null;
+            document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             renderCalendar();
             document.getElementById('selectedDateLabel').textContent = '- ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
             applyTimeSlotAvailability();
@@ -1370,9 +1389,17 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 alert('Please select a date and time first');
                 return;
             }
-            
-            // Check if this location already has a booking on this day
-            const dateStr = selectedDate.toISOString().split('T')[0];
+            // Belt-and-braces: refuse a slot the availability pass has dimmed.
+            const selEl = document.querySelector('.time-slot.selected');
+            if (selEl && selEl.classList.contains('unavailable')) {
+                alert('That time isn\'t available on this date — pick another slot.');
+                return;
+            }
+
+            // Check if this location already has a booking on this day.
+            // LOCAL date string — toISOString() is UTC and shifted the booked day for any
+            // user at a positive UTC offset (Europe/Asia booked the day BEFORE they picked).
+            const dateStr = dateToYmd(selectedDate);
             const existsOnDay = cart.find(item => item.dateStr === dateStr && item.location === currentLocation);
             if (existsOnDay) {
                 alert('You can only book one slot per location per day. This location already has a booking on ' + selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
@@ -1390,13 +1417,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Reset selection
             selectedTime = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
-            
+
             updateCartDisplay();
+            renderLocationSwitcher();   // per-venue cart badges went stale until a venue switch
         }
         
         function removeFromCart(index) {
             cart.splice(index, 1);
             updateCartDisplay();
+            renderLocationSwitcher();
         }
         
         function updateCartDisplay() {
@@ -1698,6 +1727,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const errors = [];
             let emailWarned = false;
             const successBookingIds = [];
+            // The typed demo-conduct signature must actually be RECORDED. /api/book (session
+            // endpoint) ignores signed_name, so the signature was silently discarded and the
+            // agreement modal reappeared forever. Best-effort: a hiccup here never blocks booking —
+            // agreement-check will simply re-prompt next time.
+            if (window._pendingSignedName) {
+                try {
+                    await fetch('/api/booking', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                        body: JSON.stringify({ action: 'agreement-sign', retailer_slug: RETAILER_SLUG, signed_name: window._pendingSignedName }),
+                    });
+                } catch (_) { /* re-prompted next visit */ }
+            }
             // PERF: fire all booking requests in parallel — 3-slot cart used to take 3× sequential
             // waits (~4-6s total). Now they complete in parallel, and the checkout redirect fires
             // as soon as the slowest one returns.
@@ -1812,7 +1853,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             document.getElementById('contactInfoModal').classList.remove('active');
             const overlay = document.createElement('div');
             overlay.id = 'pendingPaymentOverlay';
-            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;overflow-y:auto;';
             const bookingWord = count === 1 ? 'booking' : 'bookings';
             const isNoStripe = reason === 'stripe_not_connected';
             overlay.innerHTML = `
