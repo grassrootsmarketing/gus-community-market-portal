@@ -6547,7 +6547,7 @@ END:VEVENT
               if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }, 120);
           };
-          window.showAdminTab = function(sectionId) {
+          window.showAdminTab = function(sectionId, opts) {
             buildPanes();
             document.querySelectorAll('.admin-pane').forEach(p => { p.style.display = (p.dataset.pane === sectionId) ? '' : 'none'; });
             document.querySelectorAll('.subnav-link, .mobile-nav-item').forEach(a => {
@@ -6556,16 +6556,32 @@ END:VEVENT
             const lbl = document.getElementById('mobileNavCurrent');
             if (lbl) { const active = document.querySelector('.subnav-link.active, .mobile-nav-item.active'); if (active) lbl.textContent = active.textContent.trim(); }
             const sc = getScroller(); if (sc) sc.scrollTo({ top: 0, behavior: 'auto' });
+            // History integration: each tab switch is a history entry, so the browser Back button
+            // walks back through tabs instead of dumping the user out to the login page. The first
+            // render REPLACES (no phantom entry); popstate-driven renders never push (no loops).
+            if (!opts || !opts.fromHistory) {
+              try {
+                if (!window._adminTabHistInit) { history.replaceState({ adminTab: sectionId }, '', '#' + sectionId); window._adminTabHistInit = true; }
+                else if (location.hash !== '#' + sectionId) history.pushState({ adminTab: sectionId }, '', '#' + sectionId);
+              } catch (_) {}
+            }
           };
+          window.addEventListener('popstate', (e) => {
+            const id = (e.state && e.state.adminTab) || (location.hash || '').slice(1) || 'dashSection';
+            if (TABS.includes(id)) { try { window.showAdminTab(id, { fromHistory: true }); } catch (_) {} }
+          });
           subnav.forEach(link => {
             link.addEventListener('click', (e) => {
               e.preventDefault();
               window.showAdminTab(link.dataset.section);
             });
           });
-          // Default to Dashboard on load (once DOM is ready)
+          // Default tab on load: honor a valid #hash (deep links, reloads), else Dashboard.
           document.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => { try { window.showAdminTab('dashSection'); } catch(_){} }, 300);
+            setTimeout(() => { try {
+              const h = (location.hash || '').slice(1);
+              window.showAdminTab(TABS.includes(h) ? h : 'dashSection');
+            } catch(_){} }, 300);
           });
           // -- old scrollspy disabled below (kept as no-op to avoid touching downstream refs) --
           if (false) {
