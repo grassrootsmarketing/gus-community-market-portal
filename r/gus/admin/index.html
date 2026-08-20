@@ -12,7 +12,13 @@
             --forest-600: #2d6339; --forest-500: #3d8249; --forest-400: #52a35f;
             --forest-300: #7bc285; --forest-200: #a8dab0; --forest-100: #d4edda; --forest-50: #eef7f0;
             --sand-100: #faf8f5; --sand-200: #f2ede6; --sand-300: #e8e0d5;
-            --bark-600: #5c483a; --bark-500: #7a6352;
+            --bark-600: #5c483a; --bark-500: #7a6352; --bark-700: #4a3a2e;
+            /* ink/clay/cream were referenced ~200 times but never DEFINED on this page — every
+               muted label inherited full body color and every var(--clay-*) error message rendered
+               GREEN. Values match the rest of the site (brand dashboard, 404, owner). */
+            --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64; --ink-300: #b9b6ae;
+            --clay-700: #a14e2a; --clay-600: #a63e26; --clay-500: #c14a2f; --clay-100: #f7e4d4;
+            --cream-50: #fbf7f0; --cream-100: #f6f0e4; --cream-200: #ede3d0;
             --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
             --shadow-lg: 0 12px 40px rgba(13,31,18,0.12); --shadow-xl: 0 24px 60px rgba(13,31,18,0.16);
             --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
@@ -201,6 +207,14 @@
         td { padding: 16px 24px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
         tr:hover td { background: var(--forest-50); }
         .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
+        /* Every status the demos table can emit — only 'confirmed' was styled; the rest rendered
+           as bare text in an invisible pill. */
+        .status-pending { background:#fef3c7; color:#92400e; }
+        .status-cancelled, .status-declined { background:#fde2e2; color:#9b2c2c; }
+        .status-completed { background:var(--sand-200); color:var(--bark-600); }
+        .status-held { background:#fff0e6; color:#b4531f; }
+        /* Cards pulled out of .settings-grid into tab panes lost the grid's 24px rhythm. */
+        .admin-pane > .settings-card, .admin-pane > .billing-card { margin-bottom: 24px; }
         .status-confirmed { background: var(--forest-100); color: var(--forest-700); }
         
         /* Masonry-style pack: cards fill columns bottom-up, avoiding awkward vertical gaps. */
@@ -912,7 +926,7 @@
                     <div class="billing-summary" id="billingSummary"></div>
                     <table>
                         <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead>
-                        <tbody id="billingTableBody"><tr class="empty-placeholder"><td colspan="5" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Completed demos and payouts will appear here at the end of each month. Statements can be downloaded once billing data is available.</td></tr></tbody>
+                        <tbody id="billingTableBody"><tr class="empty-placeholder"><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Completed demos and payouts will appear here at the end of each month. Statements can be downloaded once billing data is available.</td></tr></tbody>
                     </table>
                 </div>
 
@@ -1390,7 +1404,7 @@
                 </div>
                 <div>
                     <label class="form-label" for="storeState" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">State</label>
-                    <select id="storeState" autocomplete="address-level1" style="width:100%; padding:10px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background:white; appearance:none; -webkit-appearance:none; background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%230f2c17' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1 1 5 5 9 1'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 8px center; padding-right:24px;">
+                    <select id="storeState" autocomplete="address-level1" style="width:100%; padding:10px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background:white; appearance:none; -webkit-appearance:none; background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27 viewBox=%270 0 10 6%27 fill=%27none%27 stroke=%27%230f2c17%27 stroke-width=%271.6%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%271 1 5 5 9 1%27/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 8px center; padding-right:24px;">
                         <option value="">—</option>
                         <option value="AL">AL</option>
                         <option value="AK">AK</option>
@@ -1815,10 +1829,16 @@
                             loading.style.display = 'none';
                             login.style.display = 'block';
                             // Surface a small notice above the login form
-                            const err = document.getElementById('adminAuthErr');
+                            // #adminAuthErr never existed — the message silently vanished and an
+                            // expired link dumped users on a bare login form with no explanation.
+                            const err = document.getElementById('authNotice');
                             if (err) {
                                 err.textContent = 'Your sign-in link has already been used or expired. Enter your email below for a fresh link.';
                                 err.style.display = 'block';
+                                err.style.background = '#fdebe5';
+                                err.style.color = 'var(--clay-700)';
+                                err.style.padding = '10px 14px';
+                                err.style.borderRadius = '8px';
                             }
                             return false;
                         }
@@ -4166,12 +4186,16 @@ END:VEVENT
         // ===== Upcoming Demos: search + table/calendar =====
         let UPCOMING_DEMOS = [];
         let demoView = 'table';
-        let demoCalMonth = 1;
-        let demoCalYear = 2026;
+        // Open the demos calendar on the CURRENT month (was hardcoded to Feb 2026 — every
+        // visit after February landed on an empty month).
+        let demoCalMonth = new Date().getMonth();
+        let demoCalYear = new Date().getFullYear();
         const DEMO_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
         function formatDemoDate(iso) {
+            if (!iso) return '—';
             const d = new Date(iso + 'T00:00:00');
+            if (isNaN(d.getTime())) return '—';
             return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         }
         // ----- Demo filter state (persisted to sessionStorage) -----
@@ -4395,7 +4419,7 @@ END:VEVENT
         function renderDemosTable() {
             const tbody = document.getElementById('demosTableBody');
             if (!tbody) return;
-            const list = getFilteredDemos().slice().sort((a, b) => a.date.localeCompare(b.date));
+            const list = getFilteredDemos().slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
             if (list.length === 0) {
                 tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">No demos here yet — they\'ll appear as you confirm incoming bookings, or if you add them manually.</td></tr>';
                 return;
@@ -4864,11 +4888,11 @@ END:VEVENT
                     const canManage = (iAmOwner || iAmAdmin) && !isOwner && !isMe;
                     const actions = canManage
                         ? `<div style="display:flex; gap:6px;">
-                             <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.82rem; padding:6px 28px 6px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; background:white; font-family:inherit; font-weight:600; color:var(--forest-800); appearance:none; -webkit-appearance:none; -moz-appearance:none; background-image: url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6' fill='none' stroke='%230f2c17' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='1 1 5 5 9 1'/%3E%3C/svg%3E\"); background-repeat:no-repeat; background-position:right 10px center; cursor:pointer;">
+                             <select onchange="updateTeamRole('${a.id}', this.value)" style="font-size:0.82rem; padding:6px 28px 6px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; background:white; font-family:inherit; font-weight:600; color:var(--forest-800); appearance:none; -webkit-appearance:none; -moz-appearance:none; background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27 viewBox=%270 0 10 6%27 fill=%27none%27 stroke=%27%230f2c17%27 stroke-width=%271.6%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%271 1 5 5 9 1%27/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 10px center; cursor:pointer;">
                                <option value="admin"${a.role === 'admin' ? ' selected' : ''}>Admin</option>
                                <option value="viewer"${a.role === 'viewer' ? ' selected' : ''}>Viewer</option>
                              </select>
-                             <button onclick="removeTeamMember('${a.id}', '${escapeHtml(a.email)}')" style="background:transparent; border:1px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer;">Remove</button>
+                             <button class="team-remove-btn" data-aid="${escapeHtml(a.id)}" data-aemail="${escapeHtml(a.email)}" style="background:transparent; border:1px solid rgba(15,44,23,0.12); color:var(--clay-700); padding:4px 10px; border-radius:6px; font-size:0.8rem; cursor:pointer;">Remove</button>
                            </div>`
                         : '';
                     return `<div class="team-row" style="display:flex; align-items:center; gap:12px; padding:10px 12px; background:#f9f7f2; border-radius:8px; flex-wrap:wrap;">
@@ -4884,6 +4908,9 @@ END:VEVENT
                         ${actions}
                     </div>`;
                 }).join('');
+                // Delegated: apostrophes in emails (o'brien@…) broke inline-onclick string args.
+                list.querySelectorAll('.team-remove-btn').forEach(btn => btn.addEventListener('click', () =>
+                    removeTeamMember(btn.dataset.aid, btn.dataset.aemail)));
             } catch (e) {
                 list.innerHTML = `<div style="color:var(--clay-700); font-size:0.9rem;">Couldn't load team: ${escapeHtml(e.message)}</div>`;
             }
@@ -5769,8 +5796,13 @@ END:VEVENT
             ).join('');
         }
         function getDemoVenue(demo) {
-            // Try to infer venue from product+context; otherwise look up via brand contact's venue.
-            // Demos table doesn't store venue directly, so we map via brand_contacts by company name.
+            // The demo's OWN venue_id is authoritative (calendar colors + tooltips were wrong for
+            // any brand missing from contacts — everything fell back to the first store). The
+            // brand-contact lookup remains only as a legacy fallback.
+            if (demo && demo.venue_id) {
+                const v = (window.state.venues || []).find(x => x.id === demo.venue_id);
+                if (v) return v.name;
+            }
             const brand = (window.state.brandContacts || []).find(b => b.company === demo.company);
             return brand ? brand.venue : null;
         }
@@ -5802,9 +5834,11 @@ END:VEVENT
             const months = getBillingMonths();
             const prev = sel.value;
             sel.innerHTML = months.map(ym => '<option value="' + ym + '">' + monthLabel(ym) + '</option>').join('');
-            // Default to Feb 2026 (where seeded demos are) if not set
+            // Keep the user's pick across refreshes; otherwise default to the NEWEST month with
+            // data (list is sorted desc). The old hardcoded Feb-2026 default showed "$0 total"
+            // every month after February.
             if (prev && months.includes(prev)) sel.value = prev;
-            else if (months.includes('2026-02')) sel.value = '2026-02';
+            else if (months.length) sel.value = months[0];
         }
         // True when this retailer receives nothing through the platform (special deal).
         // Settings already respected this; Billing did not, and showed Gus a "You receive"
@@ -5898,13 +5932,27 @@ END:VEVENT
             const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
             const today = new Date().toLocaleDateString('en-US',{month:'long', day:'numeric', year:'numeric'});
 
+            // Money columns must match the 7-column header: brand paid = venue fee + platform fee,
+            // you receive = venue fee. (Rows previously emitted 5 cells, putting the payout under
+            // the "Brand paid" header — a mislabeled financial document.) Location resolves via the
+            // demo's real venue_id; the brand-contact fallback covers legacy rows.
+            if (typeof refreshBillingTo === 'function') refreshBillingTo();
+            const PLATFORM_FEE = 5;
+            const venueNameById = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
+            let feeTotal = 0, paidTotal = 0;
             const rows = demos.map(d => {
                 const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                const venue = brandsByCompany[d.company]?.venue || '—';
-                return '<tr><td>' + escapeHtml(dl) + '</td><td>' + escapeHtml(d.company) + '</td><td>' + escapeHtml(d.product || '') + '</td><td>' + escapeHtml(venue) + '</td><td style="text-align:right;">$' + (parseFloat(d.demo_fee) || 0).toFixed(2) + '</td></tr>';
+                const venue = venueNameById[d.venue_id] || brandsByCompany[d.company]?.venue || '—';
+                const receive = parseFloat(d.demo_fee) || 0;
+                const paid = receive + PLATFORM_FEE;
+                feeTotal += PLATFORM_FEE; paidTotal += paid;
+                return '<tr><td>' + escapeHtml(dl) + '</td><td>' + escapeHtml(d.company) + '</td><td>' + escapeHtml(d.product || '') + '</td><td>' + escapeHtml(venue) + '</td>'
+                    + '<td style="text-align:right;">$' + paid.toFixed(2) + '</td>'
+                    + '<td style="text-align:right; color:#6b6a64;">$' + PLATFORM_FEE.toFixed(2) + '</td>'
+                    + '<td style="text-align:right;">$' + receive.toFixed(2) + '</td></tr>';
             }).join('');
 
-            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ' + monthLabel(ym) + ' — Gus\'s Community Market</title>'
+            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ' + monthLabel(ym) + ' — ' + escapeHtml(typeof getRetailerName === 'function' ? getRetailerName() : 'Demohub retailer') + '</title>'
                 + '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
                 + '<style>'
                 + 'body { font-family: \'Plus Jakarta Sans\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
@@ -5942,7 +5990,10 @@ END:VEVENT
                 + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
                   '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead><tbody>'
                 + rows
-                + '<tr class="total-row"><td colspan="4" style="text-align:right;">Total billed</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
+                + '<tr class="total-row"><td colspan="4" style="text-align:right;">Totals</td>'
+                + '<td style="text-align:right;">$' + paidTotal.toFixed(2) + '</td>'
+                + '<td style="text-align:right;">$' + feeTotal.toFixed(2) + '</td>'
+                + '<td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
                 + '</tbody></table>')
                 + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
                 + '</body></html>';
@@ -5974,7 +6025,8 @@ END:VEVENT
             const startDow = first.getDay();
             const days = last.getDate();
             const today = new Date();
-            const todayStr = today.toISOString().slice(0,10);
+            // LOCAL date, not UTC — toISOString ringed "today" on tomorrow's cell after ~5pm Pacific.
+            const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
             // Index demos by date
             const demosByDay = {};
             // No sample/example demos on the calendar — it only ever shows real bookings.
@@ -6524,8 +6576,10 @@ END:VEVENT
               const id = child.id || '';
               if (['calendarSection','demosSection','brandsSection','complianceSection','storesSection'].includes(id)) current = id;
               else if (id === 'dashSection') current = 'dashSection';
-              // Empty billing/settings anchors before the grid: park them anywhere harmless
-              if (id === 'billingSection' || id === 'settingsSection') return;
+              // The bare billing/settings anchors are skipped BUT must still advance `current` —
+              // otherwise the billing statements card that follows them inherited 'storesSection'
+              // and rendered at the bottom of the Locations tab.
+              if (id === 'billingSection' || id === 'settingsSection') { current = id; return; }
               (map[current] = map[current] || []).push(child);
             });
             // Settings-grid cards routed by data-tab (default → settings)
@@ -6552,7 +6606,8 @@ END:VEVENT
               const id = child.id || '';
               if (['calendarSection','demosSection','brandsSection','complianceSection','storesSection'].includes(id)) current = id;
               else if (id === 'dashSection') current = 'dashSection';
-              if (id === 'billingSection' || id === 'settingsSection') { childTab.set(child, '__skip__'); return; }
+              // Anchors advance `current` (see buildTabMap note) even though they're skipped.
+              if (id === 'billingSection' || id === 'settingsSection') { current = id; childTab.set(child, '__skip__'); return; }
               childTab.set(child, current);
             });
             // Create a pane per tab
@@ -6900,12 +6955,9 @@ END:VEVENT
                     } else if (open === 'bulk-upload' && typeof window.openStoreBulkUpload === 'function') {
                         window.openStoreBulkUpload();
                     } else if (open === 'locations') {
-                        const el = document.getElementById('storesSection');
-                        const scroller = document.querySelector('.main-scroll');
-                        if (el && scroller) {
-                            const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 20;
-                            scroller.scrollTo({ top: top, behavior: 'smooth' });
-                        }
+                        // Under the tab controller the stores section lives in a hidden pane —
+                        // scrolling to it was a no-op. Switch tabs instead.
+                        if (typeof window.showAdminTab === 'function') window.showAdminTab('storesSection');
                     } else {
                         return false;
                     }
