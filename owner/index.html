@@ -158,7 +158,7 @@ table.simple tr:last-child td { border-bottom:0; }
 /* Chart typography — use the site font everywhere (was inheriting the browser default / Inter) */
 .gh-chart text, .chart-svg text { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; }
 /* Growth-chart hover tooltip */
-.growth-hero .gh-chart { position:relative; }
+.growth-hero .gh-chart, [data-gh-mount] { position:relative; }
 .gh-hit { cursor:pointer; }
 .gh-tip { position:absolute; top:4px; display:none; transform:translateX(-50%); background:rgba(8,22,13,0.96); color:#fdf9ee; border:1px solid rgba(255,255,255,0.16); border-radius:10px; padding:8px 11px; font-family:'Plus Jakarta Sans',sans-serif; font-size:.8rem; pointer-events:none; white-space:nowrap; z-index:6; box-shadow:0 8px 22px rgba(0,0,0,.35); }
 .gh-tip-label { font-weight:700; font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; color:#9fb8a4; margin-bottom:5px; }
@@ -178,7 +178,7 @@ table.simple tr:last-child td { border-bottom:0; }
   <span class="crumb">/ owner panel</span>
   <div class="right">
     <span id="ownerEmail"></span>
-    <a onclick="ownerSignOut()">Sign out</a>
+    <a href="#" onclick="ownerSignOut(); return false;">Sign out</a>
   </div>
 </nav>
 
@@ -375,8 +375,13 @@ window.addEventListener('resize', function () {
 
 // Wire hover on the growth chart: tooltip + vertical guide + markers at the hovered month.
 function wireGhHover() {
-  const chart = document.querySelector('.growth-hero .gh-chart');
-  if (!chart) return;
+  // Every mounted growth chart gets hover (the Analytics one previously had cursor:pointer hit
+  // rects that did nothing — only the hero was wired). The remount replaces the mount's innerHTML,
+  // so per-hit listeners die with the old nodes; only the persistent mount div needs the
+  // once-guard on its mouseleave to avoid accumulating across resizes.
+  document.querySelectorAll('[data-gh-mount]').forEach(wireOneGhChart);
+}
+function wireOneGhChart(chart) {
   const tip = chart.querySelector('.gh-tip');
   const guide = chart.querySelector('.gh-guide');
   const mR = chart.querySelector('.gh-marker-r');
@@ -400,21 +405,29 @@ function wireGhHover() {
       tip.style.left = Math.max(tip.offsetWidth / 2 + 4, Math.min(left, cb.width - tip.offsetWidth / 2 - 4)) + 'px';
     });
   });
-  chart.addEventListener('mouseleave', () => {
-    tip.style.display = 'none';
-    if (guide) guide.style.display = 'none';
-    if (mR) mR.style.display = 'none';
-    if (mB) mB.style.display = 'none';
-  });
+  if (!chart.dataset.ghLeaveWired) {
+    chart.dataset.ghLeaveWired = '1';
+    chart.addEventListener('mouseleave', () => {
+      const t = chart.querySelector('.gh-tip');
+      if (t) t.style.display = 'none';
+      ['.gh-guide', '.gh-marker-r', '.gh-marker-b'].forEach(sel => {
+        const el = chart.querySelector(sel); if (el) el.style.display = 'none';
+      });
+    });
+  }
 }
 
 // Count the headline numbers up from zero. Preserves $ prefix and , grouping.
 function ownerCountUp() {
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  // Reduced-motion users still need the VALUES — the markup ships 0-placeholders and this
+  // function is the only writer, so bailing out showed "0 on Demohub" to anyone with the
+  // OS accessibility setting on. Skip the animation, never the number.
+  const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   document.querySelectorAll('[data-count]').forEach(function (el) {
     const target = parseFloat(el.getAttribute('data-count'));
     if (!isFinite(target) || target === 0) return;
     const prefix = el.getAttribute('data-prefix') || '';
+    if (still) { el.textContent = prefix + Math.round(target).toLocaleString(); return; }
     const dur = 900, start = performance.now();
     function step(now) {
       const t = Math.min(1, (now - start) / dur), e = 1 - Math.pow(1 - t, 3);
@@ -430,7 +443,7 @@ function renderBars(svg, series) {
   const w = 700, h = 180;
   const padL = 28, padR = 12, padT = 16, padB = 24;
   const innerW = w - padL - padR, innerH = h - padT - padB;
-  const max = Math.max(1, ...series.map(s => s.count));
+  const max = Math.max(1, ...series.map(s => s.count || 0));
   const barGap = 4;
   const barW = (innerW / series.length) - barGap;
   const parts = [];
@@ -439,7 +452,7 @@ function renderBars(svg, series) {
   parts.push(`<line x1="${padL}" y1="${h - padB}" x2="${w - padR}" y2="${h - padB}" stroke="rgba(15,44,23,0.18)" stroke-width="1"/>`);
   // bars
   series.forEach((s, i) => {
-    const bh = (s.count / max) * innerH;
+    const bh = ((s.count || 0) / max) * innerH;
     const x = padL + i * (barW + barGap) + barGap / 2;
     const y = h - padB - bh;
     parts.push(`<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="3" fill="#3a7142"/>`);
@@ -538,9 +551,9 @@ function renderDashboard(d) {
     </div>`;
 
   // Tables
-  const topRetailerRows = (tb.top_retailers || []).map(r => `<tr><td>${escapeHtml(r.name)}</td><td class="num">${r.demos_this_month}</td></tr>`).join('');
-  const topBrandRows = (tb.top_brands || []).map(b => `<tr><td>${escapeHtml(b.name)}</td><td class="num">${b.activity_30d}</td></tr>`).join('');
-  const pendingRows = (tb.pending_stuck || []).map(p => `<tr><td>${escapeHtml(p.brand_name)}</td><td>${escapeHtml(p.retailer_name)}</td><td class="num">${p.hours_pending}h</td></tr>`).join('');
+  const topRetailerRows = (tb.top_retailers || []).map(r => `<tr><td>${escapeHtml(r.name)}</td><td class="num">${r.demos_this_month || 0}</td></tr>`).join('');
+  const topBrandRows = (tb.top_brands || []).map(b => `<tr><td>${escapeHtml(b.name)}</td><td class="num">${b.activity_30d || 0}</td></tr>`).join('');
+  const pendingRows = (tb.pending_stuck || []).map(p => `<tr><td>${escapeHtml(p.brand_name)}</td><td>${escapeHtml(p.retailer_name)}</td><td class="num">${p.hours_pending || 0}h</td></tr>`).join('');
 
   const tablesHtml = `
     <div class="card">
@@ -699,7 +712,7 @@ async function renderStatusManager() {
             <div style="flex:1;">
               <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(i.title)}</div>
               ${i.body ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-top:4px;">${escapeHtml(i.body)}</div>` : ''}
-              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${i.severity.toUpperCase()} · started ${new Date(i.started_at).toLocaleString()}</div>
+              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${String(i.severity || 'info').toUpperCase()} · started ${i.started_at ? new Date(i.started_at).toLocaleString() : '—'}</div>
             </div>
             <button onclick="resolveIncident('${i.id}')" style="background:#2a5b32; color:white; border:none; padding:7px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:0.85rem;">Resolve</button>
           </div>
@@ -743,9 +756,9 @@ async function resolveIncident(id) {
 // Generate plausible sample analytics data for a time range
 // A small horizontal-bar breakdown (tiers, MRR composition).
 function hBars(rows, colorFor) {
-  const max = Math.max(1, ...rows.map(r => r.value));
+  const max = Math.max(1, ...rows.map(r => r.value || 0));
   return rows.map(function (r) {
-    const pct = Math.round((r.value / max) * 100);
+    const pct = Math.round(((r.value || 0) / max) * 100);
     return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:9px;">'
       + '<div style="width:96px;font-size:0.82rem;color:var(--ink-700);flex-shrink:0;">' + escapeHtml(r.label) + '</div>'
       + '<div style="flex:1;background:rgba(15,44,23,0.06);border-radius:6px;height:14px;overflow:hidden;"><div style="width:' + pct + '%;height:100%;background:' + (colorFor ? colorFor(r) : '#3a7142') + ';border-radius:6px;transition:width .8s cubic-bezier(.3,.7,.4,1);"></div></div>'
@@ -791,105 +804,6 @@ function renderAnalytics() {
   if (typeof ownerCountUp === 'function') ownerCountUp();
   remountGrowthCharts();
 }
-
-// Tab switching + lazy-render analytics/billing
-function wireTabs() {
-  document.querySelectorAll('.owner-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      document.querySelectorAll('.owner-tab').forEach(b => b.classList.toggle('active', b === btn));
-      document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
-      if (tab === 'analytics') renderAnalytics('30d');
-      if (tab === 'billing') renderBilling();
-      if (tab === 'status') renderStatusManager();
-    });
-  });
-}
-
-// Status incidents management (owner panel)
-async function renderStatusManager() {
-  const pane = document.getElementById('statusPane');
-  if (!pane) return;
-  pane.innerHTML = '<div style="padding:20px; color:var(--ink-500);">Loading incidents…</div>';
-  let incidents = [];
-  try {
-    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-list' }), credentials: 'same-origin' });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || 'Failed to load');
-    incidents = j.incidents || [];
-  } catch (e) {
-    pane.innerHTML = '<div style="padding:20px; color:var(--clay-700);">Could not load: ' + e.message + '</div>';
-    return;
-  }
-  const active = incidents.filter(i => !i.resolved_at);
-  const resolved = incidents.filter(i => i.resolved_at).slice(0, 10);
-  pane.innerHTML = `
-    <div class="card">
-      <h2>Post new incident</h2>
-      <div class="sub" style="margin-bottom:14px;">Posts to public /status page immediately. Choose major to flag as outage, minor for degraded, maintenance for planned work.</div>
-      <input id="incTitle" type="text" placeholder="Short title (e.g. Bookings page slow loading)" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; margin-bottom:10px;">
-      <textarea id="incBody" placeholder="Optional detail / what's affected / what we're doing" rows="3" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; margin-bottom:10px;"></textarea>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <select id="incSeverity" style="padding:10px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit;">
-          <option value="minor">Minor (degraded)</option>
-          <option value="major">Major (outage)</option>
-          <option value="maintenance">Maintenance</option>
-        </select>
-        <button onclick="postIncident()" style="background:#0f2c17; color:white; border:none; padding:11px 22px; border-radius:8px; font-weight:700; cursor:pointer;">Post incident</button>
-        <span id="incStatus" style="font-size:0.85rem; color:var(--ink-500);"></span>
-      </div>
-    </div>
-    <div class="card" style="margin-top:18px;">
-      <h2>Active incidents (${active.length})</h2>
-      ${active.length === 0 ? '<div class="sub">No active incidents. /status shows operational.</div>' : active.map(i => `
-        <div style="background:white; border-left:4px solid ${i.severity==='major'?'#c93030':i.severity==='maintenance'?'#3a7142':'#ed682f'}; padding:14px 18px; border-radius:0 10px 10px 0; margin-bottom:10px; border:1px solid rgba(15,44,23,0.06);">
-          <div style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
-            <div style="flex:1;">
-              <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(i.title)}</div>
-              ${i.body ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-top:4px;">${escapeHtml(i.body)}</div>` : ''}
-              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${i.severity.toUpperCase()} · started ${new Date(i.started_at).toLocaleString()}</div>
-            </div>
-            <button onclick="resolveIncident('${i.id}')" style="background:#2a5b32; color:white; border:none; padding:7px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:0.85rem;">Resolve</button>
-          </div>
-        </div>
-      `).join('')}
-    </div>
-    <div class="card" style="margin-top:18px;">
-      <h2>Recently resolved</h2>
-      ${resolved.length === 0 ? '<div class="sub">No resolved incidents in history.</div>' : resolved.map(i => `
-        <div style="padding:10px 14px; border-bottom:1px solid rgba(15,44,23,0.06); font-size:0.88rem;">
-          <strong>${escapeHtml(i.title)}</strong> · ${i.severity} · ${new Date(i.started_at).toLocaleDateString()} – ${new Date(i.resolved_at).toLocaleDateString()}
-        </div>
-      `).join('')}
-    </div>
-  `;
-}
-async function postIncident() {
-  const title = document.getElementById('incTitle').value.trim();
-  const body = document.getElementById('incBody').value.trim();
-  const severity = document.getElementById('incSeverity').value;
-  const status = document.getElementById('incStatus');
-  if (!title) { status.textContent = 'Title required.'; status.style.color = '#c93030'; return; }
-  status.textContent = 'Posting…'; status.style.color = '#6b6a64';
-  try {
-    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-post', title, body, severity }), credentials: 'same-origin' });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || 'Failed');
-    status.textContent = 'Posted ✓'; status.style.color = '#2a5b32';
-    setTimeout(renderStatusManager, 600);
-  } catch (e) { status.textContent = 'Error: ' + e.message; status.style.color = '#c93030'; }
-}
-async function resolveIncident(id) {
-  try {
-    const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'incident-resolve', incident_id: id }), credentials: 'same-origin' });
-    const j = await r.json();
-    if (!j.ok) throw new Error(j.error || 'Failed');
-    renderStatusManager();
-  } catch (e) { alert('Resolve failed: ' + e.message); }
-}
-
-// Generate plausible sample analytics data for a time range
-
 
 function renderBilling() {
   const pane = document.getElementById('billingPane');
@@ -937,47 +851,6 @@ function _dhResend(linkEl, sendFn) {
   const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend link'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
 }
 
-// Delegate submit on the login form (form is rendered by renderGate dynamically)
-document.addEventListener('submit', async (e) => {
-  if (e.target.id !== 'ownerLoginForm') return;
-  e.preventDefault();
-  const emailEl = document.getElementById('ownerEmailInput');
-  const btn = document.getElementById('ownerLoginBtn');
-  const notice = document.getElementById('ownerNotice');
-  const email = (emailEl?.value || '').trim().toLowerCase();
-  if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) {
-    if (notice) { notice.textContent = 'Enter a valid email.'; notice.style.display = 'block'; }
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-  try {
-    const r = await fetch('/api/admin-auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'owner-login', email })
-    });
-    if (r.ok) {
-      if (emailEl) emailEl.style.display = 'none';
-      if (btn) btn.style.display = 'none';
-      if (notice) {
-        notice.innerHTML = 'Check your inbox. The sign-in link expires in 24 hours.<br><a href="#" id="ownerResendLink" style="display:inline-block; margin-top:10px; color:var(--forest-700); text-decoration:underline; cursor:pointer; font-size:0.88rem;">Didn\'t get it? Resend link</a>';
-        notice.style.color = 'var(--forest-700)';
-        notice.style.display = 'block';
-        const _rl = document.getElementById('ownerResendLink');
-        if (_rl) _rl.addEventListener('click', (ev) => {
-          ev.preventDefault();
-          _dhResend(_rl, () => fetch('/api/admin-auth', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'owner-login', email }) }).catch(()=>{}));
-        });
-      }
-    } else {
-      if (btn) { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
-      if (notice) { notice.textContent = 'Could not send link. Try again.'; notice.style.display = 'block'; }
-    }
-  } catch (err) {
-    if (btn) { btn.disabled = false; btn.textContent = 'Send sign-in link'; }
-    if (notice) { notice.textContent = 'Network error. Try again.'; notice.style.display = 'block'; }
-  }
-});
 
 
 // ===== Migration runner =====
@@ -1058,7 +931,7 @@ async function loadSupportTools() {
         <td><a href="/r/${escapeHtml(r.slug)}" target="_blank" style="color:var(--forest-700, #2a5b32); text-decoration:underline;">/r/${escapeHtml(r.slug)}</a></td>
         <td>${escapeHtml(r.billing_tier || 'solo')}</td>
         <td class="num">
-          <button type="button" onclick="doImpersonate('${r.id}', '${escapeHtml(r.name).replace(/'/g, "\\'")}')" style="background:#0f2c17; color:white; border:none; padding:7px 14px; border-radius:8px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit;">Sign in as admin &rarr;</button>
+          <button type="button" class="imp-btn" data-rid="${escapeHtml(r.id)}" data-rname="${escapeHtml(r.name)}" style="background:#0f2c17; color:white; border:none; padding:7px 14px; border-radius:8px; font-weight:600; font-size:0.82rem; cursor:pointer; font-family:inherit;">Sign in as admin &rarr;</button>
         </td>
       </tr>
     `).join('');
@@ -1074,6 +947,10 @@ async function loadSupportTools() {
         </div>
       </div>
     `;
+    // Delegated: apostrophes in retailer names ("Gus's…") used to blow up inline-onclick string
+    // args — data attributes survive any name.
+    card.querySelectorAll('.imp-btn').forEach(btn => btn.addEventListener('click', () =>
+      doImpersonate(btn.dataset.rid, btn.dataset.rname)));
   } catch (e) {
     card.innerHTML = '';
   }
