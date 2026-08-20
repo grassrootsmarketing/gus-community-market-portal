@@ -516,7 +516,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
-                <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@example.com" autocomplete="email"></div>
+                <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@sunrisefoods.com" autocomplete="email"></div>
                 <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
                      (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
@@ -596,7 +596,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             </div>
             <div id="brandSignInStep1">
                 <label class="form-label" for="brandSignInEmail" style="display:block; margin-bottom:6px; font-size:0.78rem; font-weight:700; color:#0f2c17; text-transform:uppercase; letter-spacing:0.06em;">Email</label>
-                <input type="email" id="brandSignInEmail" placeholder="you@company.com" autocomplete="email" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1rem; font-family:inherit; margin-bottom:6px; box-sizing:border-box;">
+                <input type="email" id="brandSignInEmail" placeholder="you@yourbrand.com" autocomplete="email" style="width:100%; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:1rem; font-family:inherit; margin-bottom:6px; box-sizing:border-box;">
                 <div id="brandSignInErr1" style="font-size:0.82rem; color:#a14e2a; margin-bottom:12px; min-height:1em;"></div>
                 <button type="button" id="brandSignInSendBtn" onclick="brandSignInSendCode()" style="width:100%; background:#0f2c17; color:white; border:none; padding:13px 18px; border-radius:10px; font-weight:700; font-size:0.95rem; cursor:pointer; font-family:inherit;">Send me a code</button>
                 <div style="text-align:center; margin-top:18px; font-size:0.8rem; color:#6b6a64; line-height:1.5;"><strong style="color:#0f2c17;">New to Demohub?</strong> Enter your email above — we'll create your account when you verify the code.</div>

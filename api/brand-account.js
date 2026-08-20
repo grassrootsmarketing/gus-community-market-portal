@@ -1169,6 +1169,38 @@ export default async function handler(req, res) {
         });
       } catch (_) {}
 
+      // Owner ping: a certificate just LANDED (durably finalized above). With manual review as
+      // the only approval path — and the 24h provisional-hold clock running for uninsured
+      // bookings — an unnoticed queue item can cost a brand their slot. Best-effort: a mail
+      // hiccup must never fail the upload the brand was just told succeeded.
+      try {
+        const OWNER_NOTIFY = 'david@demohubhq.com';
+        if (_b.resendApiKey) {
+          let heldLine = '';
+          try {
+            const heldR = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&select=held_expires_at&order=held_expires_at.asc`);
+            const held = heldR.ok ? await heldR.json() : [];
+            if (Array.isArray(held) && held.length) {
+              const dl = held[0].held_expires_at ? new Date(held[0].held_expires_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : 'soon';
+              heldLine = `<p style="font-size:14px;line-height:1.5;color:#a14e2a;background:#fff3ed;border-left:4px solid #ed682f;padding:10px 14px;border-radius:8px;margin:0 0 16px;"><strong>${held.length} held booking${held.length === 1 ? '' : 's'}</strong> waiting on this approval — first hold releases <strong>${dl}</strong>.</p>`;
+            }
+          } catch (_) {}
+          const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+          const flagsTxt = (verdict.flags || []).length ? verdict.flags.join(', ') : 'none';
+          await sendMailQuietly({
+            from: FROM_BOOKINGS, to: OWNER_NOTIFY, replyTo: REPLY_TO,
+            subject: `COI to review: ${brandRow && brandRow.company_name ? brandRow.company_name : 'a brand'}${heldLine ? ' (held booking waiting!)' : ''}`,
+            html: `<div style="font-family:-apple-system,BlinkMacSystemFont,Roboto,Helvetica,sans-serif;max-width:540px;margin:0 auto;padding:24px;color:#1c1c1a;">`
+              + `<h2 style="font-size:20px;color:#0f2c17;margin:0 0 14px;">A certificate just landed</h2>`
+              + heldLine
+              + `<p style="font-size:14px;line-height:1.6;margin:0 0 16px;"><strong>${esc(brandRow && brandRow.company_name)}</strong> (${esc(brandRow && brandRow.email)}) uploaded a COI.<br>`
+              + `Status: <strong>${esc(verificationStatus)}</strong> &middot; Insurer: ${esc(vdata && vdata.insurer_name || '—')} &middot; Doc expiry: ${esc(docExpiry || 'unreadable')} &middot; Flags: ${esc(flagsTxt)}</p>`
+              + `<a href="${siteLink(_b, '/owner')}" style="display:inline-block;background:#0f2c17;color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;">Review in the owner panel &rarr;</a>`
+              + `</div>`,
+          }, { binding: _b });
+        }
+      } catch (e) { console.warn('owner COI-landed ping skipped:', (e && e.message) || e); }
+
       return jsonResp(res, 200, {
         ok: true, coi_url: publicUrl, filename: originalName, mime,
         expires: effectiveExpiry || null,

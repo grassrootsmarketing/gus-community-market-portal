@@ -195,10 +195,12 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 <main class="container">
   
   <div id="recognizedCard" class="recognized-card" style="display:none;">
-    <div class="recognized-avatar" id="recognizedAvatar">D</div>
+    <!-- Shipped empty: JS fills identity before the card is shown. Hardcoded sample identity
+         here leaked a real name/email into view-source and could flash on a JS failure. -->
+    <div class="recognized-avatar" id="recognizedAvatar">?</div>
     <div class="recognized-role" id="recognizedRole">Retailer admin</div>
-    <div class="recognized-name" id="recognizedName">David</div>
-    <div class="recognized-email" id="recognizedEmail">david@demohubhq.com</div>
+    <div class="recognized-name" id="recognizedName"></div>
+    <div class="recognized-email" id="recognizedEmail"></div>
     <button type="button" class="recognized-btn" id="recognizedBtn">Continue &rarr;</button>
     <a href="#" class="recognized-notyou" id="recognizedNotYou">Not you? Sign in with a different account</a>
     <div class="recognized-check" id="recognizedCheck">

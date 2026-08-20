@@ -3823,6 +3823,7 @@ END:VEVENT
                 companyLabel: 'Company',
                 companyField: 'company',
                 companyPlaceholder: 'Acme Foods',
+                emailPlaceholder: 'jane@acmefoods.com',
                 showAddress: true,
                 columns: 8,
                 emptyLabel: 'brand',
@@ -3837,6 +3838,7 @@ END:VEVENT
                 companyLabel: 'Role / Title',
                 companyField: 'role',
                 companyPlaceholder: 'Store Manager',
+                emailPlaceholder: 'jane@yourstore.com',
                 showAddress: false,
                 columns: 6,
                 emptyLabel: 'internal',
@@ -3998,6 +4000,7 @@ END:VEVENT
             // Placeholder must match the label's context — 'Acme Foods' under 'Role / Title' read
             // like the field wanted an employer name.
             document.getElementById('contactCompany').placeholder = cfg.companyPlaceholder || '';
+            document.getElementById('contactEmail').placeholder = cfg.emailPlaceholder || '';
             document.getElementById('contactAddressGroup').style.display = cfg.showAddress ? '' : 'none';
             // The Location <select> claimed to be "populated dynamically" but nothing ever built its
             // options — it rendered empty and assignments to .value silently no-oped.
