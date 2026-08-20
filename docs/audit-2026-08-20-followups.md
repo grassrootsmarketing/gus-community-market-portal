@@ -80,3 +80,25 @@ produced ~100 findings. Every CRITICAL/HIGH item was fixed the same night (see c
   eye on the resend-cooldown label inconsistency ("Resend code" loses its prefix).
 - FAQ: "retailer uploads each brand's COI to compliance dashboard" answer likely stale vs the
   owner-review flow — verify and rewrite.
+
+## Security pen-test (2026-08-20) — low-severity residuals
+The four-surface adversarial pen test found ONE exploitable bug (brand verify-code ILIKE
+wildcard auth bypass — FIXED, commit e9768e6). The other three surfaces (payments/holds,
+API IDOR/injection, RLS/storage/client-trust) returned no exploitable findings. Low-severity
+hygiene items to tidy post-launch:
+
+- **Non-constant-time secret compares** (LOW): fulfill-booking.js:37, provisional-sweep.js:40,
+  refund-worker.js:162, coi-enforcement.js:147, seed-demo.js:264, version.js:16,
+  brand-account.js cron key — use `!==` on the raw CRON_SECRET/SEED_SECRET rather than
+  crypto.timingSafeEqual. High-entropy secrets over HTTPS make this minimal, but it's a
+  consistent deviation from the constant-time compares used in cal.js and password checks.
+- **cal.js .ics PII vs stated contract** (LOW): api/cal.js:135 puts `Contact: <contact_name>`
+  (and product) in each event DESCRIPTION while the file header claims contact fields are not
+  included. Authorized (feed-key holders only), but contradicts its own redaction note.
+- **venues anon-select RLS drift** (LOW): migration 0051 documents a hand-edited
+  `anon select venues` policy in Production that no migration creates — DB state isn't fully
+  reproducible from source. Codify or remove it. (Venues are intentionally public booking data.)
+- **Plaintext brand login codes/tokens** (LOW/MEDIUM, defense-in-depth): brand_account_tokens
+  stores the raw 6-digit code + magic-link token, whereas signup/_verify.js store only an
+  HMAC+VERIFY_PEPPER hash. Move brand login onto the same hashed-challenge primitive so a
+  future read of that table yields no usable credentials.
