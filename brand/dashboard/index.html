@@ -185,6 +185,12 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .catpicker .pill button:hover { color:white; }
 .catpicker .search { flex:1; min-width:110px; border:none; outline:none; font-family:inherit; font-size:0.88rem; padding:5px 4px; background:transparent; color:var(--ink-900); }
 .catpicker .dropdown { position:absolute; top:calc(100% + 5px); left:0; right:0; background:white; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; max-height:220px; overflow-y:auto; z-index:20; box-shadow:0 8px 24px rgba(15,44,23,0.08); display:none; }
+/* Rounded scrolling containers: square scrollbar tracks cut the corner radius — thin rounded
+   thumb on a transparent track keeps corners symmetrical. */
+.catpicker .dropdown, .nav-mobile-drawer { scrollbar-width:thin; scrollbar-color:rgba(15,44,23,0.3) transparent; }
+.catpicker .dropdown::-webkit-scrollbar, .nav-mobile-drawer::-webkit-scrollbar { width:10px; }
+.catpicker .dropdown::-webkit-scrollbar-thumb, .nav-mobile-drawer::-webkit-scrollbar-thumb { background:rgba(15,44,23,0.25); border-radius:99px; border:3px solid transparent; background-clip:content-box; }
+.catpicker .dropdown::-webkit-scrollbar-track, .nav-mobile-drawer::-webkit-scrollbar-track { background:transparent; }
 .catpicker .dropdown.open { display:block; }
 .catpicker .dropdown .opt { padding:9px 13px; font-size:0.88rem; color:var(--ink-900); cursor:pointer; }
 .catpicker .dropdown .opt:hover, .catpicker .dropdown .opt.active { background:var(--cream-100); }

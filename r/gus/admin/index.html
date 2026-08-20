@@ -225,6 +225,13 @@
         .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(13,31,18,0.6); backdrop-filter: blur(4px); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
         .modal-overlay.active { display: flex; }
         .modal { background: white; border-radius: var(--radius-lg); max-width: 480px; width: 100%; box-shadow: var(--shadow-xl); max-height: 90vh; overflow-y: auto; }
+        /* Rounded containers that scroll internally: the default square scrollbar track paints
+           over the right-side corner radius. Thin rounded thumb on a transparent track keeps
+           all four corners symmetrical. */
+        .modal, .cart-items, .mobile-nav-drawer, #contactVenueCheckboxes { scrollbar-width: thin; scrollbar-color: rgba(15,44,23,0.3) transparent; }
+        .modal::-webkit-scrollbar, .cart-items::-webkit-scrollbar, .mobile-nav-drawer::-webkit-scrollbar, #contactVenueCheckboxes::-webkit-scrollbar { width: 10px; }
+        .modal::-webkit-scrollbar-thumb, .cart-items::-webkit-scrollbar-thumb, .mobile-nav-drawer::-webkit-scrollbar-thumb, #contactVenueCheckboxes::-webkit-scrollbar-thumb { background: rgba(15,44,23,0.25); border-radius: 99px; border: 3px solid transparent; background-clip: content-box; }
+        .modal::-webkit-scrollbar-track, .cart-items::-webkit-scrollbar-track, .mobile-nav-drawer::-webkit-scrollbar-track, #contactVenueCheckboxes::-webkit-scrollbar-track { background: transparent; }
         .modal-body { padding: 40px; text-align: center; }
         .success-icon { width: 72px; height: 72px; background: var(--forest-100); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 24px; }
         .success-icon svg { width: 36px; height: 36px; stroke: var(--forest-600); fill: none; stroke-width: 2; }
