@@ -559,9 +559,17 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
 
   // --- approve, then the brand can book ---
   const approve = await callRoute('admin-auth.js', req({
-    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved', notes: 'fixture review' },
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved', notes: 'fixture review', expiry: future },
     cookies: { dh_owner_session: ownerCookie } }));
   ok('the owner can APPROVE through the route', approve.statusCode === 200, `${approve.statusCode} ${JSON.stringify(approve.body).slice(0,140)}`);
+
+  // P0-4: the reviewer-confirmed expiry commits in the SAME transaction as the decision (0067).
+  const b2exp = (await db(`brands?id=eq.${revBrandId}&select=default_coi_expires`)).body || [];
+  ok('approval atomically persists the reviewer expiry on the brand',
+     b2exp[0] && b2exp[0].default_coi_expires === future, `${JSON.stringify(b2exp[0])} expected ${future}`);
+  const v1exp = (await db(`coi_verifications?id=eq.${v1}&select=policy_expiry`)).body || [];
+  ok('approval atomically persists the reviewer expiry on the verification record',
+     v1exp[0] && v1exp[0].policy_expiry === future, `${JSON.stringify(v1exp[0])} expected ${future}`);
 
   const b2 = (await db(`brands?id=eq.${revBrandId}&select=coi_verification_status`)).body || [];
   ok('approval moves the brand to approved', b2[0] && b2[0].coi_verification_status === 'approved', JSON.stringify(b2[0]));
@@ -588,7 +596,7 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
 
   // --- THE STALE CASE: approving the OLD record must be refused ---
   const stale = await callRoute('admin-auth.js', req({
-    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved' },
+    body: { action: 'owner-coi-review', verification_id: v1, decision: 'approved', expiry: future },
     cookies: { dh_owner_session: ownerCookie } }));
   // 0060 makes reviews IMMUTABLE, so re-approving v1 -- which was already approved earlier
   // in this section -- is refused as already_decided BEFORE staleness is considered. Both
@@ -639,7 +647,7 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   ok('the earlier open version is marked superseded', !!superseded, JSON.stringify(openRows).slice(0, 160));
   if (superseded) {
     const staleApprove = await callRoute('admin-auth.js', req({
-      body: { action: 'owner-coi-review', verification_id: superseded.id, decision: 'approved' },
+      body: { action: 'owner-coi-review', verification_id: superseded.id, decision: 'approved', expiry: future },
       cookies: { dh_owner_session: ownerCookie } }));
     ok('approving a SUPERSEDED, never-decided record is refused as stale',
        staleApprove.statusCode === 409 && staleApprove.body && staleApprove.body.error === 'stale_review',

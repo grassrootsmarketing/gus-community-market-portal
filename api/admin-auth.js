@@ -921,7 +921,11 @@ export default async function handler(req, res) {
           method: 'POST',
           headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ p_verification_id: verification_id, p_decision: decision,
-                                 p_reviewer: owner.email, p_notes: trimmed }),
+                                 p_reviewer: owner.email, p_notes: trimmed,
+                                 // P0-4: the reviewer-confirmed expiry commits inside the review
+                                 // transaction (0067). No separate best-effort PATCH — the decision
+                                 // and the coverage date it is about can no longer disagree.
+                                 p_expiry: expiryDate }),
         });
         const txt = await r.text();
         if (!r.ok) {
@@ -957,12 +961,9 @@ export default async function handler(req, res) {
           try {
             const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
             const brandId = Array.isArray(vRows) && vRows[0] ? vRows[0].brand_id : null;
-            // Write the reviewer-confirmed expiry BEFORE the hold sweep — coverage checks read it.
-            if (brandId && expiryDate) {
-              await sb(`brands?id=eq.${encodeURIComponent(brandId)}`, {
-                method: 'PATCH', body: JSON.stringify({ default_coi_expires: expiryDate }),
-              });
-            }
+            // P0-4: brands.default_coi_expires is now written INSIDE review_coi_verification (0067),
+            // in the same transaction as the decision — the separate best-effort PATCH that used to
+            // live here is gone. The per-date coverage read below therefore sees the reviewer's date.
             if (brandId) {
               const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id,demo_date`) || [];
               if (held.length) {

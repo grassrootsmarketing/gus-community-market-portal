@@ -43,10 +43,14 @@
 name: verify
 
 on:
+  # 2026-08-20 (Codex round 3): main was NOT covered by this workflow — pushes/PRs to the branch
+  # that actually deploys ran no verification. main is now a first-class trigger alongside the
+  # clean/** and launch/** working branches, and should be a required status check in branch
+  # protection so the deploying branch can never go green without these suites passing.
   push:
-    branches: ['clean/**', 'launch/**']
+    branches: ['main', 'clean/**', 'launch/**']
   pull_request:
-    branches: ['clean/**', 'launch/**']
+    branches: ['main', 'clean/**', 'launch/**']
   workflow_dispatch:
     inputs:
       clean_build:
@@ -74,10 +78,12 @@ env:
   STAGING_REF_EXPECTED: 'tileejdviuvijumjeplv'
   PRODUCTION_REF_DENIED: 'ecapmcyumpjjgjwuokyv'
   MIN_MANIFEST_LINES: '200'
-  # 58 -> 59 with 0058_coi_manual_review.sql. Codex v6: update every explicit count
-  # assertion and rerun the clean-build gate rather than falsifying the number or
-  # folding the change into an already-applied migration.
-  EXPECTED_MIGRATIONS: '62'
+  # Codex v6: update every explicit count assertion and rerun the clean-build gate rather than
+  # falsifying the number or folding the change into an already-applied migration.
+  # 2026-08-20 (Codex round 3): the reviewed tree carried 67 migration files while this asserted 62,
+  # so the gate failed on every run of that commit. Round 3 adds 0067_coi_review_atomic_expiry.sql
+  # (P0-4), bringing the total to 68. If you add a migration, bump this and rerun the clean-build gate.
+  EXPECTED_MIGRATIONS: '68'
 
 jobs:
   # --------------------------------------------------------------------------

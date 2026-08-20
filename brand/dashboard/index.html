@@ -1698,7 +1698,7 @@ function setupCoiWidget() {
             <div class="meta">${expiresWarn}${escapeHtml(expiresText)}</div>
           </div>
           <div class="actions">
-            <a class="view" href="${escapeHtml(p.default_coi_url)}" target="_blank" rel="noopener">View</a>
+            <a class="view" href="/api/coi-file?brand_id=${encodeURIComponent(p.id)}" target="_blank" rel="noopener">View</a>
             <button class="replace" type="button" onclick="document.getElementById('coiFile').click()">Replace</button>
             <button class="remove" type="button" onclick="removeCoi()">Remove</button>
           </div>

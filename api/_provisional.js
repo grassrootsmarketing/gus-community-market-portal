@@ -90,11 +90,33 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
   if (!booking || booking.status !== 'held') return { ok: false, error: 'not_held' };
   if (booking.payment_status === 'authorized' && booking.payment_intent_id) {
     const c = await stripeCancelPaymentIntent(booking.payment_intent_id, 'abandoned');
-    // 'payment_intent_unexpected_state' = already canceled (or captured). Canceled is converged by
-    // the RPC below; captured would surface there as a contradiction case. Anything else is a real
-    // failure — leave the booking held so the next sweep tick retries.
+    // 'payment_intent_unexpected_state' means the PI is no longer cancelable — it was either already
+    // canceled OR already CAPTURED by a concurrent confirm. Any other error is a real failure; leave
+    // the booking held so the next sweep tick retries.
     if (!c.ok && c.code !== 'payment_intent_unexpected_state') {
-      return { ok: false, error: 'stripe_cancel_failed: ' + c.error };
+      return { ok: false, error: 'stripe_cancel_failed: ' + c.error, retryable: true };
+    }
+    // P0-1 (Codex 2026-08-20): NEVER terminalize on the request we intended. The old code called
+    // apply_authorization_canceled unconditionally after unexpected_state — which, if a concurrent
+    // capture had just SUCCEEDED, expired a booking whose card was charged (charged-but-no-demo).
+    // Retrieve the PI and converge on Stripe's authoritative state instead:
+    //   succeeded -> the hold was captured out from under us: converge the ledger to PAID (the
+    //                customer paid; they get their demo). Do NOT release, do NOT send a "released" email.
+    //   canceled  -> genuinely released: apply the cancel and free the slot.
+    //   anything else (requires_capture / requires_action / processing) -> neither happened yet;
+    //                leave the booking held and let the next tick retry.
+    const fullPi = await stripeGetPaymentIntent(booking.payment_intent_id);
+    if (!fullPi) return { ok: false, error: 'cannot_retrieve_pi', retryable: true };
+    if (fullPi.status === 'succeeded') {
+      const applied = await applyCapturedPi(booking.payment_intent_id, fullPi);
+      if (!applied.ok) {
+        return { ok: false, was_captured: true, error: 'reconcile_paid_' + (applied.error || 'failed'), case_id: applied.case_id };
+      }
+      // Converged to paid — the booking is now paid/fulfilling, NOT released. No release email.
+      return { ok: true, was_captured: true, payment_group_id: applied.payment_group_id };
+    }
+    if (fullPi.status !== 'canceled') {
+      return { ok: false, error: 'pi_not_terminal_' + fullPi.status, retryable: true };
     }
     const applied = await applyAuthorizationCanceled(booking.payment_intent_id, target, reason);
     if (!applied || !['applied', 'idempotent', 'attempt_canceled'].includes(applied.outcome)) {
@@ -119,21 +141,14 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
 // on an auto-confirm retailer). COI coverage is the CALLER's check — this only moves money.
 // Returns { ok, stage, error, outcome?, case_id?, payment_group_id? }.
 // ---------------------------------------------------------------------------
-export async function captureHeldBooking(booking) {
-  if (!booking || booking.status !== 'held' || booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
-    return { ok: false, stage: 'precondition', error: 'hold_not_authorized' };
-  }
-  const cap = await stripeCapturePaymentIntent(booking.payment_intent_id);
-  // 'payment_intent_unexpected_state' usually means an earlier capture already succeeded — the
-  // verify step below settles it either way.
-  if (!cap.ok && cap.code !== 'payment_intent_unexpected_state') {
-    return { ok: false, stage: 'capture', error: cap.error };
-  }
-  const fullPi = await stripeGetPaymentIntent(booking.payment_intent_id);
-  if (!fullPi) return { ok: false, stage: 'verify', error: 'cannot_retrieve_pi' };
-  if (fullPi.status !== 'succeeded') return { ok: false, stage: 'verify', error: 'pi_state_' + fullPi.status };
-
-  const attRows = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(booking.payment_intent_id)}&select=stripe_checkout_session_id,payment_group_id&order=created_at.desc&limit=1`);
+// Apply an ALREADY-CAPTURED PaymentIntent to the ledger (group authorized -> paid) and drain the
+// fulfilment outbox. fullPi MUST be a freshly-retrieved PI with status 'succeeded' — the caller is
+// responsible for confirming Stripe's authoritative state first. Shared by captureHeldBooking (the
+// deliberate capture) and releaseHeldBooking (the P0-1 case where a release discovers the hold was
+// captured out from under it and must converge to paid, not release). apply_verified_payment is
+// idempotent, so a webhook replay after this is a no-op.
+async function applyCapturedPi(paymentIntentId, fullPi) {
+  const attRows = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(paymentIntentId)}&select=stripe_checkout_session_id,payment_group_id&order=created_at.desc&limit=1`);
   const att = Array.isArray(attRows) ? attRows[0] : null;
   if (!att || !att.stripe_checkout_session_id) return { ok: false, stage: 'apply', error: 'attempt_not_found' };
   const charge = (fullPi.latest_charge && typeof fullPi.latest_charge === 'object') ? fullPi.latest_charge : null;
@@ -153,6 +168,24 @@ export async function captureHeldBooking(booking) {
     await drainFulfillments({ limit: 10, group: applied.payment_group_id });
   } catch (e) { console.warn('post-capture fulfilment drain failed (cron will finish):', (e && e.message) || e); }
   return { ok: true, payment_group_id: applied.payment_group_id, outcome };
+}
+
+export async function captureHeldBooking(booking) {
+  if (!booking || booking.status !== 'held' || booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
+    return { ok: false, stage: 'precondition', error: 'hold_not_authorized' };
+  }
+  const cap = await stripeCapturePaymentIntent(booking.payment_intent_id);
+  // 'payment_intent_unexpected_state' usually means an earlier capture already succeeded — the
+  // verify step below settles it either way.
+  if (!cap.ok && cap.code !== 'payment_intent_unexpected_state') {
+    return { ok: false, stage: 'capture', error: cap.error };
+  }
+  const fullPi = await stripeGetPaymentIntent(booking.payment_intent_id);
+  if (!fullPi) return { ok: false, stage: 'verify', error: 'cannot_retrieve_pi' };
+  // Branch on Stripe's authoritative state, never on the request we made. If a concurrent release
+  // canceled the PI first, this is 'canceled' — do NOT mark paid.
+  if (fullPi.status !== 'succeeded') return { ok: false, stage: 'verify', error: 'pi_state_' + fullPi.status };
+  return applyCapturedPi(booking.payment_intent_id, fullPi);
 }
 
 // ---------------------------------------------------------------------------

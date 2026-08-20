@@ -480,7 +480,14 @@ async function handlePaymentIntentSucceeded(event) {
       if (att && att.stripe_checkout_session_id) {
         const grpRows = await sb(`payment_groups?id=eq.${encodeURIComponent(att.payment_group_id)}&select=status`);
         const grp = Array.isArray(grpRows) ? grpRows[0] : null;
-        if (grp && grp.status === 'authorized') {
+        // P0-1 (Codex 2026-08-20): a payment_intent.succeeded is proof Stripe CAPTURED the money. The
+        // old code only reconciled when the group was 'authorized' and silently acked every other
+        // state — so a captured PI on an 'auth_canceled' group (the mis-ordered-release race) was
+        // dropped, leaving a charged card with an expired booking and no case. We now reconcile ANY
+        // non-settled group state: apply_verified_payment applies an 'authorized' group and, for a
+        // non-payable state, opens a reconciliation case. A captured PI is NEVER silently acked.
+        const alreadySettled = grp && ['paid', 'partially_refunded', 'refunded'].includes(grp.status);
+        if (grp && !alreadySettled) {
           const full = await stripeGetPaymentIntent(pi.id);
           if (!full) throw new Error('cannot retrieve PaymentIntent ' + pi.id);   // retryable
           const charge = (full.latest_charge && typeof full.latest_charge === 'object') ? full.latest_charge : null;
@@ -499,11 +506,21 @@ async function handlePaymentIntentSucceeded(event) {
           const outcome = val && val.outcome;
           if (outcome === 'applied' || outcome === 'idempotent') {
             const n = await promoteFromOutbox(val.payment_group_id);
-            console.log(`payment_intent.succeeded: capture ${outcome}, fulfilled ${n} booking(s)`, pi.id);
+            console.log(`payment_intent.succeeded: capture reconciled from ${grp.status} (${outcome}), fulfilled ${n} booking(s)`, pi.id);
+          } else if (outcome === 'frozen') {
+            // A frozen group already carries a case from when it was frozen — safe to ack.
+            console.error('payment_intent.succeeded: captured PI on FROZEN group (case already open):', val && val.reason, pi.id);
           } else {
-            console.error('payment_intent.succeeded capture NOT applied:', outcome, val && val.reason, pi.id, 'case:', val && val.case_id);
+            // Contradiction (e.g. captured PI on an auth_canceled group). apply_verified_payment opened
+            // a reconciliation case; ack so Stripe stops redelivering into a permanent failure. If NO
+            // case was opened, throw so the event is retried rather than lost.
+            console.error('payment_intent.succeeded: captured PI NOT applied on', grp.status, 'group:', outcome, val && val.reason, pi.id, 'case:', val && val.case_id);
             if (!val || !val.case_id) throw new Error('capture_not_applied_without_case:' + outcome + ':' + pi.id);
           }
+          return;
+        }
+        if (alreadySettled) {
+          console.log('payment_intent.succeeded: group already settled (' + grp.status + '), idempotent ack', pi.id);
           return;
         }
       }
@@ -512,7 +529,7 @@ async function handlePaymentIntentSucceeded(event) {
       if (String((e && e.message) || e).startsWith('capture_not_applied') || String((e && e.message) || e).startsWith('cannot retrieve')) throw e;
       console.warn('payment_intent.succeeded capture check failed (deferring):', (e && e.message) || e);
     }
-    console.log('payment_intent.succeeded: ledger group deferred to checkout.session.completed', pi.id);
+    console.log('payment_intent.succeeded: no ledger attempt binding, deferred to checkout.session.completed', pi.id);
     return;
   }
   const bookingIds = bookingIdsFrom(pi.metadata);  // legacy pre-ledger sessions only

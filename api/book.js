@@ -67,6 +67,11 @@ export default async function handler(req, res) {
         if (!victim) break;
         const rel = await releaseHeldBooking(victim, { target: 'expired', reason: 'bumped_by_verified_booking', notify: true, bumped: true });
         if (!rel.ok) { console.warn('contention bump failed for', victim.id, rel.error); break; }
+        // P0-1: if the victim was CAPTURED at this instant (rel.was_captured), it converged to PAID and
+        // now occupies the slot as a confirmed demo — the bump did not free space. The retry below will
+        // re-fail slot_full; the next loop re-queries status=eq.held, which excludes this now-paid row,
+        // so it either bumps a different still-held hold or exits and returns slot_full. No extra branch
+        // needed — just do not treat was_captured as a freed slot.
         r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
         if (!r.ok) t = await r.text();
       }

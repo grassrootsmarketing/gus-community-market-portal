@@ -58,7 +58,12 @@ export default async function handler(req, res) {
 
         if (b.payment_status === 'authorized' && b.payment_intent_id) {
           const r = await releaseHeldBooking(b, { target: 'expired', reason: 'hold_expired_24h', notify: true });
-          if (r.ok) out.released++; else { out.errors++; console.warn('sweep release failed for', b.id, r.error); }
+          // P0-1: releaseHeldBooking may discover the hold was captured out from under the sweep (a
+          // confirm landed at the same tick). It converges to PAID and reports was_captured — that is
+          // NOT an expiry and NOT an error; the booking is correctly paid, so just record and move on.
+          if (r.ok && r.was_captured) { out.captured_at_expiry = (out.captured_at_expiry || 0) + 1; }
+          else if (r.ok) out.released++;
+          else { out.errors++; console.warn('sweep release failed for', b.id, r.error); }
           continue;
         }
 

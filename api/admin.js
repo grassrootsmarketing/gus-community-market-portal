@@ -15,16 +15,42 @@ import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 
+// P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
+// needs to write, and only with the operations those tables actually use from the UI. `bookings`
+// and `demos` were removed here: nothing in the frontend writes them through this proxy, yet their
+// presence let a manager/admin session PATCH workflow-sensitive fields directly —
+//   * booking `status` (release-bypass: flip a held booking to 'cancelled' so the provisional sweep
+//     stops selecting it while the Stripe authorization and card hold remain live), and
+//   * `coi_waived_at`/`coi_waived_by` (forge a COI waiver decision + actor a manager may not make).
+// The global SERVER_OWNED_FIELDS denylist stripped payment columns but NOT these, so the fix is to
+// deny the tables outright. Booking reads still flow through the authenticated `action=data`
+// response below; every booking mutation (confirm/decline/cancel/refund/release/reschedule) and
+// every COI-waiver change must go through their dedicated routes (booking-action.js — the canonical
+// confirm/decline/cancel/refund path — refund-review.js, and coi-status.js), which carry the
+// correct role and state gates.
 const ALLOWED_TABLES = new Set([
   'brand_contacts',
   'internal_contacts',
-  'demos',
   'compliance_records',
   'settings',
   'venues',
-  'bookings',
   'retailers',  // PATCH only, id must equal session.retailer_id
 ]);
+
+// P0-3 point 4: per-table operation allowlist. A table may only be written with the methods it
+// actually uses from the admin UI. This replaces "any allowed table accepts any write method" with
+// an explicit contract, so a future reachable table cannot be POST/DELETE'd in ways never intended
+// (e.g. deleting the singleton settings row, or inserting a second one). Methods here are the exact
+// set the shipped r/gus admin issues today. `retailers` is additionally constrained to id ===
+// session.retailer_id + a column whitelist in the dedicated block below.
+const TABLE_WRITE_OPS = {
+  brand_contacts: new Set(['POST', 'PATCH', 'DELETE']),
+  internal_contacts: new Set(['POST', 'PATCH', 'DELETE']),
+  compliance_records: new Set(['POST', 'PATCH', 'DELETE']),
+  venues: new Set(['POST', 'PATCH', 'DELETE']),
+  settings: new Set(['PATCH']),   // one row per retailer, created at signup — never POST/DELETE here
+  retailers: new Set(['PATCH']),  // own retailer only; see RETAILER_PATCH_WHITELIST
+};
 
 // Fields that can be patched on the retailers table via /api/admin
 const RETAILER_PATCH_WHITELIST = new Set([
@@ -278,6 +304,16 @@ export default async function handler(req, res) {
 
   // For non-data actions, the table must be in the allowed list
   if (!table || !ALLOWED_TABLES.has(table)) return send(res, 400, { error: 'invalid or missing table parameter' });
+
+  // P0-3 point 4: per-table operation allowlist. Reject any write method this table does not use.
+  if (['POST', 'PATCH', 'DELETE', 'PUT'].includes(req.method)) {
+    const allowedOps = TABLE_WRITE_OPS[table];
+    // PUT is normalized to PATCH downstream; treat an allowed PATCH as covering PUT.
+    const method = req.method === 'PUT' ? 'PATCH' : req.method;
+    if (!allowedOps || !allowedOps.has(method)) {
+      return send(res, 405, { error: 'operation_not_allowed', message: `${req.method} is not permitted on ${table}.` });
+    }
+  }
 
   // === Retailer scope check ===
   // For PATCH/DELETE: load the row first, verify it belongs to session.retailer_id.

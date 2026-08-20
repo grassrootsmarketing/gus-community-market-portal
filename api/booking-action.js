@@ -161,6 +161,23 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// P0-2 (Codex 2026-08-20): the slot-capacity check must run BEFORE any Stripe capture, never after.
+// One authoritative model: venue.max_demos_per_slot vs the count of demos already CONFIRMED/COMPLETED
+// in that exact slot. Returns { full, taken, cap }. Callers charge only when !full.
+//
+// NOTE (holds-ON hardening still owed): a pre-capture JS count is not fully race-proof — two
+// simultaneous confirms can both read taken<cap and both proceed. The eval asks for this reservation
+// to move into a locking DB RPC (see docs/provisional-holds.md → "capacity lease"). That is required
+// before provisional holds are enabled; with the flag OFF no held capture path runs. This reorder
+// still closes the money defect (a captured card on a full slot) for every path today.
+async function slotCapacityStatus(booking) {
+  const cap = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=max_demos_per_slot`);
+  const venueCap = (Array.isArray(cap) && cap[0]) ? Math.max(1, parseInt(cap[0].max_demos_per_slot, 10) || 1) : 1;
+  const dupRows = await sb(`demos?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&venue_id=eq.${encodeURIComponent(booking.venue_id)}&demo_date=eq.${encodeURIComponent(booking.demo_date)}&demo_time=eq.${encodeURIComponent(booking.demo_time)}&status=in.(confirmed,completed)&select=id`);
+  const taken = Array.isArray(dupRows) ? dupRows.length : 0;
+  return { full: taken >= venueCap, taken, cap: venueCap };
+}
+
 // -----------------------------------------------------------------------------
 // Codex finding B: this file's third hand-rolled copy of the cookie helpers is deleted outright
 // rather than re-pointed at api/_cookies.js. getSessionIdFromReq() here had no call site at all —
@@ -364,6 +381,13 @@ export default async function handler(req, res) {
       if (!cov.covered) {
         return res.status(409).json({ error: 'coi_pending', reason: cov.reason, message: 'This brand\'s Certificate of Insurance is not approved yet. Approve their COI first (or decline the booking) — confirming is what charges their card.' });
       }
+      // P0-2: verify slot capacity BEFORE capturing. Capturing first (as this route used to) meant a
+      // full slot produced a charged card with no confirmed demo. If it is full now, refuse without
+      // charging — the retailer declines and the brand rebooks; the 24h sweep releases the hold.
+      const preCap = await slotCapacityStatus(booking);
+      if (preCap.full) {
+        return res.status(409).json({ error: 'slot_at_capacity', message: `Slot is at capacity (${preCap.taken}/${preCap.cap}). Nothing was charged — decline this booking and ask the brand to pick another slot.` });
+      }
       const capd = await captureHeldBooking(booking);
       if (!capd.ok) {
         console.error('held-capture failed:', capd.stage, capd.error, booking_id);
@@ -377,14 +401,12 @@ export default async function handler(req, res) {
       booking.payment_status = 'paid';
     }
 
-    // Race check at confirmation
+    // Race check at confirmation. For a held booking this ran AFTER capture above (harmless now —
+    // capacity was already verified pre-capture); for a normal paid confirm this is the only check.
     if (action === 'confirm') {
-      const cap = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=max_demos_per_slot`);
-      const venueCap = (Array.isArray(cap) && cap[0]) ? Math.max(1, parseInt(cap[0].max_demos_per_slot, 10) || 1) : 1;
-      const dupRows = await sb(`demos?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&venue_id=eq.${encodeURIComponent(booking.venue_id)}&demo_date=eq.${encodeURIComponent(booking.demo_date)}&demo_time=eq.${encodeURIComponent(booking.demo_time)}&status=in.(confirmed,completed)&select=id`);
-      const takenCount = Array.isArray(dupRows) ? dupRows.length : 0;
-      if (takenCount >= venueCap) {
-        return res.status(409).json({ error: `Slot is at capacity (${takenCount}/${venueCap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
+      const capStatus = await slotCapacityStatus(booking);
+      if (capStatus.full) {
+        return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
       }
     }
 
@@ -414,6 +436,16 @@ export default async function handler(req, res) {
       });
       if (!rel.ok) {
         return res.status(502).json({ error: 'auth_release_failed', message: 'Could not release the payment hold: ' + rel.error + '. The booking was left as-is — retry in a moment.' });
+      }
+      if (rel.was_captured) {
+        // P0-1 interleave: the hold was CAPTURED (a concurrent confirm / COI auto-confirm) at the same
+        // instant as this decline/cancel. releaseHeldBooking converged the ledger to PAID rather than
+        // expiring a charged booking. Refuse this action instead of marking a paid booking
+        // declined/cancelled — the retailer can CANCEL it to refund through the tested paid-cancel path.
+        return res.status(409).json({
+          error: 'hold_captured',
+          message: 'This hold was just captured — the brand has been charged and the demo is confirming. Refresh the page; if you still want to reverse it, cancel the booking to refund per your policy.',
+        });
       }
       refundStatus = 'auth_released';
     } else if (action === 'decline') {
