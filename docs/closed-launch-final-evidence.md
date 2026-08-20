@@ -20,7 +20,7 @@ its evidence rows are to be filled in when the smoke is executed.
 | Gate | Result |
 |---|---|
 | CL-01 Production Gus's tenant config | **PASS** |
-| CL-02 Provisional-holds observable + OFF | **PASS** (holds set OFF + redeployed; functional re-confirm in CL-05-C) |
+| CL-02 Provisional-holds observable + OFF | **PASS** (holds OFF confirmed at RUNTIME via operator /api/version) |
 | CL-03 CI runs the new regression guards | **PASS** |
 | CL-04 Production migration 0067 / COI atomicity | **PASS** (schema); COI behaviour re-proven in CL-05-B |
 | CL-06 Final immutable release gate (automated) | **PASS** |
@@ -99,6 +99,26 @@ both staging and prod at apply time.
   `strict=false`, `enforce_admins=false` (solo push-to-deploy preserved).
 
 ---
+
+## CL-05 — pre-smoke evidence (mandatory item #1) — CAPTURED 2026-08-20
+
+Authenticated `GET /api/version` (operator bearer) on the live production deployment. Redacted
+(project ref shown as fingerprint; no secret values — `has_*` are booleans):
+
+```json
+{ "commit_short": "7c80a796da", "branch": "main", "env": "production",
+  "binding": { "target": "production", "project_ref_fingerprint": "dkgj…",
+    "db_environment_expected": "production", "stripe_mode": "live", "email_mode": "real",
+    "has_webhook_secret": true }, "binding_error": null, "has_cron_secret": true,
+  "flags": { "provisionalHolds": false, "publicRetailerSignup": false, "coiAiVerification": false,
+    "checkoutEnabled": true, "coiUploadEnabled": true, "coiAutoEnforcementFlag": false,
+    "coiEnforcementEffective": "off", "connectedCheckout": "hard_disabled", "max_cart": 25 } }
+```
+
+Every mandatory condition holds: **provisionalHolds:false**, production binding, live Stripe, real
+email, checkout on, COI upload on, public signup off, COI AI off, COI auto-enforcement off, connected
+checkout hard-disabled, webhook secret present. Deployed build `7c80a79` (app code `2a57353`).
+Run ID: `launch-smoke-20260820-2320`.
 
 ## CL-05 — Controlled live production smoke — RUNBOOK (operator-run)
 
