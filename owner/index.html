@@ -692,7 +692,7 @@ async function renderStatusManager() {
     <div class="card">
       <h2>Post new incident</h2>
       <div class="sub" style="margin-bottom:14px;">Posts to public /status page immediately. Choose major to flag as outage, minor for degraded, maintenance for planned work.</div>
-      <input id="incTitle" type="text" placeholder="Short title (e.g. Bookings page slow loading)" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; margin-bottom:10px;">
+      <input id="incTitle" type="text" placeholder="Short title (e.g. Bookings page slow loading)" onkeydown="if(event.key==='Enter'){event.preventDefault();postIncident();}" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; margin-bottom:10px;">
       <textarea id="incBody" placeholder="Optional detail / what's affected / what we're doing" rows="3" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.92rem; font-family:inherit; resize:vertical; margin-bottom:10px;"></textarea>
       <div style="display:flex; gap:10px; align-items:center;">
         <select id="incSeverity" style="padding:10px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit;">

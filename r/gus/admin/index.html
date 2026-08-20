@@ -720,6 +720,31 @@
             document.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') closeMobileNavDrawer();
             });
+            // Uniform dismissal for every admin modal: Escape closes the open one, clicking the
+            // backdrop closes it too. Previously only the Cancel/× buttons worked, and the six
+            // modals used two different open/close conventions.
+            (function () {
+                const CLOSERS = {
+                    contactModal: () => window.closeContactModal && closeContactModal(),
+                    complianceModal: () => window.closeComplianceModal ? closeComplianceModal() : document.getElementById('complianceModal').classList.remove('active'),
+                    storeModal: () => window.closeStoreModal && closeStoreModal(),
+                    storeBulkModal: () => window.closeStoreBulkUpload && closeStoreBulkUpload(),
+                    teamInviteModal: () => window.closeTeamInvite && closeTeamInvite(),
+                    upgradeModal: () => window.closeUpgradeModal && closeUpgradeModal(),
+                };
+                const isOpen = (el) => el && (el.classList.contains('active') || el.style.display === 'flex');
+                document.addEventListener('keydown', function (e) {
+                    if (e.key !== 'Escape') return;
+                    for (const id of Object.keys(CLOSERS)) {
+                        const el = document.getElementById(id);
+                        if (isOpen(el)) { try { CLOSERS[id](); } catch (_) {} return; }
+                    }
+                });
+                document.addEventListener('click', function (e) {
+                    const id = e.target && e.target.id;
+                    if (id && CLOSERS[id] && isOpen(e.target)) { try { CLOSERS[id](); } catch (_) {} }
+                });
+            })();
         </script>
         <div class="main-scroll">
             <div class="container">

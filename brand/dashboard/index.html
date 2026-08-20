@@ -22,7 +22,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .nav .brand { display:flex; align-items:center; gap:10px; text-decoration:none; flex-shrink:0; ; cursor:pointer; user-select:none;}
 .nav .brand-mark { width:28px; height:28px; }
 .nav .brand-text { font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; font-size:1.1rem; letter-spacing:-0.04em; color:var(--forest-900); }
-.nav-tabs { display:flex; gap:4px; flex:1; justify-content:center; }
+.nav-tabs { display:flex; gap:4px; flex:1; justify-content:center; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+.nav-tabs::-webkit-scrollbar { display:none; }
+.nav-tabs .nav-tab { white-space:nowrap; flex-shrink:0; }
 .nav-tab { padding:8px 16px; background:transparent; border:none; border-radius:99px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; text-decoration:none; display:inline-block; }
 .nav-tab:hover { background:var(--cream-100); color:var(--forest-900); }
 .nav-tab.active { background:var(--forest-900); color:white; }
@@ -126,6 +128,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:6px; }
 @media (max-width:760px) {
   .cal-grid { gap:2px; }
+  .perf-stats { grid-template-columns:repeat(auto-fit, minmax(110px, 1fr)) !important; }
+  .cal-head h3 { font-size:1.05rem; min-width:0; }
+  .demos-status { white-space:nowrap; flex-shrink:0; }
   .cal-day { min-height:64px; padding:3px 4px; border-radius:5px; }
   .cal-day .day-num { font-size:0.7rem; margin-bottom:2px; }
   .cal-event { font-size:0.62rem !important; padding:2px 4px !important; line-height:1.15 !important; }
