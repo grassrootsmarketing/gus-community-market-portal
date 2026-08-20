@@ -358,6 +358,15 @@ window.resendLoginCode = function(linkEl, email, endpoint, action) {
     }, 1000);
 };
 
+// Enter submits the code — the form's default button is disabled post-send, which suppresses
+// implicit submission, so Enter in the code field silently did nothing.
+['retailerCode', 'brandCode'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); window.verifyLoginCode(id === 'brandCode' ? 'brand' : 'retailer'); }
+    });
+});
+
 // ===== Verify 6-digit login code =====
 window.verifyLoginCode = async function(side) {
     const emailInput = document.getElementById(side === 'brand' ? 'brandEmail' : 'retailerEmail');
