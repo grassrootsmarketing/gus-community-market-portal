@@ -3822,6 +3822,7 @@ END:VEVENT
                 editLabel: 'Edit Brand Contact',
                 companyLabel: 'Company',
                 companyField: 'company',
+                companyPlaceholder: 'Acme Foods',
                 showAddress: true,
                 columns: 8,
                 emptyLabel: 'brand',
@@ -3835,6 +3836,7 @@ END:VEVENT
                 editLabel: 'Edit Team Contact',
                 companyLabel: 'Role / Title',
                 companyField: 'role',
+                companyPlaceholder: 'Store Manager',
                 showAddress: false,
                 columns: 6,
                 emptyLabel: 'internal',
@@ -3993,7 +3995,18 @@ END:VEVENT
             const m = document.getElementById('contactModal');
             document.getElementById('contactType').value = type;
             document.getElementById('contactCompanyLabel').textContent = cfg.companyLabel;
+            // Placeholder must match the label's context — 'Acme Foods' under 'Role / Title' read
+            // like the field wanted an employer name.
+            document.getElementById('contactCompany').placeholder = cfg.companyPlaceholder || '';
             document.getElementById('contactAddressGroup').style.display = cfg.showAddress ? '' : 'none';
+            // The Location <select> claimed to be "populated dynamically" but nothing ever built its
+            // options — it rendered empty and assignments to .value silently no-oped.
+            const venueSel = document.getElementById('contactVenue');
+            if (venueSel) {
+                const vs = (window.state.venues || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+                venueSel.innerHTML = '<option value="">— No specific location —</option>' +
+                    vs.map(v => `<option value="${(v.name || '').replace(/"/g, '&quot;')}">${escapeHtml(v.name || '')}</option>`).join('');
+            }
             const fields = ['contactName','contactCompany','contactAddress','contactEmail','contactPhone'];
             const title = document.getElementById('contactModalTitle');
             if (id) {
@@ -4011,7 +4024,9 @@ END:VEVENT
                 title.textContent = cfg.addLabel;
                 document.getElementById('contactId').value = '';
                 fields.forEach(f => document.getElementById(f).value = '');
-                document.getElementById('contactVenue').value = ((window.state.venues || [])[0] || {}).name || '';
+                // Opened from a Locations row: preselect that store; else default to the first venue.
+                const presetName = presetVenueId ? (((window.state.venues || []).find(v => v.id === presetVenueId) || {}).name || '') : '';
+                document.getElementById('contactVenue').value = presetName || ((window.state.venues || [])[0] || {}).name || '';
             }
             m.classList.add('active');
         
