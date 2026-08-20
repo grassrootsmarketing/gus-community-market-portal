@@ -1024,7 +1024,9 @@ function renderOverview() {
   }
   demos.forEach(d => { if (!d.demo_date) return; const k = d.demo_date.slice(0,7); if (monthBuckets[k]) monthBuckets[k].count++; });
   const maxMonthCount = Math.max(1, ...monthKeys.map(k => monthBuckets[k].count));
-  const totalInvested = demos.filter(d => d.status === 'completed' || d.status === 'confirmed').reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+  // Demos completed/confirmed across every retailer — a more motivating headline for a brand than
+  // the dollars they've spent.
+  const demosDone = demos.filter(d => d.status === 'completed' || d.status === 'confirmed').length;
   const finishedCount = demos.filter(d => ['completed','cancelled','declined'].includes(d.status)).length;
   const completionRate = finishedCount > 0 ? Math.round((completed / finishedCount) * 100) : null;
 
@@ -1113,7 +1115,7 @@ function renderOverview() {
       <h2>Performance</h2>
       <div class="sub">Your activity across every Demohub retailer.</div>
       <div class="perf-stats">
-        <div class="perf-stat"><div class="val">$${Math.round(totalInvested).toLocaleString()}</div><div class="lbl">Demo fees paid</div></div>
+        <div class="perf-stat"><div class="val">${demosDone.toLocaleString()}</div><div class="lbl">Demos done</div></div>
         <div class="perf-stat"><div class="val">${completionRate == null ? '&mdash;' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
         <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
       </div>
