@@ -1499,7 +1499,7 @@ function renderProfile() {
       <div class="form-row">
         <label class="label">Email</label>
         <input class="input" value="${escapeHtml(profile.email || '')}" disabled style="background:#f4f2ed; color:var(--ink-500);">
-        <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">This is your sign-in address. Email david@demohubhq.com to change it.</div>
+        <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">This is your sign-in address. <a href="mailto:david@demohubhq.com?subject=Change%20my%20sign-in%20email" style="color:inherit; font-weight:600;">Email david@demohubhq.com</a> to change it.</div>
       </div>
       <div class="form-row"><label class="label">Website</label><input class="input" id="f_website" type="text" placeholder="yourbrand.com" value="${escapeHtml(profile.website || '')}"></div>
       <div style="margin-top:18px;display:flex;align-items:center;">
@@ -2141,7 +2141,8 @@ function renderAccount() {
     </div>
     <div class="card">
       <h2 style="margin:0 0 6px;">Danger zone</h2>
-      <div class="sub" style="margin-bottom:14px;">Need to permanently delete your brand account? Email david@demohubhq.com and we'll erase your data within 30 days (GDPR-compliant).</div>
+      <div class="sub" style="margin-bottom:14px;">Need to permanently delete your brand account? Request it below and we'll erase your data within 30 days (GDPR-compliant).</div>
+      <a href="mailto:david@demohubhq.com?subject=${encodeURIComponent('Delete my brand account — ' + (p.company_name || p.email || ''))}&body=${encodeURIComponent('Please permanently delete my Demohub brand account (' + (p.email || '') + ') and erase my data.')}" style="display:inline-block; padding:10px 18px; border:1.5px solid var(--clay-700, #a14e2a); color:var(--clay-700, #a14e2a); border-radius:10px; font-weight:700; font-size:0.9rem; text-decoration:none;">Request account deletion &rarr;</a>
     </div>
   `;
 }
