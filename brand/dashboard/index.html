@@ -147,12 +147,14 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .cal-event.pending { background:#a16928; }
 .cal-event.completed { background:#6b6a64; }
 .cal-event.cancelled, .cal-event.declined { background:var(--clay-700); }
+.cal-event.held { background:#b4531f; }
 .cal-legend { display:flex; gap:16px; flex-wrap:wrap; margin-top:18px; font-size:0.82rem; color:var(--ink-500); }
 .cal-legend-item { display:flex; align-items:center; gap:6px; }
 .cal-legend-dot { width:10px; height:10px; border-radius:3px; background:var(--forest-500); }
 .cal-legend-dot.pending { background:#a16928; }
 .cal-legend-dot.completed { background:#6b6a64; }
 .cal-legend-dot.cancelled { background:var(--clay-700); }
+.cal-legend-dot.held { background:#b4531f; }
 
 /* ===== Profile editor ===== */
 .tab-bar { display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid rgba(15,44,23,0.08); }
@@ -457,7 +459,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="nav-account">
     <div class="nav-avatar" id="navAvatar" title="Click to upload your logo" onclick="brandAvatarClick(event)"><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
     <input type="file" id="navAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
-    <span class="nav-name" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)">, </span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+    <span class="nav-name" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)"></span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
   </div>
   <button type="button" class="nav-mobile-toggle" aria-label="Open menu" aria-haspopup="true" aria-expanded="false" onclick="toggleBrandMobileNav()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -549,7 +551,7 @@ document.addEventListener('keydown', function(e) {
 <div class="modal-overlay" id="confirmModal">
   <div class="modal-box">
     <h3 id="confirmTitle">Are you sure?</h3>
-    <p id="confirmBody">, </p>
+    <p id="confirmBody"></p>
     <div class="actions">
       <button class="btn btn-ghost" id="confirmCancel">Cancel</button>
       <button class="btn btn-danger" id="confirmOk">Confirm</button>
@@ -615,13 +617,13 @@ function confirmDialog(title, body, confirmLabel) {
 function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, initial = [] }) {
   const selected = new Set(initial);
   let activeIdx = 0;
-  function syncHidden() { hiddenEl.value = Array.from(selected).join(', '); }
+  function syncHidden() { hiddenEl.value = Array.from(selected).join('; '); }
   function renderPills() {
     pickerEl.querySelectorAll('.pill').forEach(p => p.remove());
     Array.from(selected).reverse().forEach(cat => {
       const pill = document.createElement('span');
       pill.className = 'pill';
-      pill.innerHTML = `<span>${cat}</span><button type="button" aria-label="Remove">&times;</button>`;
+      pill.innerHTML = `<span>${escapeHtml(cat)}</span><button type="button" aria-label="Remove">&times;</button>`;
       pill.querySelector('button').addEventListener('click', (e) => { e.stopPropagation(); selected.delete(cat); renderPills(); renderDropdown(); syncHidden(); });
       pickerEl.insertBefore(pill, searchEl);
     });
@@ -633,7 +635,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     if (matches.length === 0) { dropdownEl.innerHTML = `<div class="empty">${available.length === 0 ? 'All categories picked.' : 'No matches.'}</div>`; return; }
     activeIdx = Math.min(activeIdx, matches.length - 1);
     if (activeIdx < 0) activeIdx = 0;
-    dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${m}">${m}</div>`).join('');
+    dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${escapeHtml(m)}">${escapeHtml(m)}</div>`).join('');
     dropdownEl.querySelectorAll('.opt').forEach(opt => {
       opt.addEventListener('mousedown', (e) => e.preventDefault());
       opt.addEventListener('click', () => {
@@ -662,6 +664,28 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
 }
 
 const CATEGORY_OPTIONS = ['Beverages','Coffee & tea','Wine, beer & spirits','Snacks & chips','Chocolate & candy','Bakery & bread','Cereal & breakfast','Pantry & dry goods','Sauces, oils & condiments','Spices & seasonings','Dairy & cheese','Plant-based & vegan','Frozen','Produce','Meat & seafood','Prepared foods & deli','Health, supplements & wellness','Protein, bars & energy','Personal care & beauty','Pet supplies','Home & household','Baby & kids','CBD & hemp','Other'];
+
+// Parse a stored category string. New data is '; '-joined; legacy data was ', '-joined even
+// though four options CONTAIN commas — so comma fragments are greedily re-merged against the
+// known option list ("Wine" + "beer & spirits" -> "Wine, beer & spirits"). Unknown leftovers
+// are kept as-is (free-text tolerance).
+function parseCategoryList(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return [];
+  if (s.includes(';')) return s.split(';').map(x => x.trim()).filter(Boolean);
+  const parts = s.split(',').map(x => x.trim()).filter(Boolean);
+  const out = [];
+  for (let i = 0; i < parts.length; i++) {
+    let merged = parts[i], j = i;
+    while (j + 1 < parts.length && !CATEGORY_OPTIONS.includes(merged) &&
+           CATEGORY_OPTIONS.some(o => o.startsWith(merged + ', '))) {
+      j++; merged = merged + ', ' + parts[j];
+    }
+    if (CATEGORY_OPTIONS.includes(merged)) { out.push(merged); i = j; }
+    else out.push(parts[i]);
+  }
+  return out;
+}
 
 // ===== State =====
 let _data = null; // { profile, demos, contacts }
@@ -705,7 +729,7 @@ async function loadData() {
       _data.demos = _pb.concat(_data.demos || []);
     }
   } catch (e) {
-    main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
+    main.innerHTML = `<div class="empty-state">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
     throw e;
   }
   const profile = _data.profile || {};
@@ -727,14 +751,19 @@ async function loadData() {
 }
 
 // ===== Tab Router =====
-function switchTab(name) {
+function switchTab(name, opts) {
   if (!['overview','calendar','profile','compliance','products','team','agreements','account'].includes(name)) name = 'overview';
   _currentTab = name;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   render();
-  if (window.location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  // History: user-initiated tab switches PUSH (so Back walks tabs instead of leaving the
+  // dashboard — same fix the retailer admin got); hashchange/popstate-driven renders replace.
+  if (window.location.hash !== '#' + name) {
+    if (opts && opts.fromHash) history.replaceState(null, '', '#' + name);
+    else history.pushState(null, '', '#' + name);
+  }
 }
-window.addEventListener('hashchange', () => switchTab(window.location.hash.replace(/^#/, '') || 'overview'));
+window.addEventListener('hashchange', () => switchTab(window.location.hash.replace(/^#/, '') || 'overview', { fromHash: true }));
 document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (e) => { e.preventDefault(); switchTab(t.dataset.tab); }));
 
 // ===== Render dispatch =====
@@ -772,7 +801,11 @@ function markChecklistDone(key) {
     counter.textContent = coreDone + ' of ' + coreRows.length + ' done'
       + (left === 1 ? ' \u2014 one step from verified.' : '.');
   }
-  if (coreRows.length && coreDone === coreRows.length) celebrateChecklistComplete();
+  // Celebrate only when the brand is ACTUALLY verified — the checklist's core set is narrower
+  // than getBrandStatus().verified (which also wants company/email/website), so completing the
+  // list used to fire "You're verified" confetti while the page still said "Almost verified".
+  if (coreRows.length && coreDone === coreRows.length
+      && _data && _data.profile && getBrandStatus(_data.profile).verified) celebrateChecklistComplete();
 }
 
 // The banner used to just vanish the moment the last item landed, which reads as
@@ -821,7 +854,7 @@ window.respondReschedule = async function (demoId, decision, btn) {
     const j = await r.json().catch(function () { return {}; });
     if (!r.ok) throw new Error(j.message || j.error || 'Could not update.');
     if (decision === 'accept') { try { dhConfettiBurst(40); } catch (_) {} }
-    await loadData();   // re-render with the moved/kept demo
+    await loadData(); render();   // loadData only refreshes state/nav — render() repaints the page (buttons froze on 'Moving…' without it)
   } catch (e) {
     if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
     alert((e && e.message) || 'Could not update. Please try again.');
@@ -1076,7 +1109,7 @@ function renderOverview() {
       <div class="sub">Your activity across every Demohub retailer.</div>
       <div class="perf-stats">
         <div class="perf-stat"><div class="val">$${Math.round(totalInvested).toLocaleString()}</div><div class="lbl">Demo fees paid</div></div>
-        <div class="perf-stat"><div class="val">${completionRate == null ? ', ' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
+        <div class="perf-stat"><div class="val">${completionRate == null ? '&mdash;' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
         <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
       </div>
       <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month, last 6 months</div>
@@ -1343,6 +1376,7 @@ function renderCalendar() {
         <div class="cal-legend-item"><span class="cal-legend-dot"></span>Confirmed</div>
         <div class="cal-legend-item"><span class="cal-legend-dot pending"></span>Pending</div>
         <div class="cal-legend-item"><span class="cal-legend-dot completed"></span>Completed</div>
+        <div class="cal-legend-item"><span class="cal-legend-dot held"></span>Held (card not charged)</div>
         <div class="cal-legend-item"><span class="cal-legend-dot cancelled"></span>Cancelled / Declined</div>
       </div>
     </div>
@@ -1365,8 +1399,8 @@ window.openDemoDetail = function(demoId) {
   if (!demo) return;
   const ret = demo.retailers || {};
   const venue = demo.venues || {};
-  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : ', ';
-  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : ', ';
+  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : '—';
+  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : '—';
   const logoSrc = ret.logo_url ? `<img src="${escapeHtml(ret.logo_url)}" alt="">` : DEFAULT_AVATAR_SVG;
   const content = `
     <div class="demo-detail-head">
@@ -1378,10 +1412,10 @@ window.openDemoDetail = function(demoId) {
     </div>
     <div class="demo-detail-rows">
       <div class="row"><span class="k">Date</span><span class="v">${escapeHtml(niceDate)}</span></div>
-      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || ', ')}</span></div>
-      <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || ', ')}</span></div>
+      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || '—')}</span></div>
+      <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || '—')}</span></div>
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
-      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || ', ')}</span></div>
+      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || '—')}</span></div>
       <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || ', ')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
@@ -1586,7 +1620,10 @@ function renderProducts() {
   const _addBtn = document.getElementById('skuAddBtn');
   if (_addBtn) _addBtn.addEventListener('click', () => { addSkuRow(); });
 
-  const initial = (profile.default_categories || '').split(',').map(s => s.trim()).filter(Boolean);
+  // Four category options contain commas ("Wine, beer & spirits"…), so a naive split corrupts
+  // them into junk fragments. Greedily re-merge fragments that reassemble a known option; the
+  // save path writes '; ' so new data round-trips cleanly, and this parse repairs legacy rows.
+  const initial = parseCategoryList(profile.default_categories);
   initCatPicker({
     pickerEl: document.getElementById('dashCatPicker'),
     searchEl: document.getElementById('dashCatSearch'),
@@ -1734,8 +1771,10 @@ function setupCoiWidget() {
         renderCoiWidget();
         // The top banner and setup checklist read from _data.profile but were only
         // rendered once on load, so they kept saying "no COI on file" after a successful
-        // upload. Refresh both here.
+        // upload. Refresh both here — and the whole tab: the Compliance card's status strip is
+        // baked at render time and contradicted the widget until a full repaint.
         if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
+        if (typeof render === 'function') render();
         markChecklistDone('coi');
         // Report what verification found so the brand knows the expiry came from their document.
         const v = j.verification || {};
@@ -1881,7 +1920,7 @@ window.removeCoi = async function() {
     if (_ei) _ei.value = '';
     renderCoiWidget();
     if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
-    
+    if (typeof render === 'function') render();   // status strip mirrors the removal too
   } catch (err) {
     alert('Could not remove COI: ' + (err.message || 'unknown'));
   }
@@ -1978,7 +2017,7 @@ async function renderTeam() {
         <div style="font-size:0.85rem;color:var(--ink-500);">${escapeHtml(m.email)}</div>
       </div>
       ${roleBadge(m.role)}
-      ${canRemove ? `<button class="btn btn-ghost" style="color:var(--clay-700);" onclick="window.removeTeamMember('${escapeHtml(m.id)}','${escapeHtml(m.email)}')">Remove</button>` : ''}
+      ${canRemove ? `<button class="btn btn-ghost team-remove-btn" style="color:var(--clay-700);" data-mid="${escapeHtml(m.id)}" data-memail="${escapeHtml(m.email)}">Remove</button>` : ''}
     </div>`;
   };
 
@@ -2006,6 +2045,9 @@ async function renderTeam() {
     </div>
     ${!isOwner ? '<div class="sub" style="margin-top:14px;">You\'re a ' + escapeHtml(myRole) + ' on this brand. Only the owner can invite or remove teammates.</div>' : ''}
   `;
+  // Delegated: apostrophes in emails (o'brien@…) terminated inline-onclick string args early.
+  main.querySelectorAll('.team-remove-btn').forEach(btn => btn.addEventListener('click', () =>
+    window.removeTeamMember(btn.dataset.mid, btn.dataset.memail)));
 }
 
 // Invite handler
@@ -2086,8 +2128,8 @@ async function renderAgreements() {
   }
   const html = agreements.map(a => {
     const ret = a.retailers || {};
-    const sigDate = new Date(a.signed_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' });
-    const expDate = new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    const sigDate = a.signed_at ? new Date(a.signed_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '—';
+    const expDate = a.expires_at ? new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
     // Determine status pill
     let status, statusColor, statusBg;
     if (!a.is_active) { status = 'Superseded'; statusColor = '#6b6a64'; statusBg = '#e8e6e1'; }
@@ -2156,7 +2198,9 @@ function renderAccount() {
     if (!bp.has('booked')) return;
     const n = parseInt(bp.get('booked'), 10) || 0;
     const banner = document.createElement('div');
-    banner.style.cssText = 'position:sticky;top:0;left:0;right:0;z-index:9998;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
+    // position:relative, not sticky — sticky at z-index 9998 pinned OVER the site nav on scroll,
+    // hiding the whole header for the banner's 6-second life.
+    banner.style.cssText = 'position:relative;z-index:40;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
     // held=1: this checkout placed a HOLD (card authorized, not charged) \u2014 the demo locks in once
     // the COI is uploaded + approved within 24h. Don't say "booked/confirmed" for a hold.
     if (bp.has('held')) {
@@ -2181,7 +2225,7 @@ loadData()
   })
   .catch(err => {
     console.error('Brand portal load failed:', err);
-    main.innerHTML = `<div class="empty">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
+    main.innerHTML = `<div class="empty-state">Couldn't load your portal. <a href="/brand/signin">Sign in again</a>.</div>`;
   });
 
 // ===== Brand Portal Onboarding Tour =====

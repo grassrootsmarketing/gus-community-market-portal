@@ -148,7 +148,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="card success" id="successCard">
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
-    <p>We sent a 6-digit code to <strong id="sentEmail">, </strong>.</p>
+    <p>We sent a 6-digit code to <strong id="sentEmail"></strong>.</p>
     <p style="margin-top:10px;font-size:0.9rem;">Enter it below to finish signing in. Expires in 30 minutes.</p>
     <div style="margin-top:16px;">
       <input id="brandCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
@@ -312,17 +312,21 @@ const CATEGORY_OPTIONS = [
   'Personal care & beauty', 'Pet supplies', 'Home & household',
   'Baby & kids', 'CBD & hemp', 'Other'
 ];
+function escapeHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, initial = [] }) {
   const selected = new Set(initial);
   let activeIdx = 0;
 
-  function syncHidden() { hiddenEl.value = Array.from(selected).join(', '); }
+  // '; ' — four options contain commas, so a comma join corrupted them on the next parse.
+  function syncHidden() { hiddenEl.value = Array.from(selected).join('; '); }
   function renderPills() {
     pickerEl.querySelectorAll('.pill').forEach(p => p.remove());
     Array.from(selected).reverse().forEach(cat => {
       const pill = document.createElement('span');
       pill.className = 'pill';
-      pill.innerHTML = `<span>${cat}</span><button type="button" aria-label="Remove ${cat}">&times;</button>`;
+      pill.innerHTML = `<span>${escapeHtml(cat)}</span><button type="button" aria-label="Remove ${escapeHtml(cat)}">&times;</button>`;
       pill.querySelector('button').addEventListener('click', (e) => {
         e.stopPropagation();
         selected.delete(cat);
@@ -341,7 +345,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
     }
     activeIdx = Math.min(activeIdx, matches.length - 1);
     if (activeIdx < 0) activeIdx = 0;
-    dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${m}">${m}</div>`).join('');
+    dropdownEl.innerHTML = matches.map((m, i) => `<div class="opt${i === activeIdx ? ' active' : ''}" data-cat="${escapeHtml(m)}">${escapeHtml(m)}</div>`).join('');
     dropdownEl.querySelectorAll('.opt').forEach(opt => {
       opt.addEventListener('mousedown', (e) => { e.preventDefault(); /* keep input focused */ });
       opt.addEventListener('click', () => {

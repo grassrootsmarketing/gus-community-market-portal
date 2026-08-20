@@ -1493,7 +1493,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // the field is labelled "Notes for retailers" and reaches no retailer.
                 { const nEl = document.getElementById('bookNotes'); if (nEl && !nEl.value && bp.default_product_info) nEl.value = bp.default_product_info; }
                 if (bp.default_categories) {
-                    const firstCat = String(bp.default_categories).split(',')[0].trim();
+                    // '; ' is the current category delimiter (commas appear INSIDE option names)
+                    const firstCat = String(bp.default_categories).split(';')[0].trim();
                     const sel = document.getElementById('bookCategory');
                     let matched = false;
                     if (sel && firstCat) { for (const o of sel.options) { if (o.value === firstCat) { sel.value = firstCat; matched = true; break; } } }
