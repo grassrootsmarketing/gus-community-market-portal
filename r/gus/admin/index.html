@@ -4191,6 +4191,14 @@ END:VEVENT
             };
             payload[cfg.companyField] = document.getElementById('contactCompany').value.trim();
             if (cfg.showAddress) payload.address = document.getElementById('contactAddress').value.trim();
+            // Store contacts: PERSIST the checkbox scope + notification prefs. These were collected
+            // above but never written, so the derived location always read "All locations" and — the
+            // real bug — per-location notification routing (which reads venue_ids) never worked for a
+            // contact added through this UI. Both columns exist (0057); admin.js allows them.
+            if (type === 'internal') {
+                payload.venue_ids = Array.isArray(venue_ids) ? venue_ids : [];
+                if (notification_prefs) payload.notification_prefs = notification_prefs;
+            }
             try {
                 if (id) await adminUpdate(cfg.table, id, payload);
                 else    await adminInsert(cfg.table, payload);
