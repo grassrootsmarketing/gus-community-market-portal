@@ -14,6 +14,11 @@ const SWITCHES = [
   ['COI_UPLOAD_ENABLED', 'coiUploadEnabled'],
   ['BRAND_INVITE_ENABLED', 'brandInviteEnabled'],
   ['COI_AUTO_ENFORCEMENT_ENABLED', 'coiAutoEnforcementFlag'],
+  // CL-02 (Codex final work order): the operator snapshot must expose the effective provisional-holds
+  // value, and only the literal "true" may enable it. Running it through the matrix below proves
+  // unset/empty/false/malformed/uppercase/padded/mixed-case all report false, "true" reports true,
+  // and that flagSnapshot() actually includes the field (a missing field would read undefined -> fail).
+  ['PROVISIONAL_HOLDS_ENABLED', 'provisionalHolds'],
 ];
 const ALL_ENV = [...SWITCHES.map(([e]) => e), 'COI_ENFORCEMENT_MODE', 'LAUNCH_MAX_CART'];
 

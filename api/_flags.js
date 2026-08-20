@@ -66,6 +66,11 @@ export function maxCartSize() {
 // Non-sensitive effective-surface snapshot for the operator probe (no values, no secrets).
 export function flagSnapshot() {
   return {
+    // CL-02 (Codex final work order): the closed-launch envelope's single most important condition is
+    // that provisional holds are OFF. Report the EFFECTIVE value so the operator /api/version probe
+    // proves it in fact instead of trusting a document. exactTrue() means only the literal "true" is
+    // true; unset/empty/malformed/uppercase/padded/"false" all report false.
+    provisionalHolds: FLAGS.provisionalHolds,
     // enforced controls
     publicRetailerSignup: FLAGS.publicRetailerSignup,
     coiAiVerification: FLAGS.coiAiVerification,

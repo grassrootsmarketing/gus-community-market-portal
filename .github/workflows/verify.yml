@@ -123,18 +123,12 @@ jobs:
       - run: node tools/check-html-undef.mjs
       - run: node tools/check-binding.mjs
 
-      - run: node tests/binding.test.mjs
-      - run: node tests/route_binding.test.mjs
-      - run: node tests/mail_containment.test.mjs
-      - run: node tests/launch_flags.test.mjs
-      - run: node tests/brand_signup.test.mjs
-      - run: node tests/coi_enforcement_gate.test.mjs
-      - run: node tests/session_transport.test.mjs
-      - run: node tests/coi_policy_matrix.test.mjs
-      - run: node api/_coi-lib.test.js
-      - run: node tests/check_sql_columns.test.mjs
-      - run: node tests/retired_routes.test.mjs
-      - run: node tests/admin_cancel_wiring.test.mjs
+      # CL-03 (Codex final work order): run the SINGLE source of truth for the offline suite —
+      # package.json "test" — instead of re-enumerating it here. The manual list had drifted: it
+      # stopped at admin_cancel_wiring and silently omitted the round-3 security guards
+      # (admin_table_guard, provisional_resolution), so those never ran in CI despite comments
+      # claiming they did. `npm test` runs every offline suite AND stays in sync as tests are added.
+      - run: npm test
 
   # --------------------------------------------------------------------------
   # A/B clean build. Manual only -- `db reset` is destructive and must never fire
