@@ -1286,7 +1286,10 @@
                 <input type="hidden" id="contactType" value="brand">
                 <div class="form-group"><label class="form-label">Name</label><input type="text" class="form-input" id="contactName" placeholder="Jane Doe"></div>
                 <div class="form-group"><label class="form-label" id="contactCompanyLabel">Company</label><input type="text" class="form-input" id="contactCompany" placeholder="Acme Foods"></div>
-                <div class="form-group"><label class="form-label">Location</label>
+                <!-- Hidden for STORE contacts: the "Which stores?" checkboxes are the single
+                     source of truth there (this dropdown once disagreed with them). Brand
+                     contacts, which have no checkboxes, still use it. -->
+                <div class="form-group" id="contactVenueGroup"><label class="form-label">Location</label>
                     <select class="form-input" id="contactVenue">
                         <!-- options populated dynamically from window.state.venues -->
                     </select>
@@ -3852,6 +3855,15 @@ END:VEVENT
             }
         };
 
+        // Store contacts: the displayed Location is DERIVED from the checkbox scope (venue_ids),
+        // never from the legacy free-text venue column — the two once disagreed on screen.
+        function contactScopeLabel(venue_ids) {
+            const vids = Array.isArray(venue_ids) ? venue_ids : [];
+            if (vids.length === 0) return 'All locations';
+            const byId = new Map((window.state.venues || []).map(v => [v.id, v.name]));
+            if (vids.length === 1) return byId.get(vids[0]) || '1 location';
+            return vids.length + ' locations';
+        }
         function loadContacts(type) {
             const cfg = CONTACT_CONFIGS[type];
             if (!cfg) return [];
@@ -3859,7 +3871,7 @@ END:VEVENT
                 id: c.id,
                 name: c.name,
                 company: c[cfg.companyField] || '',
-                venue: c.venue,
+                venue: type === 'internal' ? contactScopeLabel(c.venue_ids) : c.venue,
                 address: c.address || '',
                 email: c.email,
                 phone: c.phone,
@@ -4009,6 +4021,10 @@ END:VEVENT
             document.getElementById('contactCompany').placeholder = cfg.companyPlaceholder || '';
             document.getElementById('contactEmail').placeholder = cfg.emailPlaceholder || '';
             document.getElementById('contactAddressGroup').style.display = cfg.showAddress ? '' : 'none';
+            // Store contacts: hide the legacy Location dropdown — the venue checkboxes below are
+            // the single control. Brand contacts (no checkboxes) keep it.
+            const venueGroup = document.getElementById('contactVenueGroup');
+            if (venueGroup) venueGroup.style.display = (type === 'internal') ? 'none' : '';
             // The Location <select> claimed to be "populated dynamically" but nothing ever built its
             // options — it rendered empty and assignments to .value silently no-oped.
             const venueSel = document.getElementById('contactVenue');
@@ -4122,7 +4138,9 @@ END:VEVENT
             const payload = {
                 retailer_id: RETAILER_ID,
                 name: name,
-                venue: document.getElementById('contactVenue').value,
+                // Store contacts: the legacy venue text column is DERIVED from the checkbox scope
+                // (single control); brand contacts still take it from the dropdown.
+                venue: type === 'internal' ? contactScopeLabel(venue_ids) : document.getElementById('contactVenue').value,
                 email: document.getElementById('contactEmail').value.trim(),
                 phone: document.getElementById('contactPhone').value.trim(),
             };
