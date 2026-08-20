@@ -964,14 +964,26 @@ export default async function handler(req, res) {
               });
             }
             if (brandId) {
-              const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id`) || [];
+              const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id,demo_date`) || [];
               if (held.length) {
                 const retailerIds = [...new Set(held.map(b => b.retailer_id))];
                 const rRows = await sb(`retailers?id=in.(${retailerIds.map(encodeURIComponent).join(',')})&select=id,auto_confirm_bookings`) || [];
                 const autoById = new Map(rRows.map(r => [r.id, !!r.auto_confirm_bookings]));
+                // Re-read the brand's COI fields for the per-date coverage check — approving THIS
+                // certificate doesn't mean it covers every held demo's date (a cert can expire
+                // before a far-future booking). Capture only demos the approved COI actually covers,
+                // matching the manual-confirm path's coiCovered gate. Uncovered holds wait for a
+                // retailer decision or the 24h sweep.
+                const { coiCovered } = await import('./_coi-coverage.js');
+                let coiBrand = null;
+                try {
+                  const br2 = await sb(`brands?id=eq.${encodeURIComponent(brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status`);
+                  coiBrand = Array.isArray(br2) ? br2[0] : null;
+                } catch (_) {}
                 const { captureHeldBooking } = await import('./_provisional.js');
                 for (const b of held) {
                   if (!autoById.get(b.retailer_id)) continue;
+                  if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered — don't charge
                   const r2 = await captureHeldBooking(b);
                   if (r2.ok) capturedHolds++;
                   else console.warn('post-approval hold capture failed for', b.id, r2.stage, r2.error);

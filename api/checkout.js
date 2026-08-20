@@ -66,6 +66,14 @@ export default async function handler(req, res) {
     if (provisionalCart && (heldCount !== bookings.length || bookings.length !== 1)) {
       return res.status(400).json({ error: 'provisional_checkout_single_only' });
     }
+    // Flag-off rollback guard: if PROVISIONAL_HOLDS_ENABLED is flipped off while a 'held' booking
+    // exists, checking it out here would take the IMMEDIATE-charge path (no capture_method=manual),
+    // charging the card in full — but apply_verified_payment then freezes the group (a held+unpaid
+    // booking is not flippable), so the customer is charged with no demo. Refuse instead; the hold
+    // can only ever settle through the capture/release paths, which don't gate on the flag.
+    if (provisionalCart && !FLAGS.provisionalHolds) {
+      return res.status(409).json({ error: 'provisional_holds_disabled', message: 'This held booking can\'t be paid right now. Please contact the store.' });
+    }
 
     const retailerId = bookings[0].retailer_id;
     const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,platform_keeps_all`);
