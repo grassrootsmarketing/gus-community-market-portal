@@ -1421,7 +1421,7 @@ window.openDemoDetail = function(demoId) {
       <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || '—')}</span></div>
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
       <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || '—')}</span></div>
-      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || ', ')}</span></span></div>
+      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || '—')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
   `;
@@ -2225,7 +2225,9 @@ function renderAccount() {
 // ===== Bootstrap =====
 loadData()
   .then(() => {
-    switchTab(window.location.hash.replace(/^#/, '') || 'overview');
+    // fromHash: the initial render REPLACES history (no phantom entry), matching the admin fix —
+    // otherwise the first Back press on a fresh load was eaten by a pushed '#overview'.
+    switchTab(window.location.hash.replace(/^#/, '') || 'overview', { fromHash: true });
     setTimeout(() => { if (window.maybeStartBrandTour) window.maybeStartBrandTour(); }, 400);
   })
   .catch(err => {
