@@ -312,8 +312,12 @@ async function loadData() {
 // ----- Tiny SVG bar chart helper -----
 // Cumulative growth chart: retailers + brands accumulating month over month.
 // The whole point is the up-and-to-the-right — the network getting bigger.
-function renderGrowthChart(retailerSeries, brandSeries) {
-  const W = 700, H = 210, padL = 8, padR = 54, padT = 14, padB = 22;
+// widthPx: render the viewBox at the container's real pixel width. The svg stretches to
+// width:100% with preserveAspectRatio="none", which distorts <text> glyphs whenever the
+// viewBox aspect differs from the rendered aspect — axis months and end-value numbers came
+// out visibly stretched on wide screens. Matching W to the actual width removes the skew.
+function renderGrowthChart(retailerSeries, brandSeries, widthPx) {
+  const W = Math.max(360, Math.round(widthPx || 700)), H = 210, padL = 8, padR = 54, padT = 14, padB = 22;
   const iW = W - padL - padR, iH = H - padT - padB;
   const cum = (arr) => { let t = 0; return (arr || []).map(p => ({ label: p.label, v: (t += (p.count || 0)) })); };
   const R = cum(retailerSeries), B = cum(brandSeries);
@@ -351,6 +355,23 @@ function renderGrowthChart(retailerSeries, brandSeries) {
     + '<text class="gh-dot" x="' + (x(R.length - 1) + 8).toFixed(1) + '" y="' + (y(endR.v) + 4).toFixed(1) + '" font-size="12" font-weight="700" fill="#87b08e">' + endR.v + '</text>'
     + labels + hits + '</svg><div class="gh-tip"></div>';
 }
+
+// Mount (and on resize, re-mount) every growth chart at its container's true pixel width.
+// Series are stashed in window._ghSeries by the render paths; hover re-wires after each mount.
+window._ghSeries = window._ghSeries || {};
+function remountGrowthCharts() {
+  document.querySelectorAll('[data-gh-mount]').forEach(function (el) {
+    const s = window._ghSeries[el.dataset.ghMount];
+    if (!s) return;
+    const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 700;
+    el.innerHTML = renderGrowthChart(s.rs, s.bs, w);
+  });
+  try { wireGhHover(); } catch (_) {}
+}
+let _ghResizeT = null;
+window.addEventListener('resize', function () {
+  clearTimeout(_ghResizeT); _ghResizeT = setTimeout(remountGrowthCharts, 150);
+});
 
 // Wire hover on the growth chart: tooltip + vertical guide + markers at the hovered month.
 function wireGhHover() {
@@ -446,13 +467,14 @@ function renderDashboard(d) {
   // Network north-star + cumulative growth curve
   const _netTotal = (h.total_retailers || 0) + (h.total_brands || 0);
   const _rs = t.retailer_signups || [], _bs = t.brand_signups || [];
+  window._ghSeries.hero = { rs: _rs, bs: _bs };
   const _newThisMonth = ((_rs[_rs.length - 1] || {}).count || 0) + ((_bs[_bs.length - 1] || {}).count || 0);
   const growthHero = `
     <div class="growth-hero">
       <div class="gh-eyebrow">The network</div>
       <div class="gh-title"><span data-count="${_netTotal}">0</span> on Demohub</div>
       <div class="gh-sub">${h.total_retailers || 0} retailers &middot; ${h.total_brands || 0} brands${_newThisMonth > 0 ? ' &middot; <span class="up">+' + _newThisMonth + ' this month</span>' : ''}</div>
-      <div class="gh-chart">${renderGrowthChart(_rs, _bs)}</div>
+      <div class="gh-chart" data-gh-mount="hero"></div>
       <div class="gh-legend"><span><span class="dot forest"></span>Retailers</span><span><span class="dot clay"></span>Brands</span></div>
     </div>`;
 
@@ -616,7 +638,7 @@ function renderDashboard(d) {
   // Support tools card (Level 1: impersonation, Level 2: audit link)
   loadSupportTools();
   ownerCountUp();
-  wireGhHover();
+  remountGrowthCharts();
 
   wireTabs();
 }
@@ -752,6 +774,7 @@ function renderAnalytics() {
     { label: 'Per-demo', value: h.mrr_per_demo || 0, display: '$' + (h.mrr_per_demo || 0).toLocaleString() },
   ];
 
+  window._ghSeries.net = { rs: t.retailer_signups || [], bs: t.brand_signups || [] };
   pane.innerHTML = '' +
     '<div class="stat-row">' +
       '<div class="stat"><div class="stat-lbl">Total demos</div><div class="stat-num" data-count="' + totalDemos + '">0</div><div class="stat-sub">across all retailers, last 12 mo</div></div>' +
@@ -759,13 +782,14 @@ function renderAnalytics() {
       '<div class="stat"><div class="stat-lbl">Brands insured</div><div class="stat-num" data-count="' + withCoi + '">0</div><div class="stat-sub">' + coiPct + '% of ' + totalBrands + ' have a COI</div></div>' +
       '<div class="stat"><div class="stat-lbl">Active retailers</div><div class="stat-num" data-count="' + activeRet + '">0</div><div class="stat-sub">of ' + totalRet + ' in last 30d</div></div>' +
     '</div>' +
-    '<div class="chart" style="margin-bottom:22px;"><h3>Network growth</h3><div class="csub">Cumulative retailers + brands, last 12 months</div>' + renderGrowthChart(t.retailer_signups || [], t.brand_signups || []) + '</div>' +
+    '<div class="chart" style="margin-bottom:22px;"><h3>Network growth</h3><div class="csub">Cumulative retailers + brands, last 12 months</div><div class="gh-chart" data-gh-mount="net"></div></div>' +
     '<div class="chart" style="margin-bottom:22px;"><h3>Demos per month</h3><div class="csub">By demo date</div>' + renderBars(null, demosSeries) + '</div>' +
     '<div class="trends-row">' +
       '<div class="chart"><h3>Revenue mix</h3><div class="csub">Monthly recurring, by source</div><div style="margin-top:12px;">' + hBars(mrrRows, function (r) { return r.label === 'Subscriptions' ? '#3a7142' : '#ed682f'; }) + '</div></div>' +
       '<div class="chart"><h3>Plan mix</h3><div class="csub">Retailers by billing tier</div><div style="margin-top:12px;">' + hBars(tierRows) + '</div></div>' +
     '</div>';
   if (typeof ownerCountUp === 'function') ownerCountUp();
+  remountGrowthCharts();
 }
 
 // Tab switching + lazy-render analytics/billing
