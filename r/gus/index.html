@@ -531,12 +531,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
                 <div class="form-group"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
-                    <div style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
-                        <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
+                    <div id="bookCoiCard" style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
+                        <div id="bookCoiHead" style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
                         <div id="bookCoiMsg" style="font-size:0.88rem; line-height:1.5; color:#a14e2a; margin-bottom:10px;">Stores need proof of insurance before you can demo. Upload yours here and you can book straight away.</div>
                         <input type="file" id="bookCoiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
                         <button type="button" class="btn" id="bookCoiBtn" style="font-size:0.88rem; padding:9px 16px;">Upload certificate</button>
-                        <div style="font-size:0.76rem; color:#a14e2a; opacity:0.85; margin-top:7px;">PDF, JPG, PNG or WEBP, up to 10MB.</div>
+                        <div id="bookCoiHint" style="font-size:0.76rem; color:#a14e2a; opacity:0.85; margin-top:7px;">PDF, JPG, PNG or WEBP, up to 10MB.</div>
                     </div>
                 </div>
                 <div class="form-group" id="bookSkuGroup" style="display:none;">
@@ -738,19 +738,37 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (signedIn && !ok) {
                 const bp = window._brandProfile;
                 const msg = document.getElementById('bookCoiMsg');
+                const card = document.getElementById('bookCoiCard');
+                const head = document.getElementById('bookCoiHead');
+                const upBtn = document.getElementById('bookCoiBtn');
+                const upHint = document.getElementById('bookCoiHint');
                 const st = String(bp.coi_verification_status || '').toLowerCase();
-                // Priority is the review STATUS, not the expiry: the expiry is set by the store at
-                // review, so an uploaded-but-unreviewed COI always has no expiry yet and must read as
-                // "pending review," never "upload a clearer copy."
-                if (msg && bp.default_coi_url) {
-                    if (st === 'rejected') {
-                        msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and it will be reviewed again.';
-                    } else if (st === 'passed' || st === 'approved') {
-                        // Approved, but it doesn't cover this demo date (expired or expires too soon).
-                        msg.textContent = 'The certificate on your profile has expired or doesn’t cover your demo date. Upload a current one and you can book straight away.';
+                const hasCoi = !!bp.default_coi_url;
+                // Uploaded but no decision yet (pending/flagged/blank) = a calm "in review" state, NOT a
+                // red alarm. The expiry is set by the store at review, so no-expiry never means "re-upload."
+                const inReview = hasCoi && st !== 'rejected' && st !== 'passed' && st !== 'approved';
+                if (inReview) {
+                    if (card) { card.style.background = '#eef5ee'; card.style.borderColor = '#2a6b3a44'; card.style.borderLeftColor = '#2a6b3a'; }
+                    if (head) { head.style.color = '#256b34'; head.textContent = '✓ Certificate uploaded — pending review'; }
+                    if (msg) { msg.style.color = '#2c4a34'; msg.style.marginBottom = '0'; msg.textContent = 'Your certificate is in and waiting for the store to review it. You’ll get an email once it’s approved, and you can book straight after that. Nothing more to do here.'; }
+                    if (upBtn) upBtn.style.display = 'none';
+                    if (upHint) upHint.style.display = 'none';
+                } else {
+                    // Action needed: no certificate, rejected, or expired — red state with the uploader.
+                    if (card) { card.style.background = '#fff3ed'; card.style.borderColor = '#ed682f55'; card.style.borderLeftColor = '#ed682f'; }
+                    if (head) head.style.color = '#a14e2a';
+                    if (msg) { msg.style.color = '#a14e2a'; msg.style.marginBottom = '10px'; }
+                    if (upBtn) upBtn.style.display = '';
+                    if (upHint) upHint.style.display = '';
+                    if (!hasCoi) {
+                        if (head) head.textContent = 'Certificate of insurance required';
+                        if (msg) msg.textContent = 'Stores need proof of insurance before you can demo. Upload yours here.';
+                    } else if (st === 'rejected') {
+                        if (head) head.textContent = 'Certificate not accepted';
+                        if (msg) msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and it will be reviewed again.';
                     } else {
-                        // pending / flagged / not yet reviewed — only the store's approval moves it.
-                        msg.textContent = 'Your certificate is uploaded and waiting for the store to review it. You’ll get an email once it’s approved, and you can book straight after that.';
+                        if (head) head.textContent = 'Certificate expired';
+                        if (msg) msg.textContent = 'The certificate on your profile has expired or doesn’t cover your demo date. Upload a current one and you can book straight away.';
                     }
                 }
             }
