@@ -739,16 +739,19 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const bp = window._brandProfile;
                 const msg = document.getElementById('bookCoiMsg');
                 const st = String(bp.coi_verification_status || '').toLowerCase();
-                if (msg && bp.default_coi_url && !bp.default_coi_expires) {
-                    msg.textContent = 'We could not read an expiry date from the certificate on your profile. Upload a clearer copy and you can book straight away.';
-                } else if (msg && bp.default_coi_url && (st === 'pending' || st === 'flagged')) {
-                    // Do not promise this clears itself. With COI_AI_VERIFICATION_ENABLED off every
-                    // upload lands here, and only a human decision moves it.
-                    msg.textContent = 'Your certificate is uploaded and waiting to be reviewed. You will get an email once it is approved, and you can book straight after that.';
-                } else if (msg && bp.default_coi_url && st === 'rejected') {
-                    msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and we will review it again.';
-                } else if (msg && bp.default_coi_url) {
-                    msg.textContent = 'The certificate on your profile has expired. Upload a current one and you can book straight away.';
+                // Priority is the review STATUS, not the expiry: the expiry is set by the store at
+                // review, so an uploaded-but-unreviewed COI always has no expiry yet and must read as
+                // "pending review," never "upload a clearer copy."
+                if (msg && bp.default_coi_url) {
+                    if (st === 'rejected') {
+                        msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and it will be reviewed again.';
+                    } else if (st === 'passed' || st === 'approved') {
+                        // Approved, but it doesn't cover this demo date (expired or expires too soon).
+                        msg.textContent = 'The certificate on your profile has expired or doesn’t cover your demo date. Upload a current one and you can book straight away.';
+                    } else {
+                        // pending / flagged / not yet reviewed — only the store's approval moves it.
+                        msg.textContent = 'Your certificate is uploaded and waiting for the store to review it. You’ll get an email once it’s approved, and you can book straight after that.';
+                    }
                 }
             }
             return !(signedIn && !ok);
@@ -823,11 +826,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 if (window._brandProfile) {
                     window._brandProfile.default_coi_url = j.coi_url;
                     if (j.expires) window._brandProfile.default_coi_expires = j.expires;
+                    window._brandProfile.coi_verification_status = 'pending';   // a fresh upload lands pending review
                 }
-                if (_updateBookCoiGate()) {
-                    if (msg) msg.textContent = 'Certificate accepted. You can book now.';
-                } else if (msg) {
-                    msg.textContent = 'Uploaded, but we still could not confirm a current expiry date. Check the date on your profile.';
+                // _updateBookCoiGate() sets the right message for the current state (usually
+                // "waiting for the store to review it"); only override it when actually covered.
+                if (_updateBookCoiGate() && msg) {
+                    msg.textContent = 'Certificate accepted. You can book now.';
                 }
             } catch (err) {
                 if (msg) msg.textContent = (err && err.message) || 'Upload failed. Please try again.';
