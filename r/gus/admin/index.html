@@ -828,6 +828,17 @@
                     <div class="chart-wrap" style="position:relative;"><div id="chartFallback" style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:24px; color:var(--ink-500); font-size:0.88rem; line-height:1.5;"><div><div style="font-weight:700; color:var(--forest-800); font-size:0.95rem; margin-bottom:6px;">No demos yet</div><div style="max-width:320px; margin:0 auto;">Your monthly demo count will chart here once brands start booking through your link.</div></div></div><canvas id="demosMonthlyChart" role="img" aria-label="Demos per month over the last 6 months"></canvas></div>
                 </div>
                 <div class="table-card" id="demosSection" style="margin-bottom: 32px;">
+                    <!-- Pending requests inbox — mirrors the Dashboard inbox so brands' incoming
+                         requests (incl. provisional holds) are actionable from the Demos tab too. -->
+                    <div id="demosPendingInbox" style="display:none; border:1px solid #eadfd5; background:#fff8f3; border-radius:12px; padding:16px 18px; margin-bottom:22px;">
+                        <h3 class="table-title" style="margin:0 0 12px;">Pending Requests <span id="demosPendingCount" style="font-weight:400; color:var(--clay-700); margin-left:6px;"></span></h3>
+                        <div style="overflow-x:auto;">
+                            <table class="data-table" style="margin:0;">
+                                <thead><tr><th>Date</th><th>Time</th><th>Location</th><th>Brand</th><th>Contact</th><th>Product</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <tbody id="demosPendingBody"></tbody>
+                            </table>
+                        </div>
+                    </div>
                     <div class="table-toolbar">
                         <h3 class="table-title">Upcoming Demos</h3>
                         <div class="toolbar-controls">
@@ -2781,31 +2792,22 @@ END:VEVENT
         };
 
         // ===== Pending Bookings inbox =====
-        function renderPendingBookings() {
-            const tbody = document.getElementById('pendingBookingsBody');
-            const card = document.getElementById('pendingBookingsCard');
-            const countLbl = document.getElementById('pendingBookingsCount');
-            if (!tbody || !card) return;
-            const venueById = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
-            // Provisional holds: 'held' bookings sit in this inbox too — card authorized (not
-            // charged) while the brand's COI is verified. Confirming a held booking is what
-            // CAPTURES the payment (the server refuses with coi_pending until the COI is approved);
-            // declining releases the hold at $0.
-            const pending = (window.state.bookings || []).filter(b => b.status === 'pending' || b.status === 'held');
-            if (countLbl) countLbl.textContent = pending.length ? `(${pending.length})` : '';
-            if (!pending.length) {
-                card.style.display = 'none';
-                tbody.innerHTML = '';
-                return;
+        // One row of the pending inbox. Held (provisional-hold) rows carry a COI badge that reflects
+        // the brand's ACTUAL compliance status — green "COI approved" once the cert is verified (so the
+        // retailer knows Confirm will capture cleanly), amber "COI pending" until then.
+        function pendingBookingRowHtml(b, venueById) {
+            const dateLabel = b.demo_date ? new Date(b.demo_date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+            const isHeld = b.status === 'held';
+            let heldBadge = '';
+            if (isHeld) {
+                // coi_status is enriched onto held bookings by /api/admin (the brand's real COI
+                // verification state); 'approved' means Confirm will capture cleanly.
+                const coiOk = b.coi_status === 'approved';
+                heldBadge = coiOk
+                    ? '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#e6f4ea;color:#1c7a3f;" title="Card authorized, not charged. COI approved — Confirm now captures the card.">Held &middot; COI approved</span></div>'
+                    : '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#fff0e6;color:#b4531f;" title="Card authorized, not charged. Confirm charges the card once their COI is approved; decline releases the hold at $0.">Held &middot; COI pending</span></div>';
             }
-            card.style.display = '';
-            tbody.innerHTML = pending.map(b => {
-                const dateLabel = b.demo_date ? new Date(b.demo_date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
-                const isHeld = b.status === 'held';
-                const heldBadge = isHeld
-                    ? '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#fff0e6;color:#b4531f;" title="Card authorized, not charged. Confirm charges the card once their COI is approved; decline releases the hold at $0.">Held &middot; COI pending</span></div>'
-                    : '';
-                return `<tr data-booking-id="${b.id}">
+            return `<tr data-booking-id="${b.id}">
                     <td>${escapeHtml(dateLabel)}</td>
                     <td>${escapeHtml(b.demo_time || '—')}</td>
                     <td>${escapeHtml(venueById[b.venue_id] || '—')}</td>
@@ -2817,7 +2819,52 @@ END:VEVENT
                         <button class="btn" style="padding:6px 14px; font-size:0.85rem; background:var(--forest-600); color:white;" onclick="confirmBooking('${b.id}', ${isHeld})">Confirm</button>
                     </td>
                 </tr>`;
-            }).join('');
+        }
+
+        function renderPendingBookings() {
+            const venueById = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
+            // Provisional holds: 'held' bookings sit in this inbox too — card authorized (not
+            // charged) while the brand's COI is verified. Confirming a held booking is what
+            // CAPTURES the payment (the server refuses with coi_pending until the COI is approved);
+            // declining releases the hold at $0.
+            const pending = (window.state.bookings || []).filter(b => b.status === 'pending' || b.status === 'held');
+            const rowsHtml = pending.map(b => pendingBookingRowHtml(b, venueById)).join('');
+            const label = pending.length ? `(${pending.length})` : '';
+            // Two mount points share the same inbox: the Dashboard card and the Demos-tab card.
+            [['pendingBookingsCard','pendingBookingsBody','pendingBookingsCount'],
+             ['demosPendingInbox','demosPendingBody','demosPendingCount']].forEach(([cardId, bodyId, countId]) => {
+                const card = document.getElementById(cardId);
+                const tbody = document.getElementById(bodyId);
+                const countLbl = document.getElementById(countId);
+                if (!card || !tbody) return;
+                if (countLbl) countLbl.textContent = label;
+                card.style.display = pending.length ? '' : 'none';
+                tbody.innerHTML = rowsHtml;
+            });
+            updateTabBadges(pending.length);
+        }
+
+        // Notification badge on the tabs that need attention. Currently: a count on "Demos" whenever
+        // there are pending/held booking requests. Targets both the desktop subnav and the mobile drawer
+        // (both carry data-section="demosSection").
+        function updateTabBadges(pendingCount) {
+            const n = (typeof pendingCount === 'number') ? pendingCount
+                : (window.state.bookings || []).filter(b => b.status === 'pending' || b.status === 'held').length;
+            document.querySelectorAll('[data-section="demosSection"]').forEach(el => {
+                let badge = el.querySelector('.nav-badge');
+                if (n > 0) {
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'nav-badge';
+                        badge.setAttribute('aria-label', 'pending requests');
+                        badge.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:99px;background:#d9480f;color:#fff;font-size:0.7rem;font-weight:700;line-height:1;vertical-align:middle;';
+                        el.appendChild(badge);
+                    }
+                    badge.textContent = String(n);
+                } else if (badge) {
+                    badge.remove();
+                }
+            });
         }
 
         async function bookingAction(bookingId, action, reason) {

@@ -282,6 +282,20 @@ export default async function handler(req, res) {
         filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
         filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
       }
+      // Enrich HELD (provisional-hold) bookings with the brand's real COI verification status so the
+      // admin inbox can distinguish "ready to confirm" (COI approved → Confirm captures) from "still
+      // pending". Without this the badge was a hardcoded "COI pending" that never updated on approval.
+      try {
+        const heldBrandIds = [...new Set((filteredBookings || [])
+          .filter(b => b.status === 'held' && b.brand_id).map(b => b.brand_id))];
+        if (heldBrandIds.length) {
+          const brandRows = await sb(`brands?id=in.(${heldBrandIds.map(encodeURIComponent).join(',')})&select=id,coi_verification_status,default_coi_expires`);
+          const byId = Object.fromEntries((Array.isArray(brandRows) ? brandRows : []).map(x => [x.id, x]));
+          filteredBookings = filteredBookings.map(b => (b.status === 'held' && byId[b.brand_id])
+            ? { ...b, coi_status: byId[b.brand_id].coi_verification_status || null, coi_expires: byId[b.brand_id].default_coi_expires || null }
+            : b);
+        }
+      } catch (_) { /* non-fatal: badge falls back to "COI pending" */ }
       const retailerObj = Array.isArray(retailerArr) ? retailerArr[0] : null;
       // R2-09: the calendar feed key unlocks the whole-tenant calendar; never hand it to a viewer.
       if (callerIsViewer && retailerObj && 'cal_feed_key' in retailerObj) delete retailerObj.cal_feed_key;
