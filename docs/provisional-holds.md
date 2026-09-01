@@ -98,5 +98,35 @@ Extend the existing `refund-worker` (every 15 min) OR add `provisional-sweep`:
   retailer). Release copy: "hold released — you were not charged" (+ "an insured brand took the slot"
   variant on a bump).
 
+## Holds-ON validation (money-safety gate before flipping the flag)
+Building the flag was step 8 above; proving it is safe to turn ON is separate. Plan was: (1) DB-layer
+adversarial interleaving tests, (2) a resolution lease, (3) a real-Stripe test-mode smoke.
+
+- **(1) DB adversarial suite — DONE, GREEN.** `tests/provisional_holds_adversarial.mjs` (28 checks,
+  wired into `npm run test:ledger` + the CI staging gate). Runs the real `0065` RPCs against staging
+  and asserts DB truth over the full hold lifecycle:
+  - **P0-1 proven (H4):** a cancel/sweep/decline arriving AFTER capture returns
+    `contradiction / auth_canceled_on_paid_group`, opens a durable case, and leaves the charged
+    booking `paid` — a charged booking is never released.
+  - **P0-2 proven (H6):** a capture arriving AFTER release (`auth_canceled`) is refused — a released
+    booking is never charged.
+  - **H11 (the interleaving proof):** capture and cancel fired concurrently (`Promise.all`) converge
+    to exactly one consistent outcome (paid **xor** released), never charged-and-released. 6/6
+    consecutive full-suite runs green.
+  - Plus: auth lands only on `held` bookings (H1), idempotent auth/cancel replay (H2/H7), happy-path
+    capture (H3), authorized-cancel release with target status (H5), auth on a non-held booking
+    FREEZES (H8), amount-mismatch auth refused (H10), and a retailer-declined booking keeps its
+    status when the hold is released (H9).
+- **(2) Resolution lease — NOT NEEDED.** The row-level guard already provides mutual exclusion:
+  `apply_verified_payment` / `apply_authorization_canceled` both take `SELECT … FOR UPDATE` on the
+  payment_group and gate on its status, so capture and release cannot both win. H11 proves this holds
+  under a real concurrent race, so a separate lease would be redundant machinery. (Capacity-vs-capture
+  remains covered by the app-layer `slotCapacityStatus()` check before capture in `api/booking-action.js`.)
+- **(3) Real-Stripe test-mode smoke — REMAINING, David-involved.** The DB suite uses synthetic PI
+  strings; it proves the ledger logic, not the Stripe wiring in `_provisional.js` / `checkout.js` /
+  `stripe-webhook.js`. Before flipping `PROVISIONAL_HOLDS_ENABLED`: on Stripe **test mode**, run
+  auth → capture and auth → expiry → release end-to-end, and subscribe the webhook to
+  `payment_intent.canceled` (+ optionally `amount_capturable_updated`). This is the last gate.
+
 ## Open decisions
 - Pre-demo insured buffer (~72h) interaction with the 24h upload window.
