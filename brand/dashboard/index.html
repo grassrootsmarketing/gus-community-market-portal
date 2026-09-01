@@ -939,7 +939,7 @@ function getBrandStatus(profile) {
   const missing = [];
   if (coi === 'none') missing.push('Upload a current Certificate of Insurance');
   else if (coi === 'expired') missing.push('Replace your expired Certificate of Insurance');
-  else if (coi === 'no_date') missing.push('Add the expiry date from your certificate');
+  else if (coi === 'no_date') missing.push('Certificate of Insurance is under review');
   if (!profile.company_name) missing.push('Add your brand / company name');
   if (!profile.contact_name) missing.push('Add a dedicated point of contact');
   if (!profile.email) missing.push('Add a contact email');
@@ -973,7 +973,7 @@ function coiStatusStripHtml(st) {
     current:  ['#eef7f0', '#2a5b32', 'Covered', 'Your certificate is current through ' + (st.expiryLabel || 'its expiry date') + '.'],
     expiring: ['#fff8ed', '#8a6114', 'Expiring soon', 'Your certificate expires ' + (st.expiryLabel || 'soon') + ' — that is ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' away. Ask your broker for the renewal now so your demos are not affected.'],
     expired:  ['#fff3ed', '#a14e2a', 'Expired', 'Your certificate expired' + (st.expiryLabel ? ' on ' + st.expiryLabel : '') + '. Retailers cannot confirm demos until you upload a current one.'],
-    no_date:  ['#fff8ed', '#8a6114', 'Missing expiry date', 'We could not read an expiry date from your certificate. Add it below so retailers know your insurance is current.'],
+    no_date:  ['#eef3f7', '#2f5b8a', 'Pending review', 'Your certificate is uploaded. A Demohub reviewer confirms it and sets its expiry — nothing needed from you. Retailers can confirm your demos once it’s approved.'],
     none:     ['#fff3ed', '#a14e2a', 'No certificate on file', 'Retailers cannot confirm your demos until a current COI is uploaded.'],
   };
   const [bg, fg, title, body] = map[st.coi] || map.none;
@@ -1577,11 +1577,6 @@ function renderCompliance() {
         <div id="coiWidget"></div>
         <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
         <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Retailers can view it against every demo you book.</div>
-      </div>
-      <div class="form-row">
-        <label class="label">COI expires</label>
-        <input class="input" id="f_default_coi_expires" type="date" value="${escapeHtml(profile.default_coi_expires || '')}" disabled title="Set by Demohub when your certificate is reviewed">
-        <div class="hint" style="font-size:0.78rem; color:var(--ink-500); margin-top:5px;">${profile.default_coi_expires ? 'Confirmed from your certificate during review.' : 'Set by Demohub when your certificate is reviewed — nothing for you to fill in here.'}</div>
       </div>
       <div style="margin-top:18px;display:flex;align-items:center;">
         <button class="btn" id="saveProfileBtn">Save changes</button>
