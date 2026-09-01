@@ -251,6 +251,13 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
       <p class="desc">Manage your profile, COI, and demos at every Demohub retailer, one place.</p>
       <div class="form-body">
         <form id="brandForm">
+          <div id="brandExtra">
+            <div class="hint" style="margin-bottom:12px;">New here? Add your brand and name so your profile's ready. Returning? Just your email.</div>
+            <label class="label" for="brandCompany">Brand / company name</label>
+            <input id="brandCompany" class="email-input" type="text" placeholder="Acme Foods" autocomplete="organization" autocapitalize="words" style="margin-bottom:12px;">
+            <label class="label" for="brandContact">Your name</label>
+            <input id="brandContact" class="email-input" type="text" placeholder="Jane Smith" autocomplete="name" autocapitalize="words" style="margin-bottom:12px;">
+          </div>
           <label class="label" for="brandEmail">Email address</label>
           <input id="brandEmail" class="email-input" type="email" placeholder="you@yourbrand.com" required autocomplete="email" autocapitalize="off" autocorrect="off" spellcheck="false">
           <div class="hint" id="brandHint">We'll send you a sign-in link to your brand portal.</div>
@@ -279,7 +286,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 </div>
 </main>
 <script>
-function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, endpoint, action }) {
+function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, endpoint, action, extraFields, extraContainerId }) {
   const form = document.getElementById(formId);
   const email = document.getElementById(emailId);
   const hint = document.getElementById(hintId);
@@ -299,11 +306,21 @@ function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, en
     }
     btn.disabled = true;
     btn.textContent = 'Sending…';
+    // Optional profile fields (new brands): carried through so the dashboard is pre-filled.
+    // The API applies them only to fields that are still blank, so a returning login can't overwrite.
+    const body = { action, email: value };
+    if (extraFields) {
+      for (const f of extraFields) {
+        const el = document.getElementById(f.id);
+        const v = el && el.value.trim();
+        if (v) body[f.key] = v.slice(0, 120);
+      }
+    }
     try {
       const r = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, email: value })
+        body: JSON.stringify(body)
       });
       if (r.ok) {
         sentTo.textContent = value;
@@ -312,6 +329,7 @@ function wireForm({ formId, emailId, hintId, btnId, errId, checkId, sentToId, en
         btn.style.display = 'none';
         if (label) label.style.display = 'none';
         if (hint) hint.style.display = 'none';
+        if (extraContainerId) { const ex = document.getElementById(extraContainerId); if (ex) ex.style.display = 'none'; }
       } else {
         err.textContent = 'Something went wrong. Please try again.';
         err.style.display = 'block';
@@ -335,7 +353,9 @@ wireForm({
 wireForm({
   formId: 'brandForm', emailId: 'brandEmail', hintId: 'brandHint',
   btnId: 'brandBtn', errId: 'brandErr', checkId: 'brandCheck',
-  sentToId: 'brandSentTo', endpoint: '/api/brand-signup', action: 'request'
+  sentToId: 'brandSentTo', endpoint: '/api/brand-signup', action: 'request',
+  extraContainerId: 'brandExtra',
+  extraFields: [{ id: 'brandCompany', key: 'company_name' }, { id: 'brandContact', key: 'contact_name' }]
 });
 
 // ===== Resend login code (shared, with cooldown so it can't re-trip the rate limiter) =====
