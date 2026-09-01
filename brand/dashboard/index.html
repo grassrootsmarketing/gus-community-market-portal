@@ -36,6 +36,9 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .nav-avatar:hover .avatar-upload-overlay { opacity:1; }
 .nav-avatar img { width:100%; height:100%; object-fit:cover; }
 .nav-avatar svg { width:36px; height:36px; display:block; }
+.nav-id { display:flex; flex-direction:column; align-items:flex-start; gap:0; line-height:1.2; }
+.nav-name-line { display:flex; align-items:center; }
+.nav-sub { font-size:0.72rem; color:var(--forest-700); opacity:0.65; font-weight:500; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; }
 .nav-name { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; padding:2px 6px; border-radius:5px; transition:background 0.15s; }
 .nav-name:hover:not([contenteditable="true"]) { background: rgba(15,44,23,0.05); }
 .nav-name[contenteditable="true"] { background: var(--cream-50); outline: 2px solid var(--forest-700); outline-offset: 2px; text-overflow: clip; max-width: none; }
@@ -54,7 +57,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
   .nav { padding:14px 18px; gap:10px; }
   .nav-tabs { display:none !important; }
   .nav-mobile-toggle { display:inline-flex; margin-left:auto; }
-  .nav-name { display:none; }
+  .nav-id { display:none; }
   .nav-account { gap:8px; }
 }
 
@@ -464,7 +467,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="nav-account">
     <div class="nav-avatar" id="navAvatar" title="Click to upload your logo" onclick="brandAvatarClick(event)"><div class="avatar-upload-overlay"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></div></div>
     <input type="file" id="navAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
-    <span class="nav-name" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)"></span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+    <span class="nav-id">
+      <span class="nav-name-line"><span class="nav-name" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)"></span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:5px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>
+      <span class="nav-sub" id="navSub"></span>
+    </span>
   </div>
   <button type="button" class="nav-mobile-toggle" aria-label="Open menu" aria-haspopup="true" aria-expanded="false" onclick="toggleBrandMobileNav()">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -739,6 +745,14 @@ async function loadData() {
   }
   const profile = _data.profile || {};
   navName.textContent = profile.company_name || profile.email || '';
+  // Subheader beneath the brand name: the point-of-contact if set, otherwise the account email.
+  // Hidden when it would just repeat the name line.
+  const navSub = document.getElementById('navSub');
+  if (navSub) {
+    const subText = profile.contact_name || profile.email || '';
+    if (subText && subText !== navName.textContent) { navSub.textContent = subText; navSub.style.display = ''; }
+    else { navSub.textContent = ''; navSub.style.display = 'none'; }
+  }
   // Add inline verified mark next to brand name in nav if verified
   const navVerifyMark = document.getElementById('navVerifyMark');
   const _st = getBrandStatus(profile);
