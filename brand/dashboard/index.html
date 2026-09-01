@@ -39,8 +39,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .nav-id { display:flex; flex-direction:column; align-items:flex-start; gap:0; line-height:1.2; }
 .nav-name-line { display:flex; align-items:center; }
 .nav-person { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; }
-.nav-name { font-size:0.92rem; color:var(--forest-900); font-weight:600; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:pointer; padding:2px 6px; border-radius:5px; transition:background 0.15s; }
-.nav-name--sub { font-size:0.72rem; color:var(--forest-700); font-weight:500; opacity:0.72; }
+.nav-brand { font-size:0.72rem; color:var(--forest-700); font-weight:500; opacity:0.72; max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:0 6px; cursor:default; }
 .nav-name:hover:not([contenteditable="true"]) { background: rgba(15,44,23,0.05); }
 .nav-name[contenteditable="true"] { background: var(--cream-50); outline: 2px solid var(--forest-700); outline-offset: 2px; text-overflow: clip; max-width: none; }
 /* Mobile hamburger nav */
@@ -470,7 +469,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <input type="file" id="navAvatarFile" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;">
     <span class="nav-id">
       <span class="nav-person" id="navPerson"></span>
-      <span class="nav-name-line"><span class="nav-name nav-name--sub" id="navName" title="Click to edit brand name" onclick="editBrandNameInline(event)"></span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:4px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>
+      <span class="nav-name-line"><span class="nav-brand" id="navName"></span><svg id="navVerifyMark" width="14" height="14" viewBox="0 0 24 24" style="display:none; margin-left:4px; vertical-align:-2px;" aria-label="Verified"><title>Verified brand</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg></span>
     </span>
   </div>
   <button type="button" class="nav-mobile-toggle" aria-label="Open menu" aria-haspopup="true" aria-expanded="false" onclick="toggleBrandMobileNav()">
