@@ -251,8 +251,8 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
       <p class="desc">Manage your profile, COI, and demos at every Demohub retailer, one place.</p>
       <div class="form-body">
         <form id="brandForm">
-          <div id="brandExtra">
-            <div class="hint" style="margin-bottom:12px;">New here? Add your brand and name so your profile's ready. Returning? Just your email.</div>
+          <div id="brandExtra" style="display:none;">
+            <div class="hint" style="margin-bottom:12px;">Tell us your brand so your profile's ready on day one.</div>
             <label class="label" for="brandCompany">Brand / company name</label>
             <input id="brandCompany" class="email-input" type="text" placeholder="Acme Foods" autocomplete="organization" autocapitalize="words" style="margin-bottom:12px;">
             <label class="label" for="brandContact">Your name</label>
@@ -278,8 +278,8 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
           </div>
         </form>
       </div>
-      <div class="signup-footer">
-        New brand? <a href="/brand/signin#signup">Sign up as a brand &rarr;</a>
+      <div class="signup-footer" id="brandFooter">
+        New brand? <a href="#signup" id="brandModeToggle" onclick="event.preventDefault(); setBrandMode('signup');">Sign up as a brand &rarr;</a>
       </div>
     </div>
   </div>
@@ -357,6 +357,27 @@ wireForm({
   extraContainerId: 'brandExtra',
   extraFields: [{ id: 'brandCompany', key: 'company_name' }, { id: 'brandContact', key: 'contact_name' }]
 });
+
+// Brand sign-in vs sign-up. Default is email-only SIGN-IN — a returning brand enters nothing but its
+// email. The brand/company + name fields belong only to a NEW brand setting up its profile, and are
+// revealed on demand (footer toggle or the #signup hash). This keeps returning logins from seeing —
+// and being confused by — fields they've already filled.
+function setBrandMode(mode) {
+  const extra = document.getElementById('brandExtra');
+  const btn = document.getElementById('brandBtn');
+  const hint = document.getElementById('brandHint');
+  const footer = document.getElementById('brandFooter');
+  const signup = mode === 'signup';
+  if (extra) extra.style.display = signup ? '' : 'none';
+  if (btn) btn.textContent = signup ? 'Create account & send link →' : 'Send sign-in link →';
+  if (hint) hint.textContent = signup
+    ? "We'll email you a sign-in link to finish setting up your brand portal."
+    : "We'll send you a sign-in link to your brand portal.";
+  if (footer) footer.innerHTML = signup
+    ? 'Already have an account? <a href="#signin" onclick="event.preventDefault(); setBrandMode(\'signin\');">Sign in &rarr;</a>'
+    : 'New brand? <a href="#signup" id="brandModeToggle" onclick="event.preventDefault(); setBrandMode(\'signup\');">Sign up as a brand &rarr;</a>';
+}
+if (location.hash === '#signup') setBrandMode('signup');
 
 // ===== Resend login code (shared, with cooldown so it can't re-trip the rate limiter) =====
 window.resendLoginCode = function(linkEl, email, endpoint, action) {
