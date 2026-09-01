@@ -524,12 +524,12 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.</p>
                 <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
-                <div class="form-group"><label class="form-label">Your name</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe"></div>
+                <div class="form-group"><label class="form-label">Your name *</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe" required></div>
                 <div class="form-group"><label class="form-label">Email *</label><input type="email" class="form-input" id="bookContactEmail" placeholder="jane@sunrisefoods.com" autocomplete="email"></div>
                 <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
                      (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
-                <div class="form-group"><label class="form-label">Phone</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567"></div>
+                <div class="form-group"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
                         <div style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
@@ -1641,7 +1641,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
             errMsg.textContent = '';
-            if (!brandName || !contactEmail) { errMsg.textContent = 'Brand name and email are required.'; errMsg.style.display = 'block'; return; }
+            if (!brandName || !contactName || !contactEmail || !contactPhone) { errMsg.textContent = 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
 
             // COI gate. Convenience only - api/booking enforces this server-side, so a
