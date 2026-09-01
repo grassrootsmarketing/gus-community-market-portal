@@ -727,7 +727,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             // The static "held, not charged" notice is for brands the hold actually applies to.
             // A covered brand is charged immediately — showing it to them was a false payment claim.
             const notice = document.getElementById('bookCoiNotice');
-            if (notice) notice.style.display = (signedIn && ok) ? 'none' : '';
+            // This notice is provisional-holds language ("card held, not charged, 24h"). With holds OFF
+            // it's false and contradicts the pending panel, so only show it when holds are actually on.
+            if (notice) notice.style.display = ((signedIn && ok) || !window._provisionalHolds) ? 'none' : '';
             if (signedIn && !ok && window._provisionalHolds) {
                 // Provisional path: the uploader stays visible (uploading now is still the best
                 // move) but booking is NOT blocked — explain the hold instead.
@@ -1669,10 +1671,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // COI gate. Convenience only - api/booking enforces this server-side, so a
             // console-edited page still cannot book uninsured.
             // Contact info (name + phone) required to book — mirrors the server gate in api/book.js.
-            if (window._brandProfile && (!((window._brandProfile.contact_name)||'').trim() || !((window._brandProfile.phone)||'').trim())) {
-                errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
-                errMsg.style.display = 'block';
-                return;
+            // Auto-fill the brand profile from what they typed here — a first-time booker shouldn't have
+            // to separately go edit their profile. Fills only blank fields; the server still gates on
+            // name + phone, so this can't bypass the requirement, only satisfy it from the form.
+            if (window._brandProfile) {
+                const bp = window._brandProfile;
+                const patch = {};
+                if (!((bp.company_name)||'').trim() && brandName) patch.company_name = brandName;
+                if (!((bp.contact_name)||'').trim() && contactName) patch.contact_name = contactName;
+                if (!((bp.phone)||'').trim() && contactPhone) patch.phone = contactPhone;
+                if (Object.keys(patch).length) {
+                    try {
+                        const _pr = await fetch('/api/brand-account?action=profile-update', {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            credentials: 'same-origin', body: JSON.stringify(patch),
+                        });
+                        if (_pr.ok) Object.assign(bp, patch);
+                    } catch (_) { /* non-fatal — the guard below still protects the booking */ }
+                }
+                if (!((bp.contact_name)||'').trim() || !((bp.phone)||'').trim()) {
+                    errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
+                    errMsg.style.display = 'block';
+                    return;
+                }
             }
             if (window._brandProfile && !_updateBookCoiGate()) {
                 errMsg.textContent = 'Upload your Certificate of Insurance above to book.';
