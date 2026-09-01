@@ -1696,7 +1696,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 }
             }
             if (window._brandProfile && !_updateBookCoiGate()) {
-                errMsg.textContent = 'Upload your Certificate of Insurance above to book.';
+                errMsg.textContent = ((window._brandProfile.default_coi_url) || '')
+                    ? 'Your certificate is uploaded and pending the store’s review — you can book once it’s approved.'
+                    : 'Upload your Certificate of Insurance above to book.';
                 errMsg.style.display = 'block';
                 const g = document.getElementById('bookCoiGroup');
                 if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
