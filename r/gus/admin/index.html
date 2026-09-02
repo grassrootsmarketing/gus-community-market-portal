@@ -6314,8 +6314,9 @@ END:VEVENT
         }
         
         // ===== Plan & billing (Stripe Phase 1) =====
-        const TIER_LABELS = { solo: 'Solo', starter: 'Starter', growth: 'Growth', enterprise: 'Enterprise' };
-        const TIER_PRICES_MONTHLY = { solo: 49, starter: 99, growth: 199, enterprise: 399 };
+        // Two tiers: Solo (free) and Pro (paid). Enterprise/custom is a later conversation.
+        const TIER_LABELS = { solo: 'Solo', pro: 'Pro' };
+        const TIER_PRICES_MONTHLY = { solo: 0, pro: 29.99 };
 
         async function renderPlanCard() {
             const body = document.getElementById('billingCardBody');
@@ -6395,7 +6396,7 @@ END:VEVENT
             const free = document.getElementById('planFreeState');
             const paid = document.getElementById('planPaidState');
             if (!free || !paid) return;
-            if (tier === 'pro' || tier === 'starter' || tier === 'growth') {
+            if (tier === 'pro') {
                 free.style.display = 'none';
                 paid.style.display = '';
                 const label = document.getElementById('planPaidLabel');
@@ -7192,26 +7193,13 @@ END:VEVENT
           <button id="upBillMonth" class="btn btn-secondary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillMonth').classList.add('btn-primary');document.getElementById('upBillMonth').classList.remove('btn-secondary');document.getElementById('upBillYear').classList.add('btn-secondary');document.getElementById('upBillYear').classList.remove('btn-primary');window._upInterval='month';">Monthly</button>
           <button id="upBillYear" class="btn btn-primary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillYear').classList.add('btn-primary');document.getElementById('upBillYear').classList.remove('btn-secondary');document.getElementById('upBillMonth').classList.add('btn-secondary');document.getElementById('upBillMonth').classList.remove('btn-primary');window._upInterval='year';">Yearly &mdash; save 17%</button>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;">
-          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
-            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Solo</div>
-            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">1 location</div>
-            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('solo', window._upInterval || 'year')">Subscribe</button>
-          </div>
-          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
-            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Starter</div>
-            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">Up to 3 locations</div>
-            <button class="btn btn-primary" style="width:100%;font-weight:700;" onclick="subscribeToTier('starter', window._upInterval || 'year')">Subscribe</button>
-          </div>
-          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
-            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Growth</div>
-            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">Up to 10 locations</div>
-            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('growth', window._upInterval || 'year')">Subscribe</button>
-          </div>
-          <div style="border:1px solid rgba(15,44,23,0.1);border-radius:12px;padding:18px;">
-            <div style="font-weight:800;font-size:1.05rem;color:var(--forest-900);">Enterprise</div>
-            <div style="font-size:0.82rem;color:var(--ink-500);margin:2px 0 14px;">10+ locations</div>
-            <button class="btn btn-secondary" style="width:100%;font-weight:700;" onclick="subscribeToTier('enterprise', window._upInterval || 'year')">Subscribe</button>
+        <div style="max-width:380px;margin:0 auto;">
+          <div style="border:1.5px solid var(--forest-300, #cfe0cf);border-radius:12px;padding:22px;">
+            <div style="font-weight:800;font-size:1.15rem;color:var(--forest-900);">Pro</div>
+            <div style="font-size:0.85rem;color:var(--ink-500);margin:2px 0 8px;">Unlimited locations, plus everything in Demohub.</div>
+            <div style="font-size:1.5rem;font-weight:800;color:var(--forest-900);">$29.99<span style="font-size:0.85rem;font-weight:500;color:var(--ink-500);">/mo</span></div>
+            <div style="font-size:0.78rem;color:var(--ink-500);margin:2px 0 16px;">Billed monthly, or yearly to save ~17%.</div>
+            <button class="btn btn-primary" style="width:100%;font-weight:700;" onclick="subscribeToTier('pro', window._upInterval || 'year')">Upgrade to Pro</button>
           </div>
         </div>
         <div style="font-size:0.78rem;color:var(--ink-500);margin-top:18px;text-align:center;">All plans include unlimited brand demos, COI tracking, and the verified brand badge system. Need help choosing? <a href="mailto:david@demohubhq.com?subject=Help%20choosing%20a%20plan" style="color:var(--forest-700); font-weight:600;">Email david@demohubhq.com</a>.</div>

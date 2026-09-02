@@ -533,8 +533,8 @@ function renderDashboard(d) {
       </div>
       <div class="stat">
         <div class="stat-lbl">Plan mix</div>
-        <div class="stat-num" style="font-size:1.35rem;">${(h.tier_counts && h.tier_counts.solo) || 0} · ${(h.tier_counts && h.tier_counts.pro) || 0} · ${(h.tier_counts && h.tier_counts.enterprise) || 0}</div>
-        <div class="stat-sub">Solo · Pro · Enterprise</div>
+        <div class="stat-num" style="font-size:1.35rem;">${(h.tier_counts && h.tier_counts.solo) || 0} · ${(h.tier_counts && h.tier_counts.pro) || 0}</div>
+        <div class="stat-sub">Solo · Pro</div>
       </div>
     </div>`;
 
@@ -779,9 +779,10 @@ function renderAnalytics() {
   const coiPct = totalBrands ? Math.round((withCoi / totalBrands) * 100) : 0;
   const totalRet = h.total_retailers || 0, activeRet = h.active_retailers_30d || 0;
   const tiers = h.tier_counts || {};
-  const tierRows = ['enterprise', 'growth', 'starter', 'free']
-    .filter(function (k) { return (tiers[k] || 0) > 0 || k === 'free'; })
-    .map(function (k) { return { label: k.charAt(0).toUpperCase() + k.slice(1), value: tiers[k] || 0 }; });
+  // Two-tier model: Solo (free) + Pro (paid). Always show both rows.
+  const TIER_ROW_LABELS = { solo: 'Solo (free)', pro: 'Pro' };
+  const tierRows = ['solo', 'pro']
+    .map(function (k) { return { label: TIER_ROW_LABELS[k], value: tiers[k] || 0 }; });
   const mrrRows = [
     { label: 'Subscriptions', value: h.mrr_subs || 0, display: '$' + (h.mrr_subs || 0).toLocaleString() },
     { label: 'Per-demo', value: h.mrr_per_demo || 0, display: '$' + (h.mrr_per_demo || 0).toLocaleString() },
@@ -810,9 +811,8 @@ function renderBilling() {
   if (!pane) return;
   const h = (window._ownerMetrics || {}).headline || {};
   const tiers = h.tier_counts || {};
-  const paidSubs = (tiers.starter || 0) + (tiers.growth || 0) + (tiers.enterprise || 0);
-  const subBreak = ['starter', 'growth', 'enterprise'].filter(function (k) { return (tiers[k] || 0) > 0; })
-    .map(function (k) { return (tiers[k]) + ' ' + k.charAt(0).toUpperCase() + k.slice(1); }).join(' \u00b7 ') || 'none yet';
+  const paidSubs = (tiers.pro || 0);
+  const subBreak = paidSubs ? (paidSubs + ' Pro') : 'none yet';
   pane.innerHTML = ''
     + '<div class="stat-row">'
     + '<div class="stat"><div class="stat-lbl">Est. MRR</div><div class="stat-num" data-count="' + (h.mrr_projection || 0) + '" data-prefix="$">$0</div><div class="stat-sub">subs $' + (h.mrr_subs || 0).toLocaleString() + ' \u00b7 per-demo $' + (h.mrr_per_demo || 0).toLocaleString() + '</div></div>'
