@@ -2711,8 +2711,15 @@ END:VEVENT
             const dp = (retailer.demo_policy || '').trim();
             const policiesDone = !!(retailer.demo_policy_url) || (dp && !dp.startsWith(DEFAULT_POLICY));
 
-            // 4) bank: stripe charges enabled
-            const bankDone = !!retailer.stripe_charges_enabled;
+            // 4) bank: only REQUIRED when the retailer actually charges a demo fee. If every location
+            //    is free ($0), payouts aren't needed, so the step is satisfied ("not needed") and a
+            //    free-demo store can still reach 100%. Falls back to the settings fee before any venue
+            //    exists (a new store defaults to charging until it sets $0), so the step self-adjusts.
+            const chargesFees = venues.length
+              ? venues.some(v => Number(v.demo_fee) > 0)
+              : Number((s.settings && s.settings.demo_fee) || 0) > 0;
+            const bankNotNeeded = !chargesFees;
+            const bankDone = bankNotNeeded || !!retailer.stripe_charges_enabled;
 
             // 5) link: user has copied the booking link at least once
             const linkDone = localStorage.getItem('demohub_link_copied_' + (window.RETAILER_SLUG || '')) === '1';
@@ -2726,7 +2733,7 @@ END:VEVENT
             // 7) logo: a store logo has been uploaded (brands see it on the booking page)
             const logoDone = !!(retailer.logo_url);
 
-            return { locations: locationsDone, hours: hoursDone, team: teamDone, logo: logoDone, policies: policiesDone, bank: bankDone, link: linkDone };
+            return { locations: locationsDone, hours: hoursDone, team: teamDone, logo: logoDone, policies: policiesDone, bank: bankDone, link: linkDone, bankNotNeeded: bankNotNeeded };
         }
 
         function refreshOnboardingChecklist() {
@@ -2761,6 +2768,23 @@ END:VEVENT
                     li.style.background = '';
                 }
             });
+            // Bank step copy is set both ways (the DOM persists across refreshes, so it must be
+            // restored when a store starts charging, not just reworded when free). Free-demo stores
+            // see a satisfied "not needed" row (not a struck-out task) with a path to connect later.
+            const bankLi = banner.querySelector('li[data-step="bank"]');
+            if (bankLi) {
+                const label = bankLi.querySelector('span:nth-child(2)');
+                if (label) {
+                    if (status.bankNotNeeded) {
+                        label.innerHTML = '<strong>Payouts</strong> — <span style="color:var(--ink-500);">not needed while your demos are free. Charging later? Connect a bank.</span>';
+                        label.style.textDecoration = 'none';
+                        label.style.opacity = '';
+                    } else {
+                        label.innerHTML = '<strong>Connect your bank</strong> — <span style="color:var(--ink-500);">receive payouts from Stripe.</span>';
+                        // strike/opacity for this state is owned by the main loop (status.bank)
+                    }
+                }
+            }
             const progress = document.getElementById('onboardingProgress');
             if (progress) progress.textContent = doneCount + ' of ' + totalSteps;
             const progressBar = document.getElementById('onboardingProgressBar');
