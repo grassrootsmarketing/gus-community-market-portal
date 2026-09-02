@@ -481,15 +481,17 @@ export default async function handler(req, res) {
 
     // ---- TEAM-LIST: list all admins for the current retailer (session-gated) ----
     // ---- AGREEMENT-RETAILER-LIST: list all signed agreements for this retailer ----
+    // Codex final-launch C: both lists are retailer-wide (brand emails / full staff roster) and are
+    // owner/admin/manager-only. A venue-scoped viewer gets 403 insufficient_role, not the roster.
     if (action === 'agreement-retailer-list') {
-      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body), null, ['owner', 'admin', 'manager']);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       const rows = await sb(`brand_retailer_agreements?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&superseded_at=is.null&select=*,brands(id,company_name,email)&order=signed_at.desc`);
       return res.status(200).json({ ok: true, agreements: rows || [] });
     }
 
         if (action === 'team-list') {
-      const v = await requireRetailerMembership(getSessionIdFromReq(req, body));
+      const v = await requireRetailerMembership(getSessionIdFromReq(req, body), null, ['owner', 'admin', 'manager']);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       const admins = await sb(`retailer_admins?retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=*&order=created_at`);
       // For each admin, flag whether they've ever signed in (admin_sessions exists).

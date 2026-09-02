@@ -74,7 +74,18 @@ const SERVER_OWNED_FIELDS = new Set([
   'refund_id','refunded_at','amount_paid','amount_refunded','amount_cents','charge_id',
   'transfer_id','application_fee_cents','application_fee_amount','billing_status','billing_tier',
   'is_demo','platform_keeps_all','cal_feed_key','coi_verification_status','password_hash',
+  // Codex final-launch B: brand_id is a RELATIONSHIP field the server sets (from a booking). A client
+  // planting another brand's id on a contact was the cross-retailer COI oracle.
+  'brand_id',
 ]);
+
+// Codex final-launch B: explicit per-table CLIENT-WRITABLE allowlists for the contact tables. Any key
+// not listed — brand_id, retailer_id (server-pinned), id, timestamps, COI/relationship/ownership
+// fields — is server-owned and is DISCARDED from a client write, never forwarded to Supabase.
+const CLIENT_WRITABLE_FIELDS = {
+  brand_contacts:    new Set(['name', 'company', 'venue', 'address', 'email', 'phone', 'notes']),
+  internal_contacts: new Set(['name', 'role', 'venue', 'email', 'phone', 'notes', 'venue_ids', 'notification_prefs']),
+};
 
 function send(res, status, body) {
   res.status(status).setHeader('Content-Type', 'application/json').send(typeof body === 'string' ? body : JSON.stringify(body));
@@ -297,32 +308,58 @@ export default async function handler(req, res) {
         }
       } catch (_) { /* non-fatal: badge falls back to "COI pending" */ }
 
-      // Enrich brand contacts with the brand's REAL COI verification status (from the brands table),
-      // so the admin can flag an uninsured brand as a hazard. The manual compliance_records table does
-      // not reflect a brand's uploaded/approved COI, so relying on it alone falsely flagged insured
-      // brands. Link by brand_id, falling back to email.
+      // Enrich brand contacts with the brand's REAL COI status — but ONLY for brands with a
+      // SERVER-PROVEN relationship to THIS retailer: a brand_id that appears on one of this
+      // retailer's own booking rows (brand_id is set by the server at booking time; bookings are
+      // already retailer-scoped by the query above). Codex final-launch B: the previous version
+      // matched on the contact's client-supplied brand_id and fell back to a GLOBAL email lookup —
+      // a cross-retailer oracle (plant a contact carrying another brand's id or email, read its COI
+      // state back). A manually-entered contact with no booking here gets NO coi fields at all, and
+      // nothing in the response distinguishes "unknown brand" from "brand exists elsewhere".
       let bcEnriched = brandContacts || [];
       try {
-        const ids = [...new Set(bcEnriched.map(c => c.brand_id).filter(Boolean))];
-        const emails = [...new Set(bcEnriched.filter(c => !c.brand_id && c.email).map(c => String(c.email).toLowerCase()))];
-        const byId = {}, byEmail = {};
+        const provenBrandIds = new Set((bookings || []).map(b => b.brand_id).filter(Boolean));
+        const ids = [...new Set(bcEnriched.map(c => c.brand_id).filter(id => id && provenBrandIds.has(id)))];
+        const byId = {};
         if (ids.length) {
-          const rows = await sb(`brands?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,email,coi_verification_status,default_coi_expires`);
+          const rows = await sb(`brands?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,coi_verification_status,default_coi_expires`);
           (Array.isArray(rows) ? rows : []).forEach(b => { byId[b.id] = b; });
         }
-        if (emails.length) {
-          const rows = await sb(`brands?email=in.(${emails.map(encodeURIComponent).join(',')})&select=id,email,coi_verification_status,default_coi_expires`);
-          (Array.isArray(rows) ? rows : []).forEach(b => { if (b.email) byEmail[String(b.email).toLowerCase()] = b; });
-        }
         bcEnriched = bcEnriched.map(c => {
-          const b = (c.brand_id && byId[c.brand_id]) || (c.email && byEmail[String(c.email).toLowerCase()]) || null;
+          const b = (c.brand_id && byId[c.brand_id]) || null;
           return b ? { ...c, coi_status: b.coi_verification_status || null, coi_expires: b.default_coi_expires || null } : c;
         });
       } catch (_) { /* non-fatal: the badge falls back to a "no COI" hazard */ }
 
       const retailerObj = Array.isArray(retailerArr) ? retailerArr[0] : null;
-      // R2-09: the calendar feed key unlocks the whole-tenant calendar; never hand it to a viewer.
-      if (callerIsViewer && retailerObj && 'cal_feed_key' in retailerObj) delete retailerObj.cal_feed_key;
+      const settingsObj = Array.isArray(settingsArr) ? (settingsArr[0] || null) : null;
+
+      if (callerIsViewer) {
+        // Codex final-launch C: a VIEWER gets a role-specific MINIMAL payload built on the server —
+        // only its permitted venues and the calendar/booking display fields for them. NO retailer-wide
+        // brand contacts, staff contacts, compliance records, settings internals, feed key, notes, or
+        // contact PII. (A viewer with an empty venue scope is store-wide read-only for the calendar,
+        // and still gets none of the above.) The browser never receives what it must not show.
+        const pickRetailer = r => r ? { id: r.id, slug: r.slug, name: r.name, logo_url: r.logo_url || null, branding: r.branding || null } : null;
+        const pickDemo = d => ({ id: d.id, booking_id: d.booking_id || null, venue_id: d.venue_id, demo_date: d.demo_date, demo_time: d.demo_time,
+          company_name: d.company_name, product: d.product, status: d.status,
+          reschedule_to_date: d.reschedule_to_date || null, reschedule_to_time: d.reschedule_to_time || null });
+        const pickBooking = b => ({ id: b.id, venue_id: b.venue_id, demo_date: b.demo_date, demo_time: b.demo_time,
+          brand_name: b.brand_name, product: b.product, status: b.status });
+        return send(res, 200, {
+          ok: true,
+          retailer: pickRetailer(retailerObj),
+          venues: filteredVenues,
+          brand_contacts: [],
+          internal_contacts: [],
+          compliance: [],
+          demos: (filteredDemos || []).map(pickDemo),
+          bookings: (filteredBookings || []).map(pickBooking),
+          settings: settingsObj ? { demo_duration: settingsObj.demo_duration, advance_booking_days: settingsObj.advance_booking_days } : null,
+          viewer_venue_ids: viewerVenueIds || null,
+        });
+      }
+
       return send(res, 200, {
         ok: true,
         retailer: retailerObj,
@@ -330,7 +367,7 @@ export default async function handler(req, res) {
         brand_contacts: bcEnriched,
         internal_contacts: internalContacts || [],
         demos: filteredDemos,
-        settings: Array.isArray(settingsArr) ? (settingsArr[0] || null) : null,
+        settings: settingsObj,
         compliance: compliance || [],
         bookings: filteredBookings,
         viewer_venue_ids: viewerVenueIds || null,
@@ -467,6 +504,12 @@ export default async function handler(req, res) {
       // move a row into another (publicly-discoverable) tenant or relink it by primary key.
       if ('retailer_id' in b) { b.retailer_id = session.retailer_id; touched = true; }
       if ('id' in b) { delete b.id; touched = true; }
+      // Codex final-launch B: for the contact tables, keep ONLY the client-writable allowlist
+      // (retailer_id survives because it was pinned to the session above, never taken from the client).
+      const allow = CLIENT_WRITABLE_FIELDS[table];
+      if (allow) {
+        for (const k of Object.keys(b)) { if (k !== 'retailer_id' && !allow.has(k)) { delete b[k]; touched = true; } }
+      }
       if (touched) req.body = JSON.stringify(b);
     } catch (_) { /* leave body as-is if unparseable */ }
   }

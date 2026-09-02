@@ -34,12 +34,29 @@ async function sb(path, opts = {}) {
   return j;
 }
 
+// Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
+// as brand-account.js's daily cron. The public status route reads the latest 'succeeded' row PER
+// cron_name (only when provisional holds are enabled — an intentionally-off feature must not degrade
+// production). Best-effort: a heartbeat failure must never fail the sweep itself.
+const CRON_NAME = 'provisional-sweep';
+async function heartbeat(outcome, startMs, summary) {
+  try {
+    if (!_b) return;
+    await sb('cron_heartbeat', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ cron_name: CRON_NAME, outcome, duration_ms: Date.now() - startMs, summary }),
+    });
+  } catch (_) { /* best-effort */ }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') return res.status(405).json({ error: 'POST only' });
   const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!CRON_SECRET || provided !== CRON_SECRET) return res.status(401).json({ error: 'unauthorized' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  const startMs = Date.now();
   const out = { ok: true, scanned: 0, released: 0, expired_unpaid: 0, skipped_covered: 0, skipped_in_checkout: 0, errors: 0 };
   try {
     const now = new Date().toISOString();
@@ -84,9 +101,12 @@ export default async function handler(req, res) {
       }
     }
     console.log('provisional-sweep:', JSON.stringify(out));
+    await heartbeat('succeeded', startMs, out);
     return res.status(200).json(out);
   } catch (e) {
     console.error('provisional-sweep failed:', (e && e.message) || e);
+    // A SEPARATE 'failed' row — never a rewrite of the last success (rows are append-only).
+    await heartbeat('failed', startMs, { ...out, ok: false, error: String((e && e.message) || e).slice(0, 500) });
     return res.status(500).json({ ok: false, error: String((e && e.message) || e) });
   }
 }

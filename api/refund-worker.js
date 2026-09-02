@@ -44,6 +44,22 @@ async function sbGet(path) {
   return j;
 }
 
+// Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
+// as brand-account.js's daily cron ({cron_name, outcome, duration_ms, summary}). The public status
+// route reads the latest 'succeeded' row PER cron_name, so a dead 15-minute worker can no longer hide
+// behind the daily job. Best-effort: a heartbeat failure must never fail (or retry) the job itself.
+const CRON_NAME = 'refund-worker';
+async function heartbeat(outcome, startMs, summary) {
+  try {
+    if (!_b) return;
+    await fetch(`${_b.supabaseUrl}/rest/v1/cron_heartbeat`, {
+      method: 'POST',
+      headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+      body: JSON.stringify({ cron_name: CRON_NAME, outcome, duration_ms: Date.now() - startMs, summary }),
+    });
+  } catch (_) { /* best-effort */ }
+}
+
 async function stripeGetRefund(id) {
   const r = await fetch(`https://api.stripe.com/v1/refunds/${encodeURIComponent(id)}`, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
   const j = await r.json(); return r.ok ? { ok: true, refund: j } : { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status) };
@@ -163,6 +179,7 @@ export default async function handler(req, res) {
   if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
+  const startMs = Date.now();
   const owner = 'refund-worker-' + Math.random().toString(36).slice(2, 10);
   const out = { ok: true, claimed: 0, reconciled: 0, resubmitted: 0, adopted: 0, manual: 0, lost_lease: 0, errors: 0 };
   try {
@@ -232,9 +249,13 @@ export default async function handler(req, res) {
       out.alerts_claimed = a.claimed; out.alerts_sent = a.sent; out.alerts_failed = a.failed;
     } catch (e) { out.errors++; console.error('alert drain error:', (e && e.message) || e); }
 
+    await heartbeat('succeeded', startMs, out);
     return res.status(200).json(out);
   } catch (e) {
     console.error('refund-worker error:', (e && e.message) || e);
+    // A SEPARATE 'failed' row — never a rewrite of the last success. The status route keys health off
+    // success recency, and surfaces this as last_outcome.
+    await heartbeat('failed', startMs, { ...out, ok: false, error: String((e && e.message) || e).slice(0, 500) });
     return res.status(500).json({ ok: false, error: 'worker_error' });
   }
 }

@@ -6,7 +6,44 @@
 //     ONLY safe public fields (no PII, no contacts, no compliance docs).
 
 import { getBinding, sendBindingFailure, BindingError } from './_env.js';
+import { FLAGS } from './_flags.js';
 let _b = null;
+
+// Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
+// ANY job and called "<25h old" healthy — so the daily job masked a dead 15-minute worker. Each job
+// is now judged by the age of its OWN latest 'succeeded' row (success recency governs; a later
+// 'failed' row is surfaced as last_outcome but does not by itself flip health).
+//   refund-worker      every 15 min  required always (payments are on for this app)  stale > 35 min
+//   provisional-sweep  every 15 min  required only while FLAGS.provisionalHolds     stale > 35 min
+//   daily              once a day    required always (brand-account.js action=cron)  stale > 25 h
+const CRON_JOBS = [
+  { name: 'refund-worker', maxAgeMin: 35, required: () => true },
+  { name: 'provisional-sweep', maxAgeMin: 35, required: () => !!FLAGS.provisionalHolds },
+  { name: 'daily', maxAgeMin: 25 * 60, required: () => true },
+];
+
+// Internal shape (operator-grade): { required, ok, last_success, age_minutes, last_outcome }.
+// The public route projects this down to { ok, required } only (DH-21).
+async function cronJobHealth(job) {
+  const h = { required: !!job.required(), ok: false, last_success: null, age_minutes: null, last_outcome: null };
+  const q = `cron_heartbeat?select=ran_at,outcome&cron_name=eq.${encodeURIComponent(job.name)}`;
+  const [succ, any] = await Promise.all([
+    sb(`${q}&outcome=eq.succeeded&order=ran_at.desc&limit=1`, true),
+    sb(`${q}&order=ran_at.desc&limit=1`, true),
+  ]);
+  const lastSuccess = Array.isArray(succ) ? succ[0] : null;
+  const lastAny = Array.isArray(any) ? any[0] : null;
+  if (lastAny) h.last_outcome = lastAny.outcome || null;
+  if (lastSuccess) {
+    h.last_success = lastSuccess.ran_at;
+    const ageMin = (Date.now() - new Date(lastSuccess.ran_at).getTime()) / 60000;
+    h.age_minutes = Math.round(ageMin * 10) / 10;
+    h.ok = Number.isFinite(ageMin) && ageMin < job.maxAgeMin;
+  }
+  // A job that is intentionally off is reported healthy so it cannot degrade production.
+  if (!h.required) h.ok = true;
+  return h;
+}
 
 async function sb(path, useService = false) {
   // anon/publishable reads never fall back to the service key: if no publishable key is bound,
@@ -45,7 +82,7 @@ export default async function handler(req, res) {
   try {
     // ---- ACTION: status — health snapshot for /status page (anonymous) ----
     if (action === 'status') {
-      const checks = { db: { ok: false, ms: null }, cron: { ok: false, last_run: null, hours_since: null }, errors: { last_24h: 0 } };
+      const checks = { db: { ok: false, ms: null }, cron: { ok: false, jobs: {} }, errors: { last_24h: 0 } };
       const startMs = Date.now();
       try {
         // DB ping: cheap select against retailers (anon-allowed)
@@ -56,18 +93,20 @@ export default async function handler(req, res) {
         checks.db.error = String(e?.message || e).slice(0, 200);
       }
 
-      // Cron heartbeat: was there a successful run in the last 25 hours?
+      // Cron heartbeats: PER JOB, latest 'succeeded' row of each. A required job with no fresh
+      // success (missing or stale) is unhealthy; a job that is intentionally off is not.
       try {
         if (_b.serviceKey) {
-          const r = await sb('cron_heartbeat?select=ran_at,outcome,duration_ms&order=ran_at.desc&limit=1', true);
-          const last = Array.isArray(r) ? r[0] : null;
-          if (last) {
-            checks.cron.last_run = last.ran_at;
-            const ageH = (Date.now() - new Date(last.ran_at).getTime()) / 3600000;
-            checks.cron.hours_since = Math.round(ageH * 10) / 10;
-            checks.cron.ok = ageH < 25 && (last.outcome === 'succeeded' || last.outcome === 'started');
-            checks.cron.outcome = last.outcome;
-          }
+          const results = await Promise.all(CRON_JOBS.map(async (job) => {
+            try { return [job.name, await cronJobHealth(job)]; }
+            catch (e) {
+              // unreadable heartbeat table = cannot prove liveness = unhealthy if required
+              const required = !!job.required();
+              return [job.name, { required, ok: !required, last_success: null, age_minutes: null, last_outcome: null, error: String(e?.message || e).slice(0, 200) }];
+            }
+          }));
+          for (const [name, h] of results) checks.cron.jobs[name] = h;
+          checks.cron.ok = results.every(([, h]) => !h.required || h.ok);
         }
       } catch (e) {
         checks.cron.error = String(e?.message || e).slice(0, 200);
@@ -100,9 +139,15 @@ export default async function handler(req, res) {
       else if (hasMinor || !allChecksOk) status = 'degraded';
       // DH-21: expose only coarse public health. Drop latency ms, error counts, cron durations,
       // and incident bodies — those are operator telemetry, not for an anonymous endpoint.
+      // Per-job cron health stays coarse too: ok + required per job, never ages/outcomes/summaries.
+      const publicJobs = {};
+      for (const job of CRON_JOBS) {
+        const h = checks.cron.jobs[job.name];
+        publicJobs[job.name] = { ok: !!(h && h.ok), required: h ? !!h.required : !!job.required() };
+      }
       const publicChecks = {
         db: { ok: !!checks.db.ok },
-        cron: { ok: !!checks.cron.ok },
+        cron: { ok: !!checks.cron.ok, jobs: publicJobs },
         errors: { ok: (checks.errors.last_24h || 0) < 50 },
       };
       const publicIncidents = incidents.map(i => ({ title: i.title, severity: i.severity, started_at: i.started_at }));
