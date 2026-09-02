@@ -1025,14 +1025,14 @@ function renderCoiQueue() {
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <div>
           <strong>${_esc(b.company_name || 'Unnamed brand')}</strong>
-          <div style="font-size:12px; color:var(--forest-700);">${_esc(b.email || '')}</div>
+          <div class="brand-email" style="font-size:12px; color:var(--forest-700);">${_esc(b.email || '')}</div>
         </div>
         <div style="font-size:12px; color:var(--forest-700); text-align:right;">
           uploaded ${_esc(String(r.created_at || '').slice(0, 16).replace('T', ' '))}<br>
           status ${_esc(r.status || 'pending')} · expiry ${_esc(r.policy_expiry || '—')}
         </div>
       </div>
-      <div style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || '—')} · insured ${_esc(r.insured_name || '—')} · flags ${_esc(flags)}</div>
+      <div class="ph-no-capture" style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || '—')} · insured ${_esc(r.insured_name || '—')} · flags ${_esc(flags)}</div>
       <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--forest-700);">
         Policy expiry (from the certificate — required to approve; brands cannot set this themselves)
         <input type="date" id="coiExpiry-${_esc(r.id)}" value="${_esc(String(r.policy_expiry || '').slice(0, 10))}" style="padding:5px 8px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;">
