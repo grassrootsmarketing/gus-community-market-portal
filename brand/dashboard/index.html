@@ -458,6 +458,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   <div class="nav-tabs">
     <a href="#overview" class="nav-tab" data-tab="overview">Overview</a>
     <a href="#calendar" class="nav-tab" data-tab="calendar">Calendar</a>
+    <a href="#retailers" class="nav-tab" data-tab="retailers">Retailers</a>
     <a href="#profile" class="nav-tab" data-tab="profile">Profile</a>
     <a href="#compliance" class="nav-tab" data-tab="compliance">Compliance</a>
     <a href="#products" class="nav-tab" data-tab="products">Products</a>
@@ -489,6 +490,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   </div>
   <a href="#overview" data-mobile-tab="overview" onclick="brandMobileNavGo(event, 'overview')">Overview</a>
   <a href="#calendar" data-mobile-tab="calendar" onclick="brandMobileNavGo(event, 'calendar')">Calendar</a>
+  <a href="#retailers" data-mobile-tab="retailers" onclick="brandMobileNavGo(event, 'retailers')">Retailers</a>
   <a href="#profile" data-mobile-tab="profile" onclick="brandMobileNavGo(event, 'profile')">Profile</a>
   <a href="#compliance" data-mobile-tab="compliance" onclick="brandMobileNavGo(event, 'compliance')">Compliance</a>
   <a href="#products" data-mobile-tab="products" onclick="brandMobileNavGo(event, 'products')">Products</a>
@@ -767,7 +769,7 @@ async function loadData() {
 
 // ===== Tab Router =====
 function switchTab(name, opts) {
-  if (!['overview','calendar','profile','compliance','products','team','agreements','account'].includes(name)) name = 'overview';
+  if (!['overview','calendar','retailers','profile','compliance','products','team','agreements','account'].includes(name)) name = 'overview';
   _currentTab = name;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   render();
@@ -785,6 +787,7 @@ document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (
 function render() {
   if (_currentTab === 'overview') renderOverview();
   else if (_currentTab === 'calendar') renderCalendar();
+  else if (_currentTab === 'retailers') renderRetailers();
   else if (_currentTab === 'profile') renderProfile();
   else if (_currentTab === 'compliance') renderCompliance();
   else if (_currentTab === 'products') renderProducts();
@@ -1321,6 +1324,81 @@ window.dismissWelcome = function(key) {
   const banner = document.getElementById('welcomeBanner');
   if (banner) banner.style.display = 'none';
 };
+
+// ===== Retailers =====
+// Every Demohub retailer this brand has a relationship with, derived from their demos + contacts.
+// This is the brand's home base for booking links: they come back here to rebook, and new retailers
+// appear automatically as the brand books through more Demohub stores.
+function computeYourRetailers() {
+  const demos = (_data && _data.demos) || [];
+  const contacts = (_data && _data.contacts) || [];
+  const map = {};
+  demos.forEach(d => {
+    const rid = d.retailer_id; if (!rid) return;
+    if (!map[rid]) map[rid] = { id: rid, name: (d.retailers && d.retailers.name) || 'Unknown', slug: (d.retailers && d.retailers.slug) || '', demoCount: 0, lastDemoDate: null };
+    map[rid].demoCount++;
+    if (!map[rid].lastDemoDate || d.demo_date > map[rid].lastDemoDate) map[rid].lastDemoDate = d.demo_date;
+  });
+  contacts.forEach(c => { const rid = c.retailer_id; if (!rid || map[rid]) return; map[rid] = { id: rid, name: (c.retailers && c.retailers.name) || 'Unknown', slug: (c.retailers && c.retailers.slug) || '', demoCount: 0, lastDemoDate: null }; });
+  return Object.values(map).sort((a, b) => {
+    if (a.lastDemoDate && b.lastDemoDate) return b.lastDemoDate.localeCompare(a.lastDemoDate);
+    if (a.lastDemoDate) return -1;
+    if (b.lastDemoDate) return 1;
+    return b.demoCount - a.demoCount || a.name.localeCompare(b.name);
+  });
+}
+
+function renderRetailers() {
+  const main = document.getElementById('mainContent');
+  if (!main) return;
+  const retailers = computeYourRetailers();
+  const origin = window.location.origin;
+  const head = `
+    <div class="page-head"><div>
+      <h1>Retailers</h1>
+      <div class="sub">Every Demohub retailer you work with, and their booking links — come back any time to rebook.</div>
+    </div></div>`;
+  if (retailers.length === 0) {
+    main.innerHTML = head + `
+      <div class="card" style="text-align:center; padding:44px 24px;">
+        <div style="font-size:1.05rem; font-weight:700; color:var(--forest-900); margin-bottom:6px;">No retailers yet</div>
+        <div style="font-size:0.92rem; color:var(--ink-700); line-height:1.55; max-width:460px; margin:0 auto;">
+          When you book a demo through a Demohub retailer's link, that store shows up here with a link to book again. As more of the stores you work with join Demohub, they'll collect here automatically.
+        </div>
+      </div>`;
+    return;
+  }
+  main.innerHTML = head + `
+    <div class="card">
+      <div class="sub" style="margin-bottom:14px;">${retailers.length} retailer${retailers.length === 1 ? '' : 's'} · use a link to book your next demo.</div>
+      ${retailers.map(r => {
+        const lastDate = r.lastDemoDate ? new Date(r.lastDemoDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null;
+        const isActive = r.lastDemoDate && (Date.now() - new Date(r.lastDemoDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180;
+        const badge = r.demoCount === 0 ? '<span class="badge empty">No demos yet</span>' : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
+        const url = r.slug ? origin + '/r/' + r.slug : '';
+        return `<div class="retailer-row">
+          <div class="retailer-info">
+            <div class="retailer-name-row"><span class="retailer-name">${escapeHtml(r.name)}</span>${badge}</div>
+            <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created, no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
+            ${url ? `<div style="margin-top:6px; font-size:0.82rem; color:var(--ink-500); word-break:break-all;">${escapeHtml(url)}</div>` : ''}
+          </div>
+          ${url ? `<div style="display:flex; gap:8px; flex-shrink:0; align-items:center; flex-wrap:wrap;">
+            <button type="button" class="btn-copy-link" data-url="${escapeHtml(url)}" style="background:transparent; border:1px solid var(--forest-100,#cfe0cf); color:var(--forest-700); font-weight:600; font-size:0.85rem; padding:8px 12px; border-radius:8px; cursor:pointer;">Copy link</button>
+            <a href="/r/${escapeHtml(r.slug)}" class="btn-book" target="_blank" rel="noopener">Book a demo →</a>
+          </div>` : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  main.querySelectorAll('.btn-copy-link').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(btn.dataset.url);
+        const orig = btn.textContent; btn.textContent = 'Copied ✓';
+        setTimeout(() => { btn.textContent = orig; }, 1600);
+      } catch (_) {}
+    });
+  });
+}
 
 // ===== Calendar =====
 function renderCalendar() {
