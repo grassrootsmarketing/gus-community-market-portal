@@ -763,6 +763,11 @@
                         <div id="onboardingProgressBar" style="height: 100%; width: 0%; background: linear-gradient(90deg, #ed682f, #d85a30); transition: width 0.3s;"></div>
                     </div>
                     <ol id="onboardingChecklist" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;">
+                        <li data-step="locations" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your store locations</strong> — <span style="color:var(--ink-500);">the addresses brands book demos at.</span></span>
+                            <a onclick="onboardingGo('storesSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Add locations →</a>
+                        </li>
                         <li data-step="hours" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
                             <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Set your store hours</strong> — <span style="color:var(--ink-500);">so brands only book slots you staff.</span></span>
@@ -770,8 +775,13 @@
                         </li>
                         <li data-step="team" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your team</strong> — <span style="color:var(--ink-500);">give staff visibility on the schedule.</span></span>
-                            <a onclick="onboardingGo('teamSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Add team →</a>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add a contact per location</strong> — <span style="color:var(--ink-500);">who gets demo alerts for each store (defaults to you).</span></span>
+                            <a onclick="onboardingGo('teamSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Add contacts →</a>
+                        </li>
+                        <li data-step="logo" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
+                            <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your logo</strong> — <span style="color:var(--ink-500);">brands see it on your booking page.</span></span>
+                            <a onclick="onboardingGo('settingsSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Upload →</a>
                         </li>
                         <li data-step="policies" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
@@ -2694,14 +2704,24 @@ END:VEVENT
             // 5) link: user has copied the booking link at least once
             const linkDone = localStorage.getItem('demohub_link_copied_' + (window.RETAILER_SLUG || '')) === '1';
 
-            return { hours: hoursDone, team: teamDone, policies: policiesDone, bank: bankDone, link: linkDone };
+            // 6) locations: every store address they told us about at signup is on file. expected_locations
+            //    is the count from the signup card; fall back to 1. Done when that many venues have addresses.
+            const expectedLocations = Math.max(1, parseInt(retailer.expected_locations, 10) || 1);
+            const venuesWithAddress = venues.filter(v => (v.address || '').trim()).length;
+            const locationsDone = venuesWithAddress >= expectedLocations;
+
+            // 7) logo: a store logo has been uploaded (brands see it on the booking page)
+            const logoDone = !!(retailer.logo_url);
+
+            return { locations: locationsDone, hours: hoursDone, team: teamDone, logo: logoDone, policies: policiesDone, bank: bankDone, link: linkDone };
         }
 
         function refreshOnboardingChecklist() {
             const banner = document.getElementById('welcomeBanner');
             if (!banner) return;
             const status = _onboardingStepStatus();
-            const stepKeys = ['hours','team','policies','bank','link'];
+            const stepKeys = ['locations','hours','team','logo','policies','bank','link'];
+            const totalSteps = stepKeys.length;
             let doneCount = 0;
             stepKeys.forEach(k => {
                 const li = banner.querySelector(`li[data-step="${k}"]`);
@@ -2729,16 +2749,12 @@ END:VEVENT
                 }
             });
             const progress = document.getElementById('onboardingProgress');
-            if (progress) progress.textContent = doneCount + ' of 5';
+            if (progress) progress.textContent = doneCount + ' of ' + totalSteps;
             const progressBar = document.getElementById('onboardingProgressBar');
-            if (progressBar) progressBar.style.width = (doneCount * 20) + '%';
+            if (progressBar) progressBar.style.width = Math.round(doneCount / totalSteps * 100) + '%';
 
             // Hide only when 100% complete (no more nagging)
-            if (doneCount === 5) {
-                banner.style.display = 'none';
-            } else {
-                banner.style.display = 'block';
-            }
+            banner.style.display = (doneCount === totalSteps) ? 'none' : 'block';
         }
         // Expose globally so copyScheduleLinkHeader + other places can trigger a refresh
         window.refreshOnboardingChecklist = refreshOnboardingChecklist;
@@ -4142,6 +4158,13 @@ END:VEVENT
                 title.textContent = cfg.addLabel;
                 document.getElementById('contactId').value = '';
                 fields.forEach(f => document.getElementById(f).value = '');
+                // Default a new STORE contact's email to the account owner, so the retailer can accept it
+                // as-is and every location has a demo-alert recipient from day one (the onboarding nudges
+                // one contact per store). They can still type a different address.
+                if (type === 'internal') {
+                    const ownerEmail = (window.AdminAuth && window.AdminAuth.getEmail && window.AdminAuth.getEmail()) || (window.state && window.state.myEmail) || '';
+                    if (ownerEmail) document.getElementById('contactEmail').value = ownerEmail;
+                }
                 // Opened from a Locations row: preselect that store; else default to the first venue.
                 const presetName = presetVenueId ? (((window.state.venues || []).find(v => v.id === presetVenueId) || {}).name || '') : '';
                 document.getElementById('contactVenue').value = presetName || ((window.state.venues || [])[0] || {}).name || '';
