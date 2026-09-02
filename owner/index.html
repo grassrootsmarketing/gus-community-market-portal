@@ -100,8 +100,8 @@ table.simple tr:last-child td { border-bottom:0; }
 @keyframes spin { to { transform:rotate(360deg); } }
 
 /* Tabs */
-.owner-tabs { display:flex; gap:4px; background:var(--cream-100); border-radius:10px; padding:4px; margin-bottom:24px; max-width:fit-content; }
-.owner-tab { padding:10px 18px; background:transparent; border:1px solid transparent; border-radius:7px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; }
+.owner-tabs { display:flex; gap:4px; background:var(--cream-100); border-radius:10px; padding:4px; margin-bottom:24px; max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.owner-tab { padding:10px 18px; background:transparent; border:1px solid transparent; border-radius:7px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
 .owner-tab.active { background:white; color:var(--forest-900); font-weight:700; border-color:rgba(15,44,23,0.18); box-shadow:0 2px 6px rgba(15,44,23,0.08); }
 .tab-pane { display:none; }
 .tab-pane.active { display:block; }
@@ -1073,6 +1073,7 @@ async function viewCoiDoc(id) {
 }
 
 async function decideCoi(id, decision) {
+  if (window._coiDeciding && window._coiDeciding[id]) return; // block a double-click firing two decisions
   const msg = document.getElementById('coiMsg-' + id);
   const notesEl = document.getElementById('coiNotes-' + id);
   const notes = notesEl ? notesEl.value.slice(0, 2000) : null;
@@ -1090,6 +1091,7 @@ async function decideCoi(id, decision) {
       ? 'Approve this certificate? Coverage runs until ' + expiry + ' and the brand will be able to book.'
       : 'Reject this certificate? The brand will not be able to book.')) return;
   if (msg) { msg.style.color = 'var(--forest-700)'; msg.textContent = 'Saving…'; }
+  window._coiDeciding = window._coiDeciding || {}; window._coiDeciding[id] = true;
   try {
     const r = await fetch('/api/admin-auth', {
       method: 'POST', credentials: 'same-origin',
@@ -1107,6 +1109,8 @@ async function decideCoi(id, decision) {
     loadCoiQueue();
   } catch (_) {
     if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Could not save that decision.'; }
+  } finally {
+    if (window._coiDeciding) window._coiDeciding[id] = false;
   }
 }
 

@@ -1643,7 +1643,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             await actuallySubmitBookings();
         }
 
+        // In-flight guard: the submit button isn't disabled until after a couple of awaits below, so a
+        // fast double-click could fire two bookings / two Stripe checkouts. This blocks the re-entry.
         async function submitContactInfo() {
+            if (window._bookSubmitInFlight) return;
+            window._bookSubmitInFlight = true;
+            try { return await _submitContactInfoImpl(); }
+            finally { window._bookSubmitInFlight = false; }
+        }
+        async function _submitContactInfoImpl() {
             const brandName    = document.getElementById('bookBrandName').value.trim();
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();

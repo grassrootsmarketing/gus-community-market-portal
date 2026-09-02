@@ -1228,7 +1228,7 @@
                                 <div id="perLocationFeeds" style="display:flex; flex-direction:column; gap:8px;">
                                     <div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>
                                 </div>
-                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can\'t subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can't subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
                             </div>
                         </div>
                     </div>
@@ -1312,7 +1312,7 @@
             <div id="teamInviteProgress" style="display:none; background:#f4f8f0; color:var(--forest-700); padding:10px 14px; border-radius:8px; font-size:0.88rem; margin-top:14px;"></div>
 
             <div style="display:flex; gap:10px; justify-content:flex-end; align-items:center; margin-top:20px; padding-top:16px; border-top:1px solid var(--sand-200);">
-                <div style="font-size:0.75rem; color:var(--ink-500); margin-right:auto; line-height:1.5;">Admin: full access, can\'t remove teammates.<br>Viewer: read-only.</div>
+                <div style="font-size:0.75rem; color:var(--ink-500); margin-right:auto; line-height:1.5;">Admin: full access, can't remove teammates.<br>Viewer: read-only.</div>
                 <button class="btn btn-secondary" style="padding:10px 18px;" onclick="closeTeamInvite()">Cancel</button>
                 <button class="btn btn-primary" style="padding:10px 18px;" onclick="sendTeamInvite()" id="teamInviteSendBtn">Send invites</button>
             </div>
@@ -6519,13 +6519,13 @@ END:VEVENT
                     window.state.retailer.billing_status = d.status;
                     if (window.state.settings) window.state.settings.billing_tier = d.tier;
                 }
-                if (typeof toast === 'function') toast(`Plan resynced. You're on ${d.tier === 'pro' ? 'Pro' : d.tier}.`, 'ok');
+                if (typeof toast === 'function') toast(`Plan resynced. You're on ${d.tier === 'pro' ? 'Pro' : d.tier}.`, 'success');
                 _renderBillingState();
                 // Also nudge a full refresh so tier-gated UI (team invite, locations count) updates
                 setTimeout(() => window.location.reload(), 900);
             } catch (e) {
                 console.error('resync failed:', e);
-                if (typeof toast === 'function') toast('Resync failed: ' + (e.message || e), 'err');
+                if (typeof toast === 'function') toast('Resync failed: ' + (e.message || e), 'error');
                 else alert('Resync failed: ' + (e.message || e));
                 if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
             }
@@ -6555,7 +6555,7 @@ END:VEVENT
                             window.state.retailer.billing_tier = d.tier;
                             if (window.state.settings) window.state.settings.billing_tier = d.tier;
                             _renderBillingState();
-                            if (typeof toast === 'function') toast('Payment received. You\'re on Pro.', 'ok');
+                            if (typeof toast === 'function') toast('Payment received. You\'re on Pro.', 'success');
                         }
                     }).catch(() => {});
                 }, 1200);

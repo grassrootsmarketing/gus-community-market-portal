@@ -1280,7 +1280,7 @@ function renderOverview() {
       <div class="stat" title="Demos you have confirmed but not yet completed. Includes confirmed bookings from today onward."><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
       <div class="stat" title="Demos you've completed through Demohub. Builds your verified-brand history with retailers."><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
       <div class="stat" title="Distinct retailers you've worked with on Demohub. Add new ones by booking through their public link."><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
-      <div class="stat" title="${profile.default_coi_url ? 'Your Certificate of Insurance is uploaded and current. Retailers require this for every booking.' : 'No Certificate of Insurance uploaded yet. Required before retailers will accept your bookings — upload in Profile.'}"><div class="stat-num">${profile.default_coi_url ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
+      <div class="stat" title="${_st.coiOk ? 'Your Certificate of Insurance is on file and current. Retailers require this for every booking.' : (profile.default_coi_url ? 'Your certificate is on file but not currently valid (expired or pending review). Retailers cannot confirm demos until it is current.' : 'No Certificate of Insurance uploaded yet. Required before retailers will accept your bookings — upload in Profile.')}"><div class="stat-num">${_st.coiOk ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
     </div>
     ${perfHtml}
     ${retailersHtml}
@@ -1654,11 +1654,7 @@ function renderCompliance() {
         <label class="label">Certificate of Insurance</label>
         <div id="coiWidget"></div>
         <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
-        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Retailers can view it against every demo you book.</div>
-      </div>
-      <div style="margin-top:18px;display:flex;align-items:center;">
-        <button class="btn" id="saveProfileBtn">Save changes</button>
-        <span class="saved" id="profileSaved">Saved &check;</span>
+        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Your certificate uploads and saves on its own — retailers can view it against every demo you book.</div>
       </div>
     </div>
   `;
