@@ -205,16 +205,13 @@
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 14px 24px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--bark-500); background: var(--sand-100); font-weight: 600; }
         td { padding: 16px 24px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
-        /* Long unbreakable values (e.g. an email like brand+alias@gmail.com) used to force the whole
-           table wider than its card, and .table-card's overflow:hidden then clipped the last column
-           (Actions) with no way to reach it. Only DATA cells wrap long values; headers and action
-           buttons must never break mid-word ("LOCATI ON", "Ed it"). */
-        .table-card td { overflow-wrap: anywhere; }
-        .table-card th { white-space: nowrap; }
-        .table-card td .btn-icon, .table-card td .row-actions, .table-card td .btn { white-space: nowrap; }
-        /* Safety net: if a table is still wider than its card (many columns on a narrow window),
-           scroll it horizontally inside the card instead of clipping. */
+        /* Dense data tables: each cell stays on ONE line (no squishing an email into 3 lines or a
+           phone broken at every hyphen), the table sizes to its content, and it scrolls horizontally
+           inside the card when it's wider than the card — never clips. On a wide desktop it fills the
+           card with room to spare; on a narrow window it scrolls. */
+        .table-card th, .table-card td { white-space: nowrap; }
         .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tbl-scroll > table { width: 100%; }
         .tbl-scroll::-webkit-scrollbar { height: 8px; }
         .tbl-scroll::-webkit-scrollbar-thumb { background: var(--sand-300); border-radius: 999px; }
         .tbl-scroll::-webkit-scrollbar-track { background: transparent; }
@@ -379,10 +376,9 @@
 
         /* ===== Mobile responsive — patches for <768px ===== */
         @media (max-width: 768px) {
-            /* Horizontally scroll tables that would otherwise overflow */
-            .table-card table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            /* Tables scroll horizontally via their .tbl-scroll wrapper (column alignment preserved) —
+               the old display:block hack here broke thead/tbody alignment, so it's gone. */
             .table-card th, .table-card td { padding: 12px 14px; }
-            .table-card table thead, .table-card table tbody, .table-card table tr { display: table; width: 100%; table-layout: auto; }
             .table-card { overflow: hidden; }
             /* Stack toolbar controls so search + select + button don't crowd */
             .table-toolbar { flex-wrap: wrap; gap: 10px; }
@@ -896,7 +892,7 @@
                             <option value="">All locations</option>
                         </select>
                     </div>
-                    <div id="demosTableView">
+                    <div id="demosTableView" class="tbl-scroll">
                         <table>
                             <thead><tr><th>Date & Time</th><th>Company</th><th>Contact</th><th>Product</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
                             <tbody id="demosTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Demo requests will appear here as brands submit them through your booking link. Confirm requests to add them to your calendar.</td></tr></tbody>
@@ -942,10 +938,12 @@
                             <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openComplianceModal()">+ Add Record</button>
                         </div>
                     </div>
+                    <div class="tbl-scroll">
                     <table>
                         <thead><tr><th>Brand</th><th>Document</th><th>Number</th><th>Expires</th><th>Status</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="complianceTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Insurance certificates (COIs) and other compliance documents will appear here once uploaded by brands or added manually with <b>+ Add Record</b>.</td></tr></tbody>
                     </table>
+                    </div>
                 </div>
 
                 <!-- Stores editor -->
@@ -969,6 +967,7 @@
                         <button type="button" onclick="bulkStoresDelete()" style="background:none; border:1px solid var(--clay-500); border-radius:6px; padding:5px 12px; font-size:0.82rem; color:var(--clay-600); font-weight:600; cursor:pointer;">Delete selected</button>
                         <button type="button" onclick="clearStoresSelection()" style="background:none; border:none; padding:5px 8px; font-size:0.82rem; color:var(--ink-500); font-weight:600; cursor:pointer;">Cancel</button>
                     </div>
+                    <div class="tbl-scroll">
                     <table class="data-table">
                         <thead><tr>
                             <th style="width:34px; text-align:center;"><input type="checkbox" id="storesSelectAll" onchange="toggleAllStoresSelection(this.checked)" style="width:16px; height:16px; cursor:pointer; accent-color:var(--forest-700);" title="Select all" /></th>
@@ -976,6 +975,7 @@
                         </tr></thead>
                         <tbody id="storesTableBody"><tr class="empty-placeholder"><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Your store locations will appear here. Add your first location with <b>+ Add Location</b>, or bulk import via CSV for multi-store operators.</td></tr></tbody>
                     </table>
+                    </div>
                 </div>
 
 
@@ -989,10 +989,12 @@
                         </div>
                     </div>
                     <div class="billing-summary" id="billingSummary"></div>
+                    <div class="tbl-scroll">
                     <table>
                         <thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead>
                         <tbody id="billingTableBody"><tr class="empty-placeholder"><td colspan="7" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Completed demos and payouts will appear here at the end of each month. Statements can be downloaded once billing data is available.</td></tr></tbody>
                     </table>
+                    </div>
                 </div>
 
                 <a id="settingsSection"></a><div class="settings-grid">
@@ -1126,10 +1128,12 @@
                         </div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Each location's appointed contact gets the "new demo scheduled" email for their store — so they can order product and prep the event. No sign-in needed.</div>
+                            <div class="tbl-scroll">
                             <table>
-                                <thead><tr><th>Name</th><th>Role</th><th>Location</th><th>Email</th><th>Phone</th><th style="text-align:right;">Actions</th></tr></thead>
+                                <thead><tr><th style="white-space:nowrap;">Name</th><th style="white-space:nowrap;">Role</th><th style="white-space:nowrap;">Location</th><th style="white-space:nowrap;">Email</th><th style="white-space:nowrap;">Phone</th><th style="text-align:right; white-space:nowrap;">Actions</th></tr></thead>
                                 <tbody id="internalContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">No store contacts yet. Click <b>+ Add Store Contact</b> and scope each person to their location — they'll get demo alerts for that store only.</td></tr></tbody>
                             </table>
+                            </div>
                         </div>
                     </div>
                     <div class="settings-card">
