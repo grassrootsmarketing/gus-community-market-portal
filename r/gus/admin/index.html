@@ -921,8 +921,8 @@
                     </div>
                     <div class="tbl-scroll">
                     <table>
-                        <thead><tr><th>Name</th><th>Company</th><th>Location</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
-                        <tbody id="brandContactsTableBody"><tr class="empty-placeholder"><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Brand contacts will appear here as brands book demos through your booking link. You can also add them manually with <b>+ Add Brand Contact</b>.</td></tr></tbody>
+                        <thead><tr><th>Name</th><th>Company</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
+                        <tbody id="brandContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Brand contacts will appear here as brands book demos through your booking link. You can also add them manually with <b>+ Add Brand Contact</b>.</td></tr></tbody>
                     </table>
                     </div>
                 </div>
@@ -3989,8 +3989,9 @@ END:VEVENT
                 companyField: 'company',
                 companyPlaceholder: 'Acme Foods',
                 emailPlaceholder: 'jane@acmefoods.com',
-                showAddress: true,
-                columns: 8,
+                showLocation: false,
+                showAddress: false,
+                columns: 6,
                 emptyLabel: 'brand',
             },
             internal: {
@@ -4004,6 +4005,7 @@ END:VEVENT
                 companyField: 'role',
                 companyPlaceholder: 'Store Manager',
                 emailPlaceholder: 'jane@yourstore.com',
+                showLocation: true,
                 showAddress: false,
                 columns: 6,
                 emptyLabel: 'internal',
@@ -4178,10 +4180,12 @@ END:VEVENT
                     }
                 }
                 let cells = '<td>' + escapeHtml(c.name) + '</td>'
-                    + '<td>' + escapeHtml(c.company) + verifiedMark + agreementBadge + '</td>'
-                    + '<td><span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span></td>';
+                    + '<td>' + escapeHtml(c.company) + verifiedMark + agreementBadge + '</td>';
+                // Location only where it's meaningful (store contacts), and never a stray empty green pill.
+                if (cfg.showLocation) cells += '<td>' + (c.venue ? '<span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span>' : '<span style="color:var(--ink-500);">—</span>') + '</td>';
                 if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
-                cells += '<td>' + escapeHtml(c.email) + '</td>'
+                // Email is the one long value — let it wrap so the table fits without a scrollbar.
+                cells += '<td style="white-space:normal; word-break:break-word;">' + escapeHtml(c.email) + '</td>'
                     + '<td>' + escapeHtml(c.phone) + '</td>';
                 if (type === 'brand') cells += '<td>' + complianceBadgeHtml(c.id) + '</td>';
                 cells += '<td><div class="row-actions"><button class="btn-icon" onclick="openContactModal(\'' + type + '\', \'' + c.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteContact(\'' + type + '\', \'' + c.id + '\')">Delete</button></div></td>';
