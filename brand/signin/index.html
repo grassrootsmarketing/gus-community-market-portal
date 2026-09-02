@@ -116,30 +116,28 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="pane" id="paneSignup">
       <form id="signupForm">
         <div class="form-row">
-          <label class="label" for="signupCompany">Brand / company name</label>
-          <input class="input" id="signupCompany" name="company_name" type="text" placeholder="e.g., Apricot Granola Co." required>
+          <label class="label" for="signupName">Your name</label>
+          <input class="input" id="signupName" name="contact_name" type="text" placeholder="First and last" autocomplete="name" required>
         </div>
         <div class="form-row">
-          <label class="label" for="signupName">Your name</label>
-          <input class="input" id="signupName" name="contact_name" type="text" placeholder="First and last" autocomplete="name">
+          <label class="label" for="signupPhone">Phone</label>
+          <input class="input" id="signupPhone" name="phone" type="tel" placeholder="(555) 123-4567" autocomplete="tel">
         </div>
         <div class="form-row">
           <label class="label" for="signupEmail">Email</label>
           <input class="input" id="signupEmail" name="email" type="email" placeholder="you@yourbrand.com" required autocomplete="email">
-          <div class="hint">We'll send a verification link to this address.</div>
+          <div class="hint">We'll send a 6-digit code to finish signing up.</div>
         </div>
         <div class="form-row">
-          <label class="label" for="signupWebsite">Website</label>
-          <input class="input" id="signupWebsite" name="website" type="text" placeholder="yourbrand.com" required>
-          <div class="hint">Retailers want to see who they're working with, pick the URL you'd give a wholesale buyer.</div>
+          <label class="label" for="signupCompany">Brand name</label>
+          <input class="input" id="signupCompany" name="company_name" type="text" placeholder="e.g., Apricot Granola Co." required>
         </div>
         <div class="form-row">
-          <label class="label">What do you demo? <span style="color:var(--ink-500); font-weight:400;">(optional, pick any that fit)</span></label>
-          <div class="catpicker" id="catPicker">
-            <input type="text" class="search" id="catSearch" placeholder="Search categories…" autocomplete="off">
-            <div class="dropdown" id="catDropdown"></div>
-          </div>
-          <input type="hidden" id="signupCategories" name="default_categories" value="">
+          <label class="label" for="signupCategory">Main category</label>
+          <select class="input" id="signupCategory" name="category">
+            <option value="">Select your primary category…</option>
+          </select>
+          <div class="hint">You can add more in your profile later.</div>
         </div>
         <button class="btn" type="submit" id="signupBtn">Create account</button>
       </form>
@@ -189,6 +187,18 @@ async function _brandVerifyCode() {
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(j.message || j.error || 'That code did not work.');
+    // Persist the single primary category from the signup card. brand-signup only carries
+    // company_name/contact_name/phone through the redeem RPC, so category rides a follow-up
+    // authenticated profile-update (the verify above just set the brand session cookie).
+    const _cat = window._lastBrandSend && window._lastBrandSend.data && window._lastBrandSend.data.default_categories;
+    if (_cat) {
+      try {
+        await fetch('/api/brand-account?action=profile-update', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin', body: JSON.stringify({ default_categories: _cat }),
+        });
+      } catch (_) { /* non-blocking — they can set it later in Profile */ }
+    }
     window.location.href = '/brand/dashboard';
   } catch (e) {
     if (err) { err.textContent = (e && e.message) || 'That code did not work. Check it and try again.'; err.style.display = 'block'; }
@@ -295,8 +305,9 @@ document.getElementById('signupForm').addEventListener('submit', (e) => {
     email: document.getElementById('signupEmail').value.trim(),
     company_name: document.getElementById('signupCompany').value.trim(),
     contact_name: document.getElementById('signupName').value.trim(),
-    website: normalizeWebsite(document.getElementById('signupWebsite').value),
-    default_categories: document.getElementById('signupCategories').value.trim(),
+    phone: (document.getElementById('signupPhone').value || '').trim(),
+    // single primary category; persisted post-verify via the authenticated profile-update
+    default_categories: (document.getElementById('signupCategory').value || '').trim(),
   };
   submit('signup', data, btn, 'Create account');
 });
@@ -386,16 +397,14 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
   return { getSelected: () => Array.from(selected) };
 }
 
-const catPickerEl = document.getElementById('catPicker');
-if (catPickerEl) {
-  initCatPicker({
-    pickerEl: catPickerEl,
-    searchEl: document.getElementById('catSearch'),
-    dropdownEl: document.getElementById('catDropdown'),
-    hiddenEl: document.getElementById('signupCategories'),
-    options: CATEGORY_OPTIONS,
-    initial: [],
-  });
+// Single primary category: populate the dropdown from the shared option list.
+const catSelectEl = document.getElementById('signupCategory');
+if (catSelectEl) {
+  for (const opt of CATEGORY_OPTIONS) {
+    const o = document.createElement('option');
+    o.value = opt; o.textContent = opt;
+    catSelectEl.appendChild(o);
+  }
 }
 
 // Default to signup tab when URL is /brand/signup OR ?tab=signup query param

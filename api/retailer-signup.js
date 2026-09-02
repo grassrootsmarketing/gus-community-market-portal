@@ -42,14 +42,17 @@ async function uniqueSlug(base) {
 }
 
 // The provisioning step — runs only after email is proven. Exported so it's testable.
-export async function provisionVerifiedRetailer(email, storeName) {
+export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
   const e = String(email).trim().toLowerCase();
+  const phone = opts.phone ? String(opts.phone).trim().slice(0, 40) : null;
+  const contactName = opts.contactName ? String(opts.contactName).trim().slice(0, 120) : null;
+  const storeCount = Number.isFinite(opts.storeCount) ? Math.max(1, Math.min(999, Math.round(opts.storeCount))) : null;
   // P1-3: retailer + settings + owner membership + session created ATOMICALLY by a DB function.
   // Rolls back on any failure (no half-provisioned tenant); idempotent (returns existing store).
   const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/provision_verified_retailer`, {
     method: 'POST',
     headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ p_email: e, p_store_name: storeName || null }),
+    body: JSON.stringify({ p_email: e, p_store_name: storeName || null, p_phone: phone, p_contact_name: contactName, p_store_count: storeCount }),
   });
   if (!r.ok) throw new Error('provision failed: ' + (await r.text()).slice(0, 200));
   const rows = await r.json();
@@ -83,7 +86,15 @@ export default async function handler(req, res) {
 
   if (action === 'request') {
     // Always respond the same way (no account enumeration). Only email a code.
-    try { const ch = await createChallenge(email, 'retailer_signup', { store_name: String(body.store_name || '').slice(0, 120) }); await sendCode(email, ch.code); } catch (_) {}
+    try {
+      const ch = await createChallenge(email, 'retailer_signup', {
+        store_name: String(body.store_name || '').slice(0, 120),
+        contact_name: String(body.contact_name || '').slice(0, 120),
+        phone: String(body.phone || '').slice(0, 40),
+        store_count: Number.isFinite(+body.store_count) ? Math.max(1, Math.min(999, Math.round(+body.store_count))) : null,
+      });
+      await sendCode(email, ch.code);
+    } catch (_) {}
     return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
   }
 
@@ -95,7 +106,10 @@ export default async function handler(req, res) {
     const existing = await rest(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id,slug&limit=1`);
     const exRows = existing.ok ? await existing.json() : [];
     if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug });
-    const prov = await provisionVerifiedRetailer(email, r.payload && r.payload.store_name);
+    const pl = r.payload || {};
+    const prov = await provisionVerifiedRetailer(email, pl.store_name, {
+      phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
+    });
     setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
     // well, where page script could read it and put it in localStorage — the cookie was HttpOnly

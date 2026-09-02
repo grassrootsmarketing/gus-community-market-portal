@@ -279,7 +279,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
         </form>
       </div>
       <div class="signup-footer" id="brandFooter">
-        New brand? <a href="#signup" id="brandModeToggle" onclick="event.preventDefault(); setBrandMode('signup');">Sign up as a brand &rarr;</a>
+        New brand? <a href="/brand/signin#signup">Sign up as a brand &rarr;</a>
       </div>
     </div>
   </div>
@@ -377,7 +377,8 @@ function setBrandMode(mode) {
     ? 'Already have an account? <a href="#signin" onclick="event.preventDefault(); setBrandMode(\'signin\');">Sign in &rarr;</a>'
     : 'New brand? <a href="#signup" id="brandModeToggle" onclick="event.preventDefault(); setBrandMode(\'signup\');">Sign up as a brand &rarr;</a>';
 }
-if (location.hash === '#signup') setBrandMode('signup');
+// Signup lives on the full brand card; route there rather than showing partial in-place fields.
+if (location.hash === '#signup') window.location.replace('/brand/signin#signup');
 
 // ===== Resend login code (shared, with cooldown so it can't re-trip the rate limiter) =====
 window.resendLoginCode = function(linkEl, email, endpoint, action) {

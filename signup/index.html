@@ -230,6 +230,10 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <input class="input" id="contactName" name="contact_name" type="text" placeholder="First and last" autocomplete="name">
       </div>
       <div class="form-row">
+        <label class="label" for="contactPhone">Phone</label>
+        <input class="input" id="contactPhone" name="phone" type="tel" placeholder="(555) 123-4567" autocomplete="tel">
+      </div>
+      <div class="form-row">
         <label class="label" for="billingEmail">Email</label>
         <input class="input" id="billingEmail" name="billing_email" type="email" placeholder="you@yourbusiness.com" required autocomplete="email">
         <div class="hint">We'll send your admin URL here.</div>
@@ -338,12 +342,15 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     if (errorBox) errorBox.style.display = 'none';
     const retailer_name = document.getElementById('retailerName').value.trim();
     const billing_email = document.getElementById('billingEmail').value.trim().toLowerCase();
+    const contact_name = (document.getElementById('contactName') || {}).value ? document.getElementById('contactName').value.trim() : '';
+    const phone = (document.getElementById('contactPhone') || {}).value ? document.getElementById('contactPhone').value.trim() : '';
+    const store_count = parseInt((document.getElementById('storeCount') || {}).value, 10) || 1;
     if (!retailer_name || !billing_email) { showError(errorBox, 'Business name and email are required.'); return; }
     submitBtn.disabled = true; submitBtn.textContent = 'Sending code\u2026';
     try {
       const r = await fetch('/api/retailer-signup', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'request', email: billing_email, store_name: retailer_name }),
+        body: JSON.stringify({ action: 'request', email: billing_email, store_name: retailer_name, contact_name, phone, store_count }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
