@@ -207,8 +207,11 @@
         td { padding: 16px 24px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
         /* Long unbreakable values (e.g. an email like brand+alias@gmail.com) used to force the whole
            table wider than its card, and .table-card's overflow:hidden then clipped the last column
-           (Actions) with no way to reach it. Letting cells wrap lets the 100%-width table fit. */
-        .table-card th, .table-card td { overflow-wrap: anywhere; }
+           (Actions) with no way to reach it. Only DATA cells wrap long values; headers and action
+           buttons must never break mid-word ("LOCATI ON", "Ed it"). */
+        .table-card td { overflow-wrap: anywhere; }
+        .table-card th { white-space: nowrap; }
+        .table-card td .btn-icon, .table-card td .row-actions, .table-card td .btn { white-space: nowrap; }
         /* Safety net: if a table is still wider than its card (many columns on a narrow window),
            scroll it horizontally inside the card instead of clipping. */
         .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -289,6 +292,9 @@
         .comp-badge.expired { background: #fde2e2; color: #9b2c2c; }
         .comp-badge.partial { background: #fef3c7; color: #92400e; }
         .comp-badge.none { background: var(--sand-200); color: var(--bark-500); }
+        /* Hazard: an uninsured / expired-COI brand must stand out, not read as a calm "not tracked". */
+        .comp-badge.hazard { background: #fde2e2; color: #9b2c2c; border: 1px solid #f0a8a8; font-weight: 700; }
+        .comp-haz { font-size: 0.9rem; line-height: 1; }
         .comp-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
         .big-cal-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
         .big-cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
@@ -4102,12 +4108,36 @@ END:VEVENT
             if (soonExp) return { status: 'soon', label: 'Expiring soon' };
             return { status: 'ok', label: 'Compliant' };
         }
+        // COI verification for a brand CONTACT reflects the brand's real uploaded/approved COI
+        // (enriched onto the contact by /api/admin), NOT the manual compliance_records table — an
+        // uninsured brand is a hazard the retailer must see before confirming a demo.
+        function _contactById(id) {
+            return (window.state.brandContacts || []).find(c => c.id === id) || null;
+        }
+        function coiVerifiedForContact(c) {
+            if (!c) return false;
+            const st = String(c.coi_status || '').toLowerCase();
+            if (st !== 'approved' && st !== 'passed') return false;
+            if (c.coi_expires) { if (new Date(c.coi_expires + 'T00:00:00') < new Date()) return false; }
+            return true;
+        }
         function complianceBadgeHtml(brandId) {
-            const s = getBrandComplianceStatus(brandId);
-            return '<span class="comp-badge ' + s.status + '"><span class="comp-dot"></span>' + escapeHtml(s.label) + '</span>';
+            const c = _contactById(brandId);
+            const st = String((c && c.coi_status) || '').toLowerCase();
+            const exp = (c && c.coi_expires) ? new Date(c.coi_expires + 'T00:00:00') : null;
+            const today = new Date();
+            if ((st === 'approved' || st === 'passed') && (!exp || exp >= today)) {
+                const soon = exp && (exp - today) < 30 * 86400000;
+                return soon
+                    ? '<span class="comp-badge soon"><span class="comp-dot"></span>COI expiring</span>'
+                    : '<span class="comp-badge ok"><span class="comp-dot"></span>COI verified</span>';
+            }
+            // Not verified — show a hazard so an uninsured brand can't be missed.
+            const label = (exp && exp < today) ? 'COI expired' : 'No COI on file';
+            return '<span class="comp-badge hazard"><span class="comp-haz" aria-hidden="true">⚠</span>' + label + '</span>';
         }
         function isBrandVerified(brandId) {
-            return getBrandComplianceStatus(brandId).status === 'ok';
+            return coiVerifiedForContact(_contactById(brandId));
         }
         function verifiedBadgeSvg(size) {
             const s = size || 14;

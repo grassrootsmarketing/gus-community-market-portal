@@ -296,6 +296,30 @@ export default async function handler(req, res) {
             : b);
         }
       } catch (_) { /* non-fatal: badge falls back to "COI pending" */ }
+
+      // Enrich brand contacts with the brand's REAL COI verification status (from the brands table),
+      // so the admin can flag an uninsured brand as a hazard. The manual compliance_records table does
+      // not reflect a brand's uploaded/approved COI, so relying on it alone falsely flagged insured
+      // brands. Link by brand_id, falling back to email.
+      let bcEnriched = brandContacts || [];
+      try {
+        const ids = [...new Set(bcEnriched.map(c => c.brand_id).filter(Boolean))];
+        const emails = [...new Set(bcEnriched.filter(c => !c.brand_id && c.email).map(c => String(c.email).toLowerCase()))];
+        const byId = {}, byEmail = {};
+        if (ids.length) {
+          const rows = await sb(`brands?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,email,coi_verification_status,default_coi_expires`);
+          (Array.isArray(rows) ? rows : []).forEach(b => { byId[b.id] = b; });
+        }
+        if (emails.length) {
+          const rows = await sb(`brands?email=in.(${emails.map(encodeURIComponent).join(',')})&select=id,email,coi_verification_status,default_coi_expires`);
+          (Array.isArray(rows) ? rows : []).forEach(b => { if (b.email) byEmail[String(b.email).toLowerCase()] = b; });
+        }
+        bcEnriched = bcEnriched.map(c => {
+          const b = (c.brand_id && byId[c.brand_id]) || (c.email && byEmail[String(c.email).toLowerCase()]) || null;
+          return b ? { ...c, coi_status: b.coi_verification_status || null, coi_expires: b.default_coi_expires || null } : c;
+        });
+      } catch (_) { /* non-fatal: the badge falls back to a "no COI" hazard */ }
+
       const retailerObj = Array.isArray(retailerArr) ? retailerArr[0] : null;
       // R2-09: the calendar feed key unlocks the whole-tenant calendar; never hand it to a viewer.
       if (callerIsViewer && retailerObj && 'cal_feed_key' in retailerObj) delete retailerObj.cal_feed_key;
@@ -303,7 +327,7 @@ export default async function handler(req, res) {
         ok: true,
         retailer: retailerObj,
         venues: filteredVenues,
-        brand_contacts: brandContacts || [],
+        brand_contacts: bcEnriched,
         internal_contacts: internalContacts || [],
         demos: filteredDemos,
         settings: Array.isArray(settingsArr) ? (settingsArr[0] || null) : null,
