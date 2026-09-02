@@ -205,6 +205,16 @@
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; padding: 14px 24px; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--bark-500); background: var(--sand-100); font-weight: 600; }
         td { padding: 16px 24px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
+        /* Long unbreakable values (e.g. an email like brand+alias@gmail.com) used to force the whole
+           table wider than its card, and .table-card's overflow:hidden then clipped the last column
+           (Actions) with no way to reach it. Letting cells wrap lets the 100%-width table fit. */
+        .table-card th, .table-card td { overflow-wrap: anywhere; }
+        /* Safety net: if a table is still wider than its card (many columns on a narrow window),
+           scroll it horizontally inside the card instead of clipping. */
+        .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .tbl-scroll::-webkit-scrollbar { height: 8px; }
+        .tbl-scroll::-webkit-scrollbar-thumb { background: var(--sand-300); border-radius: 999px; }
+        .tbl-scroll::-webkit-scrollbar-track { background: transparent; }
         tr:hover td { background: var(--forest-50); }
         .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
         /* Every status the demos table can emit — only 'confirmed' was styled; the rest rendered
@@ -364,7 +374,8 @@
         /* ===== Mobile responsive — patches for <768px ===== */
         @media (max-width: 768px) {
             /* Horizontally scroll tables that would otherwise overflow */
-            .table-card table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+            .table-card table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .table-card th, .table-card td { padding: 12px 14px; }
             .table-card table thead, .table-card table tbody, .table-card table tr { display: table; width: 100%; table-layout: auto; }
             .table-card { overflow: hidden; }
             /* Stack toolbar controls so search + select + button don't crowd */
@@ -906,10 +917,12 @@
                             <button class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" onclick="openContactModal('brand')">+ Add Brand Contact</button>
                         </div>
                     </div>
+                    <div class="tbl-scroll">
                     <table>
                         <thead><tr><th>Name</th><th>Company</th><th>Location</th><th>Address</th><th>Email</th><th>Phone</th><th>Compliance</th><th style="text-align:right;">Actions</th></tr></thead>
                         <tbody id="brandContactsTableBody"><tr class="empty-placeholder"><td colspan="8" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">Brand contacts will appear here as brands book demos through your booking link. You can also add them manually with <b>+ Add Brand Contact</b>.</td></tr></tbody>
                     </table>
+                    </div>
                 </div>
                 <div class="table-card" id="complianceSection" style="margin-bottom: 32px;">
                     <div class="table-toolbar">
