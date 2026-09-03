@@ -62,7 +62,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 }
 
 /* ===== Layout ===== */
-.container { max-width:1100px; margin:32px auto 80px; padding:0 24px; }
+.container { max-width:1440px; margin:32px auto 80px; padding:0 24px; }
 .page-head { margin-bottom:28px; display:flex; justify-content:space-between; align-items:flex-end; gap:24px; flex-wrap:wrap; }
 .page-head h1 { font-family:'Plus Jakarta Sans', sans-serif; font-size:2.4rem; font-weight:400; line-height:1.1; color:var(--forest-900); margin-bottom:8px; }
 .page-head .sub { color:var(--ink-700); font-size:1rem; }
@@ -1004,7 +1004,7 @@ function updatePersistentCoiNudge() {
   // Full-bleed band, but the CONTENT row is bounded to the same 1100px/24px gutter as
   // .container so the copy lines up with the dashboard below instead of hugging the viewport edge.
   banner.innerHTML = `<div style="padding:16px 0; background:#fff3ed; border-bottom:2px solid #ed682f55;">
-    <div style="display:flex; align-items:center; gap:14px; max-width:1100px; margin:0 auto; padding:0 24px;">
+    <div style="display:flex; align-items:center; gap:14px; max-width:1440px; margin:0 auto; padding:0 24px;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> ${(_data && _data.provisional_holds)
       ? `Stores require proof of insurance. You can still book — your card is only <strong>held, not charged</strong>, until your certificate is approved — but each hold lasts just 24 hours, so upload it now.`
