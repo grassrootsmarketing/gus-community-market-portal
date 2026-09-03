@@ -83,7 +83,8 @@ env:
   # 2026-08-20 (Codex round 3): the reviewed tree carried 67 migration files while this asserted 62,
   # so the gate failed on every run of that commit. Round 3 adds 0067_coi_review_atomic_expiry.sql
   # (P0-4), bringing the total to 68. If you add a migration, bump this and rerun the clean-build gate.
-  EXPECTED_MIGRATIONS: '69'
+  # 2026-09-03 (Codex final-launch remediation, Phase D): 0069_capacity_decrease_guard.sql -> 70.
+  EXPECTED_MIGRATIONS: '70'
 
 jobs:
   # --------------------------------------------------------------------------
