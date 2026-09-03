@@ -209,7 +209,12 @@
            phone broken at every hyphen), the table sizes to its content, and it scrolls horizontally
            inside the card when it's wider than the card — never clips. On a wide desktop it fills the
            card with room to spare; on a narrow window it scrolls. */
-        .table-card th, .table-card td { white-space: nowrap; }
+        /* Text cells wrap so a row never exceeds the card; only headers, the first (date/name) cell, the
+           actions cell and badges stay on one line. overflow-wrap:break-word (NOT anywhere) breaks a word
+           only when it cannot otherwise fit, so emails/phones stay intact unless truly too wide. */
+        .table-card th { white-space: nowrap; }
+        .table-card td { white-space: normal; overflow-wrap: break-word; vertical-align: top; }
+        .table-card td:first-child, .table-card td:last-child, .table-card td [class*="badge"] { white-space: nowrap; }
         .tbl-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         .tbl-scroll > table { width: 100%; }
         .tbl-scroll::-webkit-scrollbar { height: 8px; }
