@@ -335,6 +335,9 @@ jobs:
           SB_KEY: ${{ secrets.STAGING_SB_KEY }}
           LEDGER_TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
           ALLOW_STAGING_LEDGER_TESTS: 'yes'
+          # Codex round 2 (F-01): tests/capacity_serialization.test.mjs needs real Postgres sessions.
+          # Session-pooler URI (IPv4; runners have no IPv6), user postgres.<ref>, port 5432.
+          SB_DB_URL: ${{ secrets.STAGING_DB_URL }}
         run: |
           set -euo pipefail
           echo "commit under test: ${GITHUB_SHA}"
@@ -364,6 +367,7 @@ jobs:
           SB_KEY: ${{ secrets.STAGING_SB_KEY }}
           LEDGER_TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
           ALLOW_STAGING_LEDGER_TESTS: 'yes'
+          SB_DB_URL: ${{ secrets.STAGING_DB_URL }}
         run: |
           set -euo pipefail
           echo "commit under test: ${GITHUB_SHA}"
