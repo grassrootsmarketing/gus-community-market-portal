@@ -10,12 +10,12 @@
   },
   "scripts": {
     "check": "node tools/check-migrations.mjs && node tools/check-imports.mjs && node tools/check-undefined.mjs && node tools/check-binding.mjs",
-    "test": "node tests/binding.test.mjs && node tests/route_binding.test.mjs && node tests/mail_containment.test.mjs && node tests/launch_flags.test.mjs && node tests/brand_signup.test.mjs && node tests/coi_enforcement_gate.test.mjs && node tests/session_transport.test.mjs && node tests/coi_policy_matrix.test.mjs && node api/_coi-lib.test.js && node tests/check_sql_columns.test.mjs && node tests/retired_routes.test.mjs && node tests/admin_cancel_wiring.test.mjs && node tests/admin_table_guard.test.mjs && node tests/provisional_resolution.test.mjs && node tests/version_probe.test.mjs",
+    "test": "node tests/binding.test.mjs && node tests/route_binding.test.mjs && node tests/mail_containment.test.mjs && node tests/launch_flags.test.mjs && node tests/brand_signup.test.mjs && node tests/coi_enforcement_gate.test.mjs && node tests/session_transport.test.mjs && node tests/coi_policy_matrix.test.mjs && node api/_coi-lib.test.js && node tests/check_sql_columns.test.mjs && node tests/retired_routes.test.mjs && node tests/admin_cancel_wiring.test.mjs && node tests/admin_table_guard.test.mjs && node tests/provisional_resolution.test.mjs && node tests/version_probe.test.mjs && node tests/status_page.test.mjs && node tests/capacity_input.test.mjs",
     "check:columns": "node tools/check-sql-columns.mjs && node tools/check-js-columns.mjs",
-    "test:routes": "node tests/route_flows.test.mjs && node tests/cron_heartbeats.test.mjs && node tests/isolation_matrix.test.mjs",
+    "test:routes": "node tests/route_flows.test.mjs && node tests/cron_heartbeats.test.mjs && node tests/isolation_matrix.test.mjs && node tests/compliance_tenant.test.mjs && node tests/support_access.test.mjs",
     "test:live": "node tests/live_entitlements.test.mjs && node tests/live_flows.test.mjs",
     "test:ledger": "node tests/_seed_ledger_fixtures.mjs && node tests/payment_ledger_adversarial.mjs && node tests/provisional_holds_adversarial.mjs",
-    "test:capacity": "node tests/capacity_guard.test.mjs",
+    "test:capacity": "node tests/capacity_guard.test.mjs && node tests/capacity_serialization.test.mjs",
     "test:staging": "npm run check:columns && npm run test:routes && npm run test:live && npm run test:ledger && npm run test:capacity"
   }
 }

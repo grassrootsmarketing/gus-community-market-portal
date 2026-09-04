@@ -11,8 +11,10 @@ let _b = null;
 
 // Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
 // ANY job and called "<25h old" healthy — so the daily job masked a dead 15-minute worker. Each job
-// is now judged by the age of its OWN latest 'succeeded' row (success recency governs; a later
-// 'failed' row is surfaced as last_outcome but does not by itself flip health).
+// is judged by its OWN heartbeat rows. Codex F-03: the LATEST COMPLETED row governs — a job is
+// healthy iff that row is 'succeeded' AND fresh (within maxAgeMin). A 'failed' row written after a
+// fresh success flips the job unhealthy until a later 'succeeded' recovers it; 'started' rows (the
+// daily job writes one before its final row) are ignored when picking the latest completed outcome.
 //   refund-worker      every 15 min  required always (payments are on for this app)  stale > 35 min
 //   provisional-sweep  every 15 min  required only while FLAGS.provisionalHolds     stale > 35 min
 //   daily              once a day    required always (brand-account.js action=cron)  stale > 25 h
@@ -27,19 +29,24 @@ const CRON_JOBS = [
 async function cronJobHealth(job) {
   const h = { required: !!job.required(), ok: false, last_success: null, age_minutes: null, last_outcome: null };
   const q = `cron_heartbeat?select=ran_at,outcome&cron_name=eq.${encodeURIComponent(job.name)}`;
-  const [succ, any] = await Promise.all([
+  // Latest completed row = latest row whose outcome is set and is not the daily job's 'started'
+  // marker. Any non-'succeeded' completed outcome ('failed', or anything new) counts as a failure.
+  const [succ, completed] = await Promise.all([
     sb(`${q}&outcome=eq.succeeded&order=ran_at.desc&limit=1`, true),
-    sb(`${q}&order=ran_at.desc&limit=1`, true),
+    sb(`${q}&outcome=not.is.null&outcome=neq.started&order=ran_at.desc&limit=1`, true),
   ]);
   const lastSuccess = Array.isArray(succ) ? succ[0] : null;
-  const lastAny = Array.isArray(any) ? any[0] : null;
-  if (lastAny) h.last_outcome = lastAny.outcome || null;
+  const lastCompleted = Array.isArray(completed) ? completed[0] : null;
+  if (lastCompleted) h.last_outcome = lastCompleted.outcome || null;
+  let fresh = false;
   if (lastSuccess) {
     h.last_success = lastSuccess.ran_at;
     const ageMin = (Date.now() - new Date(lastSuccess.ran_at).getTime()) / 60000;
     h.age_minutes = Math.round(ageMin * 10) / 10;
-    h.ok = Number.isFinite(ageMin) && ageMin < job.maxAgeMin;
+    fresh = Number.isFinite(ageMin) && ageMin < job.maxAgeMin;
   }
+  // healthy iff the latest completed outcome is 'succeeded' AND that success is fresh
+  h.ok = fresh && !!lastCompleted && lastCompleted.outcome === 'succeeded';
   // A job that is intentionally off is reported healthy so it cannot degrade production.
   if (!h.required) h.ok = true;
   return h;
@@ -93,8 +100,9 @@ export default async function handler(req, res) {
         checks.db.error = String(e?.message || e).slice(0, 200);
       }
 
-      // Cron heartbeats: PER JOB, latest 'succeeded' row of each. A required job with no fresh
-      // success (missing or stale) is unhealthy; a job that is intentionally off is not.
+      // Cron heartbeats: PER JOB, latest COMPLETED row of each. A required job whose latest completed
+      // row is not a fresh 'succeeded' (missing, stale, or failed) is unhealthy; an intentionally-off
+      // job is not.
       try {
         if (_b.serviceKey) {
           const results = await Promise.all(CRON_JOBS.map(async (job) => {

@@ -188,6 +188,27 @@ console.log('\n— SCENARIO 5: two concurrent inserts at cap 1 -> exactly one ac
 }
 
 // =====================================================================
+// 0070_capacity_serialization.sql: enforce_slot_capacity_on_move() re-checks when a booking leaves an
+// excluded status for an active one, even with the slot unchanged. If this PATCH SUCCEEDS, 0070 is
+// not applied to the target — that is the failure this assertion is meant to surface.
+console.log('\n— SCENARIO 7 (0070): a cancelled booking cannot be reactivated into a full slot —');
+{
+  const rid = await mkRetailer(); const vid = await mkVenue(rid, { max_demos_per_slot: 1 });
+  const d = day(7), t = '16:00';
+  // cancelled first: the INSERT trigger counts the slot whatever NEW.status is, so the live hold goes last
+  const dead = await seed(rid, vid, d, t, { status: 'cancelled', cancelled_at: new Date().toISOString() });
+  await seed(rid, vid, d, t);
+  const revive = await rest(`bookings?id=eq.${dead}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', cancelled_at: null }) });
+  ok('S7: PATCH cancelled -> pending on a full slot is refused with slot_full', !revive.ok && says(revive, 'slot_full'),
+     revive.ok ? 'reactivation SUCCEEDED >>> supabase/migrations/0070_capacity_serialization.sql is NOT applied to this project'
+               : `HTTP ${revive.status} ${JSON.stringify(revive.body).slice(0, 200)}`);
+  const row = await rest(`bookings?id=eq.${dead}&select=status`);
+  ok('S7: the cancelled row is unchanged after the refusal',
+     Array.isArray(row.body) && row.body[0] && row.body[0].status === 'cancelled', JSON.stringify(row.body).slice(0, 120));
+  if (applied) await assertNoViolations('S7', vid);
+}
+
+// =====================================================================
 console.log('\n— SCENARIO 6: no fixture venue is left in violation —');
 if (applied) {
   const mine = bin.filter(([t]) => t === 'venues').map(([, id]) => id);

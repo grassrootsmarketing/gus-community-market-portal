@@ -1015,8 +1015,9 @@
 
                             <!-- Max per slot: property of the location, sits below the picker -->
                             <div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:8px 12px; background:#f9f7f2; border-radius:8px;">
-                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); flex:1; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot <span data-tooltip="How many brands can book the same slot at this location. Set to 'No limit' for large stores that can host multiple concurrent demos." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
-                                <select id="availabilityMaxPerSlot" onchange="scheduleAutoSave()" style="width:130px; padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem; font-family:inherit; background-color:#fff; background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232a5b32%22 stroke-width=%223%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polyline points=%226 9 12 15 18 9%22/></svg>'); background-repeat:no-repeat; background-position:right 8px center; appearance:none; -webkit-appearance:none; padding-right:26px;"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="0">No limit</option></select>
+                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); flex:1; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot <span data-tooltip="How many brands can book the same time slot at this location. Whole number, 1 or more — larger stores that host several demos at once can set a higher number." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <!-- F-08: venues.max_demos_per_slot is NOT NULL + CHECK (>= 1). Whole numbers >= 1 only; there is no unlimited value. -->
+                                <input type="number" id="availabilityMaxPerSlot" min="1" step="1" inputmode="numeric" value="1" placeholder="1" aria-describedby="availabilityStatus" onchange="scheduleAutoSave()" style="width:90px; padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem; font-family:inherit; background-color:#fff; text-align:center;">
                             </div>
                             <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
                         </div>
@@ -1330,7 +1331,7 @@
             <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px; margin-bottom:18px;">
                 <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:8px;">CSV columns</div>
                 <div style="font-size:0.85rem; color:var(--ink-700); line-height:1.6;">
-                    <strong>name</strong> (required) · <strong>address</strong> · <strong>demo_fee</strong> (default $30) · <strong>max_demos_per_slot</strong> (default 1) · <strong>active</strong> (default yes)
+                    <strong>name</strong> (required) · <strong>address</strong> · <strong>demo_fee</strong> (default $30) · <strong>max_demos_per_slot</strong> (whole number, 1 or more; default 1) ·<strong>active</strong> (default yes)
                 </div>
                 <div style="margin-top:12px;">
                     <button class="btn btn-secondary" style="padding:6px 14px; font-size:0.82rem;" onclick="downloadStoreTemplate()">Download template CSV</button>
@@ -3042,7 +3043,8 @@ END:VEVENT
                 if (maxInput) maxInput.value = 1;
                 return;
             }
-            if (maxInput) maxInput.value = v.max_demos_per_slot == null ? '0' : String(v.max_demos_per_slot);
+            // F-08: capacity is always an integer >= 1 (legacy null/0 rows display as 1).
+            if (maxInput) maxInput.value = String(Math.max(1, parseInt(v.max_demos_per_slot, 10) || 1));
             // If venue has NO saved availability at all, seed the standard 11-2 + 3-6 windows on all 7 days
             // so the retailer sees the sensible default instead of a blank calendar. They can toggle days off
             // or edit windows as needed; the schedule persists only on Save.
@@ -3367,6 +3369,20 @@ END:VEVENT
             }
         }
 
+        // F-08: venues.max_demos_per_slot is NOT NULL with CHECK (>= 1). There is no "no limit" value.
+        // Accepts only whole numbers >= 1; "0", negatives, blanks, "abc" and decimals such as "2.7" are
+        // rejected (not floored, not coerced) so the user sees why nothing was saved.
+        // Returns { ok:true, value:int } or { ok:false, error:string }. Exposed for tests/capacity_input.test.mjs.
+        function parseCapacityInput(raw) {
+            const s = String(raw == null ? '' : raw).trim();
+            if (s === '') return { ok: false, error: 'Max demos per time slot is required — enter a whole number of 1 or more.' };
+            if (!/^\d+$/.test(s)) return { ok: false, error: `Max demos per time slot must be a whole number of 1 or more (got "${s}").` };
+            const n = parseInt(s, 10);
+            if (!Number.isInteger(n) || n < 1) return { ok: false, error: `Max demos per time slot must be at least 1 (got "${s}"). There is no "no limit" setting.` };
+            return { ok: true, value: n };
+        }
+        window.parseCapacityInput = parseCapacityInput;
+
         async function saveAvailability() {
             const v = getSelectedVenue();
             const legacyStatus = document.getElementById('availabilityStatus');
@@ -3400,9 +3416,17 @@ END:VEVENT
                 return;
             }
             const maxInput = document.getElementById('availabilityMaxPerSlot');
-            // 0 = No limit. Persist as null so booking logic can treat it as unlimited.
-            const raw = parseInt(maxInput?.value || '1', 10);
-            const maxPerSlot = raw === 0 ? null : Math.max(1, raw || 1);
+            // F-08: whole number >= 1 only. Invalid input is surfaced inline and NOT saved (never coerced, never null).
+            const cap = parseCapacityInput(maxInput ? maxInput.value : '1');
+            if (!cap.ok) {
+                if (status) { status.textContent = 'Not saved'; status.style.color = 'var(--clay-700)'; }
+                if (legacyStatus) { legacyStatus.textContent = cap.error; legacyStatus.style.color = 'var(--clay-700)'; }
+                if (maxInput) maxInput.setAttribute('aria-invalid', 'true');
+                return;
+            }
+            if (maxInput) maxInput.removeAttribute('aria-invalid');
+            if (legacyStatus && legacyStatus.textContent.startsWith('Max demos per time slot')) legacyStatus.textContent = '';
+            const maxPerSlot = cap.value;
             const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] }, max_demos_per_slot: maxPerSlot };
             if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-500)'; }
             try {
@@ -3462,7 +3486,15 @@ END:VEVENT
             if (!(await DhModal.confirm({title:'Copy schedule to all stores?', message:`Copy ${v.name}'s hours + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule.`, ok:'Apply to all'}))) return;
             const schedule = buildScheduleFromDom();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
-            const maxPerSlot = Math.max(1, parseInt(maxInput?.value || '1', 10) || 1);
+            // F-08: same rule as the single-venue save — whole number >= 1, otherwise stop and tell the user.
+            const cap = parseCapacityInput(maxInput ? maxInput.value : '1');
+            if (!cap.ok) {
+                if (status) { status.textContent = cap.error; status.style.color = 'var(--clay-700)'; }
+                if (maxInput) maxInput.setAttribute('aria-invalid', 'true');
+                return;
+            }
+            if (maxInput) maxInput.removeAttribute('aria-invalid');
+            const maxPerSlot = cap.value;
             const payload = { availability: { schedule, blackouts: [] }, max_demos_per_slot: maxPerSlot };
             const btn = document.getElementById('availabilityApplyAllBtn');
             if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
@@ -5433,13 +5465,22 @@ END:VEVENT
                     if (!col) continue;
                     const v = (rows[r][c] || '').trim();
                     if (col === 'demo_fee') rec.demo_fee = v ? Number(v.replace(/[$,]/g, '')) : 30;
-                    else if (col === 'max_demos_per_slot') rec.max_demos_per_slot = v ? Math.max(1, parseInt(v, 10) || 1) : 1;
+                    else if (col === 'max_demos_per_slot') {
+                        // F-08: blank = default 1; anything else must be a whole number >= 1 or the row is rejected.
+                        if (!v) rec.max_demos_per_slot = 1;
+                        else {
+                            const cap = parseCapacityInput(v);
+                            if (cap.ok) rec.max_demos_per_slot = cap.value;
+                            else { rec._capacityRaw = v; rec._capacityInvalid = true; }
+                        }
+                    }
                     else if (col === 'active') rec.active = parseBoolish(v);
                     else rec[col] = v;
                 }
                 rec._row = r + 1;
                 if (!rec.name) errors.push(`Row ${r+1}: name is required`);
                 if (rec.demo_fee != null && isNaN(rec.demo_fee)) errors.push(`Row ${r+1}: demo_fee "${rec.demo_fee}" isn't a valid number`);
+                if (rec._capacityInvalid) errors.push(`Row ${r+1}: max_demos_per_slot "${rec._capacityRaw}" must be a whole number of 1 or more (no "no limit" value) — row rejected`);
                 parsed.push(rec);
             }
             _bulkParsedRows = parsed;
@@ -5465,14 +5506,17 @@ END:VEVENT
                 tbody.innerHTML = '<tr><td colspan="5" style="padding:18px; color:var(--ink-500); font-size:0.88rem;">No data rows.</td></tr>';
             } else {
                 tbody.innerHTML = parsed.map(r => {
-                    const invalid = !r.name;
+                    const invalid = !r.name || r._capacityInvalid;
                     const bg = invalid ? '#fdebe5' : 'white';
+                    const capCell = r._capacityInvalid
+                        ? '<span style="color:var(--clay-700);">' + escapeHtml(r._capacityRaw) + ' (invalid)</span>'
+                        : String(r.max_demos_per_slot || 1);
                     const nameCell = r.name || '<span style="color:var(--clay-700);">(missing)</span>';
                     return `<tr style="background:${bg}; border-top:1px solid rgba(15,44,23,0.06);">
                         <td style="padding:8px 12px; font-weight:500;">${escapeHtml(nameCell === '(missing)' ? '' : nameCell) || nameCell}</td>
                         <td style="padding:8px 12px; color:var(--ink-700);">${escapeHtml(r.address || '')}</td>
                         <td style="padding:8px 12px; color:var(--ink-700);">$${Number(r.demo_fee || 30).toFixed(0)}</td>
-                        <td style="padding:8px 12px; color:var(--ink-700);">${r.max_demos_per_slot || 1}</td>
+                        <td style="padding:8px 12px; color:var(--ink-700);">${capCell}</td>
                         <td style="padding:8px 12px; color:var(--ink-700);">${r.active ? 'Yes' : 'No'}</td>
                     </tr>`;
                 }).join('');
@@ -5485,8 +5529,11 @@ END:VEVENT
             } else {
                 validation.innerHTML = `<div style="color:var(--forest-700);">All ${validCount} row${validCount === 1 ? '' : 's'} look good. Ready to import.</div>`;
             }
-            btn.disabled = validCount === 0;
-            btn.textContent = `Import ${validCount} store${validCount === 1 ? '' : 's'}`;
+            // F-08: a row with an invalid capacity blocks the import (the server receives the raw file, so
+            // the only place to reject the row is here, before upload). Fix the CSV and re-select it.
+            const capacityBlocked = parsed.some(r => r._capacityInvalid);
+            btn.disabled = validCount === 0 || capacityBlocked;
+            btn.textContent = capacityBlocked ? 'Fix capacity values to import' : `Import ${validCount} store${validCount === 1 ? '' : 's'}`;
         }
         async function importStoreCsv() {
             console.log('[bulk-upload] importStoreCsv called');

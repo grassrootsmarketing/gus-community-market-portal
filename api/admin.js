@@ -77,6 +77,9 @@ const SERVER_OWNED_FIELDS = new Set([
   // Codex final-launch B: brand_id is a RELATIONSHIP field the server sets (from a booking). A client
   // planting another brand's id on a contact was the cross-retailer COI oracle.
   'brand_id',
+  // Codex F-02: the COI-warning cursors on compliance_records belong to the daily cron. The proxy
+  // re-sets them itself (below) on create and on an expiry change; a client value is never kept.
+  'coi_warn_30_sent_at','coi_warn_14_sent_at','coi_warn_3_sent_at',
 ]);
 
 // Codex final-launch B: explicit per-table CLIENT-WRITABLE allowlists for the contact tables. Any key
@@ -85,6 +88,11 @@ const SERVER_OWNED_FIELDS = new Set([
 const CLIENT_WRITABLE_FIELDS = {
   brand_contacts:    new Set(['name', 'company', 'venue', 'address', 'email', 'phone', 'notes']),
   internal_contacts: new Set(['name', 'role', 'venue', 'email', 'phone', 'notes', 'venue_ids', 'notification_prefs']),
+  // Codex F-02: compliance_records had NO allowlist, so a tenant could write any column — including
+  // the coi_warn_* cron cursors and timestamps. brand_contact_id IS client-writable (linking a
+  // document to a contact is the feature) but is additionally verified below to belong to the
+  // session's retailer; the same-tenant composite FK from migration 0071 backs that check in the DB.
+  compliance_records: new Set(['brand_contact_id', 'doc_type', 'doc_number', 'issued_at', 'expires_at', 'file_url', 'verified', 'notes']),
 };
 
 function send(res, status, body) {
@@ -469,27 +477,64 @@ export default async function handler(req, res) {
         });
       }
     }
-    // For new compliance_records rows, reset COI warn timestamps so the cron will pick them up cleanly
-    if (table === 'compliance_records') {
-      body.coi_warn_30_sent_at = null;
-      body.coi_warn_14_sent_at = null;
-      body.coi_warn_3_sent_at = null;
-    }
+    // (compliance_records: the COI warn-cursor reset happens in the strip block below, AFTER the
+    // client-writable allowlist has run, so the server-set nulls are not discarded with the client's
+    // copies of the same keys.)
     req.body = JSON.stringify(body);
   }
 
-  // When PATCHing a compliance_records row's expires_at, reset the warn-sent timestamps
-  // so the new expiry triggers a fresh warning cycle.
-  if (req.method === 'PATCH' && table === 'compliance_records') {
-    try {
-      const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-      if (Object.prototype.hasOwnProperty.call(body, 'expires_at')) {
-        body.coi_warn_30_sent_at = null;
-        body.coi_warn_14_sent_at = null;
-        body.coi_warn_3_sent_at = null;
-        req.body = JSON.stringify(body);
+  // Codex F-02: compliance_records tenant integrity + input validation, on EVERY create and update.
+  //
+  //  * brand_contact_id — the FK only proved the contact EXISTED, not that it belonged to the
+  //    session's retailer, so Retailer A could file a compliance record against Retailer B's contact
+  //    (and the enforcement/warning jobs, which followed that link, then acted on B's behalf). The
+  //    contact must now resolve under BOTH its id AND the session's retailer_id. A contact that belongs
+  //    to another tenant and a contact that does not exist get the IDENTICAL 404 {error:'not_found'}
+  //    — the response must not be an existence oracle for other tenants' contact ids. Non-UUID values
+  //    are rejected first with one uniform 400 (never reach Postgres, never differ by value).
+  //    Migration 0071 backs this with a composite FK so no other writer can violate it either.
+  //  * file_url — stored and later rendered as a link. null/'' -> null; anything else must parse as
+  //    an http(s) URL with no attribute-breakout characters (same rule as retailers.logo_url).
+  if (table === 'compliance_records' && ['POST', 'PATCH', 'PUT'].includes(req.method)) {
+    let body;
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
+    catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'Invalid body' });
+    const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
+
+    if (has('brand_contact_id')) {
+      const cid = body.brand_contact_id;
+      if (cid === null || cid === undefined || cid === '') {
+        body.brand_contact_id = null;   // explicit unlink / manual record: the FK is MATCH SIMPLE, NULL skips it
+      } else {
+        if (!isUuid(cid)) return send(res, 400, { error: 'invalid_brand_contact_id' });
+        let rows;
+        try {
+          rows = await sb(`brand_contacts?id=eq.${encodeURIComponent(cid)}&retailer_id=eq.${encodeURIComponent(session.retailer_id)}&select=id`);
+        } catch (e) {
+          // Fail closed: an unverifiable link is not written.
+          return send(res, 500, { error: 'contact_lookup_failed', message: String(e?.message || e) });
+        }
+        if (!Array.isArray(rows) || !rows[0]) return send(res, 404, { error: 'not_found' });
       }
-    } catch (_) { /* fall through */ }
+    }
+
+    if (has('file_url')) {
+      const raw = body.file_url;
+      const val = typeof raw === 'string' ? raw.trim() : (raw == null ? '' : null);
+      if (val === null) return send(res, 400, { error: 'invalid_file_url', message: 'file_url must be a plain http(s) URL.' });
+      if (!val) {
+        body.file_url = null;
+      } else {
+        let u = null;
+        try { u = new URL(val); } catch (_) { u = null; }
+        if (!u || !/^https?:$/.test(u.protocol) || /[\s"'<>`\\]/.test(val)) {
+          return send(res, 400, { error: 'invalid_file_url', message: 'file_url must be a plain http(s) URL.' });
+        }
+        body.file_url = val;
+      }
+    }
+    req.body = JSON.stringify(body);
   }
 
   // DH-05/DH-06: strip server-owned fields from any write body, and keep status to a simple
@@ -509,6 +554,16 @@ export default async function handler(req, res) {
       const allow = CLIENT_WRITABLE_FIELDS[table];
       if (allow) {
         for (const k of Object.keys(b)) { if (k !== 'retailer_id' && !allow.has(k)) { delete b[k]; touched = true; } }
+      }
+      // compliance_records: the daily cron's COI warn cursors are server-owned (any client copy was
+      // just stripped above). Reset them on create, and on any expiry change so the new expires_at
+      // starts a fresh 30/14/3-day warning cycle. Placed AFTER the allowlist on purpose — the
+      // allowlist would otherwise discard these server-set nulls along with the client's.
+      if (table === 'compliance_records' && (req.method === 'POST' || Object.prototype.hasOwnProperty.call(b, 'expires_at'))) {
+        b.coi_warn_30_sent_at = null;
+        b.coi_warn_14_sent_at = null;
+        b.coi_warn_3_sent_at = null;
+        touched = true;
       }
       if (touched) req.body = JSON.stringify(b);
     } catch (_) { /* leave body as-is if unparseable */ }

@@ -80,7 +80,28 @@ async function sb(path, opts = {}) {
 
 const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h — matches the DB expiry set in owner-verify
 const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
-const IMPERSONATION_MAX_AGE = 4 * 60 * 60;       // 4h — matches the DB expiry in owner-impersonate
+const IMPERSONATION_MAX_AGE = 4 * 60 * 60;       // 4h — the CAP on an impersonation session (see owner-impersonate)
+
+// Codex F-06. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to your
+// account." — so owner-impersonate must actually consult it. This is the single rule:
+// impersonation is allowed ONLY when allow_support_access is exactly true AND
+// support_access_expires_at parses to a time strictly in the future. Returns that expiry in ms,
+// or null for every refusal (OFF, column missing, unparseable, already past) so the caller cannot
+// accidentally reveal which condition failed.
+export function supportAccessExpiryMs(retailer, nowMs = Date.now()) {
+  if (!retailer || retailer.allow_support_access !== true) return null;
+  const exp = Date.parse(String(retailer.support_access_expires_at || ''));
+  if (!Number.isFinite(exp) || exp <= nowMs) return null;
+  return exp;
+}
+
+// An impersonation session lives for min(IMPERSONATION_MAX_AGE, remaining consent window).
+// Returns { expiresAtIso, maxAgeSeconds } — used for BOTH the admin_sessions row and the cookies,
+// so the cookie can never outlive the DB row and neither can outlive the retailer's consent.
+export function impersonationWindow(consentExpiryMs, nowMs = Date.now()) {
+  const expiresMs = Math.min(nowMs + IMPERSONATION_MAX_AGE * 1000, consentExpiryMs);
+  return { expiresAtIso: new Date(expiresMs).toISOString(), maxAgeSeconds: Math.max(1, Math.floor((expiresMs - nowMs) / 1000)) };
+}
 
 function setSessionCookie(res, sessionId, maxAgeSeconds = RETAILER_SESSION_MAX_AGE) {
   if (!sessionId) return;
@@ -1368,7 +1389,7 @@ async function handleOwnerAction(action, req, res, body) {
     return res.status(200).json({ ok: true, retailers: rows || [] });
   }
 
-  // ---- OWNER-IMPERSONATE: create a scoped 4-hour session for a retailer, log to audit table ----
+  // ---- OWNER-IMPERSONATE: create a consent-gated, ≤4-hour session for a retailer, audited ----
   // Sets the retailer's admin cookie (dh_retailer_session) AND a non-HttpOnly marker cookie
   // so the client-side admin page can render the "Support session" banner.
   if (action === 'owner-impersonate') {
@@ -1380,28 +1401,35 @@ async function handleOwnerAction(action, req, res, body) {
     const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rArr) ? rArr[0] : null;
     if (!r) return res.status(404).json({ error: 'Retailer not found' });
-    // Owner-override model: the platform owner (verified above via OWNER_EMAILS + owner
-    // session) can access any retailer's admin directly. No customer-consent toggle required
-    // at this stage. Access is still recorded in support_sessions below for transparency,
-    // so a per-customer consent gate can be layered back on later without re-plumbing.
-    // Create the impersonation session with a 4-hour expiry
-    const impersonationExpires = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    // Codex F-06: CONSENT GATE. The retailer's toggle is the authority. Before this the handler
+    // ignored allow_support_access / support_access_expires_at entirely ("owner-override model")
+    // while the Settings UI told the retailer "OFF. Demohub cannot sign in to your account."
+    // One opaque 403 for OFF / missing / unparseable / expired — the owner panel does not get
+    // to learn which, and the retailer's promise holds regardless of why.
+    const nowMs = Date.now();
+    const consentExpiryMs = supportAccessExpiryMs(r, nowMs);
+    if (consentExpiryMs === null) return res.status(403).json({ error: 'support_access_disabled' });
+    // Session life = min(4h cap, remaining consent). The DB row and BOTH cookies share it.
+    const win = impersonationWindow(consentExpiryMs, nowMs);
     const sessions = await sb('admin_sessions', {
       method: 'POST',
       body: JSON.stringify({
         email: r.billing_email || owner.email,
         retailer_id: r.id,
-        expires_at: impersonationExpires,
+        expires_at: win.expiresAtIso,
       }),
     });
     const session = Array.isArray(sessions) ? sessions[0] : null;
     if (!session) return res.status(500).json({ error: 'Failed to create impersonation session' });
-    // Log to support_sessions audit table (best-effort — don't fail the impersonation if this errors)
+    // FAIL-CLOSED AUDIT (Codex F-06). No RPC exists that mints the session and the audit row in
+    // one transaction, so this is two steps with compensation: if the support_sessions insert
+    // fails, the just-created admin_sessions row is deleted and NO cookie is issued. An
+    // impersonation the retailer cannot see in "Demohub support activity" must not exist.
     try {
       const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
       const ip = req.headers['x-real-ip'] || _xff[_xff.length - 1] || null;  // audit log; not cf-connecting-ip
       const ua = String(req.headers['user-agent'] || '').slice(0, 500);
-      await sb('support_sessions', {
+      const audit = await sb('support_sessions', {
         method: 'POST',
         body: JSON.stringify({
           owner_email: owner.email,
@@ -1411,17 +1439,21 @@ async function handleOwnerAction(action, req, res, body) {
           user_agent: ua,
         }),
       });
+      if (!(Array.isArray(audit) ? audit[0] : null)) throw new Error('support_sessions insert returned no row');
     } catch (e) {
-      console.warn('support_sessions log failed (impersonation still proceeds):', e?.message || e);
+      console.error('support_sessions audit insert failed; impersonation refused:', e?.message || e);
+      try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session.session_id)}`, { method: 'DELETE' }); }
+      catch (e2) { console.error('compensating admin_sessions delete failed:', e2?.message || e2); }
+      return res.status(500).json({ error: 'audit_unavailable' });
     }
     // The RETAILER cookie only. The owner's own session stays in dh_owner_session, untouched.
     // That is the point of splitting them: before this, impersonation overwrote the single
     // dh_session cookie, so the retailer-scoped session became the only session the owner held,
     // and any owner-only path reading that cookie would have been reading a retailer session.
-    setSessionCookie(res, session.session_id, IMPERSONATION_MAX_AGE);
+    setSessionCookie(res, session.session_id, win.maxAgeSeconds);
     // Set a non-HttpOnly marker cookie so client JS can render the banner + Exit button
     const markerVal = encodeURIComponent(JSON.stringify({ owner: owner.email, retailer: r.name, started: new Date().toISOString() }));
-    const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=14400; Secure; SameSite=Lax`;
+    const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=${win.maxAgeSeconds}; Secure; SameSite=Lax`;
     const existing = res.getHeader('Set-Cookie');
     if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, markerCookie] : [existing, markerCookie]);
     else res.setHeader('Set-Cookie', markerCookie);

@@ -109,11 +109,21 @@ async function refundBooking(booking, keepsAll) {
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
-// Fetch COI compliance records for a brand (linked via brand_contacts.email). Returns
-// { ok, records }. ok=false means the source was unreadable (caller must fail-safe).
-async function fetchComplianceCoi(brandEmail) {
+// Fetch COI compliance records for a brand (linked via brand_contacts.email) AT ONE RETAILER.
+// Returns { ok, records }. ok=false means the source was unreadable (caller must fail-safe).
+//
+// Codex F-02: this used to read compliance_records GLOBALLY and match the joined contact by email
+// alone, so a record filed by Retailer A (against any contact carrying the brand's email) counted as
+// coverage — or as an unreadable "unknown" certificate that suppresses cancellation — for a Retailer B
+// booking. A compliance record is a retailer's own paperwork about a brand; it is scoped to the
+// booking's retailer_id here, and migration 0071 guarantees the joined contact belongs to that same
+// retailer. A missing/invalid retailerId is treated as unreadable (fail-safe skip), never as "no
+// scope, read everything".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+async function fetchComplianceCoi(brandEmail, retailerId) {
   try {
-    const rows = await sb(`compliance_records?select=doc_type,expires_at,brand_contacts(email)&doc_type=in.(coi,certificate_of_insurance,insurance)`);
+    if (!UUID_RE.test(String(retailerId || ''))) return { ok: false, error: 'no retailer scope' };
+    const rows = await sb(`compliance_records?retailer_id=eq.${encodeURIComponent(retailerId)}&select=doc_type,expires_at,brand_contacts(email)&doc_type=in.(coi,certificate_of_insurance,insurance)`);
     const email = String(brandEmail || '').toLowerCase();
     const records = (rows || []).filter(r => ((r.brand_contacts && r.brand_contacts.email) || '').toLowerCase() === email);
     return { ok: true, records };
@@ -187,8 +197,9 @@ export default async function handler(req, res) {
         let coverage = coiCoverageState(brand, [], b.demo_date);
         if (coverage === 'covered') { log.covered++; continue; }
 
-        // Not covered at brand level: check compliance_records. Fail-safe: if unreadable, skip.
-        const comp = await fetchComplianceCoi(brand.email);
+        // Not covered at brand level: check THIS retailer's compliance_records (F-02: a record filed by
+        // another retailer must never affect this booking). Fail-safe: if unreadable, skip.
+        const comp = await fetchComplianceCoi(brand.email, b.retailer_id);
         if (!comp.ok) { log.skipped++; log.errors.push({ booking: b.id, reason: 'compliance read failed, fail-safe skip' }); continue; }
         const withRecords = coiCoverageState(brand, comp.records, b.demo_date);
         if (withRecords === 'covered') { log.covered++; continue; }

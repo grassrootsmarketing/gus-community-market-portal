@@ -85,12 +85,13 @@ export async function runFulfillment(row, owner) {
 // Claim + drain pending fulfilments. Used by the cron (all groups) and the webhook (one group).
 export async function drainFulfillments({ limit = 25, group = null, leaseSeconds = 180, maxAttempts = 6 } = {}) {
   const owner = 'fulfil-' + Math.random().toString(36).slice(2, 10);
-  const out = { processed: 0, completed: 0, failed: 0, capped: 0 };
+  // claim_failed: the claim RPC itself errored (F-03: callers must not report a clean run on it).
+  const out = { processed: 0, completed: 0, failed: 0, capped: 0, claim_failed: false };
   let rows = [];
   try {
     const claimed = await sbRpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: leaseSeconds, p_limit: limit, p_group: group });
     rows = Array.isArray(claimed) ? claimed : (claimed ? [claimed] : []);
-  } catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); return out; }
+  } catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); out.claim_failed = true; return out; }
   for (const row of rows) {
     out.processed++;
     const r = await runFulfillment(row, owner);

@@ -1794,10 +1794,15 @@ export default async function handler(req, res) {
           const list = await r.json();
           await processBatched(Array.isArray(list) ? list : [], 5, async (rec) => {
             try {
-              // Look up retailer + brand contact
+              // Look up retailer + brand contact. Codex F-02: the contact is resolved under BOTH its id AND
+              // the record's retailer_id, so a record that somehow points at another tenant's contact can
+              // never name that tenant's brand in this retailer's warning (migration 0071 makes such a row
+              // impossible to write; this is the belt to that suspender). An unlinked record skips the lookup.
               const [rRes, bcRes] = await Promise.all([
                 sb(`retailers?id=eq.${encodeURIComponent(rec.retailer_id)}&select=id,name,billing_email,slug,branding`),
-                sb(`brand_contacts?id=eq.${encodeURIComponent(rec.brand_contact_id)}&select=id,name,company,email`),
+                rec.brand_contact_id
+                  ? sb(`brand_contacts?id=eq.${encodeURIComponent(rec.brand_contact_id)}&retailer_id=eq.${encodeURIComponent(rec.retailer_id)}&select=id,name,company,email`)
+                  : Promise.resolve({ json: async () => [] }),
               ]);
               const ret = (await rRes.json())[0];
               const bc = (await bcRes.json())[0];
@@ -1952,19 +1957,24 @@ ${expCoiCount > 0 ? `<p style="background:#fff3ed;border-left:3px solid #ed682f;
         errors.push({ kind: 'monthly_summary_query', error: String(e?.message || e) });
       }
 
-      // === HEARTBEAT: write success row with summary ===
+      // === HEARTBEAT: final row. Codex F-03: 'succeeded' ONLY when the accumulated errors array is
+      // empty. Any per-item send/query error makes this a partial failure: outcome 'failed' with
+      // summary.partial=true + the error count + the first error (kind + message, no ids/PII), and a
+      // 500 so Vercel's cron log agrees. The status route keys health off the latest completed row.
+      const cronOk = errors.length === 0;
+      const firstErr = errors[0] ? { kind: String(errors[0].kind || '').slice(0, 60), error: String(errors[0].error || '').slice(0, 200) } : null;
       try {
         await sb('cron_heartbeat', {
           method: 'POST',
           body: JSON.stringify({
             cron_name: 'daily',
-            outcome: 'succeeded',
+            outcome: cronOk ? 'succeeded' : 'failed',
             duration_ms: Date.now() - cronStartMs,
-            summary: { retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, monthlySummarySent, errors: errors.length },
+            summary: { ok: cronOk, partial: !cronOk, retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, monthlySummarySent, errors: errors.length, ...(firstErr ? { first_error: firstErr } : {}) },
           }),
         });
       } catch (_) { /* best-effort */ }
-      return jsonResp(res, 200, { ok: true, retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, errors, ran_at: nowIso });
+      return jsonResp(res, cronOk ? 200 : 500, { ok: cronOk, ...(cronOk ? {} : { error: 'partial_failure' }), retailerDay3Sent, brandFirstDemoSent, coiSent, retailerCoiSent, errors, ran_at: nowIso });
     }
 
     return jsonResp(res, 400, { error: 'Unknown action' });

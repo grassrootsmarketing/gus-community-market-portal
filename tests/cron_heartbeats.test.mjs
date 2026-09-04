@@ -9,11 +9,17 @@
 //   2. a successful run appends ONE {cron_name, outcome:'succeeded'} row; a second run appends a
 //      second row (append-only, idempotent job);
 //   3. a failing run appends a SEPARATE 'failed' row and leaves the earlier successes untouched;
-//   4. the status action judges each job by the age of its OWN latest success: fresh -> ok, stale
-//      (2h) -> not ok, missing -> not ok, a later 'failed' row after a fresh success -> still ok;
-//      the public payload stays coarse ({ok, required} per job — no ages/outcomes/summaries);
+//   3b. (Codex F-03) a per-item failure AFTER work is claimed — a Stripe refund submit that fails, one
+//      bad item among good ones, a fulfilment-drain error — never yields 'succeeded': the worker
+//      writes 'failed' (summary.partial=true, counts, first error, no secrets) and answers 500; a
+//      later clean run recovers the job to ok:true. Real refund work is seeded on staging for this.
+//   4. the status action judges each job by its OWN LATEST COMPLETED row: fresh success -> ok, stale
+//      (2h) -> not ok, missing -> not ok, a later 'failed' row after a fresh success -> NOT ok until
+//      a later 'succeeded' recovers it; 'started' rows are ignored; the public payload stays coarse
+//      ({ok, required} per job — no ages/outcomes/summaries);
 //   5. provisional-sweep is required:false / ok:true while holds are OFF (default), and
-//      required:true (missing -> not ok, fresh -> ok) when PROVISIONAL_HOLDS_ENABLED=true.
+//      required:true (missing -> not ok, fresh -> ok) when PROVISIONAL_HOLDS_ENABLED=true; in that
+//      child a per-booking expiry failure makes the sweep run 'failed' (500) and the job unhealthy.
 //
 // api/_flags.js reads env ONCE at module load and is imported by find-retailer.js with a plain
 // specifier, so within one process the harness's cache-busting re-import of the route does NOT
@@ -61,8 +67,74 @@ const status = async () => {
 };
 const publicShapeOk = (res) => {
   const s = JSON.stringify(res.body || {});
-  return !/age_minutes|last_outcome|last_success|duration_ms|summary|hours_since/.test(s);
+  return !/age_minutes|last_outcome|last_success|duration_ms|summary|hours_since|first_error|partial|errors":\s*\d/.test(s);
 };
+const onlyOkRequired = (jobs) => Object.values(jobs).every(j => Object.keys(j).sort().join(',') === 'ok,required');
+
+// ---------------------------------------------------------------------------
+// Real work fixtures (F-03). The ledger fixtures are the ones payment_ledger_adversarial.mjs pins
+// (tests/_seed_ledger_fixtures.mjs): keeps-all retailer test-a, venue "A - Main" at $30, brand1.
+// The harness's Stripe spy answers every refund POST with a $30.00 succeeded refund, which is
+// exactly the allocation these fixtures produce — so a clean item really reaches apply_refund_event.
+// ---------------------------------------------------------------------------
+const FX = { RETAILER: '8cf80c18-ff37-4c32-8154-dcdd90486942', VENUE: '35301125-8921-4bb2-a7d5-aac777e2e76e', BRAND: '7f044529-1aba-417a-9b39-ea55f846d06d' };
+const created = { bookings: [], groups: [] };
+const rpc = (fn, args) => db(`rpc/${fn}`, { method: 'POST', body: JSON.stringify(args) });
+const one = (j) => (Array.isArray(j) ? j[0] : j);
+let seedN = 0; const DAY0 = Math.floor(Math.random() * 280); const MIN0 = Math.floor(Math.random() * 50);
+function uniqueSlot() { const d = new Date(Date.UTC(2026, 11, 1)); d.setUTCDate(d.getUTCDate() + DAY0 + seedN); seedN++; return d.toISOString().slice(0, 10); }
+function uniqueTime() { return `${8 + (seedN % 10)}:${String((MIN0 + seedN) % 60).padStart(2, '0')}`; }
+
+async function seedBooking(fields) {
+  const r = await db('bookings', { method: 'POST', body: JSON.stringify({
+    retailer_id: FX.RETAILER, venue_id: FX.VENUE, brand_id: FX.BRAND, brand_name: 'Heartbeat ' + MARK,
+    contact_name: 'Heartbeat Tester', contact_email: `${MARK}@fixture.test`,
+    demo_date: uniqueSlot(), demo_time: uniqueTime(), ...fields,
+  }) });
+  const b = one(r.body);
+  if (!r.ok || !b || !b.id) throw new Error(`seedBooking failed: ${r.status} ${JSON.stringify(r.body).slice(0, 200)}`);
+  created.bookings.push(b.id);
+  return b;
+}
+// A PAID booking with a reserved refund request that claim_refund_work will lease on the next run
+// (status 'reserved', next_attempt_at = now). The fulfilment outbox row is completed directly so the
+// worker's drain has no unrelated work.
+async function seedRefundWork(tag) {
+  const b = await seedBooking({ status: 'pending_payment', payment_status: 'unpaid' });
+  const c = one((await rpc('checkout_claim_group', { p_brand_id: FX.BRAND, p_retailer_id: FX.RETAILER, p_booking_ids: [b.id], p_platform_keeps_all: true, p_connect_account_id: null, p_platform_fee_cents: 0 })).body);
+  if (!c || !c.payment_group_id) throw new Error('checkout_claim_group failed: ' + JSON.stringify(c));
+  created.groups.push(c.payment_group_id);
+  const sess = `cs_${MARK}_${tag}`, pi = `pi_${MARK}_${tag}`, ch = `ch_${MARK}_${tag}`;
+  await rpc('register_payment_attempt', { p_group_id: c.payment_group_id, p_session_id: sess, p_payment_intent: pi, p_hash: 'h-' + tag, p_schema: 1 });
+  const paid = one((await rpc('apply_verified_payment', { p_session_id: sess, p_payment_intent: pi, p_charge: ch, p_amount: c.total_customer_amount, p_currency: 'usd', p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null })).body);
+  if (!paid || paid.outcome !== 'applied') throw new Error('apply_verified_payment failed: ' + JSON.stringify(paid));
+  await db(`booking_fulfillments?booking_id=eq.${b.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'done', completed_at: new Date().toISOString() }) });
+  const rr = one((await rpc('refund_reserve_cas', { p_booking_id: b.id, p_op_key: b.id + ':cancel', p_actor: 'heartbeat-test', p_reason: 'f03' })).body);
+  if (!rr || rr.outcome !== 'reserved' || !rr.refund_request_id) throw new Error('refund_reserve_cas failed: ' + JSON.stringify(rr));
+  return { booking: b, group: c.payment_group_id, request_id: rr.refund_request_id, amount: rr.amount };
+}
+const requestStatus = async (id) => ((await db(`refund_requests?id=eq.${id}&select=status,attempts,last_error`)).body || [])[0] || null;
+// FK-safe order, mirroring payment_ledger_adversarial.mjs's teardown.
+async function teardownLedger() {
+  for (const gid of [...new Set(created.groups)]) {
+    const allocs = (await db(`payment_allocations?payment_group_id=eq.${gid}&select=id`)).body || [];
+    for (const a of allocs) {
+      const reqs = (await db(`refund_requests?payment_allocation_id=eq.${a.id}&select=id`)).body || [];
+      for (const rq of reqs) await db(`reconciliation_cases?refund_request_id=eq.${rq.id}`, { method: 'DELETE' });
+      await db(`refund_requests?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' });
+      await db(`refund_operations?payment_allocation_id=eq.${a.id}`, { method: 'DELETE' });
+    }
+    await db(`booking_fulfillments?payment_group_id=eq.${gid}`, { method: 'DELETE' });
+    await db(`reconciliation_cases?payment_group_id=eq.${gid}`, { method: 'DELETE' });
+    await db(`payment_attempts?payment_group_id=eq.${gid}`, { method: 'DELETE' });
+    await db(`payment_allocations?payment_group_id=eq.${gid}`, { method: 'DELETE' });
+    await db(`payment_groups?id=eq.${gid}`, { method: 'DELETE' });
+  }
+  for (const id of [...new Set(created.bookings)]) {
+    await db(`booking_fulfillments?booking_id=eq.${id}`, { method: 'DELETE' });
+    await db(`bookings?id=eq.${id}`, { method: 'DELETE' });
+  }
+}
 
 const spy = installSpy();
 
@@ -93,8 +165,39 @@ if (HOLDS_ON) {
     ok('holds ON: FRESH sweep success -> sweep ok:true', s.jobs['provisional-sweep'] && s.jobs['provisional-sweep'].ok === true, JSON.stringify(s.jobs));
     ok('holds ON: all required jobs fresh -> overall cron ok:true', s.cron.ok === true, JSON.stringify(s.cron));
     ok('holds ON: public payload stays coarse', publicShapeOk(s.res), JSON.stringify(s.res.body));
+
+    // F-03: a per-booking expiry failure AFTER the scan. The sweep finds an expired unpaid hold and
+    // its 'held -> expired' PATCH fails: the run must be 'failed' (500), the booking stays held for
+    // the next tick, and the REQUIRED sweep goes unhealthy until a clean run recovers it.
+    console.log('\n— 5c (child): per-booking sweep failure -> failed heartbeat, non-2xx, unhealthy until recovered —');
+    const tSweep = new Date().toISOString();
+    const held = await seedBooking({ status: 'held', payment_status: 'unpaid', held_expires_at: minutesAgo(30) });
+    spy.faults.push({ url: `bookings?id=eq.${held.id}&status=eq.held`, method: 'PATCH', status: 500, message: 'injected_expiry_patch_fault' });
+    const sf = await callRoute('provisional-sweep.js', req({ body: {}, headers: CRON }));
+    spy.faults.length = 0;
+    ok('holds ON: sweep whose per-booking expiry PATCH fails -> 500 partial_failure', sf.statusCode === 500 && sf.body && sf.body.ok === false && sf.body.errors >= 1 && sf.body.scanned >= 1, `${sf.statusCode} ${JSON.stringify(sf.body)}`);
+    let srows = await hbRows(`cron_name=eq.provisional-sweep&ran_at=gte.${encodeURIComponent(tSweep)}`);
+    let last = srows[srows.length - 1];
+    ok("holds ON: heartbeat row is 'failed' with summary.partial=true and the injected error", !!last && last.outcome === 'failed' && last.summary && last.summary.partial === true && last.summary.errors >= 1 && /injected_expiry_patch_fault/.test(String(last.summary.first_error)), JSON.stringify(last));
+    const stillHeld = ((await db(`bookings?id=eq.${held.id}&select=status`)).body || [])[0];
+    ok('holds ON: the booking that errored is still held for the next tick', stillHeld && stillHeld.status === 'held', JSON.stringify(stillHeld));
+    s = await status();
+    ok('holds ON: failed sweep run -> sweep ok:false', s.jobs['provisional-sweep'] && s.jobs['provisional-sweep'].ok === false, JSON.stringify(s.jobs));
+    ok('holds ON: failed required job -> overall cron ok:false', s.cron.ok === false, JSON.stringify(s.cron));
+    ok('holds ON: public payload stays coarse after a failure', publicShapeOk(s.res) && onlyOkRequired(s.jobs), JSON.stringify(s.res.body));
+
+    const sr = await callRoute('provisional-sweep.js', req({ body: {}, headers: CRON }));
+    ok('holds ON: clean sweep run -> 200 ok, no errors, the hold expired', sr.statusCode === 200 && sr.body && sr.body.ok === true && sr.body.errors === 0 && sr.body.expired_unpaid >= 1, `${sr.statusCode} ${JSON.stringify(sr.body)}`);
+    srows = await hbRows(`cron_name=eq.provisional-sweep&ran_at=gte.${encodeURIComponent(tSweep)}`);
+    ok("holds ON: sweep rows since the failure are [failed, succeeded]", srows.map(r => r.outcome).join(',') === 'failed,succeeded', srows.map(r => r.outcome).join(','));
+    const nowExpired = ((await db(`bookings?id=eq.${held.id}&select=status`)).body || [])[0];
+    ok('holds ON: booking is expired after the clean run', nowExpired && nowExpired.status === 'expired', JSON.stringify(nowExpired));
+    s = await status();
+    ok('holds ON: recovery -> sweep ok:true again', s.jobs['provisional-sweep'] && s.jobs['provisional-sweep'].ok === true, JSON.stringify(s.jobs));
+    ok('holds ON: recovery -> overall cron ok:true', s.cron.ok === true, JSON.stringify(s.cron));
   } finally {
     await cleanupMarked();
+    await teardownLedger();
     spy.restore();
   }
   process.exit(summary('cron heartbeats (holds ON child)') ? 0 : 1);
@@ -169,9 +272,78 @@ try {
   }
 
   // -------------------------------------------------------------------------
-  // 4. Status logic — per-job, success-recency governed, coarse in public.
+  // 3b. Codex F-03: failures AFTER work is claimed never yield 'succeeded'. Real refund work is
+  //     seeded (paid booking + reserved refund request) so claim_refund_work leases it and the
+  //     worker actually submits to (the spied) Stripe.
   // -------------------------------------------------------------------------
-  console.log('\n— 4: status judges each job by its own latest success —');
+  console.log('\n— 3b: per-item failures after claim -> failed heartbeat, 500, unhealthy until a clean run —');
+  {
+    const t0 = new Date().toISOString();
+    const rowsSince = (name, iso) => hbRows(`cron_name=eq.${name}&ran_at=gte.${encodeURIComponent(iso)}`);
+    const lastRow = async (name, iso) => { const r = await rowsSince(name, iso); return r[r.length - 1]; };
+    const redacted = (summary) => { const s = JSON.stringify(summary || {}); return !/sk_test_harness|sk_live|whsec_|@fixture\.test/.test(s); };
+    await hbInsert('daily', 'succeeded');   // a fresh daily so it cannot mask the worker's health
+
+    // (a) claim succeeds, then the Stripe refund submit fails for the only item
+    const w1 = await seedRefundWork('a');
+    ok('seeded a reserved refund request of $30.00 (matches the spy refund)', w1.amount === 3000, String(w1.amount));
+    const stripeBefore = spy.calls.stripe.length;
+    spy.faults.push({ url: 'api.stripe.com/v1/refunds', method: 'POST', status: 402, message: 'injected_stripe_refund_fault' });
+    const ra = await callRoute('refund-worker.js', req({ body: {}, headers: CRON }));
+    spy.faults.length = 0;
+    ok('worker claimed the item and submitted to Stripe', ra.body && ra.body.claimed >= 1 && spy.calls.stripe.slice(stripeBefore).some(c => /\/v1\/refunds$/.test(c.url) && c.method === 'POST'), JSON.stringify(ra.body));
+    ok('Stripe submit failure after claim -> 500, ok:false, partial_failure, errors>=1', ra.statusCode === 500 && ra.body && ra.body.ok === false && ra.body.error === 'partial_failure' && ra.body.errors >= 1, `${ra.statusCode} ${JSON.stringify(ra.body)}`);
+    let hb = await lastRow('refund-worker', t0);
+    ok("heartbeat row is 'failed' (never 'succeeded') with summary.partial=true and counts", !!hb && hb.outcome === 'failed' && hb.summary && hb.summary.partial === true && hb.summary.ok === false && hb.summary.errors >= 1 && hb.summary.claimed >= 1, JSON.stringify(hb));
+    ok('failed summary names the first error (Stripe submit) and is redacted', !!hb && /submit: injected_stripe_refund_fault/.test(String(hb.summary && hb.summary.first_error)) && redacted(hb.summary), JSON.stringify(hb && hb.summary));
+    const st1 = await requestStatus(w1.request_id);
+    ok('the request was released as failed_retryable (lease released, retry scheduled)', st1 && st1.status === 'failed_retryable' && /injected_stripe_refund_fault/.test(String(st1.last_error)), JSON.stringify(st1));
+    let s = await status();
+    ok('status: refund-worker ok:false after the failed run', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === false, JSON.stringify(s.jobs['refund-worker']));
+    ok('status: overall cron ok:false', s.cron.ok === false, JSON.stringify(s.cron));
+    ok('status: not operational', s.res.body && s.res.body.status !== 'operational', JSON.stringify(s.res.body && s.res.body.status));
+    ok('status: public payload still only {ok, required} per job', publicShapeOk(s.res) && onlyOkRequired(s.jobs), JSON.stringify(s.res.body));
+
+    // (b) one Stripe failure among otherwise successful items -> still never 'succeeded'
+    await db(`refund_requests?id=eq.${w1.request_id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: minutesAgo(1) }) });
+    const w2 = await seedRefundWork('b');
+    const t1 = new Date().toISOString();
+    spy.faults.push({ url: 'api.stripe.com/v1/refunds', method: 'POST', status: 402, message: 'injected_one_bad_item', once: true });
+    const rb = await callRoute('refund-worker.js', req({ body: {}, headers: CRON }));
+    spy.faults.length = 0;
+    ok('two items claimed: one Stripe failure, one resubmitted + applied', rb.body && rb.body.claimed === 2 && rb.body.errors === 1 && rb.body.resubmitted === 1, JSON.stringify(rb.body));
+    ok('one bad item among good ones -> 500, ok:false', rb.statusCode === 500 && rb.body && rb.body.ok === false, `${rb.statusCode}`);
+    hb = await lastRow('refund-worker', t1);
+    ok("heartbeat row is 'failed' with errors:1 and resubmitted:1", !!hb && hb.outcome === 'failed' && hb.summary && hb.summary.errors === 1 && hb.summary.resubmitted === 1 && hb.summary.partial === true, JSON.stringify(hb));
+    const [st1b, st2b] = [await requestStatus(w1.request_id), await requestStatus(w2.request_id)];
+    ok('DB truth: exactly one request succeeded and one is failed_retryable', [st1b, st2b].filter(x => x && x.status === 'succeeded').length === 1 && [st1b, st2b].filter(x => x && x.status === 'failed_retryable').length === 1, JSON.stringify([st1b, st2b]));
+
+    // (c) fulfilment-drain error (the post-drain backlog read fails) -> failed, even with no refund work due
+    const t2 = new Date().toISOString();
+    spy.faults.push({ url: 'booking_fulfillments?status=eq.pending', method: 'GET', status: 500, message: 'injected_fulfilment_fault' });
+    const rc = await callRoute('refund-worker.js', req({ body: {}, headers: CRON }));
+    spy.faults.length = 0;
+    ok('fulfilment drain error -> 500, ok:false, errors>=1', rc.statusCode === 500 && rc.body && rc.body.ok === false && rc.body.errors >= 1, `${rc.statusCode} ${JSON.stringify(rc.body)}`);
+    hb = await lastRow('refund-worker', t2);
+    ok("heartbeat row is 'failed' naming the fulfilment error", !!hb && hb.outcome === 'failed' && /fulfilment: .*injected_fulfilment_fault/.test(String(hb.summary && hb.summary.first_error)), JSON.stringify(hb && hb.summary));
+
+    // (d) recovery: a clean run writes 'succeeded' and the job is healthy again
+    const t3 = new Date().toISOString();
+    const rd = await callRoute('refund-worker.js', req({ body: {}, headers: CRON }));
+    ok('clean run -> 200 ok:true, errors:0', rd.statusCode === 200 && rd.body && rd.body.ok === true && rd.body.errors === 0, `${rd.statusCode} ${JSON.stringify(rd.body)}`);
+    hb = await lastRow('refund-worker', t3);
+    ok("heartbeat row is 'succeeded' again", !!hb && hb.outcome === 'succeeded', JSON.stringify(hb));
+    s = await status();
+    ok('status: refund-worker ok:true after recovery', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === true, JSON.stringify(s.jobs['refund-worker']));
+    ok('status: overall cron ok:true after recovery', s.cron.ok === true, JSON.stringify(s.cron));
+    ok('status: public payload still only {ok, required} per job', publicShapeOk(s.res) && onlyOkRequired(s.jobs), JSON.stringify(s.res.body));
+    await cleanupMarked();
+  }
+
+  // -------------------------------------------------------------------------
+  // 4. Status logic — per-job, latest-completed-row governed, coarse in public.
+  // -------------------------------------------------------------------------
+  console.log('\n— 4: status judges each job by its own latest completed row —');
   {
     // Start from a clean slate for the workers; supply a fresh daily so it cannot mask the assertions.
     await clearRecentWorkerRows();
@@ -203,12 +375,29 @@ try {
     ok('public per-job entries expose ONLY {ok, required}', Object.values(s.jobs).every(j => Object.keys(j).sort().join(',') === 'ok,required'), JSON.stringify(s.jobs));
     ok('public payload carries no ages, outcomes, durations or summaries (DH-21)', publicShapeOk(s.res), JSON.stringify(s.res.body));
 
-    // A later 'failed' row after a fresh success: success recency governs, so still healthy.
+    // Codex F-03: the LATEST COMPLETED row governs. A 'failed' row after a fresh success flips the
+    // required job unhealthy (it REVERSES the old "success recency governs -> still ok" rule) until a
+    // later 'succeeded' recovers it.
     await hbInsert('refund-worker', 'failed', { extra: { error: 'simulated later failure' } });
     s = await status();
-    ok('recent FAILED row after a fresh success -> refund-worker still ok:true', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === true, JSON.stringify(s.jobs['refund-worker']));
-    ok('overall cron still ok:true', s.cron.ok === true, JSON.stringify(s.cron));
+    ok('recent FAILED row after a fresh success -> refund-worker ok:false (latest completed row governs)', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === false, JSON.stringify(s.jobs['refund-worker']));
+    ok('overall cron ok:false while the latest refund-worker outcome is failed', s.cron.ok === false, JSON.stringify(s.cron));
     ok('last_outcome is NOT leaked publicly (internal only)', !('last_outcome' in (s.jobs['refund-worker'] || {})), JSON.stringify(s.jobs['refund-worker']));
+    ok('public payload stays coarse after a failure', publicShapeOk(s.res) && onlyOkRequired(s.jobs), JSON.stringify(s.res.body));
+
+    await hbInsert('refund-worker', 'succeeded');
+    s = await status();
+    ok('a later SUCCEEDED row recovers -> refund-worker ok:true', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === true, JSON.stringify(s.jobs['refund-worker']));
+    ok('overall cron ok:true again', s.cron.ok === true, JSON.stringify(s.cron));
+
+    // The daily job writes 'started' before its final row: a 'started' row is NOT a completed
+    // outcome and must not flip a fresh success either way.
+    await hbInsert('daily', 'started');
+    s = await status();
+    ok("a 'started' row after a fresh daily success is ignored -> daily still ok:true", s.jobs.daily && s.jobs.daily.ok === true, JSON.stringify(s.jobs.daily));
+    await hbInsert('daily', 'failed', { extra: { partial: true, errors: 2 } });
+    s = await status();
+    ok("a daily 'failed' (partial) row after its success -> daily ok:false", s.jobs.daily && s.jobs.daily.ok === false, JSON.stringify(s.jobs.daily));
 
     // A 'started'/'failed'-only history is NOT a success: an all-failed job is unhealthy.
     await cleanupMarked();
@@ -233,6 +422,7 @@ try {
   await cleanupMarked();
   // rows the real workers wrote during this run are test residue on staging, not telemetry
   await db(`cron_heartbeat?cron_name=${WORKERS}&ran_at=gte.${encodeURIComponent(startIso)}`, { method: 'DELETE' });
+  await teardownLedger();
   spy.restore();
 }
 process.exit(summary('cron heartbeats') ? 0 : 1);

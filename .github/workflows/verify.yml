@@ -76,7 +76,9 @@ defaults:
 env:
   SUPABASE_CLI_VERSION: '2.110.0'
   STAGING_REF_EXPECTED: 'tileejdviuvijumjeplv'
-  PRODUCTION_REF_DENIED: 'ecapmcyumpjjgjwuokyv'
+  # 2026-09-04 (Codex round 2, F-09): current production project. The positive STAGING_REF_EXPECTED
+  # check is the primary guard; this deny value is belt-and-braces and must name the LIVE prod ref.
+  PRODUCTION_REF_DENIED: 'dkgjvsstbgnhcfboqqnd'
   MIN_MANIFEST_LINES: '200'
   # Codex v6: update every explicit count assertion and rerun the clean-build gate rather than
   # falsifying the number or folding the change into an already-applied migration.
@@ -84,7 +86,8 @@ env:
   # so the gate failed on every run of that commit. Round 3 adds 0067_coi_review_atomic_expiry.sql
   # (P0-4), bringing the total to 68. If you add a migration, bump this and rerun the clean-build gate.
   # 2026-09-03 (Codex final-launch remediation, Phase D): 0069_capacity_decrease_guard.sql -> 70.
-  EXPECTED_MIGRATIONS: '70'
+  # 2026-09-04 (Codex round 2): 0070_capacity_serialization + 0071_compliance_tenant_integrity -> 72.
+  EXPECTED_MIGRATIONS: '72'
 
 jobs:
   # --------------------------------------------------------------------------

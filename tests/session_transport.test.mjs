@@ -329,10 +329,16 @@ const SAME_ORIGIN = { 'sec-fetch-site': 'same-origin' };
     ok('route: impersonation sets the retailer cookie',
        impCookies.some(c => c.startsWith(COOKIE.retailer + '=')), JSON.stringify(impCookies));
   } else {
-    // Not reachable in this fixture (owner-shape resolution needs the __owner__ retailer row);
-    // the negative assertion above is the one that matters and it holds either way.
-    ok('route: impersonation without a valid owner session is refused',
-       imp.res.statusCode === 401 || imp.res.statusCode === 404, `— got ${imp.res.statusCode}`);
+    // Codex F-06: the stubbed retailer row carries no allow_support_access consent, so a VALID
+    // owner session is now refused fail-closed with the opaque 403 support_access_disabled.
+    // (401/404 remain the refusals for a missing owner session / unknown retailer.) The negative
+    // assertion above is the one that matters for cookie separation and it holds either way.
+    ok('route: impersonation is refused (no consent, no owner session, or no retailer)',
+       (imp.res.statusCode === 403 && imp.res.body && imp.res.body.error === 'support_access_disabled')
+         || imp.res.statusCode === 401 || imp.res.statusCode === 404,
+       `— got ${imp.res.statusCode} ${JSON.stringify(imp.res.body)}`);
+    ok('route: a refused impersonation sets NO retailer cookie',
+       !impCookies.some(c => c.startsWith(COOKIE.retailer + '=')), JSON.stringify(impCookies));
   }
 }
 

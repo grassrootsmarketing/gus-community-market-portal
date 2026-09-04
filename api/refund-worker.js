@@ -46,8 +46,11 @@ async function sbGet(path) {
 
 // Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
 // as brand-account.js's daily cron ({cron_name, outcome, duration_ms, summary}). The public status
-// route reads the latest 'succeeded' row PER cron_name, so a dead 15-minute worker can no longer hide
-// behind the daily job. Best-effort: a heartbeat failure must never fail (or retry) the job itself.
+// route judges each cron_name by its LATEST completed row: healthy only while that row is a fresh
+// 'succeeded'. Codex F-03: a run is 'succeeded' ONLY when every claimed item succeeded — any per-item
+// error after claim, any fulfilment failure, or any failed operator alert writes 'failed'
+// (summary.partial=true) and returns 500 so Vercel's cron log agrees with the heartbeat.
+// Best-effort: a heartbeat failure must never fail (or retry) the job itself.
 const CRON_NAME = 'refund-worker';
 async function heartbeat(outcome, startMs, summary) {
   try {
@@ -141,10 +144,10 @@ const ALERT_SEND_CAP = 5;
 
 async function drainCaseAlerts(limit) {
   const owner = 'alert-' + Math.random().toString(36).slice(2, 10);
-  const out = { claimed: 0, sent: 0, failed: 0, deferred: 0 };
+  const out = { claimed: 0, sent: 0, failed: 0, deferred: 0, claim_failed: false };
   let rows = [];
   try { rows = await sbRpc('claim_case_alerts', { p_owner: owner, p_lease_seconds: 120, p_limit: limit }); }
-  catch (e) { console.error('claim_case_alerts failed:', (e && e.message) || e); return out; }
+  catch (e) { console.error('claim_case_alerts failed:', (e && e.message) || e); out.claim_failed = true; return out; }
   rows = Array.isArray(rows) ? rows : [];
   const send = rows.slice(0, ALERT_SEND_CAP);
   const defer = rows.slice(ALERT_SEND_CAP);
@@ -182,6 +185,10 @@ export default async function handler(req, res) {
   const startMs = Date.now();
   const owner = 'refund-worker-' + Math.random().toString(36).slice(2, 10);
   const out = { ok: true, claimed: 0, reconciled: 0, resubmitted: 0, adopted: 0, manual: 0, lost_lease: 0, errors: 0 };
+  // F-03: the first per-item / drain error, for the failed heartbeat's summary. Already truncated
+  // and never carries a Stripe key or card data (Stripe error messages are operator-safe prose).
+  let firstError = null;
+  const noteError = (msg) => { if (!firstError) firstError = String(msg || 'unknown_error').slice(0, 200); };
   try {
     const leased = await sbRpc('claim_refund_work', { p_owner: owner, p_lease_seconds: 120, p_limit: BATCH });
     const rows = Array.isArray(leased) ? leased : [];
@@ -189,6 +196,7 @@ export default async function handler(req, res) {
 
     for (const row of rows) {
       let nextStatus = row.status, nextAt = null, err = null;
+      const errorsBefore = out.errors;
       try {
         // enrich: PI + keeps-all off the allocation's group
         const enr = await sbGet(`payment_allocations?id=eq.${encodeURIComponent(row.payment_allocation_id)}&select=payment_groups!inner(stripe_payment_intent_id,platform_keeps_all)`);
@@ -216,18 +224,19 @@ export default async function handler(req, res) {
           }
         }
       } catch (e) { out.errors++; err = String((e && e.message) || e).slice(0, 200); nextAt = backoff(row.attempts); }
+      if (out.errors > errorsBefore) noteError(err);
 
       // R11-P0-4: parking for review is ATOMIC — request + parent operation + one deduped
       // reconciliation case, reservation preserved (Stripe may still hold an unadopted refund).
       if (nextStatus === 'requires_review') {
         try { await sbRpc('park_refund_for_review', { p_request_id: row.id, p_owner: owner, p_reason: err || 'retry_cap_exhausted' }); }
-        catch (_) { out.errors++; }
+        catch (e) { out.errors++; noteError('park: ' + ((e && e.message) || e)); }
       }
       // release the lease (CAS on owner). If we lost it, another worker owns the row now.
       try {
         const held = await sbRpc('release_refund_work', { p_request_id: row.id, p_owner: owner, p_status: nextStatus, p_next_attempt_at: nextAt, p_last_error: err });
         if (held === false || (Array.isArray(held) && held[0] === false)) out.lost_lease++;
-      } catch (_) { out.errors++; }
+      } catch (e) { out.errors++; noteError('release: ' + ((e && e.message) || e)); }
     }
     // R12-P0-2: actually DRAIN the fulfilment outbox. Recovery must never depend on Stripe
     // redelivering a webhook — the webhook marks its event complete, so a row left pending after a
@@ -238,23 +247,43 @@ export default async function handler(req, res) {
       out.fulfillments_processed = f.processed;
       out.fulfillments_completed = f.completed;
       out.fulfillments_failed = f.failed;
+      out.fulfillments_claim_failed = !!f.claim_failed;
+      if (f.claim_failed) noteError('fulfilment: claim_fulfillments failed');
+      else if (f.failed > 0) noteError(`fulfilment: ${f.failed} row(s) failed`);
       const stuck = await sbGet('booking_fulfillments?status=eq.pending&select=booking_id&limit=100');
       out.fulfillments_pending = Array.isArray(stuck) ? stuck.length : 0;
       if (out.fulfillments_pending > 0) console.warn('FULFILLMENT BACKLOG:', out.fulfillments_pending, 'paid booking(s) not fully fulfilled');
-    } catch (e) { out.errors++; console.error('fulfilment drain error:', (e && e.message) || e); }
+    } catch (e) { out.errors++; noteError('fulfilment: ' + ((e && e.message) || e)); console.error('fulfilment drain error:', (e && e.message) || e); }
 
     // R12-P0-5: notify an operator about every open financial exception (deduped per case).
     try {
       const a = await drainCaseAlerts(20);
       out.alerts_claimed = a.claimed; out.alerts_sent = a.sent; out.alerts_failed = a.failed;
-    } catch (e) { out.errors++; console.error('alert drain error:', (e && e.message) || e); }
+      out.alerts_claim_failed = !!a.claim_failed;
+      if (a.claim_failed) noteError('alerts: claim_case_alerts failed');
+      else if (a.failed > 0) noteError(`alerts: ${a.failed} operator alert(s) failed to send`);
+    } catch (e) { out.errors++; noteError('alerts: ' + ((e && e.message) || e)); console.error('alert drain error:', (e && e.message) || e); }
 
-    await heartbeat('succeeded', startMs, out);
-    return res.status(200).json(out);
+    // F-03 run verdict. 'succeeded' means EVERY claimed item succeeded: no per-item error after
+    // claim (Stripe submit/get/list, ledger apply, park, lease release), no fulfilment row failed
+    // and the fulfilment claim itself worked, no operator alert failed to send and the alert claim
+    // worked. Anything else is a partial failure: a SEPARATE 'failed' row (summary.partial=true,
+    // counts + first error) and a 500 so Vercel's cron log records the run as failed. Parked
+    // (requires_review) and lost-lease rows are designed outcomes, not run failures.
+    const fulfilmentFailed = (out.fulfillments_failed || 0) > 0 || out.fulfillments_claim_failed === true;
+    const alertsFailed = (out.alerts_failed || 0) > 0 || out.alerts_claim_failed === true;
+    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed;
+    if (runOk) {
+      await heartbeat('succeeded', startMs, out);
+      return res.status(200).json(out);
+    }
+    out.ok = false;
+    await heartbeat('failed', startMs, { ...out, partial: true, first_error: firstError });
+    return res.status(500).json({ ...out, error: 'partial_failure', first_error: firstError });
   } catch (e) {
     console.error('refund-worker error:', (e && e.message) || e);
     // A SEPARATE 'failed' row — never a rewrite of the last success. The status route keys health off
-    // success recency, and surfaces this as last_outcome.
+    // the latest completed row, so this flips the job unhealthy until a later clean run recovers it.
     await heartbeat('failed', startMs, { ...out, ok: false, error: String((e && e.message) || e).slice(0, 500) });
     return res.status(500).json({ ok: false, error: 'worker_error' });
   }

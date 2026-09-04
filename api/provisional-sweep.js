@@ -35,9 +35,11 @@ async function sb(path, opts = {}) {
 }
 
 // Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
-// as brand-account.js's daily cron. The public status route reads the latest 'succeeded' row PER
-// cron_name (only when provisional holds are enabled — an intentionally-off feature must not degrade
-// production). Best-effort: a heartbeat failure must never fail the sweep itself.
+// as brand-account.js's daily cron. The public status route judges each cron_name by its latest
+// completed row (only when provisional holds are enabled — an intentionally-off feature must not
+// degrade production). Codex F-03: 'succeeded' only when every due booking was handled without error;
+// any per-booking release/expiry error writes 'failed' (summary.partial=true) and returns 500.
+// Best-effort: a heartbeat failure must never fail the sweep itself.
 const CRON_NAME = 'provisional-sweep';
 async function heartbeat(outcome, startMs, summary) {
   try {
@@ -58,6 +60,8 @@ export default async function handler(req, res) {
 
   const startMs = Date.now();
   const out = { ok: true, scanned: 0, released: 0, expired_unpaid: 0, skipped_covered: 0, skipped_in_checkout: 0, errors: 0 };
+  let firstError = null;   // F-03: first per-booking error for the failed heartbeat (truncated, no PII)
+  const noteError = (msg) => { if (!firstError) firstError = String(msg || 'unknown_error').slice(0, 200); };
   try {
     const now = new Date().toISOString();
     const due = await sb(`bookings?status=eq.held&held_expires_at=lt.${encodeURIComponent(now)}&select=id,status,payment_status,payment_intent_id,brand_id,demo_date,contact_email&order=held_expires_at.asc&limit=${BATCH}`) || [];
@@ -80,7 +84,7 @@ export default async function handler(req, res) {
           // NOT an expiry and NOT an error; the booking is correctly paid, so just record and move on.
           if (r.ok && r.was_captured) { out.captured_at_expiry = (out.captured_at_expiry || 0) + 1; }
           else if (r.ok) out.released++;
-          else { out.errors++; console.warn('sweep release failed for', b.id, r.error); }
+          else { out.errors++; noteError('release: ' + (r.error || 'failed')); console.warn('sweep release failed for', b.id, r.error); }
           continue;
         }
 
@@ -97,12 +101,21 @@ export default async function handler(req, res) {
         out.expired_unpaid++;
       } catch (e) {
         out.errors++;
+        noteError((e && e.message) || e);
         console.error('sweep error for booking', b.id, (e && e.message) || e);
       }
     }
     console.log('provisional-sweep:', JSON.stringify(out));
-    await heartbeat('succeeded', startMs, out);
-    return res.status(200).json(out);
+    // F-03 run verdict: 'succeeded' iff out.errors === 0 (no per-booking release/expiry error).
+    // Otherwise a SEPARATE 'failed' row with summary.partial=true and a 500 — the bookings that
+    // errored are still 'held' and the next tick retries them, but this run was not clean.
+    if (out.errors === 0) {
+      await heartbeat('succeeded', startMs, out);
+      return res.status(200).json(out);
+    }
+    out.ok = false;
+    await heartbeat('failed', startMs, { ...out, partial: true, first_error: firstError });
+    return res.status(500).json({ ...out, error: 'partial_failure', first_error: firstError });
   } catch (e) {
     console.error('provisional-sweep failed:', (e && e.message) || e);
     // A SEPARATE 'failed' row — never a rewrite of the last success (rows are append-only).

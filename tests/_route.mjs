@@ -68,14 +68,27 @@ export function installSpy() {
   const real = globalThis.fetch;
   const calls = { stripe: [], resend: [], supabase: 0, other: [] };
   const fixtures = { paymentIntents: {}, checkoutSessions: {} };
-  // Test-only fault injection on the REAL staging passthrough. A test can force a specific Supabase
-  // request (matched by url substring + optional method) to fail, so failure/reconciliation paths are
-  // exercised deterministically WITHOUT any production code seam. Never touched by production.
+  // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
+  // can force a specific request (matched by url substring + optional method) to fail, so
+  // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
+  // `once: true` fires for the first matching request only (one bad item among good ones). The
+  // response carries both PostgREST's {message} and Stripe's {error:{message}} shapes. Never touched
+  // by production.
   const faults = [];
+  const matchFault = (u, opts) => {
+    const i = faults.findIndex(f => u.includes(f.url) && (!f.method || String(opts.method || 'GET').toUpperCase() === f.method));
+    if (i < 0) return null;
+    const fault = faults[i];
+    if (fault.once) faults.splice(i, 1);
+    const body = { message: fault.message || 'injected_fault', error: { message: fault.message || 'injected_fault', type: 'injected_fault' } };
+    return { ok: false, status: fault.status || 500, json: async () => body, text: async () => JSON.stringify(body) };
+  };
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('api.stripe.com')) {
       calls.stripe.push({ url: u, method: (opts.method || 'GET'), body: String(opts.body || '').slice(0, 300) });
+      const fault = matchFault(u, opts);
+      if (fault) return fault;
       // Shapes the handlers actually consume.
       // TEST-CONTROLLED FIXTURES — Codex v6.
       // The previous spy returned an invented shape for every Stripe GET, which is fine for
@@ -98,7 +111,9 @@ export function installSpy() {
       if (u.includes('/checkout/sessions')) {
         return jsonRes({ id: 'cs_test_' + Math.random().toString(36).slice(2, 10), url: 'https://checkout.stripe.test/x' });
       }
-      if (u.includes('/refunds')) return jsonRes({ id: 're_test_' + Math.random().toString(36).slice(2, 10), amount: 3000, status: 'succeeded' });
+      // Real Stripe refunds always carry a currency; the worker forwards it to apply_refund_event,
+      // and PostgREST refuses an RPC call with a missing argument.
+      if (u.includes('/refunds')) return jsonRes({ id: 're_test_' + Math.random().toString(36).slice(2, 10), amount: 3000, currency: 'usd', status: 'succeeded' });
       return jsonRes({ id: 'obj_test', object: 'unknown' });
     }
     if (u.includes('api.resend.com')) {
@@ -108,8 +123,8 @@ export function installSpy() {
     }
     if (u.includes(SB_REF)) {
       calls.supabase++;
-      const fault = faults.find(f => u.includes(f.url) && (!f.method || String(opts.method || 'GET').toUpperCase() === f.method));
-      if (fault) return { ok: false, status: fault.status || 500, json: async () => ({ message: fault.message || 'injected_fault' }), text: async () => JSON.stringify({ message: fault.message || 'injected_fault' }) };
+      const fault = matchFault(u, opts);
+      if (fault) return fault;
       return real(url, opts);
     }
     calls.other.push(u.slice(0, 120));
