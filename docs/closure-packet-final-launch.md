@@ -40,8 +40,8 @@ Containment held throughout: public retailer signup OFF (403), provisional holds
 
 ## 3. Migrations added and clean application
 
-- `0070_capacity_serialization.sql` and `0071_compliance_tenant_integrity.sql` (forward-only; 0066/0069 untouched). Total 72 files.
-- Applied to demohub-rebuild-check via SQL editor 2026-09-04 (both "Success"); verified over a direct Postgres connection: `enforce_slot_capacity` source contains `FOR SHARE`; `compliance_tenant_anomalies()` exists and returns 0 rows.
+- `0070_capacity_serialization.sql` and `0071_compliance_tenant_integrity.sql` (forward-only; 0066/0069 untouched). Total: **72 SQL migrations** (`0000`–`0071`) plus one `README.md` in the same folder, which is not a migration (73 files on disk).
+- Applied to demohub-rebuild-check via SQL editor 2026-09-04 (operator-attested "Success"); independently verified over a direct Postgres connection: `enforce_slot_capacity` source contains `FOR SHARE`; `compliance_tenant_anomalies()` exists and returns 0 rows.
 - Clean apply from zero, twice: CI job **clean build A/B (staging)** success on `fdc87df` (run 33848469130; 0000→0071 applied to a reset demohub-rebuild-check twice, manifest count 72).
 - Production apply: 0070 then 0071 in demohub-prod SQL editor (both "Success. No rows returned"); verified: `compliance_tenant_anomalies()` → 200 `[]`; CHECK probe `PATCH venues Sunset max_demos_per_slot=0` → 400 `23514 venues_max_demos_per_slot_min`, row unchanged at 1; `capacity_invariant_violations(p_future_only:=false)` → `[]`.
 
@@ -125,7 +125,7 @@ Evidence file: `tests/evidence/stripe-testmode-grouped-2026-09-04.md` (+ `-check
 | Refund child B | `re_3UBq1gJ9aYEf28il1D1fj1or` = 900; Stripe refunds total **1600 = capture**; charge `refunded=true, amount_refunded=1600`; group `refunded`; both allocations fully refunded; two `refund_requests` `succeeded`, each bound to its own `re_` |
 | Over-refund refused | cancel B again → 409; decline A → 409 (no Stripe call); direct `refund_reserve_cas` → `nothing_refundable`; direct 1-cent `POST /v1/refunds` → Stripe `charge_already_refunded`; 0 `reconciliation_cases` |
 
-## 9. GitHub Actions — final SHA `85ec2b1`
+## 9. GitHub Actions — final SHA `fdc87df` (`fdc87df5f628628cc5793d24b7001f7b9c8d044b`; the run API reports this as `headSha`)
 
 Run: https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/33848469130 (`workflow_dispatch`, `clean_build=true`, `staging_gate=true`)
 
@@ -151,7 +151,7 @@ Local on the same tree: `npm run check` ✓ (72 migrations; 46 api modules; no-u
 | Environment bindings | reads below hit `dkgjvsstbgnhcfboqqnd`; status route reports the prod heartbeat table; CI deny list names this ref |
 | Migrations | 0070 + 0071 applied and verified (§3) |
 | Containment | `POST /api/retailer-signup` → **403**; holds OFF (`provisional-sweep required:false`); venues all cap **1** (10 venues); `retailer_admins role=viewer` → **0**; active holds → **0**; retailers: `gus`, `__owner__`, `harvest-lane-demo` only (no second live retailer) |
-| Anonymous probes | `/api/admin?action=data` 401 · `/api/brand-account?action=data` 401 · `/api/refund-worker` 401 · `/api/provisional-sweep` 401 |
+| Anonymous probes | Requests sent with **no session cookie and no `Origin` header** (plain `curl`): `/api/admin?action=data` 401 · `/api/brand-account?action=data` 401 · `/api/refund-worker` 401 · `/api/provisional-sweep` 401. A cross-origin request (foreign `Origin`) is refused earlier with 403 `cross_origin_denied`; both paths fail closed. |
 | Capacity invariant | `capacity_invariant_violations()` → `[]` (future and full history) |
 | Compliance tenant invariant | `compliance_tenant_anomalies()` → `[]` |
 | Support access (Gus) | `allow_support_access=false`, `support_access_expires_at=null` → impersonation is 403 by construction (F-06) |
