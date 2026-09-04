@@ -85,7 +85,27 @@ let seedN = 0; const DAY0 = Math.floor(Math.random() * 280); const MIN0 = Math.f
 function uniqueSlot() { const d = new Date(Date.UTC(2026, 11, 1)); d.setUTCDate(d.getUTCDate() + DAY0 + seedN); seedN++; return d.toISOString().slice(0, 10); }
 function uniqueTime() { return `${8 + (seedN % 10)}:${String((MIN0 + seedN) % 60).padStart(2, '0')}`; }
 
+// The pinned fixtures are created by tests/_seed_ledger_fixtures.mjs (idempotent upsert on primary key).
+// In CI the clean build resets the database and test:routes runs BEFORE test:ledger, so on a fresh
+// database they do not exist yet — seed them here rather than depend on suite ordering.
+// Captured at import time: callRoute() swaps process.env for the harness ENV, so a child spawned later
+// must be handed the real database credentials explicitly.
+const SEED_ENV = { PATH: process.env.PATH, SB_URL: process.env.SB_URL, SB_KEY: process.env.SB_KEY, SB_REF: process.env.SB_REF };
+let fixturesEnsured = false;
+async function ensureLedgerFixtures() {
+  if (fixturesEnsured) return;
+  fixturesEnsured = true;
+  const r = await db(`retailers?id=eq.${FX.RETAILER}&select=id`);
+  if (r.ok && Array.isArray(r.body) && r.body.length) return;
+  const seed = fileURLToPath(new URL('./_seed_ledger_fixtures.mjs', import.meta.url));
+  const res = spawnSync(process.execPath, [seed], { encoding: 'utf8', env: SEED_ENV });
+  if (res.status !== 0) throw new Error(`ledger fixture seed failed (exit ${res.status}): ${String(res.stderr || res.stdout || '').slice(-400)}`);
+  const again = await db(`retailers?id=eq.${FX.RETAILER}&select=id`);
+  if (!(again.ok && Array.isArray(again.body) && again.body.length)) throw new Error('ledger fixtures still missing after seeding');
+}
+
 async function seedBooking(fields) {
+  await ensureLedgerFixtures();
   const r = await db('bookings', { method: 'POST', body: JSON.stringify({
     retailer_id: FX.RETAILER, venue_id: FX.VENUE, brand_id: FX.BRAND, brand_name: 'Heartbeat ' + MARK,
     contact_name: 'Heartbeat Tester', contact_email: `${MARK}@fixture.test`,
