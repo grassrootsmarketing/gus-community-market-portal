@@ -1,8 +1,9 @@
-# Demohub — Final Launch Remediation: Consolidated Closure Packet
+# Demohub — Final Launch Remediation: Consolidated Closure Packet (Round 2)
 
-**Work order:** Codex "Final Launch Remediation Work Order for Claude Code" (starting prod build `bfba11e`)
-**Prepared:** 2026-09-03 · **Branch:** `remediation/final-launch` → merged fast-forward into `main`
-**Recommendation:** **GO — CLOSED GUS PILOT** (see §13)
+**Responds to:** Codex "Independent Review of closurepacketfinallaunch.md" (2026-09-03) and its mandatory fix order (Tasks 0–7, findings F-01…F-10).
+**Supersedes:** the 2026-09-03 packet (RC `4592ed3`, GO), whose capacity/payment gate Codex correctly downgraded.
+**Prepared:** 2026-09-04 · **Branch:** `fix/codex-round2`
+**Recommendation:** **GO — CLOSED GUS PILOT** (§12)
 
 ---
 
@@ -10,195 +11,182 @@
 
 | Item | Value |
 |---|---|
-| Final commit SHA (RC, deployed) | `4592ed33a74b64331984b9aa44f7ac827f6c91d3` |
-| Branch | `remediation/final-launch` (pushed); `main` fast-forwarded `bfba11e → 4592ed3` and pushed 2026-09-03 ~08:30Z |
-| Starting `origin/main` | `bfba11ea9e55d6a758d38bb813571378e85d4e6b` |
-| Production build before | `bfba11e` (`/api/version` 2026-09-03T07:22Z) |
-| Production build after | **`4592ed3`** (`/api/version` 2026-09-03T08:32:27Z; re-read 08:53:29Z) |
-| Staging DB | `tileejdviuvijumjeplv` — migrations 0000–0069 (0068 + 0069 applied 2026-09-03 via SQL editor) |
-| Production DB | `dkgjvsstbgnhcfboqqnd` — migrations 0000–0069 (0069 applied 2026-09-03 ~08:20Z via SQL editor; verified by `capacity_invariant_violations()` 200) |
-| Working tree at RC | clean (`git status --porcelain` → 0 lines) |
-| Retired project | `ecapmcyumpjjgjwuokyv` ("Demohub") — not used by any binding |
+| Baseline at Task 0 | `origin/main` = local `main` = `84f4551c8271d6bc88b5e49d60a7c4801d36b175`, tree clean; prod `/api/version` build `84f4551`, status `operational`; migrations 0000–0069 (70 files) |
+| Final commit SHA (RC) | **`fdc87df5f628628cc5793d24b7001f7b9c8d044b`** |
+| Branch | `fix/codex-round2` → `main` fast-forwarded `84f4551 → fdc87df` and pushed 2026-09-04 08:22Z. `origin/main` = production build = `fdc87df`; this packet lives on `docs/closure-round2` so `main` stays byte-identical to production. |
+| Commits on top of `84f4551` | `ef5e177` round-2 fixes · `4253585` S1 test choreography · `1d08033` Stripe test-mode e2e + evidence · `5ffc140` cron_heartbeats self-seeds ledger fixtures · `85ec2b1` CI passes STAGING_DB_URL to the staging gate · `fdc87df` S1/S2 wait-state diagnostics poll instead of single sample |
+| Working tree at RC | clean (`git status --porcelain` → 0) |
+| Test database | Supabase project **demohub-rebuild-check** (`tileejdviuvijumjeplv`), migrations 0000–0071 applied |
+| Production database | Supabase project **demohub-prod** (`dkgjvsstbgnhcfboqqnd`), migrations 0000–0071 applied (0070 + 0071 via SQL editor 2026-09-04 ~08:15Z, verified §10) |
+| Production build after deploy | **`fdc87df`** — `/api/version` 2026-09-04T08:23:37Z (first) and 08:24:08Z |
+| Environment bindings | `api/_binding.js` target check: preview/test binds only `tileejdviuvijumjeplv`; production binds `dkgjvsstbgnhcfboqqnd`; CI positive allowlist `STAGING_REF_EXPECTED=tileejdviuvijumjeplv`, deny `PRODUCTION_REF_DENIED=dkgjvsstbgnhcfboqqnd` |
 
-Commits on top of `bfba11e`:
-- `2da0089` — Final-launch remediation: close COI oracle, enforce viewer scope, guard capacity decreases, per-job cron heartbeats
-- `4592ed3` — ci: EXPECTED_MIGRATIONS 69 → 70 for 0069 (workflow count assertion only; no application code)
+Containment held throughout: public retailer signup OFF (403), provisional holds OFF, Gus venues cap 1, no viewer accounts, no second retailer, no pricing change, no payment-grouping redesign, no Supabase rebuild.
 
-## 2. Diff summary and migrations added
+## 2. Root cause and exact files/lines (F-01 … F-09)
 
-```
- .github/workflows/verify.yml                         |   3 +-
- api/admin-auth.js                                    |   6 +-
- api/admin.js                                         |  75 +++++--
- api/find-retailer.js                                 |  69 +++++-
- api/provisional-sweep.js                             |  20 ++
- api/refund-worker.js                                 |  21 ++
- package.json                                         |   5 +-
- supabase/migrations/0069_capacity_decrease_guard.sql | 107 +++++++++  (NEW)
- tests/capacity_guard.test.mjs                        | 216 ++++++  (NEW)
- tests/cron_heartbeats.test.mjs                       | 238 ++++++  (NEW)
- tests/isolation_matrix.test.mjs                      | 243 ++++++  (NEW)
- 11 files changed, 970 insertions(+), 33 deletions(-)
-```
-
-Migrations added: **0069_capacity_decrease_guard.sql** only. No already-applied migration was edited; history remains forward-only (0000…0069). Applied from zero in CI clean build A/B (§7).
-
-## 3. Root cause, implementation, files/lines
-
-### Phase B — Cross-retailer COI oracle (`api/admin.js`)
-- **Root cause.** The table proxy let a retailer write `brand_id` on `brand_contacts` (a relationship field), and `action=data` enriched every brand contact with the brand's `coi_status`/`coi_expires` by matching on planted `brand_id` **or** email. A retailer could plant any brand's UUID or email and read that brand's COI state with no relationship: an existence + status oracle across tenants.
-- **Fix.** `brand_id` added to `SERVER_OWNED_FIELDS` (line 72) and stripped on every write (line 501); per-table `CLIENT_WRITABLE_FIELDS` allowlists (line 85, enforced line 509) drop unknown columns; enrichment restricted to brands with a booking **at this retailer** (`provenBrandIds`, lines 321–322). The email fallback is gone.
-- **Old vs new** (same test file, staging): pre-fix **13 failures** (planted `brand_id` persisted; stranger brand returned `coi_status: approved`; viewer received full payload); post-fix **45/45**.
-
-### Phase C — Viewer scope enforced on the server (`api/admin.js`, `api/admin-auth.js`)
-- **Root cause.** Viewer scoping was a client-side filter. `action=data` returned the retailer's full payload (all venues/bookings, brand contacts with PII, staff roster, compliance records incl. document numbers, `cal_feed_key`, billing fields) to any viewer; `team-list` and `agreement-retailer-list` answered 200 to viewers.
-- **Fix.** `callerIsViewer` (line 274) + `viewerVenueIds`; viewer branch of `action=data` (line 337) returns only scoped venues/demos/bookings via field pickers, empty `brand_contacts` / `internal_contacts` / `compliance`, settings limited to `demo_duration` / `advance_booking_days`. `admin-auth.js` lines 487 and 494: both list actions require role in owner/admin/manager → 403 for viewers. Admin UI already tolerates the 403 (calls are wrapped in try/catch).
-
-### Phase D — Capacity decrease guard (`supabase/migrations/0069_capacity_decrease_guard.sql`)
-- **Root cause.** `venues.max_demos_per_slot` could be lowered below the number of active reservations already on a future slot (0047/0066 only guard inserts/moves), leaving over-capacity slots that could capture concurrently.
-- **Fix.** `guard_capacity_decrease()` BEFORE UPDATE OF `max_demos_per_slot`: on a decrease, for every future slot with active bookings take the **same** per-slot advisory lock (`hashtextextended(venue|date|time, 0)`) and the **same** active predicate (status not in cancelled/declined/expired/auth_canceled) as 0047/0066, re-count under the lock, raise `check_violation` if count > new cap (UPDATE aborted). Past slots deliberately excluded. `capacity_invariant_violations(p_venue_id, p_future_only)` read-only audit, `service_role` only.
-
-### Phase E — Per-job cron observability (`api/refund-worker.js`, `api/provisional-sweep.js`, `api/find-retailer.js`)
-- **Root cause (code).** Only the daily job wrote heartbeats and the status route read the single most-recent row of *any* job (< 25 h = healthy), so a dead 15-minute refund worker was masked.
-- **Root cause (operations, discovered during this order).** **Vercel Cron Jobs were disabled at the project level in production** (toggle "Disabled"). `cron_heartbeat` was empty since project creation and public status already read `degraded`. **Enabled by David 2026-09-03 ~08:20Z.**
-- **Fix.** `heartbeat()` in refund-worker (line 52) and provisional-sweep (line 42) writes `succeeded` / `failed` rows per run (failure path included). `CRON_JOBS` (find-retailer line 19) + `cronJobHealth()` (line 27) judge each job by its own latest `succeeded` row: `refund-worker` < 35 min (always required), `provisional-sweep` < 35 min (required only while `FLAGS.provisionalHolds`), `daily` < 25 h. Unreadable heartbeat table ⇒ required jobs unhealthy. Public payload exposes only `{ok, required}` per job (DH-21).
-
-## 4. Automated tests — names and unedited totals (RC tree, staging DB `tileejdviuvijumjeplv`, 2026-09-03)
-
-| Suite | Command | Result |
+| Finding | Root cause | Fix (file:line) |
 |---|---|---|
-| Static/project check | `npm run check` | migrations ✓ · 46 api modules import (0 network) · no-undef 79 files ✓ · binding ✓ |
-| Offline unit suite | `npm test` | all suites 0 failed (incl. admin table guard 14/14, provisional resolution 10/10) |
-| Column/schema contract (staging binding) | `npm run check:columns` | ✓ migration-chain columns · ✓ JS-referenced columns |
-| Isolation matrix (Phase B+C) | `node tests/isolation_matrix.test.mjs` | **45 passed, 0 failed** (pre-fix code: 32 passed, **13 failed**) |
-| Cron heartbeats (Phase E) | `node tests/cron_heartbeats.test.mjs` | **41 passed, 0 failed** (incl. holds-ON child 9/9) |
-| Capacity guard (Phase D) | `node tests/capacity_guard.test.mjs` | **32 passed, 0 failed** |
-| Route flows | `node tests/route_flows.test.mjs` | **182 passed, 0 failed** |
-| Live entitlements / live flows | `npm run test:live` | **11/11**, **21/21** |
-| Ledger fixtures / payment ledger adversarial / provisional holds adversarial | `npm run test:ledger` (with `LEDGER_TARGET_REF`, `ALLOW_STAGING_LEDGER_TESTS=yes`) | **12/12**, **62/62**, **28/28** |
+| **F-01** capacity decrease not serialized against inserts | `enforce_slot_capacity()` / `_on_move()` (0066) read `max_demos_per_slot` into a local **before** taking the per-slot advisory lock; a waiting insert kept a stale cap, and 0069's guard locked only slots that already had bookings (an empty slot took no lock). | `supabase/migrations/0070_capacity_serialization.sql`: both triggers `SELECT max_demos_per_slot … FOR SHARE` on the venue row first, then the identical advisory lock, then the identical canonical count. A cap UPDATE needs the row's exclusive lock, so it waits for every in-flight insert and re-counts (0069), and later inserts wait for the decrease and read the new cap. Move trigger now also fires `BEFORE UPDATE OF … status` and rechecks when an excluded status is **reactivated** (counting `id <> NEW.id`). `CHECK (max_demos_per_slot >= 1)` (`venues_max_demos_per_slot_min`), column stays NOT NULL. Post-condition DO block asserts all of it. |
+| **F-02** cross-retailer compliance relationship injection | `CLIENT_WRITABLE_FIELDS` had no `compliance_records` entry; the single-column FK proved only existence; `fetchComplianceCoi()` read compliance records globally by email; the daily warning looked up contacts by id only. | `supabase/migrations/0071_compliance_tenant_integrity.sql`: `UNIQUE brand_contacts(id, retailer_id)`; composite FK `compliance_records(brand_contact_id, retailer_id) → brand_contacts(id, retailer_id)` (NOT VALID → VALIDATE; anomalies would abort, none existed); old FK `compliance_records_brand_contact_id_fkey` dropped (avoids PGRST201 embed ambiguity); `compliance_tenant_anomalies()` audit (service_role). `api/admin.js:95` allowlist; `:510` uniform 400 `invalid_brand_contact_id`; `:518` uniform 404 `not_found` when the contact is not the session retailer's (foreign and nonexistent indistinguishable); `:525` `file_url` http(s)-only; warn-cursor fields server-owned. `api/coi-enforcement.js:123` `fetchComplianceCoi(brandEmail, retailerId)` filters `retailer_id=eq.<booking.retailer_id>`, caller `:202`. `api/brand-account.js:1804` daily lookup requires both id and `rec.retailer_id`. |
+| **F-03** workers report `succeeded` with per-item failures | Per-item errors incremented `out.errors` then an unconditional `succeeded` heartbeat; status treated a later `failed` as healthy. | `api/refund-worker.js:275` `runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed` (claim failures surfaced by `api/_fulfillment.js`); `api/provisional-sweep.js:112` `out.errors === 0`; `api/brand-account.js:1964` daily `cronOk = errors.length === 0`; all write `failed` (+`summary.partial`, redacted `first_error`) and return **500** otherwise. `api/find-retailer.js:39–49` health = latest **completed** row is `succeeded` AND fresh (35 min / 25 h); `started` rows ignored; public payload still `{ok, required}`. |
+| **F-04** prod SHA ≠ fully gated SHA | Two presentation-only commits after the gated run. | This packet freezes **one** SHA `fdc87df`, runs the full manual gate on it (§9), deploys exactly it (§10). No commit after validation. |
+| **F-05** refund proof had no sibling | Only one prod booking existed; ledger tests used synthetic Stripe ids. | Real Stripe **test-mode** grouped two-demo journey (§8): one PaymentIntent for two children, partial refund of A only, sibling B intact, replays idempotent, B refunded, over-refund refused everywhere. |
+| **F-06** support-access toggle not enforced | `owner-impersonate` ignored `allow_support_access` / `support_access_expires_at`; audit insert best-effort. | `api/admin-auth.js:91` `supportAccessExpiryMs()` (null unless `allow_support_access === true` and expiry parses to the future); `:101` `impersonationWindow()` = min(4 h, consent expiry) for both DB `expires_at` and cookie Max-Age; `:1411` 403 `support_access_disabled` (same body for OFF/missing/invalid/expired); `:1447` fail-closed audit: `support_sessions` insert failure deletes the new `admin_sessions` row → 500 `audit_unavailable`, no cookie. UI copy (`r/gus/admin/index.html` ~6463) already matched. |
+| **F-07** status page reads removed fields | Page consumed `db.ms`, `cron.hours_since/outcome`, `errors.last_24h`. | `status/index.html:211` `renderStatusModel()` (pure; only `checks.db.ok`, `checks.cron.ok`, `checks.cron.jobs[*].{ok,required}`, `checks.errors.ok`, incidents, `checked_at`) and `:273` `renderStatusRows()` (createElement/textContent only). `required:false` renders neutral, never red. |
+| **F-08** UI offered "0 = No limit" (null) | Column NOT NULL; triggers treat NULL cap as "not your venue". | `r/gus/admin/index.html:3376` `parseCapacityInput()` — whole number ≥ 1 only; editor `<input type=number min=1 step=1>`, single-venue save, apply-to-all, CSV import (per-row rejection, import disabled) all reject 0/negative/blank/decimal with a visible message; never sends null. |
+| **F-09** stale CI deny ref | `PRODUCTION_REF_DENIED` named the retired project. | `.github/workflows/verify.yml:81` → `dkgjvsstbgnhcfboqqnd`; `:90` `EXPECTED_MIGRATIONS: '72'`. Positive `STAGING_REF_EXPECTED` remains primary. |
+| F-10 (acknowledged) | CSP `unsafe-inline`/`unsafe-eval`; ESLint-chain audit advisories. | Unchanged; tracked in §11. |
 
-The same totals were reproduced by CI staging pass 1 and pass 2 on `4592ed3` (§8).
+## 3. Migrations added and clean application
 
-**Production-dependency audit** (`npm audit`, final lockfile): 2 high — `brace-expansion@1.1.17` (path: eslint → minimatch) and `js-yaml@4.3.0` (path: eslint → @eslint/eslintrc). Both reachable **only** through `eslint`, a devDependency. `npm ls --omit=dev --all` = `pg@8.22.0` + transitive deps, **0 findings**. Classification: development tooling, not production runtime.
+- `0070_capacity_serialization.sql` and `0071_compliance_tenant_integrity.sql` (forward-only; 0066/0069 untouched). Total 72 files.
+- Applied to demohub-rebuild-check via SQL editor 2026-09-04 (both "Success"); verified over a direct Postgres connection: `enforce_slot_capacity` source contains `FOR SHARE`; `compliance_tenant_anomalies()` exists and returns 0 rows.
+- Clean apply from zero, twice: CI job **clean build A/B (staging)** success on `fdc87df` (run 33848469130; 0000→0071 applied to a reset demohub-rebuild-check twice, manifest count 72).
+- Production apply: 0070 then 0071 in demohub-prod SQL editor (both "Success. No rows returned"); verified: `compliance_tenant_anomalies()` → 200 `[]`; CHECK probe `PATCH venues Sunset max_demos_per_slot=0` → 400 `23514 venues_max_demos_per_slot_min`, row unchanged at 1; `capacity_invariant_violations(p_future_only:=false)` → `[]`.
 
-## 5. Authorization matrix (HTTP response level, `tests/isolation_matrix.test.mjs`)
+## 4. Deterministic capacity transcript (`tests/capacity_serialization.test.mjs`, direct `pg` connections, demohub-rebuild-check, RC tree)
 
-Fixtures: Retailer A (venues A1, A2; owner; viewer-A1 scoped to A1; viewer-A2 scoped to A2), Retailer B (venue B1; owner). Brands: brandA (booked at A1, held), brandB (probe target, no relationship), brandX (stranger).
+```
+— PREFLIGHT: migration 0070 is applied —
+  ok   0070 applied: FOR SHARE in both booking triggers, reactivation re-check, move trigger fires on status, CHECK validated
+  ok   S1: both inserts are parked on the slot advisory lock (FOR SHARE already taken)
+  ok   S1: the cap decrease does NOT complete while inserts hold FOR SHARE on the venue row (blocked >= 1500ms)
+  ok   S1: pg_stat_activity shows the decrease waiting on a Lock
+  ok   S1: first insert to win the slot lock succeeds under cap 2 (the cap it read under FOR SHARE is still 2)
+  ok   S1: decrease is STILL blocked while both insert transactions are open
+  ok   S1: second insert then succeeds under cap 2 (count 1 < cap 2; still the pre-decrease cap)
+  ok   S1: decrease is STILL blocked while the second insert is open (its FOR SHARE alone holds it)
+  ok   S1: once the inserts commit, the decrease FAILS with capacity_below_active_reservations
+  ok   S1: final state is cap 2 / active 2 — never cap 1 / active 2
+  ok   S1: capacity_invariant_violations() returns zero rows
+  ok   S2: the insert does NOT complete while the decrease holds the venue row (blocked >= 1000ms)
+  ok   S2: pg_stat_activity shows the insert waiting on a Lock (FOR SHARE vs the UPDATE)
+  ok   S2: after the decrease commits, the waiting insert is admitted (reads cap 1, count 0)
+  ok   S2: a second insert is refused with slot_full under the new cap
+  ok   S2: final state is cap 1 / active 1
+  ok   S3: cancelled -> pending on a full slot is refused with slot_full
+  ok   S3: cancelled -> confirmed on a full slot is refused with slot_full
+  ok   S3: reactivation succeeds once the slot has room; reviving the other booking is then refused
+— SCENARIO 4 (stress): 100 x { 3 concurrent inserts + 1 concurrent decrease } —
+  stress: 100 runs, 0 violations
+  ok   S4: active_count <= cap after every run (100 runs); invariant empty after every run; no deadlocks; every failure is a 23514 business refusal
+  ok   S5: cap 0 refused (23514 venues_max_demos_per_slot_min); negative refused; NULL refused (23502); insert with cap 0 refused
+  ok   teardown: bookings / 104 fixture venues / 5 fixture retailers all gone
+capacity serialization: 38 passed, 0 failed
+```
 
-| Actor → target | Result |
+Note on the first run (32/36): the four S1 failures were test choreography (the harness awaited both insert statements while the first still held the transaction-scoped slot lock, and Postgres may grant a released advisory lock to either waiter). Fixed in `4253585` (commit whichever insert wins first); the database behavior was already correct in every scenario. `tests/capacity_guard.test.mjs` (REST) 35/35 incl. new S7 (cancelled → pending into a full slot refused).
+
+## 5. Compliance cross-tenant matrix (`tests/compliance_tenant.test.mjs`, 35/35)
+
+| Case | Result |
 |---|---|
-| Owner A POST brand_contact with foreign `brand_id` | 2xx, stored row has **no** `brand_id`, pinned to A |
-| Owner A PATCH `retailer_id` / `brand_id` on own row | ignored; allowed field applied |
-| Owner A POST with foreign `retailer_id` | 403 |
-| Owner A `action=data`: contacts planted with brandB email (exact/upper/spaces/alias/dup/nonexistent) | **no** `coi_status` / `coi_expires` on any; key set identical to nonexistent-email probe |
-| Owner A: brand that booked at A (held) | enriched (relationship server-proven) |
-| Owner A: stranger brandX contact | not enriched |
-| Viewer A1 `action=data` | 200; venues = {A1}; bookings only A1; brand_contacts / internal_contacts / compliance empty; no doc identifiers, `cal_feed_key`, billing, or contact PII; settings minimal |
-| Viewer A2 `action=data` | venues = {A2}; no A1 booking |
-| Viewer `team-list` / `agreement-retailer-list` | **403**, no roster / no brand emails |
-| Viewer PATCH by guessed id | 403 |
-| Owner A PATCH/DELETE Retailer-B row by guessed id | 403, row untouched |
-| Owner A / Owner B full reads | own venues + collections intact; nothing of the other |
+| Retailer A POST compliance record with Retailer B's contact id | 404 `not_found` |
+| Retailer A POST with a nonexistent contact id | 404 `not_found` — **identical** status and body |
+| Malformed contact ids (several shapes) | 400 `invalid_brand_contact_id`, identical for all; never reaches Postgres |
+| Retailer A POST with own contact | 201, pinned to A, linked to A's contact |
+| Client-supplied `coi_warn_30_sent_at`, `created_at`, `id` | ignored (server-owned) |
+| A PATCH own record → B's contact | 404; row unchanged |
+| A PATCH `retailer_id` → B | pinned to A; `expires_at` change resets warn cursors |
+| Direct service-role INSERT/UPDATE of (contact B, retailer A) | FK violation 23503 (DB constraint) |
+| `compliance_tenant_anomalies()` | 0 rows |
+| Unlinked record (`brand_contact_id` null) | accepted (MATCH SIMPLE) |
+| `file_url` `javascript:` / `data:` / attribute-breakout | 400 `invalid_file_url`; https accepted; '' → null |
+| Enforcement (real cron route, dry_run): Retailer A record with matching brand email vs a **Retailer B** booking | B booking coverage `missing` (A's record not considered); A booking covered; zero Stripe/Resend calls; B row untouched |
 
-## 6. Capacity & payment concurrency
+## 6. Worker partial-failure and status recovery (`tests/cron_heartbeats.test.mjs`, 67/67 + holds-on child 20/20)
 
-- Two parallel inserts at cap 1 → exactly one succeeds, loser `slot_full`, DB holds one reservation (S5).
-- Cap 2 with two active future holds → PATCH `max_demos_per_slot=1` refused with `capacity_below_active_reservations` (errcode 23514), cap remains 2; 2→2 and 2→5 succeed (S1). Cap 3 with 2 active → 2 OK, → 1 refused (S2). No bookings / past-only → decrease allowed (S3). Cancelled/expired/declined don't count (S4). Cap-1 slot with 1 hold → 0 refused (S5).
-- Multi-demo grouped payment, partial cancel/refund without sibling fan-out, webhook replay idempotency: payment ledger adversarial 62/62; provisional holds adversarial 28/28 (on RC tree, and again in CI pass 1 and 2).
-- **Invariant query output** — `select * from capacity_invariant_violations();`
-  - staging (after full suite + teardown): `[]`
-  - production (after 0069 apply, future scope): `[]`
-  - production (`p_future_only := false`, full history): `[]`
+- Stripe refund POST fault **after** claim → HTTP 500, heartbeat `failed`, `refund-worker.ok:false`, `cron.ok:false`, status not operational.
+- One bad item among two → `errors:1, resubmitted:1`, `failed`; DB shows one `succeeded` + one `failed_retryable`.
+- Fulfillment-drain claim fault → `failed`.
+- Clean run → `succeeded`, `ok:true` (recovery).
+- Fixture `failed` after a fresh `succeeded` → `ok:false`; later `succeeded` recovers. Daily `started` rows ignored; daily `failed` flips.
+- Sweep per-booking PATCH fault (holds ON) → 500, `failed`, booking stays held, sweep `ok:false`; clean run expires it and recovers.
+- Unauthenticated cron → 401, no heartbeat. Public payload = exactly `{ok, required}` per job (regex-enforced).
 
-## 7. GitHub Actions (final SHA)
+## 7. Support-access evidence (`tests/support_access.test.mjs`, 61/61)
 
-**Run:** https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/33727695098 — `verify` #112, `workflow_dispatch` on `4592ed3` with `clean_build=true`, `staging_gate=true`. Status **Success**, total 41m 13s. Staging environment approval by `grassrootsmarketing`.
+OFF → 403 `support_access_disabled`, no `admin_sessions` row, no cookie · expired consent → 403 same body · `allow=true` with null expiry → 403 same body · valid ON (2 h) → 200, cookie, `expires_at ≈ 2 h` (min rule) · consent 10 h → `≈ 4 h` · injected `support_sessions` POST 503 → 500 `audit_unavailable`, no cookie, new `admin_sessions` row deleted · unknown retailer → unchanged refusal · end-impersonation still works. `tests/session_transport.test.mjs` 76/76 (its stub retailer now correctly gets 403).
+
+## 8. Stripe test-mode grouped two-demo partial-refund evidence (`tests/stripe_testmode_grouped.e2e.mjs`, **84 passed, 0 failed**, 2026-09-04)
+
+Evidence file: `tests/evidence/stripe-testmode-grouped-2026-09-04.md` (+ `-checkout-form.png`, `-checkout-paid.png`). Real Stripe **test mode** (`sk_test_` asserted), shipped routes in-process, Resend intercepted, real events re-signed into the real webhook verifier (wrong secret → 400, unsigned → 400).
+
+| Step | Evidence |
+|---|---|
+| Two demos, one checkout | venue A $7 + venue B $9; `POST /api/checkout {booking_ids:[A,B]}` → **one** `cs_test_b1aByg97…`; one route Stripe call |
+| One PaymentIntent covers both | `pi_3UBq1gJ9aYEf28il1XCcyy4g`, charge `ch_3UBq1gJ9aYEf28il1AzafrCs`; allocations 700 + 900 = group total **1600** = session `amount_total` = PI `amount_received` |
+| Hosted checkout completed | Playwright + Stripe published test card; ground truth `payment_status=paid` via Stripe API; screenshot |
+| Webhooks | real `checkout.session.completed` (`evt_1UBq1iJ9…`) + `payment_intent.succeeded` (`evt_3UBq1gJ9…axZNsqp`) applied; re-post → `duplicate:true`, ledger byte-identical |
+| Both confirmed via app flow | `booking-action confirm` ×2 → `confirmed`, one demo each |
+| Refund child A only | `booking-action cancel` (exact admin payload) → exactly one `POST /v1/refunds` → **`re_3UBq1gJ9aYEf28il1lDSrcea` = 700**; A `cancelled/refunded`, **B `confirmed/paid`**, group `partially_refunded`, alloc A `refunded 700 / reserved 0`, alloc B `0/0`; real `refund.created` + `charge.refunded` replayed |
+| Replay | cancel A again → 409; webhooks re-posted → `already_terminal`/`duplicate`; refund-worker run → `claimed 0`; Stripe still exactly 1 refund; zero further Stripe writes |
+| Refund child B | `re_3UBq1gJ9aYEf28il1D1fj1or` = 900; Stripe refunds total **1600 = capture**; charge `refunded=true, amount_refunded=1600`; group `refunded`; both allocations fully refunded; two `refund_requests` `succeeded`, each bound to its own `re_` |
+| Over-refund refused | cancel B again → 409; decline A → 409 (no Stripe call); direct `refund_reserve_cas` → `nothing_refundable`; direct 1-cent `POST /v1/refunds` → Stripe `charge_already_refunded`; 0 `reconciliation_cases` |
+
+## 9. GitHub Actions — final SHA `85ec2b1`
+
+Run: https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/33848469130 (`workflow_dispatch`, `clean_build=true`, `staging_gate=true`)
 
 | Job group | Result |
 |---|---|
 | suites (ubuntu-latest) | ✅ success |
 | suites (windows-latest) | ✅ success |
-| clean build A/B (staging) | ✅ success (2m 35s) — fresh apply 0000→0069 twice |
-| staging gate (pass 1) | ✅ success (3m 23s) |
-| staging gate (pass 2, consecutive, same commit) | ✅ success (3m 10s) |
+| clean build A/B (staging) | ✅ success (1m 10s) |
+| staging gate (pass 1) | ✅ success (5m 41s) |
+| staging gate (pass 2, consecutive, same commit) | ✅ success (5m 34s) |
 
-Run 33727513592 on `2da0089` failed the migration-count assertion (70 files vs `EXPECTED_MIGRATIONS: 69`) and is **not** evidence; superseded by the RC.
+Both passes, identical totals: route flows 182 · cron heartbeats 67 (+20 holds-on child) · isolation matrix 45 · compliance tenant integrity 35 · support access 61 · live entitlements 11 · live flows 21 · ledger fixtures 12 · payment ledger adversarial 62 · provisional holds adversarial 28 · capacity guard 35 · **capacity serialization 38 (stress: 100 runs, 0 violations)** — all 0 failed. Staging environment approvals by `grassrootsmarketing`.
 
-## 8. Staging adversarial passes (from the CI staging-gate job logs, same commit, consecutive)
+Superseded runs on this branch (not evidence): 33842184655 (`1d08033`, cron_heartbeats depended on `test:ledger` fixtures a clean database lacks), 33843388823 (`5ffc140`, `SB_DB_URL` not yet provided to CI), 33845711544 (`85ec2b1`, one single-sample `pg_stat_activity` diagnostic raced in pass 2). Each fix touched test/CI plumbing only; no application code changed after `ef5e177`.
 
-| Suite | Pass 1 | Pass 2 |
-|---|---|---|
-| isolation matrix (Phase B + C) | 45 passed, 0 failed | 45 passed, 0 failed |
-| cron heartbeats (+ holds ON child) | 41 (+9) passed, 0 failed | 41 (+9) passed, 0 failed |
-| capacity guard | 32 passed, 0 failed | 32 passed, 0 failed |
-| route flows | 182 passed, 0 failed | 182 passed, 0 failed |
-| live entitlements / live flows | 11 / 21 passed, 0 failed | 11 / 21 passed, 0 failed |
-| ledger fixtures / payment ledger adversarial / provisional holds adversarial | 12 / 62 / 28 passed, 0 failed | 12 / 62 / 28 passed, 0 failed |
+Local on the same tree: `npm run check` ✓ (72 migrations; 46 api modules; no-undef 85 files; binding), `npm run check:columns` ✓✓, `npm test` 17/17 suites, `test:routes` (route flows 182, cron heartbeats 67+20, isolation 45, compliance tenant 35, support access 61), `test:capacity` (35 + 38), `test:live` 11+21, `test:ledger` 12/62/28 (prior RC tree; rerun in CI).
 
-Each pass starts from the CI-reset staging database (clean build) and the suites' own FK-ordered teardown. No fix was made between pass 1 and pass 2.
+## 10. Production (2026-09-04, build `fdc87df`)
 
-## 9. Cron evidence (production)
-
-- Vercel → demohub → Settings → Cron Jobs: toggle **Disabled** at start of order (screenshot) → **Enabled** (screenshot) 2026-09-03. Schedules: brand-account cron 14:00 UTC daily; coi-enforcement hourly; provisional-sweep */15; refund-worker */15; seed-demo reset 03:00 UTC (scoped to `harvest-lane-demo`, `is_demo=true`; `wipeExistingDemo` filters on `retailer_id`; Gus rows untouched).
-- Database `cron_heartbeat` rows (UTC, prod):
-
-| ran_at | cron_name | outcome | trigger |
-|---|---|---|---|
-| 08:35:27 | refund-worker | succeeded (531 ms) | manual "Run" (Vercel) |
-| 08:35:32 / 08:35:34 | daily | started / succeeded (1788 ms) | manual "Run" (Vercel) |
-| **08:45:07** | **refund-worker** | **succeeded** | **scheduled (*/15)** |
-| **08:45:22** | **provisional-sweep** | **succeeded** | **scheduled (*/15)** |
-
-- Public status (`POST /api/find-retailer {action:"status"}`): 08:32Z `degraded` (no heartbeats yet) → 08:36Z **`operational`**, `cron.ok: true`, jobs `refund-worker {ok:true, required:true}`, `provisional-sweep {ok:true, required:false}`, `daily {ok:true, required:true}`; re-read 08:53:29Z still `operational`.
-
-## 10. Controlled production proof (2026-09-03, build `4592ed3`)
-
-| Step | Evidence |
+| Check | Result |
 |---|---|
-| Deploy exact SHA | `/api/version` → `{"build":"4592ed3"}` at 08:32:27Z |
-| Bindings identify production | Every write below landed in `dkgjvsstbgnhcfboqqnd`; Stripe objects are `cs_live_…` / `pi_…` live-mode; status route reports the prod heartbeat table |
-| Containment | `POST /api/retailer-signup` → **403 `public_signup_disabled`**; holds off (status shows `provisional-sweep required:false`, only possible with the flag false); Gus venues all `max_demos_per_slot = 1`; `retailer_admins role=viewer` → 0; active holds → 0 |
-| Controlled brand signs in | New brand via email code at `/r/gus`; brand id `75285ff4…`, created 08:35:40Z |
-| Updates own profile | `company_name`, `contact_name`, `website`, `phone` persisted at 08:37:17Z (portal Profile → Save) |
-| COI uploaded (normal workflow) | 7.5 KB PDF via portal dropzone → `coi_verifications` `9edacfce…` `pending` 08:42:00Z. Note: the 3 KB minimum-size guard correctly rejected an earlier 901-byte file. |
-| COI approved (normal workflow) | David in `/owner` COI Review → `coi_verification_status: approved`, `is_verified: true`, expiry 2027-03-06 |
-| Booking created | Mission District (fee set to $1 for the proof, reverted to $30 after) Sep 22 2026 11:00 AM → booking `8ee26656…` 08:47:59Z; agreement signed 08:47:58Z |
-| Exact live amount captured | Stripe Checkout `cs_live_a1bj…`, PaymentIntent `pi_3UBWJyPSiN5YlLGb0hdqyQiO`, charge `ch_3UBWJyPSiN5YlLGb0XAWih8D`, **100 cents**; booking `payment_status: paid`, `amount_paid: 100` |
-| Ledger agrees with Stripe | `payment_groups 8945cad8…` total 100 `paid`; `payment_allocations` customer 100 / venue 100 / platform 0; `processed_stripe_events` `payment_intent.succeeded` 08:48:37Z + `checkout.session.completed` 08:48:38Z both `completed` |
-| Retailer confirms | Gus admin → **Confirmed** (Upcoming Demos row, COI ON FILE, expires 2027-03-06) |
-| Cancel/refund via app path | Gus admin cancel → toast "Demo cancelled. Refund submitted to the brand" → `refund_requests 3a30cd1e…` amount 100 reason `cancelled` → **`succeeded`**, idempotency key `rf-3a30cd1e…`, Stripe refund **`re_3UBWJyPSiN5YlLGb000Lccqo`**; booking `cancelled` / `payment_status: refunded` / `refunded_at` 08:52:10Z; one `refund_operations` row (100, succeeded) |
-| Refund verified once, in Stripe and ledger | `processed_stripe_events` `refund.created` + `charge.refunded` 08:52:11Z `completed`; allocation `refunded_amount: 100`, `reserved_refund_amount: 0`; payment group `refunded`. Exactly one refund object. |
-| No sibling or unrelated booking changed | `bookings` in prod: **1 row total** (the test booking); no other rows exist to change |
-| Refund-worker + public status remain green | heartbeats §9; status `operational` at 08:53:29Z |
+| Deploy exact SHA | `main` pushed `84f4551..fdc87df`; `/api/version` → `{"build":"fdc87df"}` at 08:23:37Z and 08:24:08Z |
+| Environment bindings | reads below hit `dkgjvsstbgnhcfboqqnd`; status route reports the prod heartbeat table; CI deny list names this ref |
+| Migrations | 0070 + 0071 applied and verified (§3) |
+| Containment | `POST /api/retailer-signup` → **403**; holds OFF (`provisional-sweep required:false`); venues all cap **1** (10 venues); `retailer_admins role=viewer` → **0**; active holds → **0**; retailers: `gus`, `__owner__`, `harvest-lane-demo` only (no second live retailer) |
+| Anonymous probes | `/api/admin?action=data` 401 · `/api/brand-account?action=data` 401 · `/api/refund-worker` 401 · `/api/provisional-sweep` 401 |
+| Capacity invariant | `capacity_invariant_violations()` → `[]` (future and full history) |
+| Compliance tenant invariant | `compliance_tenant_anomalies()` → `[]` |
+| Support access (Gus) | `allow_support_access=false`, `support_access_expires_at=null` → impersonation is 403 by construction (F-06) |
+| Booking / payment ledger unchanged since the 2026-09-03 live proof | 1 booking `8ee26656…` `cancelled/refunded` 100¢ `re_3UBWJyPSiN5YlLGb000Lccqo`; 1 payment group `8945cad8…` `refunded` 100; 1 refund request `succeeded` 100 |
+| Cron | scheduled heartbeats every 15 min on the new build: refund-worker `succeeded` 07:45:58, 08:00:56, 08:15:57Z; provisional-sweep `succeeded` 07:45:22, 08:01:13, 08:15:22Z; public status `operational`, `cron.ok:true`, all three jobs `ok:true` |
+| Status page (F-07) | https://www.demohubhq.com/status renders: Database Operational · Scheduled jobs Healthy · Refund processing Running · Daily tasks Running · Provisional holds sweep "Off in this environment / Not required" · API error rate Normal; no undefined/never/NaN text |
 
-No card data, session material, or secrets appear above. Brand contact details beyond first/last name are omitted.
+No live-money transaction was repeated in this round: the 2026-09-03 live $1 capture/refund remains the production money proof (rows unchanged above), and the grouped partial-refund shape Codex required is proven against real Stripe **test mode** (§8), as the order specified.
 
-## 11. Gates
-
-| Gate | Result | Evidence |
-|---|---|---|
-| G1 — COI isolation | **PASS** | §5 rows 1–6; `isolation_matrix` 45/45 vs 13 pre-fix failures; CI pass 1 & 2 |
-| G2 — Viewer isolation | **PASS** | §5 rows 7–12 (two retailers, two venues, HTTP response level) |
-| G3 — Capacity/payment safety | **PASS** | §6; `capacity_guard` 32/32, ledger 62/62, holds 28/28; invariant `[]` on staging and prod |
-| G4 — Worker health | **PASS** | §9: scheduled refund-worker heartbeat 08:45:07Z; sweep heartbeat 08:45:22Z proven while holds are OFF; status `operational`; Vercel cron toggle enabled |
-| G5 — Final-SHA CI | **PASS** | §7: Ubuntu, Windows, clean build A/B, staging pass 1 & 2 all green on `4592ed3` |
-| G6 — Product functions | **PASS** | §10: profile → COI → approval → booking → $1.00 live capture → confirm → cancel/refund `re_…Lccqo` |
-| G7 — Deployment identity | **PASS** | §10 rows 1–2: `/api/version` = `4592ed3`; prod DB + live Stripe objects |
-| G8 — Closed-launch containment | **PASS** | §10 row 3: signup 403, holds off, cap 1, 0 viewers, invitation-only |
-
-## 12. Non-blocking follow-ups (P2/P3)
+## 11. Non-blocking follow-ups
 
 | Item | Owner | Deadline |
 |---|---|---|
-| **Gus admin tables overflow horizontally at full width** — `r/gus/admin/index.html` line 212 applies `white-space: nowrap` to every `td`; long status stacks + action buttons exceed the container. UI-only; fix = wrap text cells, keep nowrap on headers/date/actions. Ships as its own commit after this packet, with its own CI run. | Claude | 2026-09-03 (immediately after closure) |
-| `verify.yml` `PRODUCTION_REF_DENIED` names the retired project (`ecapm…`), not `dkgjv…`; harmless because the positive `STAGING_REF_EXPECTED` check already refuses any other target. Update the value. | Claude | next CI touch |
-| `status/index.html` (~lines 247–249) still reads `checks.cron.hours_since/outcome` (no longer sent) → shows "never"; render per-job `jobs[*].ok` instead | Claude | next UI release |
-| Yahoo/AOL deliverability: enroll demohubhq.com in Yahoo Sender Hub (reputation, not config) | David | before public launch |
-| Delete retired Supabase project `ecapmcyumpjjgjwuokyv` after backup | David | post-pilot |
-| Test brand `Launch Proof Foods` (`75285ff4…`) and its cancelled/refunded booking remain in prod as the audit trail for this proof; scrub or keep per David | David | post-pilot |
+| CSP `unsafe-inline`/`unsafe-eval` → nonce/hash conversion (no working XSS found) | Claude | hardening project, pre-public launch |
+| ESLint-chain audit advisories (dev only) | Claude | dependency maintenance |
+| `api/venues-bulk-import.js:202` server still coerces invalid capacity to 1 (UI now rejects; CHECK enforces ≥1) — make the server reject like the UI | Claude | next release |
+| Yahoo/AOL deliverability (Yahoo Sender Hub) | David | before public launch |
+| Delete retired Supabase project "Demohub" (`ecapm…`) after backup | David | post-pilot |
+| Test brand `Launch Proof Foods` + refunded $1 booking in prod (audit trail) | David | keep or scrub |
 
-## 13. Recommendation
+## 12. Gates and recommendation
+
+| Gate | Result | Evidence |
+|---|---|---|
+| F-01 capacity serialization | **PASS** | §4 (38/38 locally and in both CI passes; 100-run stress, 0 violations); §3/§10 prod CHECK + invariant |
+| F-02 compliance tenant integrity | **PASS** | §5 (35/35 both passes); prod anomalies `[]`; DB constraint live |
+| F-03 worker health accuracy | **PASS** | §6 (67+20 both passes); prod status operational under the latest-outcome rule |
+| F-04 one immutable SHA | **PASS** | `fdc87df`: full gate run 33848469130 green; `origin/main` = production build |
+| F-05 grouped partial refund proven | **PASS** | §8 real Stripe test-mode journey 84/84, sibling intact, replay and over-refund refused |
+| F-06 support-access consent | **PASS** | §7 (61/61 both passes); Gus consent OFF in prod |
+| F-07 status page | **PASS** | §10 status-page row; `tests/status_page.test.mjs` 43/43 |
+| F-08 capacity input ≥ 1 | **PASS** | `tests/capacity_input.test.mjs` 75/75; DB CHECK enforces server-side |
+| F-09 CI guard | **PASS** | `verify.yml:81` = `dkgjvsstbgnhcfboqqnd`; `EXPECTED_MIGRATIONS` 72 asserted by the green run |
+| Closed-Gus containment | **PASS** | §10 containment row |
 
 **GO — CLOSED GUS PILOT**
 
-All eight gates PASS with direct evidence on the single immutable SHA `4592ed3`, which is what production serves. Public retailer signup stays off, provisional holds stay off, Gus capacity stays at 1, and no viewer accounts exist. Public/full launch remains NO-GO until the fast-follow items are scheduled and a public-launch order is issued.
+Gus remains the only retailer; capacities stay at 1; provisional holds and public retailer signup stay OFF; no viewer accounts. General / multi-retailer launch remains NO-GO until the §11 items are scheduled and a public-launch order is issued.
