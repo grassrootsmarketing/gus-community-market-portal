@@ -87,7 +87,8 @@ env:
   # (P0-4), bringing the total to 68. If you add a migration, bump this and rerun the clean-build gate.
   # 2026-09-03 (Codex final-launch remediation, Phase D): 0069_capacity_decrease_guard.sql -> 70.
   # 2026-09-04 (Codex round 2): 0070_capacity_serialization + 0071_compliance_tenant_integrity -> 72.
-  EXPECTED_MIGRATIONS: '72'
+  # 2026-09-04 (Codex cleanup FC-02): 0072_support_access_atomic.sql -> 73 SQL files (README.md is not a migration).
+  EXPECTED_MIGRATIONS: '73'
 
 jobs:
   # --------------------------------------------------------------------------

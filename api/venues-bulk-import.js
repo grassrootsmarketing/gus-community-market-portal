@@ -62,6 +62,32 @@ function parseBoolish(v) {
   return true;
 }
 
+// Codex FC-03: server-side mirror of parseCapacityInput() in r/gus/admin/index.html.
+// venues.max_demos_per_slot is integer NOT NULL CHECK (>= 1). The old rule here was
+// Math.max(1, parseInt(v, 10) || 1), which silently turned '0', '-1', 'abc' and '2.7' into 1 or 2 --
+// a client that bypassed the browser-side check could import any garbage and get a venue.
+// Rule: an absent column or a BLANK cell defaults to 1 (the column default). A supplied value is
+// accepted ONLY when it is a base-10 whole integer >= 1 within PostgreSQL integer range:
+//   /^[0-9]+$/ after trim, then 1 <= n <= 2147483647.
+// Rejected, never coerced: '+3', '-1', '2.7', '1.0', '1e2', 'abc', 'NaN', '0', '2147483648'.
+const PG_INT_MAX = 2147483647;
+const CAPACITY_RE = /^[0-9]+$/;
+export function parseCapacityStrict(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (s === '') return { ok: true, value: 1, defaulted: true };
+  if (!CAPACITY_RE.test(s)) {
+    return { ok: false, message: `max_demos_per_slot must be a whole number of 1 or more (got "${s.slice(0, 40)}").` };
+  }
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 1) {
+    return { ok: false, message: `max_demos_per_slot must be at least 1 (got "${s.slice(0, 40)}"). There is no "no limit" setting.` };
+  }
+  if (n > PG_INT_MAX) {
+    return { ok: false, message: `max_demos_per_slot is too large (got "${s.slice(0, 40)}"; maximum is ${PG_INT_MAX}).` };
+  }
+  return { ok: true, value: n };
+}
+
 // Multipart/form-data parser for a single file field.
 // Returns { csv_text, filename } or throws.
 async function parseFormData(req) {
@@ -150,26 +176,10 @@ export default async function handler(req, res) {
     return jsonResp(res, 400, { error: 'No "name" column found. Rename your first column to "name" (or "location", "store name").' });
   }
 
-  // ===== Tier enforcement: cap total venues after this import =====
-  try {
-    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=billing_tier`);
-    const tier = (rArr && rArr[0] && rArr[0].billing_tier) || 'solo';
-    const limit = TIER_LOCATION_LIMITS[tier] || 0;
-    if (limit > 0) {
-      const existingArr = await sb(`venues?retailer_id=eq.${encodeURIComponent(session.retailer_id)}&select=id`);
-      const existingCount = Array.isArray(existingArr) ? existingArr.length : 0;
-      const proposedTotal = existingCount + (rows.length - 1); // rows[0] is header
-      if (proposedTotal > limit) {
-        return jsonResp(res, 402, {
-          error: 'plan_limit_reached',
-          message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. This import would create ${proposedTotal}. Upgrade to import more.`,
-          tier, limit, existing: existingCount, upgrade_url: '/pricing',
-        });
-      }
-    }
-  } catch (e) { console.warn('bulk-import tier check:', e?.message || e); }
-
-  // Parse each data row into a venue payload
+  // ===== Codex FC-03: validate EVERY row before any insert. =====
+  // A single invalid cell rejects the whole file with 400 invalid_rows and ZERO inserts -- the
+  // client can fix the CSV and re-upload without half a file already imported. `row` is the
+  // 1-based CSV DATA row (header excluded); `line` is the physical line in the file.
   const parsedRows = [];
   const errors = [];
   for (let r = 1; r < rows.length; r++) {
@@ -199,23 +209,69 @@ export default async function handler(req, res) {
       if (!col) continue;
       const v = (rows[r][c] || '').trim();
       if (col === 'demo_fee') rec.demo_fee = v ? Number(v.replace(/[$,]/g, '')) : 30;
-      else if (col === 'max_demos_per_slot') rec.max_demos_per_slot = v ? Math.max(1, parseInt(v, 10) || 1) : 1;
+      else if (col === 'max_demos_per_slot') {
+        const cap = parseCapacityStrict(v);
+        if (!cap.ok) { errors.push({ row: r, line: r + 1, field: 'max_demos_per_slot', message: cap.message }); rec.max_demos_per_slot = null; }
+        else rec.max_demos_per_slot = cap.value;
+      }
       else if (col === 'active') rec.active = parseBoolish(v);
       else if (col === 'address') rec.address = v || null;
       else rec[col] = v;
     }
-    if (!rec.name) { errors.push(`Row ${r+1}: name is required`); continue; }
-    if (isNaN(rec.demo_fee)) { errors.push(`Row ${r+1}: demo_fee "${rec.demo_fee}" is not a number`); continue; }
-    parsedRows.push({ rec, row: r + 1 });
+    if (!rec.name) errors.push({ row: r, line: r + 1, field: 'name', message: 'name is required.' });
+    if (!Number.isFinite(rec.demo_fee) || rec.demo_fee < 0) errors.push({ row: r, line: r + 1, field: 'demo_fee', message: 'demo_fee must be a non-negative number.' });
+    parsedRows.push({ rec, row: r });
   }
 
+  if (errors.length > 0) {
+    return jsonResp(res, 400, {
+      ok: false,
+      error: 'invalid_rows',
+      message: `${errors.length} invalid value${errors.length === 1 ? '' : 's'} found. Nothing was imported -- fix the CSV and upload it again.`,
+      errors,
+      imported: 0,
+      total: parsedRows.length,
+      filename,
+    });
+  }
   if (parsedRows.length === 0) {
-    return jsonResp(res, 400, { error: 'No valid rows to import', errors });
+    return jsonResp(res, 400, { ok: false, error: 'no_rows', message: 'No data rows to import.', errors: [], imported: 0, total: 0, filename });
   }
 
-  // Insert each venue
+  // ===== Tier precheck: cap total venues after this import (friendly 402 before any write). =====
+  // Codex FC-03: this used to log the lookup error and PROCEED. It now fails closed -- if the
+  // entitlement cannot be read, nothing is inserted. The DB trigger enforce_venue_limit() remains
+  // the authoritative guard (FOR UPDATE serialised); this is only the early, friendly refusal.
+  try {
+    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=billing_tier`);
+    if (!Array.isArray(rArr) || !rArr[0]) throw new Error('retailer_not_found');
+    const tier = String(rArr[0].billing_tier || 'solo').toLowerCase();
+    const limit = TIER_LOCATION_LIMITS[tier] || 0;
+    if (limit > 0) {
+      const existingArr = await sb(`venues?retailer_id=eq.${encodeURIComponent(session.retailer_id)}&select=id`);
+      if (!Array.isArray(existingArr)) throw new Error('venue_count_unavailable');
+      const existingCount = existingArr.length;
+      const proposedTotal = existingCount + parsedRows.length;
+      if (proposedTotal > limit) {
+        return jsonResp(res, 402, {
+          ok: false,
+          error: 'plan_limit_reached',
+          message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. This import would create ${proposedTotal}. Upgrade to import more.`,
+          tier, limit, existing: existingCount, upgrade_url: '/pricing', imported: 0, total: parsedRows.length,
+        });
+      }
+    }
+  } catch (e) {
+    console.error('bulk-import entitlement precheck unavailable:', e?.message || e);
+    return jsonResp(res, 503, { ok: false, error: 'entitlement_unavailable', message: 'Could not verify your plan. Nothing was imported -- try again in a moment.', imported: 0, total: parsedRows.length });
+  }
+
+  // ===== Insert each venue. Stop at the FIRST database refusal. =====
+  // enforce_venue_limit() raises 'venue_limit_reached' (check_violation) on the insert that
+  // would exceed the plan; every later row would fail the same way, so continuing only burns
+  // requests. The response is non-2xx with the EXACT number of rows that were inserted before
+  // the failure -- never ok:true on a partial import.
   let imported = 0;
-  const insertErrors = [];
   for (const { rec, row } of parsedRows) {
     try {
       await sb('venues', {
@@ -224,7 +280,25 @@ export default async function handler(req, res) {
       });
       imported++;
     } catch (e) {
-      insertErrors.push(`Row ${row} (${rec.name}): ${e.message || String(e)}`);
+      const detail = String(e?.message || e || '');
+      const limitHit = /venue_limit_reached/i.test(detail);
+      console.error('bulk-import insert failed at row', row, limitHit ? 'venue_limit_reached' : detail.slice(0, 200));
+      const message = limitHit
+        ? "Your plan's location limit was reached at this row. Upgrade to import more locations."
+        : 'The database rejected this row.';
+      const failure = { row, line: row + 1, name: rec.name, message };
+      return jsonResp(res, limitHit ? 409 : 500, {
+        ok: false,
+        error: limitHit ? 'venue_limit_reached' : 'insert_failed',
+        message: `Imported ${imported} of ${parsedRows.length} location${parsedRows.length === 1 ? '' : 's'} before row ${row} was refused.`,
+        imported,
+        failed: parsedRows.length - imported,
+        total: parsedRows.length,
+        errors: [failure],
+        parse_errors: [],
+        insert_errors: [`Row ${failure.row} (${failure.name}): ${failure.message}`],
+        filename,
+      });
     }
   }
 
@@ -232,8 +306,8 @@ export default async function handler(req, res) {
     ok: true,
     imported,
     total: parsedRows.length,
-    parse_errors: errors,
-    insert_errors: insertErrors,
+    parse_errors: [],
+    insert_errors: [],
     filename,
   });
 }

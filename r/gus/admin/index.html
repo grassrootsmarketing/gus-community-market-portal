@@ -1260,6 +1260,17 @@
                         <div class="settings-card-body">
                             <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
 
+                            <div id="supportAccessConsent" style="display:flex; gap:14px; align-items:flex-start; justify-content:space-between; padding:12px 14px; background:#f9f7f2; border-radius:10px; margin-bottom:16px;">
+                                <div style="flex:1; min-width:0;">
+                                    <label for="supportAccessToggle" style="display:block; font-weight:600; color:var(--forest-900); font-size:0.94rem; cursor:pointer;">Allow Demohub support access</label>
+                                    <div id="supportAccessSubtitle" style="font-size:0.82rem; color:var(--ink-700); margin-top:3px; line-height:1.55;">Loading…</div>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px; line-height:1.55;">ON allows Demohub support to sign in to your admin for up to 24 hours. Each support session lasts at most four hours and never beyond that consent window. OFF immediately ends any active Demohub support sessions.</div>
+                                </div>
+                                <label class="toggle" style="flex-shrink:0; margin-top:2px;">
+                                    <input type="checkbox" id="supportAccessToggle" role="switch" aria-checked="false" aria-label="Allow Demohub support access" onchange="toggleSupportAccess(this.checked)">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
 
                             <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Recent sessions</div>
                             <div id="supportSessionsList" style="font-size:0.88rem;">
@@ -6488,36 +6499,46 @@ END:VEVENT
                 el.innerHTML = '<div style="color:var(--ink-500);">Could not load support activity.</div>';
             }
         }
-        // Load support-access toggle state
+        // Support-access consent switch (#supportAccessToggle). The server is the only authority on
+        // state: this reads it, never infers it. The response carries only allow_support_access /
+        // expires_at / expired — no session identifiers, nothing about who at Demohub holds a session.
+        function _setSupportAccessSwitch(isOn) {
+            const cb = document.getElementById('supportAccessToggle');
+            if (!cb) return;
+            cb.checked = !!isOn;
+            cb.setAttribute('aria-checked', isOn ? 'true' : 'false');
+        }
         async function _loadSupportAccessStatus() {
+            const subtitle = document.getElementById('supportAccessSubtitle');
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ action: 'support-access-status' }),
                     credentials: 'same-origin',
                 });
-                if (!r.ok) return;
+                if (!r.ok) {
+                    if (subtitle) subtitle.textContent = r.status === 403
+                        ? 'Only an owner, admin or manager can change this setting.'
+                        : 'Could not load the current setting.';
+                    return;
+                }
                 const j = await r.json();
-                const cb = document.getElementById('supportAccessToggle');
-                const slider = document.getElementById('supportAccessSlider');
-                const knob = document.getElementById('supportAccessKnob');
-                const subtitle = document.getElementById('supportAccessSubtitle');
                 const isOn = !!j.allow_support_access;
-                if (cb) cb.checked = isOn;
-                if (slider) slider.style.background = isOn ? '#2a5b32' : '#c4c1b8';
-                if (knob) knob.style.transform = isOn ? 'translateX(20px)' : 'translateX(0)';
+                _setSupportAccessSwitch(isOn);
                 if (subtitle) {
                     if (isOn && j.expires_at) {
                         const exp = new Date(j.expires_at);
                         const hours = Math.max(0, Math.round((exp - Date.now()) / 3600000));
-                        subtitle.textContent = `ON. Auto-turns-off in about ${hours} hour${hours === 1 ? '' : 's'}. When ON, Demohub owner can sign in as your admin to debug or fix things.`;
+                        subtitle.textContent = `ON. Demohub support can sign in to your admin for about ${hours} more hour${hours === 1 ? '' : 's'}, then this turns itself off.`;
                     } else if (j.expired) {
-                        subtitle.textContent = 'Auto-expired. Toggle ON to allow Demohub support to sign in as your admin for the next 24 hours.';
+                        subtitle.textContent = 'OFF (the 24-hour window ended). Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
                     } else {
-                        subtitle.textContent = 'OFF. Demohub cannot sign in to your account. Toggle ON to allow support access for 24 hours (auto-turns-off after).';
+                        subtitle.textContent = 'OFF. Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
                     }
                 }
-            } catch (_) {}
+            } catch (_) {
+                if (subtitle) subtitle.textContent = 'Could not load the current setting.';
+            }
         }
 
         async function toggleSupportAccess(enabled) {
@@ -6526,23 +6547,32 @@ END:VEVENT
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ action: 'support-access-toggle', enabled }),
+                    body: JSON.stringify({ action: 'support-access-toggle', enabled: enabled === true }),
                     credentials: 'same-origin',
                 });
-                if (!r.ok) throw new Error('save failed');
-                // Refresh the toggle UI to reflect the new state
-                _loadSupportAccessStatus();
+                if (!r.ok) {
+                    if (r.status === 403) throw new Error('read_only');
+                    throw new Error('save failed');
+                }
+                const j = await r.json();
+                if (!enabled && typeof toast === 'function') {
+                    const n = Number(j.ended_sessions) || 0;
+                    toast(n > 0 ? `Support access is off. ${n} active support session${n === 1 ? ' was' : 's were'} ended.` : 'Support access is off.', 'success');
+                }
+                // Refresh from the server so the switch reflects committed state, not the click.
+                await _loadSupportAccessStatus();
+                _loadSupportSessions();
             } catch (e) {
-                if (typeof toast === 'function') toast('Could not save. Try again.', 'err');
-                // Revert the checkbox
-                const cb = document.getElementById('supportAccessToggle');
-                if (cb) cb.checked = !enabled;
+                if (typeof toast === 'function') toast(e && e.message === 'read_only' ? 'Your account has view-only access. Ask an admin to change this.' : 'Could not save. Try again.', 'err');
+                // Revert the switch to the last known server state.
+                _setSupportAccessSwitch(!enabled);
+                await _loadSupportAccessStatus();
             }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             setTimeout(_loadSupportSessions, 2000);
-            /* support-access toggle removed: owner has direct access, no consent gate */
+            setTimeout(_loadSupportAccessStatus, 2000);
         });
         // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
         // our DB. Rescue path for any retailer whose billing_tier didn't update because a

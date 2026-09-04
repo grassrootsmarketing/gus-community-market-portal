@@ -80,27 +80,18 @@ async function sb(path, opts = {}) {
 
 const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h — matches the DB expiry set in owner-verify
 const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
-const IMPERSONATION_MAX_AGE = 4 * 60 * 60;       // 4h — the CAP on an impersonation session (see owner-impersonate)
-
-// Codex F-06. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to your
-// account." — so owner-impersonate must actually consult it. This is the single rule:
-// impersonation is allowed ONLY when allow_support_access is exactly true AND
-// support_access_expires_at parses to a time strictly in the future. Returns that expiry in ms,
-// or null for every refusal (OFF, column missing, unparseable, already past) so the caller cannot
-// accidentally reveal which condition failed.
-export function supportAccessExpiryMs(retailer, nowMs = Date.now()) {
-  if (!retailer || retailer.allow_support_access !== true) return null;
-  const exp = Date.parse(String(retailer.support_access_expires_at || ''));
-  if (!Number.isFinite(exp) || exp <= nowMs) return null;
-  return exp;
-}
-
-// An impersonation session lives for min(IMPERSONATION_MAX_AGE, remaining consent window).
-// Returns { expiresAtIso, maxAgeSeconds } — used for BOTH the admin_sessions row and the cookies,
-// so the cookie can never outlive the DB row and neither can outlive the retailer's consent.
-export function impersonationWindow(consentExpiryMs, nowMs = Date.now()) {
-  const expiresMs = Math.min(nowMs + IMPERSONATION_MAX_AGE * 1000, consentExpiryMs);
-  return { expiresAtIso: new Date(expiresMs).toISOString(), maxAgeSeconds: Math.max(1, Math.floor((expiresMs - nowMs) / 1000)) };
+// Codex F-06 / FC-02. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to
+// your account." The consent rule (allow_support_access exactly true AND support_access_expires_at
+// strictly in the future) and the session window (min(4h cap, remaining consent)) used to be
+// computed HERE, in JS, between three separate PostgREST requests — so the consent read was stale
+// by the time the session was inserted, and the audit row depended on a compensating delete.
+// Both now live in the database function support_session_create() (migration 0072), which checks
+// consent under a row lock and mints the session and its audit row in ONE transaction. This file
+// only turns the returned expires_at into a cookie Max-Age, so the cookie can never outlive the row.
+export function cookieMaxAgeUntil(expiresAtIso, nowMs = Date.now()) {
+  const exp = Date.parse(String(expiresAtIso || ''));
+  if (!Number.isFinite(exp)) return null;
+  return Math.max(1, Math.floor((exp - nowMs) / 1000));
 }
 
 function setSessionCookie(res, sessionId, maxAgeSeconds = RETAILER_SESSION_MAX_AGE) {
@@ -1398,62 +1389,52 @@ async function handleOwnerAction(action, req, res, body) {
     if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
     const retailer_id = String((body && body.retailer_id) || '');
     if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
-    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,allow_support_access,support_access_expires_at`);
+    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email`);
     const r = Array.isArray(rArr) ? rArr[0] : null;
     if (!r) return res.status(404).json({ error: 'Retailer not found' });
-    // Codex F-06: CONSENT GATE. The retailer's toggle is the authority. Before this the handler
-    // ignored allow_support_access / support_access_expires_at entirely ("owner-override model")
-    // while the Settings UI told the retailer "OFF. Demohub cannot sign in to your account."
-    // One opaque 403 for OFF / missing / unparseable / expired — the owner panel does not get
-    // to learn which, and the retailer's promise holds regardless of why.
-    const nowMs = Date.now();
-    const consentExpiryMs = supportAccessExpiryMs(r, nowMs);
-    if (consentExpiryMs === null) return res.status(403).json({ error: 'support_access_disabled' });
-    // Session life = min(4h cap, remaining consent). The DB row and BOTH cookies share it.
-    const win = impersonationWindow(consentExpiryMs, nowMs);
-    const sessions = await sb('admin_sessions', {
-      method: 'POST',
-      body: JSON.stringify({
-        email: r.billing_email || owner.email,
-        retailer_id: r.id,
-        expires_at: win.expiresAtIso,
-      }),
-    });
-    const session = Array.isArray(sessions) ? sessions[0] : null;
-    if (!session) return res.status(500).json({ error: 'Failed to create impersonation session' });
-    // FAIL-CLOSED AUDIT (Codex F-06). No RPC exists that mints the session and the audit row in
-    // one transaction, so this is two steps with compensation: if the support_sessions insert
-    // fails, the just-created admin_sessions row is deleted and NO cookie is issued. An
-    // impersonation the retailer cannot see in "Demohub support activity" must not exist.
+    // Codex F-06 / FC-02: CONSENT GATE + AUDIT, ATOMIC. The retailer's toggle is the authority.
+    // support_session_create() (0072) locks the retailer row, re-reads consent under that lock,
+    // computes expires_at = min(now + 4h, consent expiry), and inserts admin_sessions AND
+    // support_sessions in one transaction. The handler used to do this as three requests with a
+    // compensating DELETE; a consent flipped OFF between the read and the insert still minted a
+    // session, and a failed compensation left a session with no audit row. Neither is possible now:
+    //   * refusal (missing / OFF / expired) -> the function raises 'support_access_disabled'; one
+    //     opaque 403 for every reason, so the owner panel cannot learn which condition failed;
+    //   * any other failure (audit insert, outage) -> the whole transaction aborts, NO session row
+    //     exists, and the caller gets 500 audit_unavailable with NO cookie.
+    const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
+    const ip = req.headers['x-real-ip'] || _xff[_xff.length - 1] || null;  // audit log; not cf-connecting-ip
+    const ua = String(req.headers['user-agent'] || '').slice(0, 500);
+    let session = null;
     try {
-      const _xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
-      const ip = req.headers['x-real-ip'] || _xff[_xff.length - 1] || null;  // audit log; not cf-connecting-ip
-      const ua = String(req.headers['user-agent'] || '').slice(0, 500);
-      const audit = await sb('support_sessions', {
+      const rows = await sb('rpc/support_session_create', {
         method: 'POST',
         body: JSON.stringify({
-          owner_email: owner.email,
-          target_retailer_id: r.id,
-          target_session_id: session.session_id,
-          ip_address: ip,
-          user_agent: ua,
+          p_retailer_id: r.id,
+          p_owner_email: owner.email,
+          p_session_email: r.billing_email || owner.email,
+          p_ip_address: ip,
+          p_user_agent: ua,
         }),
       });
-      if (!(Array.isArray(audit) ? audit[0] : null)) throw new Error('support_sessions insert returned no row');
+      session = Array.isArray(rows) ? rows[0] : rows;
+      if (!session || !session.session_id || !session.expires_at) throw new Error('support_session_create returned no row');
     } catch (e) {
-      console.error('support_sessions audit insert failed; impersonation refused:', e?.message || e);
-      try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(session.session_id)}`, { method: 'DELETE' }); }
-      catch (e2) { console.error('compensating admin_sessions delete failed:', e2?.message || e2); }
+      if (/support_access_disabled/.test(String(e?.message || ''))) return res.status(403).json({ error: 'support_access_disabled' });
+      console.error('support_session_create failed; impersonation refused:', e?.message || e);
       return res.status(500).json({ error: 'audit_unavailable' });
     }
+    // BOTH cookies share the DB row's expiry (min(4h, consent), computed in the database).
+    const maxAge = cookieMaxAgeUntil(session.expires_at);
+    if (maxAge === null) return res.status(500).json({ error: 'audit_unavailable' });
     // The RETAILER cookie only. The owner's own session stays in dh_owner_session, untouched.
     // That is the point of splitting them: before this, impersonation overwrote the single
     // dh_session cookie, so the retailer-scoped session became the only session the owner held,
     // and any owner-only path reading that cookie would have been reading a retailer session.
-    setSessionCookie(res, session.session_id, win.maxAgeSeconds);
+    setSessionCookie(res, session.session_id, maxAge);
     // Set a non-HttpOnly marker cookie so client JS can render the banner + Exit button
     const markerVal = encodeURIComponent(JSON.stringify({ owner: owner.email, retailer: r.name, started: new Date().toISOString() }));
-    const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=${win.maxAgeSeconds}; Secure; SameSite=Lax`;
+    const markerCookie = `dh_support=${markerVal}; Path=/; Max-Age=${maxAge}; Secure; SameSite=Lax`;
     const existing = res.getHeader('Set-Cookie');
     if (existing) res.setHeader('Set-Cookie', Array.isArray(existing) ? [...existing, markerCookie] : [existing, markerCookie]);
     else res.setHeader('Set-Cookie', markerCookie);
@@ -1531,37 +1512,54 @@ async function handleOwnerAction(action, req, res, body) {
 
   // ---- SUPPORT-SESSIONS: retailer views their own support-session audit log ----
   // Reads via retailer admin session (any admin of that retailer). Not owner-only.
+  // FC-02: requireRetailerMembership() distinguishes 401 (no/expired session), 403 (no membership,
+  // unknown or insufficient role) and 503 (membership lookup unavailable). These three actions used
+  // to collapse every refusal to 401, which told a signed-in viewer to "log in again" and hid a
+  // backend outage behind an auth error. The status is passed through as-is.
   if (action === 'support-sessions') {
     const sid = getSessionIdFromReq(req, body);
     const v = await requireRetailerMembership(sid);
-    if (!v.ok) return res.status(401).json({ error: v.error });
+    if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
     const rows = await sb(`support_sessions?target_retailer_id=eq.${encodeURIComponent(v.retailer_id)}&select=id,owner_email,started_at,ended_at,writes_count&order=started_at.desc&limit=50`);
     return res.status(200).json({ ok: true, sessions: rows || [] });
   }
 
   // ---- SUPPORT-ACCESS-TOGGLE: retailer flips their own allow_support_access flag ----
-  // ON sets a 24-hour auto-expire. OFF clears expires_at and blocks future impersonation.
+  // ON sets a 24-hour auto-expire. OFF clears expires_at, blocks future impersonation AND ends every
+  // active support session (audit row stamped ended_at, admin_sessions row deleted) — all inside
+  // support_access_set() (0072), under the same retailer row lock support_session_create() takes, so
+  // an impersonation racing the OFF is either revoked by it or refused after it.
   if (action === 'support-access-toggle') {
     const sid = getSessionIdFromReq(req, body);
     const v = await requireRetailerMembership(sid);
-    if (!v.ok) return res.status(401).json({ error: v.error });
+    if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
     if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
     const enabled = body && body.enabled === true;
-    const patch = enabled
-      ? { allow_support_access: true, support_access_expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }
-      : { allow_support_access: false, support_access_expires_at: null };
-    await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
+    let state;
+    try {
+      const rows = await sb('rpc/support_access_set', {
+        method: 'POST',
+        body: JSON.stringify({ p_retailer_id: v.retailer_id, p_enabled: enabled }),
+      });
+      state = Array.isArray(rows) ? rows[0] : rows;
+      if (!state || typeof state.allow_support_access !== 'boolean') throw new Error('support_access_set returned no row');
+    } catch (e) {
+      console.error('support_access_set failed:', e?.message || e);
+      return res.status(500).json({ error: 'support_access_update_failed' });
+    }
+    return res.status(200).json({
+      ok: true,
+      allow_support_access: state.allow_support_access,
+      expires_at: state.support_access_expires_at,
+      ended_sessions: Number(state.ended_sessions) || 0,
     });
-    return res.status(200).json({ ok: true, allow_support_access: enabled, expires_at: patch.support_access_expires_at });
   }
 
   // ---- SUPPORT-ACCESS-STATUS: retailer reads their own toggle state (for the UI toggle) ----
   if (action === 'support-access-status') {
     const sid = getSessionIdFromReq(req, body);
     const v = await requireRetailerMembership(sid);
-    if (!v.ok) return res.status(401).json({ error: v.error });
+    if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
     const rows = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rows) ? rows[0] : null;
     const expired = r && r.support_access_expires_at && new Date(r.support_access_expires_at).getTime() < Date.now();

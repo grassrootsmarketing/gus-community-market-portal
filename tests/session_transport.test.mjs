@@ -218,6 +218,13 @@ function spyFetch({ membership = 'live', sessionRow = null } = {}) {
     if (u.includes('/rpc/get_deployment_identity')) {
       return J([{ environment: 'staging', project_ref: REF }]);
     }
+    // FC-02: impersonation is minted by support_session_create() (0072). The stubbed retailer has
+    // no consent, so the function refuses exactly as PostgREST would relay it: a 400 carrying the
+    // P0001 message. The route maps that to the opaque 403 asserted in section 4.
+    if (u.includes('/rpc/support_session_create')) {
+      const body = { code: 'P0001', message: 'support_access_disabled', details: null, hint: null };
+      return { ok: false, status: 400, text: async () => JSON.stringify(body), json: async () => body };
+    }
     if (u.includes('/rest/v1/admin_sessions')) {
       if (method !== 'GET') return J([{ session_id: SID }]);
       const wantOwner = u.includes(OWNER_SID);

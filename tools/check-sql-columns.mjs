@@ -50,6 +50,7 @@ export const NON_COLUMN = new Set([
   'group','by','order','having','limit','offset','asc','desc','union','except','intersect','with','recursive',
   'case','when','then','else','end','coalesce','nullif','exists','between','like','ilike','similar','escape',
   'true','false','default','for','update','share','of','nowait','only','perform','execute','do','begin','declare',
+  'no','skip','locked',   // row-lock clauses: FOR NO KEY UPDATE (0072), SKIP LOCKED — 'key' is listed with the DDL words
   'if','elsif','elseif','loop','while','foreach','return','next','query','raise','exception','notice','warning',
   'get','stacked','diagnostics','continue','exit','call','assert','constant','alias','open','fetch','close','move',
   'language','plpgsql','sql','immutable','stable','volatile','strict','security','definer','invoker','cost','rows',
