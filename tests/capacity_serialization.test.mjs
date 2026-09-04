@@ -212,7 +212,7 @@ async function main() {
     const decState = await settledWithin(dec, 1500);
     ok('S1: the cap decrease does NOT complete while inserts hold FOR SHARE on the venue row (blocked >= 1500ms)',
        decState === 'pending', `decrease promise ${decState}`);
-    const w3 = await waitEvent(ctl, c3.pid);
+    const w3 = await waitUntilBlocked(ctl, c3.pid, null, 3000);   // poll: a single sample can precede the lock wait
     ok('S1: pg_stat_activity shows the decrease waiting on a Lock', w3 && w3.wait_event_type === 'Lock', JSON.stringify(w3));
 
     await c0.query('COMMIT');                                    // release the slot lock
@@ -260,7 +260,7 @@ async function main() {
     const ins1 = capture(insertBooking(c1, rid, vid, d, t));
     const insState = await settledWithin(ins1, 1000);
     ok('S2: the insert does NOT complete while the decrease holds the venue row (blocked >= 1000ms)', insState === 'pending', `insert promise ${insState}`);
-    const w1 = await waitEvent(ctl, c1.pid);
+    const w1 = await waitUntilBlocked(ctl, c1.pid, null, 3000);   // poll: a single sample can precede the lock wait
     ok('S2: pg_stat_activity shows the insert waiting on a Lock (FOR SHARE vs the UPDATE)', w1 && w1.wait_event_type === 'Lock', JSON.stringify(w1));
 
     await c3.query('COMMIT');
