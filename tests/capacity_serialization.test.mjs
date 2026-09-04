@@ -216,12 +216,25 @@ async function main() {
     ok('S1: pg_stat_activity shows the decrease waiting on a Lock', w3 && w3.wait_event_type === 'Lock', JSON.stringify(w3));
 
     await c0.query('COMMIT');                                    // release the slot lock
-    const r1 = await ins1, r2 = await ins2;
-    ok('S1: both inserts succeed under cap 2 (the cap they read under FOR SHARE is still 2)', r1.ok && r2.ok,
-       `${r1.ok ? 'ok' : errText(r1.e)} | ${r2.ok ? 'ok' : errText(r2.e)}`);
-    const stillPending = await settledWithin(dec, 500);
-    ok('S1: decrease is STILL blocked while the insert transactions are open', stillPending === 'pending', `decrease promise ${stillPending}`);
-    await c1.query('COMMIT'); await c2.query('COMMIT');
+    // Same-slot inserts serialize on the TRANSACTION-scoped advisory lock (0047/0066 by design): insert 2
+    // cannot finish its statement until connection 1 COMMITs. So commit in order — and at every step the
+    // decrease must remain blocked, because whichever insert is still open holds FOR SHARE on the venue.
+    // Postgres grants the released advisory lock to EITHER waiter, so commit whichever insert wins first.
+    const first = await Promise.race([
+      ins1.then(r => ({ who: 'insert 1', r, conn: c1, other: { ins: ins2, conn: c2, who: 'insert 2' } })),
+      ins2.then(r => ({ who: 'insert 2', r, conn: c2, other: { ins: ins1, conn: c1, who: 'insert 1' } })),
+    ]);
+    ok(`S1: first insert to win the slot lock (${first.who}) succeeds under cap 2 (the cap it read under FOR SHARE is still 2)`,
+       first.r.ok, first.r.ok ? 'ok' : errText(first.r.e));
+    let stillPending = await settledWithin(dec, 500);
+    ok('S1: decrease is STILL blocked while both insert transactions are open', stillPending === 'pending', `decrease promise ${stillPending}`);
+    await first.conn.query('COMMIT');                            // hands the slot lock to the other insert
+    const second = await first.other.ins;
+    ok(`S1: ${first.other.who} then succeeds under cap 2 (count 1 < cap 2; still the pre-decrease cap)`,
+       second.ok, second.ok ? 'ok' : errText(second.e));
+    stillPending = await settledWithin(dec, 500);
+    ok('S1: decrease is STILL blocked while the second insert is open (its FOR SHARE alone holds it)', stillPending === 'pending', `decrease promise ${stillPending}`);
+    await first.other.conn.query('COMMIT');
 
     const decRes = await Promise.race([dec, sleep(15000).then(() => ({ ok: false, e: new Error('decrease did not settle within 15s') }))]);
     ok('S1: once the inserts commit, the decrease FAILS with capacity_below_active_reservations',
