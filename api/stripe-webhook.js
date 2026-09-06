@@ -27,7 +27,6 @@ export const config = { api: { bodyParser: false } };
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
-import { notifyStoreContactsConfirmed } from './_staff-mail.js';
 
 // stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
 // fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
@@ -362,15 +361,10 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 
 // Store contacts (internal_contacts) are told about a demo when it is CONFIRMED — never when a
 // brand merely pays. The old "New demo scheduled" staff alert that lived here (mirror of the Wave 8
-// block in api/booking.js) is gone. On an auto-confirm retailer the payment IS the confirmation
-// (promoteBookings / the fulfilment outbox flip the booking to 'confirmed' before this runs), so the
-// confirmed notice goes out here; a non-auto-confirm booking lands 'pending' and its notice is sent
-// by booking-action.js when the retailer confirms. Idempotent via demo_notifications (0073).
-async function notifyStoreContactsIfConfirmed(ctx, bookingId) {
-  if (!ctx || ctx.status !== 'confirmed' || !bookingId) return { targeted: 0, sent: 0, skipped: 0, failed: 0 };
-  const _mb = await bind();
-  return notifyStoreContactsConfirmed(_mb, bookingId);
-}
+// block in api/booking.js) is gone. On an auto-confirm retailer the payment IS the confirmation: the
+// bookings.status PATCH to 'confirmed' (promoteBookings / the fulfilment outbox) fires
+// trg_booking_notification_events (0074) in that same transaction, and api/notification-worker.js
+// delivers the notices. Nothing here sends store-contact mail.
 
 async function sbRpc(fn, args) {
   const b = await bind();
@@ -582,12 +576,8 @@ export async function sendPromotionEmails(ctx, bookingId) {
     subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
     html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
   }, 'brand_confirmation');
-  // Store-contact "demo confirmed" notice is best-effort by design (internal, non-customer-facing)
-  // and is reported separately rather than folded into the customer-email result. Only fires when
-  // the booking is actually confirmed (auto-confirm retailer); pending bookings notify on confirm.
-  let staffOk = true;
-  try { await notifyStoreContactsIfConfirmed(ctx, bookingId); } catch (e) { staffOk = false; console.warn('store-contact notify failed:', (e && e.message) || e); }
-  return { brand_message_id: msgId, staff_ok: staffOk };
+  // Store-contact "demo confirmed" notices come from the 0074 outbox (see above), not from here.
+  return { brand_message_id: msgId };
 }
 
 async function handlePaymentIntentFailed(event) {

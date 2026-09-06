@@ -120,7 +120,7 @@ export function installSpy() {
       let parsed = null; try { parsed = JSON.parse(opts.body); } catch (_) {}
       calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '' });
       // Faults apply to the mail provider too, so a test can prove a failed send is retried rather
-      // than recorded as delivered (store-contact reminders release their claim on failure).
+      // than recorded as delivered (the notification outbox keeps the row as failed with a backoff).
       const fault = matchFault(u, opts);
       if (fault) return fault;
       return jsonRes({ id: 'email_test' });
@@ -149,7 +149,9 @@ export function mockRes() {
     status(c) { this.statusCode = c; return this; },
     json(b) { this.body = b; this.ended = true; return this; },
     send(b) { this.body = b; this.ended = true; return this; },
-    end() { this.ended = true; return this; },
+    // api/brand-account.js answers with res.status(n).end(JSON.stringify(body)); record that body too, so
+    // a test can read what the route said and not only its status code.
+    end(b) { if (b !== undefined && this.body == null) { try { this.body = JSON.parse(b); } catch (_) { this.body = b; } } this.ended = true; return this; },
     cookies() { const h = this.headers['Set-Cookie']; return !h ? [] : (Array.isArray(h) ? h : [h]); },
     cookie(name) {
       const c = this.cookies().find(x => x.startsWith(name + '='));

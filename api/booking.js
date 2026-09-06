@@ -10,7 +10,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
-import { notifyStoreContactsConfirmed } from './_staff-mail.js';
+import { parseYmd } from './_local-time.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -155,7 +155,6 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 <li>See every upcoming demo, across all retailers you\'ve booked at</li>
 <li>Upload or renew your Certificate of Insurance once, use it everywhere</li>
 <li>Sign the demo conduct agreement once per retailer, not every booking</li>
-<li>Reschedule or cancel demos in one place</li>
 </ul>
 </div>
 <p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link — no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
@@ -299,11 +298,18 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, agreement_id: created2[0].id });
     }
 
-    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name } = body || {};
+    const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name, needs_electricity } = body || {};
 
     if (!contact_email || !brand_name || !venue || !demo_date || !demo_time || !retailer_slug) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    if (!parseYmd(String(demo_date))) return res.status(400).json({ error: 'invalid_demo_date', message: 'demo_date must be a real calendar date (YYYY-MM-DD).' });
+    // Release A: electricity is a TYPED per-booking value (true/false; absent -> null = "Not
+    // specified"). Never parsed from notes; anything but a boolean is refused.
+    if (needs_electricity !== undefined && needs_electricity !== null && typeof needs_electricity !== 'boolean') {
+      return res.status(400).json({ error: 'invalid_needs_electricity', message: 'needs_electricity must be true or false.' });
+    }
+    const needsElectricity = typeof needs_electricity === 'boolean' ? needs_electricity : null;
 
 
     // Look up retailer by slug, get id, name, and cancellation policy
@@ -646,6 +652,7 @@ export default async function handler(req, res) {
         demo_date,
         demo_time,
         notes: notes || null,
+        needs_electricity: needsElectricity,
         status: bookingStatus,
         brand_id: brandId,
         ...(skuSnapshot ? { product_skus: skuSnapshot } : {}),
@@ -678,6 +685,7 @@ export default async function handler(req, res) {
           demo_date,
           demo_time,
           notes: notes || null,
+          needs_electricity: needsElectricity,
           status: bookingStatus,
           brand_id: brandId,
         }),
@@ -756,14 +764,10 @@ export default async function handler(req, res) {
     // ===== Store contacts (internal_contacts) =====
     // Product decision (owner, 2026-09): store contacts are NOT told when a brand merely books or
     // pays — the old "New demo scheduled" alert that lived here (Wave 8) is gone. They hear about a
-    // demo when it is CONFIRMED. The only way a booking created by this route is already confirmed
-    // is a free venue on an auto-confirm retailer (bookingStatus === 'confirmed' above); every other
-    // path confirms later (booking-action.js confirm, or the paid auto-confirm in the fulfilment
-    // outbox) and sends the notice there. Idempotent via demo_notifications (0073); best-effort.
-    if (bookingId && bookingStatus === 'confirmed') {
-      try { await notifyStoreContactsConfirmed(_b, bookingId); }
-      catch (staffErr) { console.warn('store-contact confirmed notice failed (non-blocking):', staffErr?.message || staffErr); }
-    }
+    // demo when it is CONFIRMED. When this route inserts an already-confirmed booking (a free venue
+    // on an auto-confirm retailer), trg_booking_notification_events (0074) writes the demo_confirmed
+    // event in the insert's own transaction and api/notification-worker.js sends the notices. No
+    // direct send here.
 
 
     return res.status(200).json({ success: true, booking_id: bookingId, email_sent: emailOk, email_error: emailErr });

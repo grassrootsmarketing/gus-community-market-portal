@@ -17,12 +17,13 @@ let _b = null;
 // daily job writes one before its final row) are ignored when picking the latest completed outcome.
 //   refund-worker      every 15 min  required always (payments are on for this app)  stale > 35 min
 //   provisional-sweep  every 15 min  required only while FLAGS.provisionalHolds     stale > 35 min
-//   demo-reminders     every 15 min  required always (store-contact demo reminders)  stale > 35 min
+//   notification-worker every 15 min required only while FLAGS.notificationWorker  stale > 35 min
+//                      (store-contact demo notices + reminders, COI decision emails; 0074 outbox)
 //   daily              once a day    required always (brand-account.js action=cron)  stale > 25 h
 const CRON_JOBS = [
   { name: 'refund-worker', maxAgeMin: 35, required: () => true },
   { name: 'provisional-sweep', maxAgeMin: 35, required: () => !!FLAGS.provisionalHolds },
-  { name: 'demo-reminders', maxAgeMin: 35, required: () => true },
+  { name: 'notification-worker', maxAgeMin: 35, required: () => !!FLAGS.notificationWorker, backlog: true },
   { name: 'daily', maxAgeMin: 25 * 60, required: () => true },
 ];
 
@@ -51,6 +52,20 @@ async function cronJobHealth(job) {
   h.ok = fresh && !!lastCompleted && lastCompleted.outcome === 'succeeded';
   // A job that is intentionally off is reported healthy so it cannot degrade production.
   if (!h.required) h.ok = true;
+  // Release A: the outbox backlog is reported SEPARATELY from liveness (internal shape only — the
+  // public projection below stays {ok, required}). backlog_ok = no delivery has been due for more
+  // than 60 minutes without being sent. A run can be alive and still be falling behind.
+  if (job.backlog && h.required) {
+    try {
+      const cutoff = new Date(Date.now() - 60 * 60000).toISOString();
+      const r = await fetch(`${_b.supabaseUrl}/rest/v1/notification_deliveries?status=eq.pending&due_at=lte.${encodeURIComponent(cutoff)}&select=id`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
+      });
+      const m = (r.headers.get('content-range') || '').match(/\/(\d+)$/);
+      h.backlog_overdue_60m = m ? Number(m[1]) : null;
+      h.backlog_ok = m ? Number(m[1]) === 0 : null;
+    } catch (_) { h.backlog_ok = null; }
+  }
   return h;
 }
 

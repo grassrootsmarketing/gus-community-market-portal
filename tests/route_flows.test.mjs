@@ -7,7 +7,11 @@
 // tests/live_flows.test.mjs remains as the second layer — it proves the database contract under
 // concurrency. This file proves the ROUTE: binding, cookie, CSRF, parsing, authorization,
 // and email containment, which direct PostgREST calls cannot exercise.
-import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ORIGIN } from './_route.mjs';
+import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ORIGIN, ENV } from './_route.mjs';
+// Release A: store-contact notices come from the 0074 outbox via api/notification-worker.js, which
+// is flag-gated. api/_flags.js reads env once per process, so the flag is set BEFORE the first route
+// import in this file (tests/launch_flags.test.mjs proves the default-off behaviour separately).
+ENV.NOTIFICATION_WORKER_ENABLED = 'true';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -607,7 +611,7 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
 
   // --- reject the replacement; it must not be able to book ---
   const reject = await callRoute('admin-auth.js', req({
-    body: { action: 'owner-coi-review', verification_id: v2, decision: 'rejected', notes: 'fixture rejection' },
+    body: { action: 'owner-coi-review', verification_id: v2, decision: 'rejected', notes: 'fixture rejection', brand_note: 'Fixture rejection: the insured name does not match.' },
     cookies: { dh_owner_session: ownerCookie } }));
   ok('the owner can REJECT through the route', reject.statusCode === 200, `${reject.statusCode}`);
 
@@ -711,9 +715,10 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: true }) });
 
   // A store contact who MUST receive the "Demo confirmed" notice. Store contacts are never told about
-  // a mere booking or payment; on an AUTO-CONFIRM retailer the payment IS the confirmation, so the
-  // fulfilment outbox sends exactly one confirmed notice per booking (api/_staff-mail.js). The fixture
-  // deliberately carries the LEGACY on_scheduled key, which is read as an alias of on_confirmed.
+  // a mere booking or payment; on an AUTO-CONFIRM retailer the payment IS the confirmation: the
+  // fulfilment's status PATCH fires the 0074 trigger (one demo_confirmed event per booking) and
+  // api/notification-worker.js delivers exactly one notice per booking. The fixture deliberately
+  // carries the LEGACY on_scheduled key, which is read as an alias of on_confirmed.
   const staffEmail = `${uniq('staff')}@fixture.test`;
   track('internal_contacts', (await db('internal_contacts', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, name: 'Notified Staff', email: staffEmail,
@@ -827,18 +832,30 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   ok('every post-payment recipient is the approved sink',
      recips1.length > 0 && recips1.every(r => String(r) === 'sink@fixture.test'), JSON.stringify(recips1).slice(0, 200));
   const brandMails1 = mails1.filter(m => String(m.subject || '').includes('Your demo booking at'));
-  const staffMails1 = mails1.filter(m => String(m.subject || '').includes('Demo confirmed:'));
   ok('exactly THREE brand confirmation emails — one per booking', brandMails1.length === 3,
-     JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
-  ok('exactly THREE store-contact "Demo confirmed" notices — one per auto-confirmed booking', staffMails1.length === 3,
      JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
   ok('the retired "New demo scheduled" staff alert is never sent', !mails1.some(m => /New demo scheduled/.test(String(m.subject || ''))),
      JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
-  ok('each confirmed notice names the store contact as its intended recipient', staffMails1.every(m => String(m.html || '').includes(staffEmail)));
-  ok('no OTHER emails were sent by the paid path', mails1.length === 6, `${mails1.length}`);
-  const notif1 = ((await db(`demo_notifications?booking_id=in.(${idList(bookingIds)})&kind=eq.confirmed&select=booking_id,sent_at`)).body) || [];
-  ok('demo_notifications records exactly one sent "confirmed" row per booking',
-     notif1.length === 3 && notif1.every(n => !!n.sent_at) && setOf(notif1.map(n => n.booking_id)) === setOf(bookingIds), JSON.stringify(notif1));
+  ok('the paid path itself sends NO store-contact mail (the outbox does) and no other emails', mails1.length === 3 && !mails1.some(m => String(m.subject || '').includes('Demo confirmed:')), `${mails1.length} ${JSON.stringify(mails1.map(m => m.subject)).slice(0, 320)}`);
+  // The 0074 trigger recorded the transition in the same transaction as the status change.
+  const events1 = ((await db(`notification_events?booking_id=in.(${idList(bookingIds)})&kind=eq.demo_confirmed&select=booking_id,transition_id`)).body) || [];
+  ok('notification_events holds exactly one demo_confirmed event per booking',
+     events1.length === 3 && setOf(events1.map(e => e.booking_id)) === setOf(bookingIds), JSON.stringify(events1));
+  // The worker fans out and delivers: three notices, each to the one in-scope store contact.
+  const wkBefore = spy.calls.resend.length;
+  const wk = await callRoute('notification-worker.js', req({ method: 'GET', headers: { authorization: 'Bearer ' + ENV.CRON_SECRET } }));
+  ok('notification-worker run -> 200 ok', wk.statusCode === 200 && wk.body && wk.body.ok === true, `${wk.statusCode} ${JSON.stringify(wk.body).slice(0, 300)}`);
+  const staffMails1 = spy.calls.resend.slice(wkBefore).filter(m => String(m.subject || '').includes('Demo confirmed:'));
+  ok('exactly THREE store-contact "Demo confirmed" notices — one per auto-confirmed booking', staffMails1.length === 3,
+     JSON.stringify(spy.calls.resend.slice(wkBefore).map(m => m.subject)).slice(0, 320));
+  ok('each confirmed notice names the store contact as its intended recipient', staffMails1.length === 3 && staffMails1.every(m => String(m.html || '').includes(staffEmail)));
+  ok('every worker recipient is the approved sink', spy.calls.resend.slice(wkBefore).every(m => [].concat(m.to).every(a => a === 'sink@fixture.test')));
+  const notif1 = ((await db(`notification_deliveries?booking_id=in.(${idList(bookingIds)})&kind=eq.demo_confirmed&select=booking_id,status,provider_message_id,idempotency_key`)).body) || [];
+  ok('notification_deliveries records exactly one ACCEPTED confirmed delivery per booking, each with a frozen idempotency key',
+     notif1.length === 3 && notif1.every(n => n.status === 'accepted' && !!n.idempotency_key) && setOf(notif1.map(n => n.booking_id)) === setOf(bookingIds), JSON.stringify(notif1));
+  const wk2Before = spy.calls.resend.length;
+  const wk2 = await callRoute('notification-worker.js', req({ method: 'GET', headers: { authorization: 'Bearer ' + ENV.CRON_SECRET } }));
+  ok('a second worker run sends nothing more for these bookings (idempotent)', wk2.statusCode === 200 && !spy.calls.resend.slice(wk2Before).some(m => String(m.html || '').includes(staffEmail)), `${spy.calls.resend.length - wk2Before}`);
 
   const cases1 = ((await db(`reconciliation_cases?payment_group_id=eq.${groupId}&select=id`)).body) || [];
   ok('the VALID payment produced NO reconciliation case', cases1.length === 0, `${cases1.length}`);
@@ -1143,6 +1160,13 @@ console.log('\n— 14: /api/booking, the retailer staff route —');
 }
 
 console.log('\n— teardown —');
+// Outbox rows for the fixture bookings (deliveries first: event_id -> notification_events).
+for (const [t, id] of bin) {
+  if (t !== 'bookings') continue;
+  await db(`notification_deliveries?booking_id=eq.${id}`, { method: 'DELETE' });
+  await db(`notification_events?booking_id=eq.${id}`, { method: 'DELETE' });
+}
+await db(`cron_heartbeat?cron_name=eq.notification-worker&ran_at=gte.${encodeURIComponent(new Date(Date.now() - 3600000).toISOString())}`, { method: 'DELETE' });
 for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 spy.restore();
 process.exit(summary('route flows') ? 0 : 1);

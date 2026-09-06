@@ -884,11 +884,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div style="background:#fbf7f0;border-radius:12px;padding:20px 22px;text-align:left;margin:22px 0 20px;">
                     <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:6px;">Your booking is saved to</div>
                     <div style="font-size:0.95rem;font-weight:700;color:#0f2c17;margin-bottom:10px;word-break:break-word;">${escapeHtml(email)}</div>
-                    <div style="font-size:0.85rem;color:#3a3a36;line-height:1.55;">Your confirmation email has a sign-in link. Use it any time to manage this demo, see reminders, and view reports.</div>
+                    <div style="font-size:0.85rem;color:#3a3a36;line-height:1.55;">Your confirmation email has a sign-in link. Use it any time to see this demo and view reports. Your store's team gets the reminders before the demo.</div>
                 </div>
             ` : `
                 <div style="background:#fbf7f0;border-radius:12px;padding:20px 22px;text-align:left;margin:22px 0 20px;">
-                    <div style="font-size:0.85rem;color:#3a3a36;line-height:1.55;">Your confirmation email has a sign-in link. Use it any time to manage this demo, see reminders, and view reports.</div>
+                    <div style="font-size:0.85rem;color:#3a3a36;line-height:1.55;">Your confirmation email has a sign-in link. Use it any time to see this demo and view reports. Your store's team gets the reminders before the demo.</div>
                 </div>
             `;
             // Primary CTA: "View my dashboard". With a live session we link straight to the dashboard.
@@ -1810,7 +1810,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     product_skus: productSkus,
                     demo_date: item.dateStr,
                     demo_time: item.time,
-                    notes: (notes || '') + (needsElectricity ? ' [⚡ Demo needs electricity]' : ''),
+                    notes: notes || '',
+                    // Typed per-booking value (api/book.js validates a boolean). The brand profile only
+                    // PREFILLS the toggle; what is sent is what the brand chose for THIS booking.
+                    needs_electricity: !!needsElectricity,
                 }),
             }).then(async resp => {
                 const json = await resp.json().catch(() => ({}));
@@ -1926,7 +1929,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     <div style="background:#fbf7f0;border-left:3px solid #a14e2a;padding:14px 18px;border-radius:8px;font-size:0.85rem;line-height:1.55;color:#3a3a36;margin-bottom:22px;">
                         <strong style="color:#0f2c17;">Important:</strong> until payment is completed, the demo slot is on hold and can be released if payment doesn't come through. You'll get an email once payment is arranged and the booking is fully confirmed.
                     </div>
-                    <button type="button" onclick="document.getElementById('pendingPaymentOverlay').remove();showView('landing');" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;">Got it</button>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                        <button type="button" onclick="document.getElementById('pendingPaymentOverlay').remove();showView('landing');" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:10px;font-weight:700;font-size:0.95rem;cursor:pointer;font-family:inherit;">Got it</button>
+                        <a href="/brand/dashboard" style="color:#0f2c17;font-weight:700;font-size:0.92rem;text-decoration:underline;">Manage your booking &rarr;</a>
+                    </div>
                 </div>
             `;
             document.body.appendChild(overlay);

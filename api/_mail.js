@@ -17,6 +17,12 @@
 //   * a missing provider key throws. It never logs the code, link or token it was carrying —
 //     "no key, so print the magic link to the console" is a credential leak into log storage
 //   * links are built from the bound origin via link(), never from a hardcoded host
+//   * opts.idempotencyKey is forwarded as Resend's Idempotency-Key header (documented dedupe window:
+//     24 hours) so the notification outbox can retry a send without a duplicate email; the caller
+//     freezes the exact payload it first sent under that key and never reuses the key for another
+//   * opts.timeoutMs bounds the provider call; a timeout or network failure is reported as
+//     mail_provider_unreachable — the request MAY have reached the provider, which is a different
+//     outcome from a definite rejection (mail_send_failed) and callers must treat it as unknown
 
 import { getBinding, link, BindingError } from './_env.js';
 
@@ -64,6 +70,8 @@ export function planDelivery(binding, recipients) {
 export async function sendMail({ to, subject, html, text, replyTo, from }, opts = {}) {
   const binding = opts.binding || await getBinding();
   const fetchImpl = opts.fetch || globalThis.fetch;
+  const idempotencyKey = opts.idempotencyKey ? String(opts.idempotencyKey).slice(0, 256) : null;
+  const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : null;
 
   const plan = planDelivery(binding, to);
 
@@ -85,18 +93,34 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
     finalHtml = banner + (html || '');
   }
 
-  const res = await fetchImpl(RESEND_ENDPOINT, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${binding.resendApiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from: from || 'Demohub <hello@demohubhq.com>',
-      to: plan.to,
-      ...(replyTo ? { reply_to: replyTo } : {}),
-      subject: finalSubject,
-      ...(finalHtml ? { html: finalHtml } : {}),
-      ...(text ? { text } : {}),
-    }),
-  });
+  const controller = timeoutMs ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let res;
+  try {
+    res = await fetchImpl(RESEND_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${binding.resendApiKey}`, 'Content-Type': 'application/json',
+        ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+      },
+      ...(controller ? { signal: controller.signal } : {}),
+      body: JSON.stringify({
+        from: from || 'Demohub <hello@demohubhq.com>',
+        to: plan.to,
+        ...(replyTo ? { reply_to: replyTo } : {}),
+        subject: finalSubject,
+        ...(finalHtml ? { html: finalHtml } : {}),
+        ...(text ? { text } : {}),
+      }),
+    });
+  } catch (e) {
+    // No response: the request may or may not have reached the provider. Report that honestly —
+    // never as a definite failure. No payload in the log.
+    console.error('MAIL_PROVIDER_UNREACHABLE', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: !!(controller && controller.signal.aborted) }));
+    throw new MailError('mail_provider_unreachable', { aborted: !!(controller && controller.signal.aborted) });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -109,7 +133,10 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
     throw new MailError('mail_send_failed', detail);
   }
 
-  return { ok: true, mode: plan.mode, redirected: plan.redirected, delivered: plan.to.length };
+  // The provider's message id ("accepted by the provider", not "delivered") for callers that record it.
+  let id = null;
+  try { const j = await res.json(); id = (j && j.id) ? String(j.id) : null; } catch (_) {}
+  return { ok: true, mode: plan.mode, redirected: plan.redirected, delivered: plan.to.length, id };
 }
 
 // Best-effort variant for genuinely non-blocking notifications (staff alerts, welcome nudges).

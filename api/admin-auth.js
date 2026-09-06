@@ -908,10 +908,36 @@ export default async function handler(req, res) {
     if (action === 'owner-coi-review') {
       const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
-      const { verification_id, decision, notes, expiry } = body || {};
+      const { verification_id, decision, notes, expiry, brand_note } = body || {};
       if (!isUuid(verification_id)) return res.status(400).json({ error: 'Invalid verification_id' });
       if (decision !== 'approved' && decision !== 'rejected') {
         return res.status(400).json({ error: 'decision must be approved or rejected' });
+      }
+      // Release A §6: the NOTE TO BRAND. Unlike `notes` (private review notes, never leave the
+      // owner console) this text is written to coi_verifications.brand_note in the SAME transaction
+      // as the decision (0074) and the status trigger copies it into the coi_approved / coi_rejected
+      // event the brand is emailed from. It is therefore validated as brand-facing plain text:
+      //   * optional on approve, REQUIRED on reject (a brand told "no" must be told why);
+      //   * trimmed, at most 1000 characters;
+      //   * nothing is stripped or rewritten — control characters other than newlines are REFUSED,
+      //     so what the owner typed is exactly what the brand reads (CRLF is normalised to LF).
+      let brandNote = null;
+      if (brand_note != null) {
+        if (typeof brand_note !== 'string') {
+          return res.status(400).json({ error: 'brand_note_invalid', message: 'The note to the brand must be plain text.' });
+        }
+        const normalised = brand_note.replace(/\r\n?/g, '\n').trim();
+        // eslint-disable-next-line no-control-regex
+        if (/[\x00-\x09\x0b\x0c\x0e-\x1f\x7f]/.test(normalised)) {
+          return res.status(400).json({ error: 'brand_note_invalid', message: 'The note to the brand may only contain plain text and line breaks.' });
+        }
+        if (normalised.length > 1000) {
+          return res.status(400).json({ error: 'brand_note_too_long', message: 'The note to the brand is limited to 1000 characters.' });
+        }
+        brandNote = normalised || null;
+      }
+      if (decision === 'rejected' && !brandNote) {
+        return res.status(400).json({ error: 'brand_note_required', message: 'Tell the brand why the certificate was rejected — this note is emailed to them.' });
       }
       // Coverage expiry is REVIEWER-owned (LG-11 removed brand self-service; the AI parser is
       // optional). An approval must carry the certificate's expiry or the brand ends up
@@ -939,7 +965,14 @@ export default async function handler(req, res) {
                                  // P0-4: the reviewer-confirmed expiry commits inside the review
                                  // transaction (0067). No separate best-effort PATCH — the decision
                                  // and the coverage date it is about can no longer disagree.
-                                 p_expiry: expiryDate }),
+                                 p_expiry: expiryDate,
+                                 // Release A §6: the note to the brand commits in the same
+                                 // transaction as the status change (0074), so the emailed decision
+                                 // can never carry a note from a different review. The key is only
+                                 // sent when there IS a note: p_brand_note defaults to NULL, so the
+                                 // two are equivalent, and a note-less approval keeps working against
+                                 // the pre-0074 signature.
+                                 ...(brandNote ? { p_brand_note: brandNote } : {}) }),
         });
         const txt = await r.text();
         if (!r.ok) {

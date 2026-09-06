@@ -12,7 +12,6 @@ import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
-import { notifyStoreContactsConfirmed, notifyStoreContactsCancelled } from './_staff-mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -187,9 +186,9 @@ async function slotCapacityStatus(booking) {
 // the cookie is the only place a session can have come from. Nothing left to keep a name for.
 // -----------------------------------------------------------------------------
 
-// Retailer proposes moving a confirmed demo to a new date. Sets the proposal on the
-// demo and emails the brand to accept/decline. Resilient if the reschedule migration
-// has not run (reports that plainly instead of 500ing).
+// Retailer proposes moving a confirmed demo to a new date. Writes the proposal on the demo and
+// bumps the booking's proposal version in one RPC (0074 propose_reschedule), then emails the brand
+// to accept/decline. Reports plainly (503) if the migration has not run instead of 500ing.
 async function handleReschedulePropose(req, res, body) {
   const { demo_id, new_date, new_time } = body || {};
   if (!demo_id || !isUuid(demo_id)) return res.status(400).json({ error: 'Invalid demo_id' });
@@ -207,14 +206,26 @@ async function handleReschedulePropose(req, res, body) {
   if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
   if (demo.status !== 'confirmed') return res.status(409).json({ error: 'Only a confirmed demo can be rescheduled.' });
 
+  // 0074: the proposal is written on demos (reschedule_to_*) AND versioned on the booking
+  // (bookings.reschedule_proposal_version += 1) in ONE transaction. The brand's accept/decline must
+  // quote the version returned here; a stale tab or a superseded proposal is refused by the RPC.
+  // A demo with no booking (legacy row) cannot be versioned and cannot be moved atomically — refused.
+  let proposal;
   try {
-    await sb(`demos?id=eq.${encodeURIComponent(demo_id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ reschedule_to_date: new_date, reschedule_to_time: new_time || demo.demo_time, reschedule_requested_at: new Date().toISOString() }),
-    });
+    const rows = await sbRpc('propose_reschedule', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: new_time || null });
+    proposal = Array.isArray(rows) ? rows[0] : rows;
   } catch (e) {
-    return res.status(503).json({ error: 'reschedule_unavailable', message: 'Reschedule storage is not set up yet. Run demos-reschedule-migration.sql, then try again.' });
+    console.error('propose_reschedule failed:', (e && e.message) || e);
+    return res.status(503).json({ error: 'reschedule_unavailable', message: 'Reschedule storage is not set up yet (migration 0074). Try again after it is applied.' });
   }
+  if (!proposal || proposal.ok !== true) {
+    const reason = (proposal && proposal.reason) || 'reschedule_failed';
+    if (reason === 'not_found') return res.status(404).json({ error: 'Demo not found' });
+    if (reason === 'date_in_past') return res.status(400).json({ error: 'The new date must be in the future.' });
+    if (reason === 'no_booking') return res.status(409).json({ error: 'no_booking', message: 'This demo has no linked booking, so it cannot be rescheduled from here. Cancel and rebook instead.' });
+    return res.status(409).json({ error: reason, message: 'Only a confirmed demo with an active booking can be rescheduled.' });
+  }
+  const proposalVersion = proposal.proposal_version;
 
   // Email the brand to accept/decline.
   let brandEmail = demo.contact_email || null;
@@ -231,7 +242,7 @@ async function handleReschedulePropose(req, res, body) {
       html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
     }, { binding: _b });
   }
-  return res.status(200).json({ ok: true, demo_id, new_date, new_time: new_time || demo.demo_time });
+  return res.status(200).json({ ok: true, demo_id, booking_id: proposal.booking_id, new_date, new_time: proposal.new_time || new_time || demo.demo_time, proposal_version: proposalVersion });
 }
 
 function dateLabelOf(d) {
@@ -489,7 +500,11 @@ export default async function handler(req, res) {
     }
     if (action === 'cancel') {
       patch.cancelled_at = new Date().toISOString();
-      if (reason) patch.notes = (booking.notes ? booking.notes + '\n\n' : '') + 'Cancelled: ' + reason;
+      // The reason rides on bookings.cancel_reason -> the demo_cancelled event payload (0074) -> the
+      // store-contact "Demo cancelled" notice. Plain text, bounded.
+      if (reason && String(reason).trim()) patch.cancel_reason = String(reason).trim().slice(0, 500);
+      // (The reason is no longer appended to bookings.notes: notes is the brand's operational text
+      //  and is shown to store contacts; owner reasons are not.)
       if (refundInfo && refundInfo.refund_id) patch.refund_id = refundInfo.refund_id;
     }
     // P0-5: never show a terminal "refunded/cancelled-and-settled" state unless Stripe actually
@@ -620,16 +635,11 @@ export default async function handler(req, res) {
       }
     }
 
-    // 2b) Store contacts (internal_contacts). Confirm -> "Demo confirmed" to every in-scope contact
-    //     with on_confirmed; cancelling a booking that WAS confirmed -> "Demo cancelled" to those with
-    //     on_cancelled. A decline only ever applies to a pending/held booking the store contacts were
-    //     never told about, so it sends nothing. Idempotent via demo_notifications (0073): a replayed
-    //     confirm (or the auto-confirm path having already sent) produces no second email. Best-effort.
-    if (action === 'confirm') {
-      await notifyStoreContactsConfirmed(_b, booking_id);
-    } else if (action === 'cancel' && booking.status === 'confirmed') {
-      await notifyStoreContactsCancelled(_b, booking_id, { reason: reason || null });
-    }
+    // 2b) Store contacts (internal_contacts) are NOT emailed from here. The bookings.status
+    //     transition above fires trg_booking_notification_events (0074), which writes the
+    //     demo_confirmed / demo_cancelled event in the SAME transaction; api/notification-worker.js
+    //     fans it out to every in-scope contact with the matching preference and sends with retries.
+    //     A decline of a pending/held booking writes no event — contacts were never told about it.
 
     // 3) Send email (best-effort)
     let emailOk = false;

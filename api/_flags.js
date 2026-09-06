@@ -18,6 +18,8 @@
 //   brandInviteEnabled    BRAND_INVITE_ENABLED            api/brand-account.js action=team-invite     false
 //   coiAutoEnforcement    COI_AUTO_ENFORCEMENT_ENABLED    api/coi-enforcement.js (dual gate w/ mode)  false
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
+//   notificationWorker    NOTIFICATION_WORKER_ENABLED     api/notification-worker.js (200 disabled) +   false
+//                                                         api/find-retailer.js (job required only when on)
 //   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
@@ -39,6 +41,10 @@ export const FLAGS = {
   // docs/provisional-holds.md. Off = current hard-gate + immediate-charge behavior.
   provisionalHolds: exactTrue(process.env.PROVISIONAL_HOLDS_ENABLED),
   brandInviteEnabled: exactTrue(process.env.BRAND_INVITE_ENABLED),
+  // Release A: the store-contact / COI notification outbox worker (api/notification-worker.js).
+  // Off = the route answers 200 {disabled:true}, writes no heartbeat, and the status probe does not
+  // require the job. Turn on only after 0074 is applied and RESEND_API_KEY is bound.
+  notificationWorker: exactTrue(process.env.NOTIFICATION_WORKER_ENABLED),
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -77,6 +83,7 @@ export function flagSnapshot() {
     checkoutEnabled: FLAGS.checkoutEnabled,
     coiUploadEnabled: FLAGS.coiUploadEnabled,
     brandInviteEnabled: FLAGS.brandInviteEnabled,
+    notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,
     coiEnforcementModeRaw: coiEnforcementMode(),

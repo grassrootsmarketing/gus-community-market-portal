@@ -6,6 +6,7 @@ import { coiCovered } from './_coi-coverage.js';
 import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
+import { parseYmd, parseDemoTime } from './_local-time.js';
 let _b = null;
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
@@ -30,6 +31,14 @@ export default async function handler(req, res) {
   if (!venue || venue.retailer_id !== retailer.id) return res.status(400).json({ error: 'invalid_venue' });
   if (venue.active === false) return res.status(400).json({ error: 'venue_inactive' });
   if (!body.demo_date || !body.demo_time) return res.status(400).json({ error: 'date_time_required' });
+  if (!parseYmd(String(body.demo_date))) return res.status(400).json({ error: 'invalid_demo_date', message: 'demo_date must be a real calendar date (YYYY-MM-DD).' });
+  if (!parseDemoTime(String(body.demo_time))) return res.status(400).json({ error: 'invalid_demo_time', message: 'demo_time must be a time such as "11:00 AM" or "13:00".' });
+  // Release A: electricity is a TYPED per-booking value. true/false from the form's toggle, absent
+  // -> null ("Not specified"). Anything else is refused — never parsed out of the notes text.
+  if (body.needs_electricity !== undefined && body.needs_electricity !== null && typeof body.needs_electricity !== 'boolean') {
+    return res.status(400).json({ error: 'invalid_needs_electricity', message: 'needs_electricity must be true or false.' });
+  }
+  const needsElectricity = typeof body.needs_electricity === 'boolean' ? body.needs_electricity : null;
 
   // 3) COI must be VERIFIED for the authenticated brand
   const brand = await one(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone`);
@@ -49,6 +58,7 @@ export default async function handler(req, res) {
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
     demo_date: body.demo_date, demo_time: body.demo_time, product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
+    needs_electricity: needsElectricity,
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
     payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };

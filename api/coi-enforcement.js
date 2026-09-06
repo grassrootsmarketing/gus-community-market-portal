@@ -15,7 +15,6 @@ import { FLAGS, coiEnforcementEffective } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
-import { notifyStoreContactsCancelled } from './_staff-mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -124,16 +123,13 @@ async function fetchComplianceCoi(brandEmail, retailerId) {
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
-// Store contacts (internal_contacts) hear that a demo they were told about is gone. Routed through
-// the shared store-contact mailer: on_cancelled preference, venue scope, and the demo_notifications
-// dedupe (0073) — a retried run cannot send the notice twice. Only a booking that was CONFIRMED had
-// been announced to them, so a pending booking's auto-cancel stays silent for staff.
-async function notifyStaff(booking) {
-  try {
-    if (!booking || !booking.id || booking.status !== 'confirmed') return;
-    await notifyStoreContactsCancelled(_b, booking.id, { reason: 'No current Certificate of Insurance on file 72 hours before the demo (automatic cancellation, refunded).' });
-  } catch (_) {}
-}
+// Store contacts (internal_contacts) hear that a demo they were told about is gone through the 0074
+// outbox: the bookings.status PATCH to 'cancelled' fires trg_booking_notification_events
+// (confirmed -> cancelled writes demo_cancelled, carrying cancel_reason) and
+// api/notification-worker.js delivers it to every in-scope contact with on_cancelled. A pending
+// booking's auto-cancel writes no event, so staff who were never told stay untold. Nothing here
+// sends store-contact mail; the helper stays as a no-op so the cancel path reads unchanged.
+async function notifyStaff(_booking) { /* outbox-driven (0074) */ }
 
 export default async function handler(req, res) {
   // ---- auth ----

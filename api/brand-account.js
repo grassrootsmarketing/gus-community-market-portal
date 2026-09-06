@@ -9,7 +9,6 @@ import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
-import { notifyStoreContactsRescheduled } from './_staff-mail.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -670,6 +669,22 @@ export default async function handler(req, res) {
         for (const k of PROFILE_NEVER_SEND) delete profile[k];
       }
       const demos = await demosR.json();
+      // 0074: a pending reschedule proposal is versioned on the BOOKING (reschedule_proposal_version);
+      // the dashboard's Accept/Decline must quote it. demos has no FK to bookings, so it cannot be
+      // embedded — one side query for the demos that carry a proposal.
+      try {
+        const withProposal = (Array.isArray(demos) ? demos : []).filter(d => d && d.reschedule_to_date && d.booking_id);
+        if (withProposal.length) {
+          const ids = withProposal.map(d => encodeURIComponent(d.booking_id)).join(',');
+          const bRows = await (await sb(`bookings?id=in.(${ids})&brand_id=eq.${brandId}&select=id,reschedule_proposal_version,schedule_revision`)).json();
+          const byId = new Map((Array.isArray(bRows) ? bRows : []).map(b => [b.id, b]));
+          for (const d of withProposal) {
+            const b = byId.get(d.booking_id);
+            d.reschedule_proposal_version = b ? b.reschedule_proposal_version : null;
+            d.schedule_revision = b ? b.schedule_revision : null;
+          }
+        }
+      } catch (e) { console.warn('reschedule_proposal_version lookup failed:', (e && e.message) || e); }
       const contacts = await contactsR.json();
       let pending_bookings = [];
       try { pending_bookings = await pendingR.json(); } catch (_) {}
@@ -688,33 +703,60 @@ export default async function handler(req, res) {
       if (!/^[0-9a-f-]{36}$/i.test(demoId)) return jsonResp(res, 400, { error: 'Invalid demo_id' });
       if (!['accept', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'decision must be accept or decline' });
 
+      // 0074: the brand must quote the proposal version it saw (brand-account `data` ships it on each
+      // demo as reschedule_proposal_version). Missing -> 400; not the current one -> 409 stale_proposal.
+      const rawVersion = body.proposal_version;
+      const proposalVersion = (rawVersion === '' || rawVersion == null) ? NaN : Number(rawVersion);
+      if (!Number.isInteger(proposalVersion) || proposalVersion < 1) {
+        return jsonResp(res, 400, { error: 'proposal_version_required', message: 'Reload the page and try again.' });
+      }
+
       const dRows = await (await sb(`demos?id=eq.${encodeURIComponent(demoId)}&select=*,retailers(name,billing_email)`)).json();
       const demo = Array.isArray(dRows) ? dRows[0] : null;
       if (!demo) return jsonResp(res, 404, { error: 'Demo not found' });
       if (demo.brand_id !== brandId) return jsonResp(res, 403, { error: 'Not your demo' });
-      if (!demo.reschedule_to_date) return jsonResp(res, 409, { error: 'no_pending_reschedule', message: 'There is no reschedule to respond to.' });
+      if (!demo.booking_id) return jsonResp(res, 409, { error: 'no_booking', message: 'This demo has no linked booking and cannot be moved from here. Ask the store to cancel and rebook.' });
 
-      const clear = { reschedule_to_date: null, reschedule_to_time: null, reschedule_requested_at: null };
-      let patch = clear;
-      let movedTo = null;
-      if (decision === 'accept') {
-        movedTo = { date: demo.reschedule_to_date, time: demo.reschedule_to_time || demo.demo_time };
-        patch = { demo_date: movedTo.date, demo_time: movedTo.time, ...clear };
-      }
+      // ONE database transaction (0074 accept_reschedule / decline_reschedule): the bookings row is
+      // the authoritative schedule (capacity is enforced there by the 0070 move trigger), demos is
+      // its projection, the proposal is consumed, the demo_rescheduled event is written and stale
+      // reminders are retired — or none of it happens. This route no longer PATCHes demos, and the
+      // store-contact "rescheduled" mail is produced by the outbox worker from that event.
+      const rpcName = decision === 'accept' ? 'accept_reschedule' : 'decline_reschedule';
+      let verdict = null;
       try {
-        await sb(`demos?id=eq.${encodeURIComponent(demoId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        const rr = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${rpcName}`, {
+          method: 'POST',
+          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ p_booking_id: demo.booking_id, p_brand_id: brandId, p_proposal_version: proposalVersion }),
+        });
+        const txt = await rr.text();
+        if (!rr.ok) throw new Error(`rpc ${rpcName} ${rr.status} ${txt.slice(0, 200)}`);
+        const rows = txt ? JSON.parse(txt) : null;
+        verdict = Array.isArray(rows) ? rows[0] : rows;
       } catch (e) {
+        console.error('reschedule-respond rpc failed:', (e && e.message) || e);
         return jsonResp(res, 500, { error: 'reschedule_save_failed', message: 'We could not save that. Try again in a moment.' });
       }
-
-      // Store contacts: a confirmed demo they were told about has MOVED. Old and new slot in the
-      // email; reminders re-key on the new date automatically (api/demo-reminders.js). Best-effort,
-      // idempotent per new slot via demo_notifications (0073). Legacy demos with no booking_id have
-      // no notification ledger and are skipped.
-      if (decision === 'accept' && movedTo && demo.booking_id) {
-        try { await notifyStoreContactsRescheduled(_b, demo.booking_id, { from: { date: demo.demo_date, time: demo.demo_time } }); }
-        catch (e) { console.warn('store-contact rescheduled notice failed:', (e && e.message) || e); }
+      if (!verdict || verdict.ok !== true) {
+        const reason = (verdict && verdict.reason) || 'reschedule_failed';
+        const MESSAGES = {
+          no_proposal:     'There is no reschedule to respond to.',
+          stale_proposal:  'The store has changed this proposal since you loaded the page. Reload to see the current one.',
+          slot_full:       'That slot just filled up. Ask the store to propose another date.',
+          coi_not_covered: 'Your Certificate of Insurance does not cover the proposed date. Upload a current COI, then ask the store to propose again.',
+          cancelled:       'This demo is no longer active.',
+          date_in_past:    'The proposed date has already passed.',
+          forbidden:       'Not your demo.',
+          no_demo:         'Demo not found',
+          not_found:       'Demo not found',
+        };
+        const status = reason === 'forbidden' ? 403 : (reason === 'not_found' || reason === 'no_demo') ? 404 : 409;
+        return jsonResp(res, status, { error: reason, message: MESSAGES[reason] || 'We could not apply that. Reload and try again.' });
       }
+      const movedTo = decision === 'accept'
+        ? { date: demo.reschedule_to_date, time: demo.reschedule_to_time || demo.demo_time }
+        : null;
 
       // Tell the retailer the outcome.
       const retailerEmail = demo.retailers && demo.retailers.billing_email;
@@ -731,7 +773,7 @@ export default async function handler(req, res) {
             html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">&mdash; Demohub</p></div>` }, { binding: _b });
         } catch (_) {}
       }
-      return jsonResp(res, 200, { ok: true, decision, moved_to: movedTo });
+      return jsonResp(res, 200, { ok: true, decision, moved_to: movedTo, schedule_revision: verdict.schedule_revision });
     }
 
     if (action === 'agreement-list') {
@@ -1561,22 +1603,11 @@ export default async function handler(req, res) {
       const toICSDate = (d) => d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + 'T' + pad(d.getUTCHours()) + pad(d.getUTCMinutes()) + pad(d.getUTCSeconds()) + 'Z';
       const escapeICS = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
       const fold = (line) => { const out = []; for (let i = 0; i < line.length; i += 73) out.push((i === 0 ? '' : ' ') + line.slice(i, i + 73)); return out.join('\r\n'); };
-      const parseDemoTime = (dateStr, timeStr) => {
-        if (!dateStr) return null;
-        const [Y, M, D] = dateStr.split('-').map(n => parseInt(n, 10));
-        let H = 11, MIN = 0;
-        if (timeStr) {
-          const m = String(timeStr).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-          if (m) {
-            let h = parseInt(m[1], 10);
-            const ampm = (m[3] || '').toUpperCase();
-            if (ampm === 'PM' && h !== 12) h += 12;
-            if (ampm === 'AM' && h === 12) h = 0;
-            H = h; MIN = parseInt(m[2], 10);
-          }
-        }
-        return new Date(Date.UTC(Y, M - 1, D, H + 8, MIN, 0));
-      };
+      // Release A: the demo's start instant is demo_date + demo_time resolved in the RETAILER's zone by
+      // the shared helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. Unparseable time ->
+      // the feed's 11:00 default; an unresolvable date (impossible / DST gap) drops the entry.
+      const { demoStartUtc: _demoStartUtc, safeZone: _safeZone } = await import('./_local-time.js');
+      const parseDemoTime = (dateStr, timeStr, tz) => (dateStr ? _demoStartUtc(dateStr, timeStr, tz, { lenientTime: true }) : null);
       // P0-7: the feed accepts ONLY a dedicated, revocable calendar token — never a login session
       // token. A calendar URL gets pasted into Google/Apple Calendar and shared with colleagues, so
       // it must not be usable as an account credential.
@@ -1601,7 +1632,7 @@ export default async function handler(req, res) {
       const bR = await sb(`brands?id=eq.${encodeURIComponent(brandId)}&select=company_name`);
       const brand = (await bR.json())[0];
       if (!brand) { res.status(404).send('Brand not found'); return; }
-      const dR = await sb(`demos?brand_id=eq.${encodeURIComponent(brandId)}&status=in.(confirmed,completed,pending)&select=*,retailers(name),venues(name,address)&order=demo_date`);
+      const dR = await sb(`demos?brand_id=eq.${encodeURIComponent(brandId)}&status=in.(confirmed,completed,pending)&select=*,retailers(name,timezone),venues(name,address)&order=demo_date`);
       const demos = await dR.json();
       const now = new Date();
       const lines = [
@@ -1613,7 +1644,7 @@ export default async function handler(req, res) {
         'X-WR-TIMEZONE:America/Los_Angeles',
       ];
       (demos || []).forEach(d => {
-        const start = parseDemoTime(d.demo_date, d.demo_time);
+        const start = parseDemoTime(d.demo_date, d.demo_time, _safeZone(d.retailers?.timezone));
         if (!start) return;
         const durHours = d.duration_hours || 3;
         const end = new Date(start.getTime() + durHours * 60 * 60 * 1000);

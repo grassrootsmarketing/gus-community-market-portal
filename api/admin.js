@@ -13,7 +13,8 @@
 import { getBinding, sendBindingFailure } from './_env.js';
 import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
-import { validateNotificationPrefs } from './_notification-prefs.js';
+import { validateNotificationPrefs, normalizePrefs } from './_notification-prefs.js';
+import { isValidZone } from './_local-time.js';
 let _b = null;
 
 // P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
@@ -65,6 +66,9 @@ const RETAILER_PATCH_WHITELIST = new Set([
   'description',
   'monthly_summary_enabled',
   'branding',
+  // Release A: the store's IANA zone drives reminder times and calendar feeds. Validated below
+  // (isValidZone) — an invalid value is refused, never silently defaulted.
+  'timezone',
 ]);
 
 // DH-05: fields the DB/Stripe own. The generic proxy must never let a tenant client write
@@ -428,6 +432,9 @@ export default async function handler(req, res) {
         try { const u = new URL(val); if (!/^https?:$/.test(u.protocol)) throw new Error('scheme'); }
         catch (_) { return send(res, 400, { error: 'invalid_url', message: uk + ' must be a valid http(s) URL.' }); }
       }
+      if ('timezone' in safe && !isValidZone(safe.timezone)) {
+        return send(res, 400, { error: 'invalid_timezone', message: 'timezone must be an IANA zone such as America/Los_Angeles.' });
+      }
       req.body = JSON.stringify(safe);
     } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
   } else if (req.method === 'PATCH' || req.method === 'DELETE') {
@@ -538,12 +545,12 @@ export default async function handler(req, res) {
     req.body = JSON.stringify(body);
   }
 
-  // Store contacts: notification_prefs drives which emails a contact gets and WHEN the reminder cron
-  // fires (api/demo-reminders.js reads it through api/_notification-prefs.js). A malformed object
-  // must be refused at the write, not tolerated at read time — an unknown reminder key or a 400-day
-  // custom offset would otherwise sit in the row silently doing nothing. Shape:
-  //   { on_confirmed, on_cancelled, on_rescheduled: boolean, reminders: subset of
-  //     ['1w','3d','1d','morning_of','1h'], custom_days: null | 1..30 }  (legacy keys tolerated)
+  // Store contacts: notification_prefs drives which emails a contact gets and WHEN reminders are
+  // scheduled (api/notification-worker.js reads it through api/_notification-prefs.js — the ONE
+  // normalizer). A malformed object is refused at the write (400 invalid_notification_prefs), and a
+  // valid one is stored in its NORMALIZED form so the row, the UI and the worker agree: offsets in
+  // the w1/d3/d1/d<N>/morning_of/h1 vocabulary, equivalent choices collapsed (custom 1 day + "1 day"
+  // = one 'd1'), legacy keys translated. null clears the prefs (lifecycle on, no reminders).
   if (table === 'internal_contacts' && ['POST', 'PATCH', 'PUT'].includes(req.method)) {
     let body;
     try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
@@ -551,6 +558,10 @@ export default async function handler(req, res) {
     if (Object.prototype.hasOwnProperty.call(body, 'notification_prefs')) {
       const v = validateNotificationPrefs(body.notification_prefs);
       if (!v.ok) return send(res, 400, { error: 'invalid_notification_prefs', message: v.error });
+      if (body.notification_prefs !== null) {
+        body.notification_prefs = normalizePrefs(body.notification_prefs);
+        req.body = JSON.stringify(body);
+      }
     }
   }
 

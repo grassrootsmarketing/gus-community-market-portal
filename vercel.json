@@ -48,7 +48,7 @@
       "schedule": "*/15 * * * *"
     },
     {
-      "path": "/api/demo-reminders",
+      "path": "/api/notification-worker",
       "schedule": "*/15 * * * *"
     }
   ],

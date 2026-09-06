@@ -202,7 +202,7 @@ h1 { font-size:44px; margin:0 0 8px; color:var(--forest-900); letter-spacing:-0.
 //   status                                  'operational' | 'degraded' | 'outage'
 //   checks.db.ok                            boolean
 //   checks.cron.ok                          boolean
-//   checks.cron.jobs[<name>].ok/.required   per job: 'refund-worker' | 'daily' | 'provisional-sweep' | 'demo-reminders'
+//   checks.cron.jobs[<name>].ok/.required   per job: 'refund-worker' | 'daily' | 'provisional-sweep' | 'notification-worker'
 //   checks.errors.ok                        boolean
 //   incidents[].title/.severity/.started_at
 //   checked_at
@@ -231,7 +231,7 @@ function renderStatusModel(payload) {
     ['refund-worker', 'Refund processing', 'Releases card holds and sends refunds for cancelled demos'],
     ['daily', 'Daily tasks', 'Welcome emails and insurance-expiry warnings'],
     ['provisional-sweep', 'Provisional holds sweep', 'Expires unconfirmed provisional bookings'],
-    ['demo-reminders', 'Demo reminders', 'Emails store contacts before confirmed demos'],
+    ['notification-worker', 'Demo notifications', 'Emails store contacts about confirmed demos and reminders'],
   ];
   const jobs = cron.jobs && typeof cron.jobs === 'object' ? cron.jobs : {};
   for (const [jobName, label, detail] of JOB_ROWS) {

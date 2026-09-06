@@ -9,6 +9,7 @@
 // Sensitive fields (contact email, phone, notes) are NOT included.
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { demoStartUtc, safeZone } from './_local-time.js';
 let _b = null;   // per-invocation binding; server-side reads use the service key to bypass RLS
 
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -32,26 +33,13 @@ function fold(line) {
   return out.join('\r\n');
 }
 
-function parseDemoTime(dateStr, timeStr) {
-  // dateStr: YYYY-MM-DD. timeStr: "11:00 AM" or "3:00 PM" or null
+// The demo's start instant: demo_date + demo_time resolved in the RETAILER's zone by the shared
+// helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. A missing/unparseable time keeps the
+// feed's long-standing 11:00 default; a date that cannot be resolved (impossible date, DST gap) is
+// dropped from the feed rather than guessed.
+function parseDemoTime(dateStr, timeStr, tz) {
   if (!dateStr) return null;
-  const [Y, M, D] = dateStr.split('-').map(n => parseInt(n, 10));
-  let H = 11, MIN = 0;
-  if (timeStr) {
-    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
-    if (m) {
-      let h = parseInt(m[1], 10);
-      const ampm = (m[3] || '').toUpperCase();
-      if (ampm === 'PM' && h !== 12) h += 12;
-      if (ampm === 'AM' && h === 12) h = 0;
-      H = h; MIN = parseInt(m[2], 10);
-    }
-  }
-  // Treat as US Pacific. Convert to UTC roughly (US/Pacific = UTC-8 standard, -7 during DST).
-  // For accuracy across DST, use a rough UTC offset; cal apps tolerate the absolute time.
-  // We'll use the local-time approach with TZID hint, but simpler: just emit UTC ±8h.
-  const localDate = new Date(Date.UTC(Y, M - 1, D, H + 8, MIN, 0)); // assume PST (UTC-8)
-  return localDate;
+  return demoStartUtc(dateStr, timeStr, tz, { lenientTime: true });
 }
 
 export default async function handler(req, res) {
@@ -66,7 +54,7 @@ export default async function handler(req, res) {
 
   try {
     // Look up retailer
-    const rR = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name,cal_feed_key`, {
+    const rR = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(slug)}&select=id,name,cal_feed_key,timezone`, {
       headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const retailers = await rR.json();
@@ -109,6 +97,7 @@ export default async function handler(req, res) {
     }
 
     const now = new Date();
+    const tz = safeZone(retailer.timezone);
     const lines = [
       'BEGIN:VCALENDAR',
       'VERSION:2.0',
@@ -117,11 +106,11 @@ export default async function handler(req, res) {
       'METHOD:PUBLISH',
       fold('X-WR-CALNAME:' + escapeICS(`${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''} — Demos`)),
       fold('X-WR-CALDESC:' + escapeICS(`Confirmed demos at ${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''}, powered by Demohub`)),
-      'X-WR-TIMEZONE:America/Los_Angeles',
+      'X-WR-TIMEZONE:' + tz,
     ];
 
     (demos || []).forEach(d => {
-      const start = parseDemoTime(d.demo_date, d.demo_time);
+      const start = parseDemoTime(d.demo_date, d.demo_time, tz);
       if (!start) return;
       const durHours = d.duration_hours || 3;
       const end = new Date(start.getTime() + durHours * 60 * 60 * 1000);
