@@ -11,7 +11,7 @@
 | Item | Value |
 |---|---|
 | Baseline (`origin/main` = production) | `fdc87df5f628628cc5793d24b7001f7b9c8d044b`, tree clean |
-| Cleanup RC (final SHA) | `5b9f049e93770ae79f0cfdbaec5da265e373b770` |
+| Cleanup RC (final SHA) | `6ae5c74b1d33d4e131568b5d4dc19346e2bff371` |
 | Working tree at RC | clean (`git status --porcelain` → 0) |
 | SQL migrations | 73 (`0000`–`0072`) + `README.md` (not a migration) = 74 files on disk |
 | Test database | Supabase project **demohub-rebuild-check** (`tileejdviuvijumjeplv`) |
