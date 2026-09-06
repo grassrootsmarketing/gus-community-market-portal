@@ -1354,24 +1354,13 @@
                 <input type="file" id="storeCsvFile" accept=".csv,text/csv" style="font-family:inherit; font-size:0.9rem; padding:6px 0;">
             </div>
 
-            <div id="storeBulkPreview" style="display:none; margin-bottom:18px;">
-                <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:8px;" id="storeBulkPreviewLabel">Preview</div>
-                <div style="max-height:280px; overflow-y:auto; border:1px solid rgba(15,44,23,0.1); border-radius:8px;">
-                    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
-                        <thead style="background:#f9f7f2; position:sticky; top:0;">
-                            <tr id="storeBulkPreviewHeader"></tr>
-                        </thead>
-                        <tbody id="storeBulkPreviewBody"></tbody>
-                    </table>
-                </div>
-                <div id="storeBulkValidation" style="font-size:0.85rem; margin-top:10px;"></div>
-            </div>
+            <div id="storeBulkPreview" style="display:none; margin-bottom:18px; color:var(--forest-700); font-size:0.9rem;"></div>
 
             <div id="storeBulkResult" style="display:none; padding:14px 18px; border-radius:10px; margin-bottom:14px; font-size:0.9rem;"></div>
 
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button class="btn btn-secondary" style="padding:10px 18px;" onclick="closeStoreBulkUpload()">Cancel</button>
-                <button class="btn btn-primary" style="padding:10px 18px;" onclick="importStoreCsv()" id="storeBulkImportBtn" disabled>Import 0 stores</button>
+                <button class="btn btn-primary" style="padding:10px 18px;" onclick="importStoreCsv()" id="storeBulkImportBtn" disabled>Import stores</button>
             </div>
         </div>
     </div>
@@ -2080,15 +2069,17 @@
 
         async function exitImpersonation() {
             try {
-                await fetch('/api/admin-auth', {
+                const response = await fetch('/api/admin-auth', {
                     method: 'POST',
                     headers: {'Content-Type':'application/json'},
                     body: JSON.stringify({ action: 'owner-end-impersonation' }),
                     credentials: 'same-origin',
                 });
-            } catch (_) {}
-            // Redirect back to the owner panel
-            window.location.href = '/owner';
+                if (!response.ok) throw new Error('Support session could not be ended. Please try again.');
+                window.location.href = '/owner';
+            } catch (_) {
+                DhModal.toast('Support session could not be ended. Please try again.', 'error');
+            }
         }
 
         document.addEventListener('DOMContentLoaded', async () => {
@@ -5322,15 +5313,15 @@ END:VEVENT
         }
 
         // ===== Bulk CSV store upload =====
-        let _bulkParsedRows = [];
+
 
         function openStoreBulkUpload() {
-            _bulkParsedRows = [];
+
             document.getElementById('storeCsvFile').value = '';
             document.getElementById('storeBulkPreview').style.display = 'none';
             document.getElementById('storeBulkResult').style.display = 'none';
             document.getElementById('storeBulkImportBtn').disabled = true;
-            document.getElementById('storeBulkImportBtn').textContent = 'Import 0 stores';
+            document.getElementById('storeBulkImportBtn').textContent = 'Import stores';
             document.getElementById('storeBulkModal').style.display = 'flex';
         }
         function closeStoreBulkUpload() {
@@ -5352,213 +5343,28 @@ END:VEVENT
             document.body.appendChild(a); a.click(); document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
-        // Simple CSV parser — handles quoted fields with commas + escaped quotes
-        function parseCsv(text) {
-            const rows = [];
-            let row = [], field = '', inQuotes = false, i = 0;
-            text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-            while (i < text.length) {
-                const c = text[i];
-                if (inQuotes) {
-                    if (c === '"' && text[i+1] === '"') { field += '"'; i += 2; continue; }
-                    if (c === '"') { inQuotes = false; i++; continue; }
-                    field += c; i++; continue;
-                }
-                if (c === '"') { inQuotes = true; i++; continue; }
-                if (c === ',') { row.push(field); field = ''; i++; continue; }
-                if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; i++; continue; }
-                field += c; i++;
-            }
-            if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
-            // strip trailing blank rows
-            while (rows.length && rows[rows.length-1].every(f => !f || !f.trim())) rows.pop();
-            return rows;
-        }
-        function normalizeHeader(h) {
-            return (h || '').toLowerCase().trim().replace(/[\s_-]+/g, '');
-        }
-        // Map various header variants → canonical column
-        const HEADER_ALIASES = {
-            'name': 'name', 'storename': 'name', 'location': 'name', 'store': 'name',
-            'address': 'address', 'streetaddress': 'address', 'fulladdress': 'address',
-            'demofee': 'demo_fee', 'fee': 'demo_fee', 'price': 'demo_fee',
-            'maxdemosperslot': 'max_demos_per_slot', 'capacity': 'max_demos_per_slot', 'maxdemos': 'max_demos_per_slot', 'maxperslot': 'max_demos_per_slot',
-            'active': 'active', 'enabled': 'active', 'status': 'active',
-        };
-        function parseBoolish(v) {
-            const s = String(v == null ? '' : v).trim().toLowerCase();
-            if (['', 'true', 'yes', 'y', '1', 'active', 'on'].includes(s)) return true;
-            if (['false', 'no', 'n', '0', 'inactive', 'paused', 'off'].includes(s)) return false;
-            return true;
-        }
         document.addEventListener('change', (e) => {
             if (e.target && e.target.id === 'storeCsvFile') {
                 const file = e.target.files && e.target.files[0];
-                if (!file) return;
-                console.log('[bulk-upload] file selected:', file.name, file.size, 'bytes');
-                // Server-side parse — bypasses client-side file API entirely.
-                // Show filename immediately, enable the Import button.
-                const previewBox = document.getElementById('storeBulkPreview');
-                const previewBody = document.getElementById('storeBulkPreviewBody');
+                const preview = document.getElementById('storeBulkPreview');
                 const btn = document.getElementById('storeBulkImportBtn');
-                if (previewBox) previewBox.style.display = 'block';
-                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--forest-700); font-size:0.9rem;"><strong>' + escapeHtml(file.name) + '</strong> (' + file.size + ' bytes) selected. Click <strong>Import stores</strong> to parse + insert on the server.</td></tr>';
-                if (btn) { btn.disabled = false; btn.textContent = 'Import ' + escapeHtml(file.name); }
-                window._bulkSelectedFile = file;
+                preview.style.display = file ? 'block' : 'none';
+                preview.textContent = file ? file.name + ' selected. Click Import stores to validate and import it.' : '';
+                btn.disabled = !file;
+                btn.textContent = 'Import stores';
+                document.getElementById('storeBulkResult').style.display = 'none';
             }
         });
-        // (direct-listener backup removed — server-side flow is the only path now)
-        // Read a File as text using FileReader (more compatible than await file.text()
-        // which can hang in some browser environments). 8-second timeout as a safety net.
-        function readFileAsText(file) {
-            return new Promise((resolve, reject) => {
-                const fr = new FileReader();
-                const timer = setTimeout(() => {
-                    fr.abort();
-                    reject(new Error('File read timed out after 8s'));
-                }, 8000);
-                fr.onload = () => { clearTimeout(timer); resolve(String(fr.result || '')); };
-                fr.onerror = () => { clearTimeout(timer); reject(new Error('FileReader error: ' + (fr.error && fr.error.message || 'unknown'))); };
-                fr.onabort = () => { clearTimeout(timer); reject(new Error('FileReader aborted')); };
-                try { fr.readAsText(file); }
-                catch (e) { clearTimeout(timer); reject(e); }
-            });
-        }
-        async function handleStoreCsvFile(file) {
-            console.log('[bulk-upload] handleStoreCsvFile called with:', file && (file.name + ' (' + file.size + ' bytes)'));
-            if (!file) {
-                console.warn('[bulk-upload] no file passed');
-                return;
-            }
-            const previewBox = document.getElementById('storeBulkPreview');
-            const previewBody = document.getElementById('storeBulkPreviewBody');
-            if (previewBox) previewBox.style.display = 'block';
-            if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--ink-500); font-size:0.88rem;">Reading ' + (file.name || 'file') + '&hellip;</td></tr>';
-            let text;
-            try {
-                text = await readFileAsText(file);
-                console.log('[bulk-upload] file read, length:', text.length);
-            } catch (e) {
-                console.error('[bulk-upload] readFileAsText failed:', e);
-                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>Could not read file:</strong> ' + escapeHtml(e.message || String(e)) + '</td></tr>';
-                return;
-            }
-            let rows;
-            try {
-                rows = parseCsv(text);
-                console.log('[bulk-upload] parseCsv result:', rows.length, 'rows');
-            } catch (e) {
-                console.error('[bulk-upload] parseCsv threw:', e);
-                if (previewBody) previewBody.innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;"><strong>CSV parse error:</strong> ' + escapeHtml(e.message || String(e)) + '</td></tr>';
-                return;
-            }
-            if (rows.length < 2) {
-                document.getElementById('storeBulkPreview').style.display = 'block';
-                document.getElementById('storeBulkPreviewBody').innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;">CSV is empty or missing a header row.</td></tr>';
-                document.getElementById('storeBulkImportBtn').disabled = true;
-                return;
-            }
-            const rawHeaders = rows[0].map(normalizeHeader);
-            const columnMap = rawHeaders.map(h => HEADER_ALIASES[h] || null);
-            if (!columnMap.includes('name')) {
-                document.getElementById('storeBulkPreview').style.display = 'block';
-                document.getElementById('storeBulkPreviewBody').innerHTML = '<tr><td style="padding:18px; color:var(--clay-700); font-size:0.88rem;">No "name" column found. Make sure your CSV has a column called <strong>name</strong> (or "store name" / "location").</td></tr>';
-                document.getElementById('storeBulkImportBtn').disabled = true;
-                return;
-            }
-
-            const parsed = [];
-            const errors = [];
-            for (let r = 1; r < rows.length; r++) {
-                const rec = { name: '', address: '', demo_fee: 30, max_demos_per_slot: 1, active: true };
-                for (let c = 0; c < rows[r].length; c++) {
-                    const col = columnMap[c];
-                    if (!col) continue;
-                    const v = (rows[r][c] || '').trim();
-                    if (col === 'demo_fee') rec.demo_fee = v ? Number(v.replace(/[$,]/g, '')) : 30;
-                    else if (col === 'max_demos_per_slot') {
-                        // F-08: blank = default 1; anything else must be a whole number >= 1 or the row is rejected.
-                        if (!v) rec.max_demos_per_slot = 1;
-                        else {
-                            const cap = parseCapacityInput(v);
-                            if (cap.ok) rec.max_demos_per_slot = cap.value;
-                            else { rec._capacityRaw = v; rec._capacityInvalid = true; }
-                        }
-                    }
-                    else if (col === 'active') rec.active = parseBoolish(v);
-                    else rec[col] = v;
-                }
-                rec._row = r + 1;
-                if (!rec.name) errors.push(`Row ${r+1}: name is required`);
-                if (rec.demo_fee != null && isNaN(rec.demo_fee)) errors.push(`Row ${r+1}: demo_fee "${rec.demo_fee}" isn't a valid number`);
-                if (rec._capacityInvalid) errors.push(`Row ${r+1}: max_demos_per_slot "${rec._capacityRaw}" must be a whole number of 1 or more (no "no limit" value) — row rejected`);
-                parsed.push(rec);
-            }
-            _bulkParsedRows = parsed;
-            renderBulkPreview(parsed, errors);
-        }
-        function renderBulkPreview(parsed, errors) {
-            const previewBox = document.getElementById('storeBulkPreview');
-            const headerRow = document.getElementById('storeBulkPreviewHeader');
-            const tbody = document.getElementById('storeBulkPreviewBody');
-            const label = document.getElementById('storeBulkPreviewLabel');
-            const validation = document.getElementById('storeBulkValidation');
-            const btn = document.getElementById('storeBulkImportBtn');
-            previewBox.style.display = 'block';
-
-            const validCount = parsed.filter(r => r.name).length;
-            label.textContent = `Preview · ${parsed.length} row${parsed.length === 1 ? '' : 's'} parsed`;
-
-            headerRow.innerHTML = ['Name', 'Address', 'Demo fee', 'Capacity', 'Active'].map(h =>
-                `<th style="text-align:left; padding:8px 12px; font-size:0.78rem; text-transform:uppercase; letter-spacing:0.04em; color:var(--ink-500); font-weight:700;">${h}</th>`
-            ).join('');
-
-            if (parsed.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="padding:18px; color:var(--ink-500); font-size:0.88rem;">No data rows.</td></tr>';
-            } else {
-                tbody.innerHTML = parsed.map(r => {
-                    const invalid = !r.name || r._capacityInvalid;
-                    const bg = invalid ? '#fdebe5' : 'white';
-                    const capCell = r._capacityInvalid
-                        ? '<span style="color:var(--clay-700);">' + escapeHtml(r._capacityRaw) + ' (invalid)</span>'
-                        : String(r.max_demos_per_slot || 1);
-                    const nameCell = r.name || '<span style="color:var(--clay-700);">(missing)</span>';
-                    return `<tr style="background:${bg}; border-top:1px solid rgba(15,44,23,0.06);">
-                        <td style="padding:8px 12px; font-weight:500;">${escapeHtml(nameCell === '(missing)' ? '' : nameCell) || nameCell}</td>
-                        <td style="padding:8px 12px; color:var(--ink-700);">${escapeHtml(r.address || '')}</td>
-                        <td style="padding:8px 12px; color:var(--ink-700);">$${Number(r.demo_fee || 30).toFixed(0)}</td>
-                        <td style="padding:8px 12px; color:var(--ink-700);">${capCell}</td>
-                        <td style="padding:8px 12px; color:var(--ink-700);">${r.active ? 'Yes' : 'No'}</td>
-                    </tr>`;
-                }).join('');
-            }
-
-            if (errors.length > 0) {
-                validation.innerHTML = `<div style="background:#fdebe5; color:var(--clay-700); padding:10px 14px; border-radius:8px;">
-                    <strong>${errors.length} issue${errors.length === 1 ? '' : 's'} found:</strong><br>${errors.slice(0, 5).map(escapeHtml).join('<br>')}${errors.length > 5 ? '<br>…and ' + (errors.length - 5) + ' more' : ''}
-                </div>`;
-            } else {
-                validation.innerHTML = `<div style="color:var(--forest-700);">All ${validCount} row${validCount === 1 ? '' : 's'} look good. Ready to import.</div>`;
-            }
-            // F-08: a row with an invalid capacity blocks the import (the server receives the raw file, so
-            // the only place to reject the row is here, before upload). Fix the CSV and re-select it.
-            const capacityBlocked = parsed.some(r => r._capacityInvalid);
-            btn.disabled = validCount === 0 || capacityBlocked;
-            btn.textContent = capacityBlocked ? 'Fix capacity values to import' : `Import ${validCount} store${validCount === 1 ? '' : 's'}`;
-        }
         async function importStoreCsv() {
-            console.log('[bulk-upload] importStoreCsv called');
             const btn = document.getElementById('storeBulkImportBtn');
             const resultBox = document.getElementById('storeBulkResult');
-            const file = window._bulkSelectedFile;
-            if (!file) {
-                console.warn('[bulk-upload] no file selected');
-                return;
-            }
+            const fileInput = document.getElementById('storeCsvFile');
+            const file = fileInput.files && fileInput.files[0];
+            if (!file || btn.disabled) return;
             btn.disabled = true;
-            btn.textContent = 'Uploading...';
+            fileInput.disabled = true;
+            btn.textContent = 'Importing...';
             resultBox.style.display = 'none';
-            // Server-side flow — POST the file as multipart/form-data
             try {
                 const fd = new FormData();
                 fd.append('csv', file, file.name);
@@ -5568,76 +5374,36 @@ END:VEVENT
                     credentials: 'same-origin',
                 });
                 const j = await r.json();
-                console.log('[bulk-upload] server response:', j);
-                if (!r.ok) throw new Error(j.error || 'HTTP ' + r.status);
                 resultBox.style.display = 'block';
-                if ((j.insert_errors || []).length === 0 && (j.parse_errors || []).length === 0) {
+                if (r.ok && j.ok === true) {
                     resultBox.style.background = 'var(--forest-100)';
                     resultBox.style.color = 'var(--forest-700)';
-                    resultBox.innerHTML = '<strong>Imported ' + j.imported + ' location' + (j.imported === 1 ? '' : 's') + '.</strong> Closing in a moment...';
+                    resultBox.textContent = 'Imported ' + j.imported + ' location' + (j.imported === 1 ? '' : 's') + '. Closing in a moment...';
                     setTimeout(() => { closeStoreBulkUpload(); refreshAll(); }, 1500);
                 } else {
                     resultBox.style.background = '#fdebe5';
                     resultBox.style.color = 'var(--clay-700)';
-                    const allErrs = [...(j.parse_errors || []), ...(j.insert_errors || [])];
-                    resultBox.innerHTML = '<strong>Imported ' + j.imported + ' of ' + j.total + '.</strong> ' + allErrs.length + ' issue' + (allErrs.length === 1 ? '' : 's') + ':<br><span style="font-size:0.85rem;">' + allErrs.slice(0, 5).map(escapeHtml).join('<br>') + (allErrs.length > 5 ? '<br>...and ' + (allErrs.length - 5) + ' more' : '') + '</span>';
-                    btn.disabled = false;
-                    btn.textContent = 'Retry';
-                    if (j.imported > 0) setTimeout(() => refreshAll(), 500);
+                    const errors = Array.isArray(j.errors) ? j.errors : [];
+                    const details = errors.slice(0, 5).map(error => 'Row ' + error.row + ': ' + error.message);
+                    if (errors.length > 5) details.push('...and ' + (errors.length - 5) + ' more issues.');
+                    const partial = Number(j.imported) > 0;
+                    const message = partial
+                        ? 'Imported ' + j.imported + ' of ' + j.total + ' locations. Select a corrected CSV containing only the remaining rows.'
+                        : j.message || j.error || 'Import failed (HTTP ' + r.status + ').';
+                    resultBox.textContent = [message, ...details].join(' ');
+                    if (partial) refreshAll();
                 }
-            } catch (e) {
-                console.error('[bulk-upload] server upload failed:', e);
+            } catch (_) {
                 resultBox.style.display = 'block';
                 resultBox.style.background = '#fdebe5';
                 resultBox.style.color = 'var(--clay-700)';
-                resultBox.innerHTML = '<strong>Upload failed:</strong> ' + escapeHtml(e.message || String(e));
-                btn.disabled = false;
-                btn.textContent = 'Retry';
-            }
-            return; // skip old client-side flow
-
-            let successCount = 0;
-            const failures = [];
-            for (let i = 0; i < validRows.length; i++) {
-                const r = validRows[i];
-                btn.textContent = `Importing ${i+1} of ${validRows.length}…`;
-                try {
-                    const resp = await fetch('/api/admin?table=venues', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'same-origin',
-                        body: JSON.stringify({
-                            name: r.name,
-                            address: r.address || null,
-                            demo_fee: r.demo_fee != null ? Number(r.demo_fee) : 30,
-                            max_demos_per_slot: r.max_demos_per_slot || 1,
-                            active: r.active !== false,
-                        }),
-                    });
-                    if (!resp.ok) {
-                        const j = await resp.json().catch(() => ({}));
-                        failures.push(`Row ${r._row} (${r.name}): ${j.error || j.message || 'HTTP ' + resp.status}`);
-                    } else {
-                        successCount++;
-                    }
-                } catch (e) {
-                    failures.push(`Row ${r._row} (${r.name}): ${e.message}`);
-                }
-            }
-
-            resultBox.style.display = 'block';
-            if (failures.length === 0) {
-                resultBox.style.background = 'var(--forest-100)';
-                resultBox.style.color = 'var(--forest-700)';
-                resultBox.innerHTML = `<strong>Imported ${successCount} store${successCount === 1 ? '' : 's'}.</strong> Closing in a moment…`;
-                setTimeout(() => { closeStoreBulkUpload(); refreshAll(); }, 1500);
-            } else {
-                resultBox.style.background = '#fdebe5';
-                resultBox.style.color = 'var(--clay-700)';
-                resultBox.innerHTML = `<strong>Imported ${successCount} of ${validRows.length} stores.</strong> ${failures.length} failed:<br><span style="font-size:0.85rem;">${failures.slice(0, 5).map(escapeHtml).join('<br>')}${failures.length > 5 ? '<br>…and ' + (failures.length - 5) + ' more' : ''}</span>`;
-                btn.disabled = false;
-                btn.textContent = `Retry ${failures.length} failure${failures.length === 1 ? '' : 's'}`;
+                resultBox.textContent = 'The import result could not be confirmed. Check your locations before selecting a CSV again to avoid duplicates.';
                 refreshAll();
+            } finally {
+                fileInput.value = '';
+                fileInput.disabled = false;
+                document.getElementById('storeBulkPreview').style.display = 'none';
+                btn.textContent = 'Select a CSV to import';
             }
         }
 

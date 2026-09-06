@@ -1455,22 +1455,26 @@ async function handleOwnerAction(action, req, res, body) {
     let summaryRow = null;
     let retailerInfo = null;
     if (sid) {
-      // Fetch the support_sessions row + retailer info BEFORE marking ended so we can
-      // include duration + writes_count in the summary email.
+      // Keep the audit id before deletion clears its session pointer (ON DELETE SET NULL).
+      // Never mark a live session ended: OFF revokes sessions whose audit remains open.
       try {
         const rows = await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&ended_at=is.null&select=id,owner_email,started_at,writes_count,target_retailer_id&limit=1`);
-        summaryRow = Array.isArray(rows) ? rows[0] : null;
-        if (summaryRow) {
+        if (!Array.isArray(rows)) throw new Error('support session lookup returned no result');
+        summaryRow = rows[0] || null;
+        await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' });
+        if (summaryRow) await sb(`support_sessions?id=eq.${encodeURIComponent(summaryRow.id)}&ended_at=is.null`, {
+          method: 'PATCH',
+          body: JSON.stringify({ ended_at: new Date().toISOString() }),
+        });
+      } catch (_) {
+        return res.status(503).json({ error: 'support_session_end_failed' });
+      }
+      if (summaryRow) {
+        try {
           const retRows = await sb(`retailers?id=eq.${encodeURIComponent(summaryRow.target_retailer_id)}&select=name,billing_email`);
           retailerInfo = Array.isArray(retRows) ? retRows[0] : null;
-        }
-      } catch (_) {}
-      // Mark ended
-      try { await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&ended_at=is.null`, {
-        method: 'PATCH',
-        body: JSON.stringify({ ended_at: new Date().toISOString() }),
-      }); } catch (_) {}
-      try { await sb(`admin_sessions?session_id=eq.${encodeURIComponent(sid)}`, { method: 'DELETE' }); } catch (_) {}
+        } catch (_) {}
+      }
     }
     // Fire-and-forget summary email to retailer
     if (summaryRow && retailerInfo && retailerInfo.billing_email) {
@@ -1531,6 +1535,18 @@ async function handleOwnerAction(action, req, res, body) {
   // an impersonation racing the OFF is either revoked by it or refused after it.
   if (action === 'support-access-toggle') {
     const sid = getSessionIdFromReq(req, body);
+    if (!isUuid(sid)) return res.status(401).json({ error: 'Invalid session' });
+    // Support inherits the retailer's role, but may not grant or change its own consent.
+    // The audit is authoritative; the optional browser banner cookie is not an auth signal.
+    // Check origin BEFORE live membership: revocation nulls the audit pointer, so a session
+    // whose pointer has already disappeared must subsequently fail session validation.
+    try {
+      const support = await sb(`support_sessions?target_session_id=eq.${encodeURIComponent(sid)}&select=id&limit=1`);
+      if (!Array.isArray(support)) throw new Error('support session lookup returned no result');
+      if (support.length) return res.status(403).json({ error: 'support_cannot_change_consent' });
+    } catch (_) {
+      return res.status(503).json({ error: 'support_session_check_unavailable' });
+    }
     const v = await requireRetailerMembership(sid);
     if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
     if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
@@ -1562,10 +1578,11 @@ async function handleOwnerAction(action, req, res, body) {
     if (!v.ok) return res.status(v.status || 401).json({ error: v.error });
     const rows = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=allow_support_access,support_access_expires_at`);
     const r = Array.isArray(rows) ? rows[0] : null;
-    const expired = r && r.support_access_expires_at && new Date(r.support_access_expires_at).getTime() < Date.now();
+    const expiry = Date.parse(String(r?.support_access_expires_at || ''));
+    const expired = Number.isFinite(expiry) && expiry <= Date.now();
     return res.status(200).json({
       ok: true,
-      allow_support_access: !!(r && r.allow_support_access) && !expired,
+      allow_support_access: r?.allow_support_access === true && Number.isFinite(expiry) && !expired,
       expires_at: r && r.support_access_expires_at,
       expired,
     });

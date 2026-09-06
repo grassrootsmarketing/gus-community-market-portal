@@ -6,7 +6,6 @@
 // script and proves the rule at every entry point:
 //   * single-venue save (saveAvailability)            -> parseCapacityInput, stops on error, never null
 //   * "Apply to all locations" (applyScheduleToAllStores) -> same
-//   * CSV bulk import preview (row parse + import gate) -> invalid rows rejected with a per-row message
 //   * the input element itself                          -> type=number min=1 step=1, no "No limit" option
 // Rule: whole numbers >= 1 only. "0", negatives, blanks, non-numeric AND decimals ("2.7") are rejected
 // with a message — never floored, never silently coerced to 1, never sent as null.
@@ -101,38 +100,6 @@ console.log('\n— capacity input: whole number >= 1, never null —');
   const tooltip = html.match(/for="availabilityMaxPerSlot"[^>]*>[\s\S]*?data-tooltip="([^"]*)"/);
   check('tooltip states the whole-number >= 1 rule', tooltip && /1 or more/i.test(tooltip[1]), tooltip && tooltip[1]);
   check('CSV column help states the whole-number >= 1 rule for max_demos_per_slot', /<strong>max_demos_per_slot<\/strong> \(whole number, 1 or more/.test(html));
-}
-
-// 6. CSV bulk import: invalid capacity → per-row error, row highlighted, import blocked.
-{
-  const parseLoop = slice("const rec = { name: '', address: '', demo_fee: 30, max_demos_per_slot: 1, active: true };", '_bulkParsedRows = parsed;');
-  check('CSV row parse routes max_demos_per_slot through parseCapacityInput', /parseCapacityInput\(v\)/.test(parseLoop));
-  check('CSV row parse no longer coerces with Math.max(1, parseInt(v, 10) || 1)', !/Math\.max\(1, parseInt\(v, 10\) \|\| 1\)/.test(parseLoop));
-  check('CSV blank capacity still defaults to 1', /if \(!v\) rec\.max_demos_per_slot = 1;/.test(parseLoop));
-  check('CSV invalid capacity marks the row and records the raw value', /rec\._capacityInvalid = true/.test(parseLoop) && /rec\._capacityRaw = v/.test(parseLoop));
-  check('CSV invalid capacity pushes a per-row "Row N:" message following the existing errors[] pattern',
-    /if \(rec\._capacityInvalid\) errors\.push\(`Row \$\{r\+1\}: max_demos_per_slot/.test(parseLoop));
-
-  const preview = slice('function renderBulkPreview(parsed, errors)', 'async function importStoreCsv()');
-  check('preview highlights rows with invalid capacity', /const invalid = !r\.name \|\| r\._capacityInvalid;/.test(preview));
-  check('preview shows the raw invalid value (escaped) instead of a coerced 1', /escapeHtml\(r\._capacityRaw\)/.test(preview) && !/\$\{r\.max_demos_per_slot \|\| 1\}/.test(preview));
-  check('import button is disabled while any row has invalid capacity',
-    /const capacityBlocked = parsed\.some\(r => r\._capacityInvalid\);/.test(preview) && /btn\.disabled = validCount === 0 \|\| capacityBlocked;/.test(preview));
-
-  // Simulate the row loop against the extracted parser: exactly the invalid rows are rejected.
-  const rows = [['A', '1'], ['B', '0'], ['C', '-1'], ['D', 'abc'], ['E', '2'], ['F', '2.7'], ['G', '']];
-  const results = rows.map(([name, v]) => {
-    const rec = { name, max_demos_per_slot: 1 };
-    if (!v) rec.max_demos_per_slot = 1;
-    else { const cap = parseCapacityInput(v); if (cap.ok) rec.max_demos_per_slot = cap.value; else { rec._capacityRaw = v; rec._capacityInvalid = true; } }
-    return rec;
-  });
-  const rejected = results.filter(r => r._capacityInvalid).map(r => r.name);
-  check('CSV simulation rejects exactly rows with 0 / -1 / abc / 2.7', JSON.stringify(rejected) === JSON.stringify(['B', 'C', 'D', 'F']), rejected.join(','));
-  check('CSV simulation accepts 1, 2 and blank(->1) with integer values',
-    results.filter(r => !r._capacityInvalid).every(r => Number.isInteger(r.max_demos_per_slot) && r.max_demos_per_slot >= 1) &&
-    results.find(r => r.name === 'E').max_demos_per_slot === 2 && results.find(r => r.name === 'G').max_demos_per_slot === 1);
-  check('CSV simulation never yields null capacity', results.every(r => r.max_demos_per_slot !== null));
 }
 
 console.log(`\ncapacity input: ${pass} passed, ${fail} failed`);

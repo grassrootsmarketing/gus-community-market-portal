@@ -63,11 +63,6 @@ const ACCEPTED = [
          'nothing calls them and the one live reference is typeof-guarded. Dead code.',
   },
   {
-    file: 'r/gus/admin/index.html', name: 'validRows',
-    why: 'Unreachable. Line ~5192 is an unconditional `return; // skip old client-side flow`; ' +
-         'every validRows reference sits after it. Dead legacy import path.',
-  },
-  {
     file: 'brand/dashboard/index.html', name: '_maintainBrandAvatarUX',
     why: 'A bare `_maintainBrandAvatarUX = 1;` as the final statement of a sloppy-mode script. ' +
          'Creates an implicit global rather than throwing. A leftover marker, no behaviour.',

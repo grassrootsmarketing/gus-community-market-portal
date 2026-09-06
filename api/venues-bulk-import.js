@@ -2,15 +2,12 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 // Tier limit enforcement — mirrors /api/admin
 const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
-// /api/venues-bulk-import — POST FormData with a CSV file + session_id.
+// /api/venues-bulk-import — cookie-authenticated POST FormData with a CSV file.
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 let _b = null;
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const isUuid = (s) => typeof s === 'string' && UUID_RE.test(s);
 
 async function sb(path, opts = {}) {
   const headers = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) };
@@ -20,8 +17,6 @@ async function sb(path, opts = {}) {
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
   return json;
 }
-
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 // Simple CSV parser — quoted fields, escaped quotes, comma separators
 function parseCsv(text) {
@@ -134,10 +129,6 @@ export const config = {
     bodyParser: false, // we parse multipart manually
   },
 };
-
-// DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
-// accounts exist yet; failing closed would risk locking out the owner).
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return jsonResp(res, 405, { error: 'POST only' });
