@@ -12,6 +12,7 @@ import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
+import { notifyStoreContactsConfirmed, notifyStoreContactsCancelled } from './_staff-mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -617,6 +618,17 @@ export default async function handler(req, res) {
           }
         } catch (e) { console.warn('brand_contacts upsert failed:', e); }
       }
+    }
+
+    // 2b) Store contacts (internal_contacts). Confirm -> "Demo confirmed" to every in-scope contact
+    //     with on_confirmed; cancelling a booking that WAS confirmed -> "Demo cancelled" to those with
+    //     on_cancelled. A decline only ever applies to a pending/held booking the store contacts were
+    //     never told about, so it sends nothing. Idempotent via demo_notifications (0073): a replayed
+    //     confirm (or the auto-confirm path having already sent) produces no second email. Best-effort.
+    if (action === 'confirm') {
+      await notifyStoreContactsConfirmed(_b, booking_id);
+    } else if (action === 'cancel' && booking.status === 'confirmed') {
+      await notifyStoreContactsCancelled(_b, booking_id, { reason: reason || null });
     }
 
     // 3) Send email (best-effort)

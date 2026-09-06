@@ -13,6 +13,7 @@
 import { getBinding, sendBindingFailure } from './_env.js';
 import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
+import { validateNotificationPrefs } from './_notification-prefs.js';
 let _b = null;
 
 // P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
@@ -535,6 +536,22 @@ export default async function handler(req, res) {
       }
     }
     req.body = JSON.stringify(body);
+  }
+
+  // Store contacts: notification_prefs drives which emails a contact gets and WHEN the reminder cron
+  // fires (api/demo-reminders.js reads it through api/_notification-prefs.js). A malformed object
+  // must be refused at the write, not tolerated at read time — an unknown reminder key or a 400-day
+  // custom offset would otherwise sit in the row silently doing nothing. Shape:
+  //   { on_confirmed, on_cancelled, on_rescheduled: boolean, reminders: subset of
+  //     ['1w','3d','1d','morning_of','1h'], custom_days: null | 1..30 }  (legacy keys tolerated)
+  if (table === 'internal_contacts' && ['POST', 'PATCH', 'PUT'].includes(req.method)) {
+    let body;
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
+    catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (Object.prototype.hasOwnProperty.call(body, 'notification_prefs')) {
+      const v = validateNotificationPrefs(body.notification_prefs);
+      if (!v.ok) return send(res, 400, { error: 'invalid_notification_prefs', message: v.error });
+    }
   }
 
   // DH-05/DH-06: strip server-owned fields from any write body, and keep status to a simple

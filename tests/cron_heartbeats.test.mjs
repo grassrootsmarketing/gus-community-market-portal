@@ -46,7 +46,7 @@ const db = async (path, opts = {}) => {
 const MARK = uniq('hb');                       // every row THIS process inserts directly carries it
 const CRON = { authorization: 'Bearer ' + ENV.CRON_SECRET };
 const minutesAgo = (m) => new Date(Date.now() - m * 60000).toISOString();
-const WORKERS = 'in.(refund-worker,provisional-sweep)';
+const WORKERS = 'in.(refund-worker,provisional-sweep,demo-reminders)';
 
 async function hbInsert(cron_name, outcome, { ranAt = null, extra = {} } = {}) {
   const row = { cron_name, outcome, duration_ms: 1, summary: { marker: MARK, ...extra } };
@@ -168,6 +168,7 @@ if (HOLDS_ON) {
     await clearRecentWorkerRows();
     await hbInsert('daily', 'succeeded');
     await hbInsert('refund-worker', 'succeeded');
+    await hbInsert('demo-reminders', 'succeeded');   // required always; fresh so it cannot mask the sweep assertions
 
     let s = await status();
     ok('holds ON: status route answers 200', s.res.statusCode === 200, `${s.res.statusCode} ${JSON.stringify(s.res.body)}`);
@@ -234,7 +235,7 @@ try {
   // 1. CRON_SECRET still gates both workers, and a refused call writes NOTHING.
   // -------------------------------------------------------------------------
   console.log('\n— 1: unauthenticated callers get 401 and trigger no work / no heartbeat —');
-  for (const file of ['refund-worker.js', 'provisional-sweep.js']) {
+  for (const file of ['refund-worker.js', 'provisional-sweep.js', 'demo-reminders.js']) {
     const sbBefore = spy.calls.supabase, stripeBefore = spy.calls.stripe.length;
     const none = await callRoute(file, req({ body: {} }));
     ok(`${file}: no Authorization header -> 401`, none.statusCode === 401 && none.body && none.body.error === 'unauthorized', `${none.statusCode} ${JSON.stringify(none.body)}`);
@@ -245,6 +246,7 @@ try {
   }
   ok('no heartbeat row was written by refused calls (refund-worker)', (await rowsSinceStart('refund-worker')).length === 0);
   ok('no heartbeat row was written by refused calls (provisional-sweep)', (await rowsSinceStart('provisional-sweep')).length === 0);
+  ok('no heartbeat row was written by refused calls (demo-reminders)', (await rowsSinceStart('demo-reminders')).length === 0);
 
   // -------------------------------------------------------------------------
   // 2. A successful run appends ONE 'succeeded' row; a second run appends a second.
@@ -267,6 +269,11 @@ try {
     ok('provisional-sweep with the secret -> 200 ok', s1.statusCode === 200 && s1.body && s1.body.ok === true, `${s1.statusCode} ${JSON.stringify(s1.body)}`);
     const srows = await rowsSinceStart('provisional-sweep');
     ok('provisional-sweep wrote one succeeded heartbeat', srows.length === 1 && srows[0].outcome === 'succeeded' && typeof srows[0].summary?.scanned === 'number', JSON.stringify(srows));
+
+    const d1 = await callRoute('demo-reminders.js', req({ body: {}, headers: CRON }));
+    ok('demo-reminders with the secret -> 200 ok', d1.statusCode === 200 && d1.body && d1.body.ok === true, `${d1.statusCode} ${JSON.stringify(d1.body)}`);
+    const drows = await rowsSinceStart('demo-reminders');
+    ok('demo-reminders wrote one succeeded heartbeat with its run summary', drows.length === 1 && drows[0].outcome === 'succeeded' && typeof drows[0].summary?.demos === 'number' && typeof drows[0].summary?.sent === 'number', JSON.stringify(drows));
   }
 
   // -------------------------------------------------------------------------
@@ -303,6 +310,7 @@ try {
     const lastRow = async (name, iso) => { const r = await rowsSince(name, iso); return r[r.length - 1]; };
     const redacted = (summary) => { const s = JSON.stringify(summary || {}); return !/sk_test_harness|sk_live|whsec_|@fixture\.test/.test(s); };
     await hbInsert('daily', 'succeeded');   // a fresh daily so it cannot mask the worker's health
+    await hbInsert('demo-reminders', 'succeeded');   // required always; fresh so only refund-worker decides overall health here
 
     // (a) claim succeeds, then the Stripe refund submit fails for the only item
     const w1 = await seedRefundWork('a');
@@ -371,9 +379,11 @@ try {
 
     let s = await status();
     ok('status action answers 200 with a per-job cron map', s.res.statusCode === 200 && s.jobs && typeof s.jobs === 'object', `${s.res.statusCode} ${JSON.stringify(s.res.body)}`);
-    ok('jobs map names refund-worker, provisional-sweep and daily', ['refund-worker', 'provisional-sweep', 'daily'].every(j => s.jobs[j]), JSON.stringify(Object.keys(s.jobs)));
+    ok('jobs map names refund-worker, provisional-sweep, demo-reminders and daily', ['refund-worker', 'provisional-sweep', 'demo-reminders', 'daily'].every(j => s.jobs[j]), JSON.stringify(Object.keys(s.jobs)));
     ok('refund-worker is required', s.jobs['refund-worker'] && s.jobs['refund-worker'].required === true, JSON.stringify(s.jobs['refund-worker']));
     ok('MISSING refund-worker heartbeat -> ok:false', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === false, JSON.stringify(s.jobs['refund-worker']));
+    ok('demo-reminders is required always', s.jobs['demo-reminders'] && s.jobs['demo-reminders'].required === true, JSON.stringify(s.jobs['demo-reminders']));
+    ok('MISSING demo-reminders heartbeat -> ok:false', s.jobs['demo-reminders'] && s.jobs['demo-reminders'].ok === false, JSON.stringify(s.jobs['demo-reminders']));
     ok('missing required job -> overall cron ok:false', s.cron.ok === false, JSON.stringify(s.cron));
     ok('status is degraded (not operational) while a required job is dead', s.res.body && s.res.body.status !== 'operational', JSON.stringify(s.res.body && s.res.body.status));
     ok('holds OFF: provisional-sweep is required:false and ok:true even though missing',
@@ -383,9 +393,16 @@ try {
 
     await hbInsert('daily', 'succeeded');
     await hbInsert('refund-worker', 'succeeded', { ranAt: minutesAgo(120) });
+    await hbInsert('demo-reminders', 'succeeded', { ranAt: minutesAgo(120) });
     s = await status();
     ok('STALE (2h) refund-worker success -> ok:false', s.jobs['refund-worker'] && s.jobs['refund-worker'].ok === false, JSON.stringify(s.jobs['refund-worker']));
+    ok('STALE (2h) demo-reminders success -> ok:false (same 35-minute rule)', s.jobs['demo-reminders'] && s.jobs['demo-reminders'].ok === false, JSON.stringify(s.jobs['demo-reminders']));
     ok('stale required job -> overall cron ok:false', s.cron.ok === false, JSON.stringify(s.cron));
+
+    await hbInsert('demo-reminders', 'succeeded');
+    s = await status();
+    ok('FRESH demo-reminders success -> ok:true', s.jobs['demo-reminders'] && s.jobs['demo-reminders'].ok === true, JSON.stringify(s.jobs['demo-reminders']));
+    ok('cron still not ok while refund-worker is stale', s.cron.ok === false, JSON.stringify(s.cron));
 
     await hbInsert('refund-worker', 'succeeded');
     s = await status();

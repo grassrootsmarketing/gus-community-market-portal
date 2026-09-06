@@ -180,7 +180,7 @@ async function seed(retailerId, opts = {}) {
         email: t.email,
         role: t.role,
         venue_ids: t.name === 'Marcus Lee' ? marcusVenues : [],
-        notification_prefs: { on_scheduled: true, on_cancelled: true, monthly_summary: t.role === 'owner' },
+        notification_prefs: { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['3d', '1d', 'morning_of'], custom_days: null, monthly_summary: t.role === 'owner' },
       }),
     }).catch(e => console.warn('team insert:', (e && e.message) || e));
   }

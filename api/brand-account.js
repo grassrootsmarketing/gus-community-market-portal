@@ -9,6 +9,7 @@ import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import { notifyStoreContactsRescheduled } from './_staff-mail.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -704,6 +705,15 @@ export default async function handler(req, res) {
         await sb(`demos?id=eq.${encodeURIComponent(demoId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
       } catch (e) {
         return jsonResp(res, 500, { error: 'reschedule_save_failed', message: 'We could not save that. Try again in a moment.' });
+      }
+
+      // Store contacts: a confirmed demo they were told about has MOVED. Old and new slot in the
+      // email; reminders re-key on the new date automatically (api/demo-reminders.js). Best-effort,
+      // idempotent per new slot via demo_notifications (0073). Legacy demos with no booking_id have
+      // no notification ledger and are skipped.
+      if (decision === 'accept' && movedTo && demo.booking_id) {
+        try { await notifyStoreContactsRescheduled(_b, demo.booking_id, { from: { date: demo.demo_date, time: demo.demo_time } }); }
+        catch (e) { console.warn('store-contact rescheduled notice failed:', (e && e.message) || e); }
       }
 
       // Tell the retailer the outcome.

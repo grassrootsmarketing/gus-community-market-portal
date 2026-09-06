@@ -710,9 +710,10 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // Asserting an exact demo count (Codex B4 §5) requires a KNOWN value, not the fixture default.
   await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: true }) });
 
-  // A staff member who MUST receive the "new demo scheduled" alert. notifyStaffForBooking fires
-  // ONLY when notification_prefs.on_scheduled is true — the old fixture set {new_booking,payment},
-  // so no staff mail was ever sent and the old regex was matching the brand email's word "booking".
+  // A store contact who MUST receive the "Demo confirmed" notice. Store contacts are never told about
+  // a mere booking or payment; on an AUTO-CONFIRM retailer the payment IS the confirmation, so the
+  // fulfilment outbox sends exactly one confirmed notice per booking (api/_staff-mail.js). The fixture
+  // deliberately carries the LEGACY on_scheduled key, which is read as an alias of on_confirmed.
   const staffEmail = `${uniq('staff')}@fixture.test`;
   track('internal_contacts', (await db('internal_contacts', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, name: 'Notified Staff', email: staffEmail,
@@ -826,12 +827,18 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   ok('every post-payment recipient is the approved sink',
      recips1.length > 0 && recips1.every(r => String(r) === 'sink@fixture.test'), JSON.stringify(recips1).slice(0, 200));
   const brandMails1 = mails1.filter(m => String(m.subject || '').includes('Your demo booking at'));
-  const staffMails1 = mails1.filter(m => String(m.subject || '').includes('New demo scheduled:'));
+  const staffMails1 = mails1.filter(m => String(m.subject || '').includes('Demo confirmed:'));
   ok('exactly THREE brand confirmation emails — one per booking', brandMails1.length === 3,
      JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
-  ok('exactly THREE staff notification emails — one per booking', staffMails1.length === 3,
+  ok('exactly THREE store-contact "Demo confirmed" notices — one per auto-confirmed booking', staffMails1.length === 3,
      JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
+  ok('the retired "New demo scheduled" staff alert is never sent', !mails1.some(m => /New demo scheduled/.test(String(m.subject || ''))),
+     JSON.stringify(mails1.map(m => m.subject)).slice(0, 320));
+  ok('each confirmed notice names the store contact as its intended recipient', staffMails1.every(m => String(m.html || '').includes(staffEmail)));
   ok('no OTHER emails were sent by the paid path', mails1.length === 6, `${mails1.length}`);
+  const notif1 = ((await db(`demo_notifications?booking_id=in.(${idList(bookingIds)})&kind=eq.confirmed&select=booking_id,sent_at`)).body) || [];
+  ok('demo_notifications records exactly one sent "confirmed" row per booking',
+     notif1.length === 3 && notif1.every(n => !!n.sent_at) && setOf(notif1.map(n => n.booking_id)) === setOf(bookingIds), JSON.stringify(notif1));
 
   const cases1 = ((await db(`reconciliation_cases?payment_group_id=eq.${groupId}&select=id`)).body) || [];
   ok('the VALID payment produced NO reconciliation case', cases1.length === 0, `${cases1.length}`);

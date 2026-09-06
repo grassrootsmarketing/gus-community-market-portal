@@ -119,6 +119,10 @@ export function installSpy() {
     if (u.includes('api.resend.com')) {
       let parsed = null; try { parsed = JSON.parse(opts.body); } catch (_) {}
       calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '' });
+      // Faults apply to the mail provider too, so a test can prove a failed send is retried rather
+      // than recorded as delivered (store-contact reminders release their claim on failure).
+      const fault = matchFault(u, opts);
+      if (fault) return fault;
       return jsonRes({ id: 'email_test' });
     }
     if (u.includes(SB_REF)) {

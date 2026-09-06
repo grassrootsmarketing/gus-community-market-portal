@@ -17,10 +17,12 @@ let _b = null;
 // daily job writes one before its final row) are ignored when picking the latest completed outcome.
 //   refund-worker      every 15 min  required always (payments are on for this app)  stale > 35 min
 //   provisional-sweep  every 15 min  required only while FLAGS.provisionalHolds     stale > 35 min
+//   demo-reminders     every 15 min  required always (store-contact demo reminders)  stale > 35 min
 //   daily              once a day    required always (brand-account.js action=cron)  stale > 25 h
 const CRON_JOBS = [
   { name: 'refund-worker', maxAgeMin: 35, required: () => true },
   { name: 'provisional-sweep', maxAgeMin: 35, required: () => !!FLAGS.provisionalHolds },
+  { name: 'demo-reminders', maxAgeMin: 35, required: () => true },
   { name: 'daily', maxAgeMin: 25 * 60, required: () => true },
 ];
 

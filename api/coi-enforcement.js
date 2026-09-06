@@ -15,6 +15,7 @@ import { FLAGS, coiEnforcementEffective } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { notifyStoreContactsCancelled } from './_staff-mail.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -81,13 +82,6 @@ function cancellationEmail({ contact_name, retailerName, venueName, demoDate, am
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">Upload a COI and you can re-book right away. One COI on file covers all of your future demos.</p>
 <div style="text-align:center;margin:0 0 8px;"><a href="${link(_b, '/brand/dashboard')}" style="background:#0f2c17;color:white;padding:12px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;margin-right:8px;">Upload your COI</a><a href="${rebook}" style="background:white;color:#0f2c17;border:1.5px solid rgba(15,44,23,0.15);padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px;display:inline-block;">Re-book</a></div>`);
 }
-function staffCancelNotice({ brand_name, retailerName, venueName, demoDate, retailerSlug }) {
-  return shell(`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:12px;">Demo removed from the schedule</div>
-<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo was auto-cancelled for a missing COI</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 8px;"><strong>${html(brand_name || 'A brand')}</strong> did not have a current Certificate of Insurance on file, so their demo${venueName ? ' at ' + html(venueName) : ''} on <strong>${html(dateLabel(demoDate))}</strong> was automatically cancelled and refunded. Do not order product or staff for it.</p>
-<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:14px 0 0;"><a href="${link(_b, `/r/${html(retailerSlug || '')}/admin`)}" style="color:#2a5b32;">Open your admin &rarr;</a></p>`);
-}
-
 // ---- Refund (keeps-all branch), idempotent via Idempotency-Key ----
 async function refundBooking(booking, keepsAll) {
   if (!STRIPE_SECRET_KEY) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
@@ -130,21 +124,14 @@ async function fetchComplianceCoi(brandEmail, retailerId) {
   } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
 }
 
+// Store contacts (internal_contacts) hear that a demo they were told about is gone. Routed through
+// the shared store-contact mailer: on_cancelled preference, venue scope, and the demo_notifications
+// dedupe (0073) — a retried run cannot send the notice twice. Only a booking that was CONFIRMED had
+// been announced to them, so a pending booking's auto-cancel stays silent for staff.
 async function notifyStaff(booking) {
   try {
-    if (!_b.resendApiKey || !booking.retailer_id) return;
-    const staff = await sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&select=email,notification_prefs,venue_ids`);
-    const targets = (staff || []).filter(s => {
-      const p = s.notification_prefs || {};
-      if (!p.on_scheduled) return false;
-      const scopes = Array.isArray(s.venue_ids) ? s.venue_ids : [];
-      if (scopes.length === 0) return true;
-      return booking.venue_id && scopes.includes(booking.venue_id);
-    }).filter(s => s.email);
-    const r = booking.retailers || {};
-    const v = booking.venues || {};
-    const htmlBody = staffCancelNotice({ brand_name: booking.brand_name, retailerName: r.name, venueName: v.name, demoDate: booking.demo_date, retailerSlug: r.slug });
-    await Promise.allSettled(targets.map(s => sendEmail({ to: s.email, subject: `Demo cancelled (no COI): ${booking.brand_name || 'a brand'} on ${dateLabel(booking.demo_date)}`, htmlBody })));
+    if (!booking || !booking.id || booking.status !== 'confirmed') return;
+    await notifyStoreContactsCancelled(_b, booking.id, { reason: 'No current Certificate of Insurance on file 72 hours before the demo (automatic cancellation, refunded).' });
   } catch (_) {}
 }
 
@@ -255,14 +242,16 @@ export default async function handler(req, res) {
           // 1) write the cancel FIRST (a crash after this is recoverable via retry path)
           await sb(`bookings?id=eq.${encodeURIComponent(b.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled', cancelled_at: now.toISOString(), cancel_reason: 'coi_missing' }) });
           log.cancels++;
+          // 1b) store contacts: the demo is off the schedule whether or not the refund below succeeds
+          //     (b.status is the PRE-cancel status read above — only a confirmed demo was announced).
+          await notifyStaff(b);
           // 2) refund (idempotency-keyed; keeps-all branch). Let charge.refunded webhook set payment_status/refunded_at.
           const keepsAll = !!(r.platform_keeps_all);
           const rf = await refundBooking(b, keepsAll);
           if (rf.ok) {
             log.refunds++;
-            // 3) brand cancellation email + staff notice
+            // 3) brand cancellation email (store contacts were notified in 1b)
             await sendEmail({ to: brand.email, subject: `Your ${dateLabel(b.demo_date)} demo at ${r.name || 'the store'} was cancelled`, htmlBody: cancellationEmail({ contact_name: brand.contact_name, retailerName: r.name, venueName: v.name, demoDate: b.demo_date, amountCents: b.amount_paid, retailerSlug: r.slug }) });
-            await notifyStaff(b);
           } else {
             log.errors.push({ booking: b.id, reason: 'refund failed', detail: rf.error });
             // do NOT revert the cancel; next run retries via the retry path below.

@@ -27,6 +27,7 @@ export const config = { api: { bodyParser: false } };
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { notifyStoreContactsConfirmed } from './_staff-mail.js';
 
 // stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
 // fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
@@ -359,56 +360,16 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 </table></body></html>`;
 }
 
-// Notify assigned store staff after payment. Mirrors the Wave 8 block in api/booking.js.
-async function notifyStaffForBooking(ctx) {
-  try {
-    if (!ctx || !ctx.retailer_id) return;
-    const _mb = await bind();
-    if (!_mb.resendApiKey) return;
-    const H = htmlEscape;
-    // Declared here, not borrowed from the brand-email scope - a bare reference
-    // across functions throws and would kill the staff notification entirely.
-    const skuList = Array.isArray(ctx.product_skus) ? ctx.product_skus.filter(p => p && p.name) : [];
-    const retailerName = (ctx.retailers && ctx.retailers.name) || '';
-    const retailerSlug = (ctx.retailers && ctx.retailers.slug) || '';
-    const venueName = (ctx.venues && ctx.venues.name) || '';
-    const dateLabel = (() => {
-      try { return new Date(ctx.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
-      catch (_) { return ctx.demo_date; }
-    })();
-    const allStaff = await sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&select=id,name,email,notification_prefs,venue_ids`);
-    const targetStaff = (allStaff || []).filter(st => {
-      const prefs = st.notification_prefs || {};
-      if (!prefs.on_scheduled) return false;
-      const scopes = Array.isArray(st.venue_ids) ? st.venue_ids : [];
-      if (scopes.length === 0) return true;
-      if (ctx.venue_id && scopes.includes(ctx.venue_id)) return true;
-      return false;
-    }).filter(st => st.email);
-    if (targetStaff.length === 0) return;
-    const staffSubj = `New demo scheduled: ${ctx.brand_name || 'a brand'} on ${dateLabel}`;
-    const staffHtml = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
-<table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
-<tr><td style="padding:28px 32px;background:#0f2c17;"><div style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</div></td></tr>
-<tr><td style="padding:32px 36px;">
-<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:10px;">New demo scheduled</div>
-<h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A demo just landed on your calendar.</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Make sure you've got enough product on hand — <strong>${H(ctx.brand_name || 'the brand')}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.</p>
-${skuList.length ? `<div style="background:#f4f7ef;border:1px solid #2a5b3222;border-left:4px solid #2a5b32;border-radius:10px;padding:15px 18px;margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin-bottom:8px;">Items being sampled</div><div style="font-size:14px;line-height:1.7;color:#1c1c1a;">${skuList.map(p => `&bull; ${H(p.name)}${p.size ? ' <span style="color:#6b6a64;">(' + H(p.size) + ')</span>' : ''}${p.sku ? ' <span style="color:#6b6a64;">SKU ' + H(p.sku) + '</span>' : ''}`).join('<br>')}</div></div>` : ''}
-<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${H(ctx.brand_name || '—')}</td></tr>
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Product</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.product || '—')}</td></tr>
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(dateLabel)}</td></tr>
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(ctx.demo_time || '—')}</td></tr>
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Location</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${H(venueName || '—')}</td></tr>
-</table>
-<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="${link(_b, `/r/${H(retailerSlug)}/admin`)}" style="color:#2a5b32;">View full booking &rarr;</a></p>
-</td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; This is an automated staff alert. Adjust who gets these in your admin under Team.</td></tr>
-</table></body></html>`;
-    await Promise.allSettled(targetStaff.map(st => sendResendEmail({ to: st.email, subject: staffSubj, html: staffHtml })));
-    console.log(`webhook staff-notify: sent to ${targetStaff.length} staff`);
-  } catch (e) { console.warn('webhook staff-notify skipped:', (e && e.message) || e); }
+// Store contacts (internal_contacts) are told about a demo when it is CONFIRMED — never when a
+// brand merely pays. The old "New demo scheduled" staff alert that lived here (mirror of the Wave 8
+// block in api/booking.js) is gone. On an auto-confirm retailer the payment IS the confirmation
+// (promoteBookings / the fulfilment outbox flip the booking to 'confirmed' before this runs), so the
+// confirmed notice goes out here; a non-auto-confirm booking lands 'pending' and its notice is sent
+// by booking-action.js when the retailer confirms. Idempotent via demo_notifications (0073).
+async function notifyStoreContactsIfConfirmed(ctx, bookingId) {
+  if (!ctx || ctx.status !== 'confirmed' || !bookingId) return { targeted: 0, sent: 0, skipped: 0, failed: 0 };
+  const _mb = await bind();
+  return notifyStoreContactsConfirmed(_mb, bookingId);
 }
 
 async function sbRpc(fn, args) {
@@ -621,10 +582,11 @@ export async function sendPromotionEmails(ctx, bookingId) {
     subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
     html: bookingConfirmationEmailHtml(ctx, magicLink, rebookUrl, coiDeadline),
   }, 'brand_confirmation');
-  // Staff alert is best-effort by design (internal, non-customer-facing) and is reported separately
-  // rather than folded into the customer-email result.
+  // Store-contact "demo confirmed" notice is best-effort by design (internal, non-customer-facing)
+  // and is reported separately rather than folded into the customer-email result. Only fires when
+  // the booking is actually confirmed (auto-confirm retailer); pending bookings notify on confirm.
   let staffOk = true;
-  try { await notifyStaffForBooking(ctx); } catch (e) { staffOk = false; console.warn('staff notify failed:', (e && e.message) || e); }
+  try { await notifyStoreContactsIfConfirmed(ctx, bookingId); } catch (e) { staffOk = false; console.warn('store-contact notify failed:', (e && e.message) || e); }
   return { brand_message_id: msgId, staff_ok: staffOk };
 }
 

@@ -46,7 +46,7 @@ const operational = {
   ok: true, status: 'operational',
   checks: {
     db: { ok: true },
-    cron: { ok: true, jobs: { 'refund-worker': { ok: true, required: true }, 'provisional-sweep': { ok: true, required: true }, daily: { ok: true, required: true } } },
+    cron: { ok: true, jobs: { 'refund-worker': { ok: true, required: true }, 'provisional-sweep': { ok: true, required: true }, 'demo-reminders': { ok: true, required: true }, daily: { ok: true, required: true } } },
     errors: { ok: true },
   },
   incidents: [], checked_at: '2026-09-03T12:00:00.000Z',
@@ -72,16 +72,16 @@ console.log('\n— status page reads only the public schema —');
   const m = renderStatusModel(operational);
   check('banner is operational', m.banner === 'operational', m.banner);
   const keys = m.rows.map(r => r.key);
-  check('rows: db, cron, three job rows, errors', JSON.stringify(keys) === JSON.stringify(['db', 'cron', 'job:refund-worker', 'job:daily', 'job:provisional-sweep', 'errors']), keys.join(','));
+  check('rows: db, cron, four job rows, errors', JSON.stringify(keys) === JSON.stringify(['db', 'cron', 'job:refund-worker', 'job:daily', 'job:provisional-sweep', 'job:demo-reminders', 'errors']), keys.join(','));
   check('all rows are ok (green)', m.rows.every(r => r.tone === 'ok'), m.rows.map(r => `${r.key}=${r.tone}`).join(' '));
   const names = m.rows.map(r => r.name);
-  check('job rows are labelled Refund processing / Daily tasks / Provisional holds sweep',
-    names.includes('Refund processing') && names.includes('Daily tasks') && names.includes('Provisional holds sweep'), names.join(' | '));
+  check('job rows are labelled Refund processing / Daily tasks / Provisional holds sweep / Demo reminders',
+    names.includes('Refund processing') && names.includes('Daily tasks') && names.includes('Provisional holds sweep') && names.includes('Demo reminders'), names.join(' | '));
   const out = renderToHtml(operational);
   for (const bad of ['undefined', 'never', 'NaN', 'null']) {
     check(`rendered rows contain no "${bad}"`, !out.includes(bad), out);
   }
-  check('all dots render green', (out.match(/check-dot ok/g) || []).length === 6 && !/check-dot (err|unknown)/.test(out), out);
+  check('all dots render green', (out.match(/check-dot ok/g) || []).length === 7 && !/check-dot (err|unknown)/.test(out), out);
   check('checked_at parses to a Date', m.checkedAt instanceof Date && !isNaN(m.checkedAt));
 }
 
@@ -96,7 +96,7 @@ console.log('\n— status page reads only the public schema —');
   const rw = m.rows.find(r => r.key === 'job:refund-worker');
   check('refund-worker row is red', rw && rw.tone === 'err', rw && rw.tone);
   check('Scheduled jobs summary row is red', m.rows.find(r => r.key === 'cron').tone === 'err');
-  check('other job rows stay green', m.rows.filter(r => r.key === 'job:daily' || r.key === 'job:provisional-sweep').every(r => r.tone === 'ok'));
+  check('other job rows stay green', m.rows.filter(r => ['job:daily', 'job:provisional-sweep', 'job:demo-reminders'].includes(r.key)).every(r => r.tone === 'ok'));
   check('db and errors rows stay green', ['db', 'errors'].every(k => m.rows.find(r => r.key === k).tone === 'ok'));
   const out = renderToHtml(degraded);
   check('rendered degraded output has exactly two red dots', (out.match(/check-dot err/g) || []).length === 2, out);
