@@ -23,7 +23,7 @@
 - Store contacts notified only on **confirmed**; never at booking/payment (David).
 - New-contact defaults: confirmed/cancelled/rescheduled ON, reminders d3/d1/morning_of; missing legacy prefs → lifecycle ON, reminders OFF; explicit `on_scheduled:false` preserved (Codex §5).
 - Reminder clock: no HTTP override; internal clock injection (Codex §5).
-- **Remaining:** Release C refund-policy rule ("≥14 days before demo" vs "within 14 days after booking") — David to decide; not needed for A.
+- **Release C refund rule — DECIDED 2026-09-09 (David):** universal, no retailer settings; hard 14-day minimum lead; brand may self-cancel for full refund until 14 days before the demo, then the demo is final (fee forfeited on cancel); checkout + agreement disclaimer; store contacts get a "Demo finalized — safe to order product" notice at the 14-day mark; retailer-discretion one-time per-demo courtesy reschedule pass (no money moves). Full text: `Documents/Codex/Demohub-Release-C-Decision-Addendum.md`. Not part of Release A.
 - Preflight: production ledger 0062–0069 — **DONE 2026-09-09**: 46-check read-only verification (validated first on demohub-rebuild-check 46/46) run on demohub-prod; one apparent mismatch (0064 comment marker) investigated: production function body token-identical to the chain once comments/whitespace are normalized (comments had been stripped at paste time); metadata-only repair inserted 0062–0069; ledger now contiguous `0060`–`0072` (13 rows). Credential rotation — PENDING (David).
 
 ## 3. Changed paths
