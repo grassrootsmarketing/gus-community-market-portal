@@ -382,9 +382,12 @@ async function run() {
     const c1 = (await rpc('claim_fulfillments', { p_owner: 'fw1', p_lease_seconds: 60, p_limit: 10, p_group: gid })).json;
     const c2 = (await rpc('claim_fulfillments', { p_owner: 'fw2', p_lease_seconds: 60, p_limit: 10, p_group: gid })).json;
     check('T18 recoverable + leased to one worker', (c1 || []).length === 1 && (c2 || []).length === 0, `c1:${(c1||[]).length} c2:${(c2||[]).length}`);
-    const bad = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw2', p_demo: true, p_emails: true, p_done: true, p_err: null })).json);
+    const gen1 = (c1 && c1[0] && c1[0].generation) || 1;   // 0078: completion is fenced on owner + generation
+    const bad = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw2', p_demo: true, p_emails: true, p_done: true, p_err: null, p_generation: gen1 })).json);
     check('T18 non-owner cannot complete', bad === false, JSON.stringify(bad));
-    const ok = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw1', p_demo: true, p_emails: true, p_done: true, p_err: null })).json);
+    const staleGen = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw1', p_demo: true, p_emails: true, p_done: true, p_err: null, p_generation: gen1 + 1 })).json);
+    check('T18 owner with a stale generation cannot complete (0078)', staleGen === false, JSON.stringify(staleGen));
+    const ok = one((await rpc('complete_fulfillment', { p_booking_id: b.id, p_owner: 'fw1', p_demo: true, p_emails: true, p_done: true, p_err: null, p_generation: gen1 })).json);
     check('T18 owner completes', ok === true, JSON.stringify(ok));
     const fin = one((await rest(`booking_fulfillments?booking_id=eq.${b.id}&select=status`)).json);
     check('T18 marked done', fin.status === 'done', fin.status);

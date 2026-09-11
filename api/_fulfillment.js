@@ -34,6 +34,10 @@ async function sbRpc(fn, args) {
 // Perform fulfilment for one claimed outbox row. Returns {done, demo_created, emails_sent, error, recorded}.
 export async function runFulfillment(row, owner) {
   const bookingId = row.booking_id;
+  // Codex C1 (0078): the claim carries the row's GENERATION. A capture re-issues a held row as a
+  // new generation and drops the old lease, so a worker that claimed the held stage can no longer
+  // record anything on the paid work — complete_fulfillment() fences on owner + generation.
+  const generation = Number.isInteger(row.generation) ? row.generation : 1;
   let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
   try {
     // Codex R2 (2026-09-11): the promotion and (for auto-confirm) the demo projection are ONE
@@ -46,21 +50,41 @@ export async function runFulfillment(row, owner) {
     const ctx = await wh.fetchBookingContext(bookingId);
     if (!ctx) throw new Error('no_booking_context');
     ctx.booking_id = bookingId;
-    let superseded = false;
+    let superseded = false, advanced = false;
     if (row.target_status !== 'held') {
       const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: ctx.retailer_id, p_action: 'promote_paid', p_fields: { status: row.target_status || 'pending' }, p_demo_fee: null });
       const tr = Array.isArray(rows) ? rows[0] : rows;
       if (!tr) throw new Error('promote_no_result');
       if (tr.ok !== true) {
         if (tr.reason === 'superseded') superseded = true;
+        // Codex C3 (0078): the booking was legitimately advanced past this job's target (a manual
+        // confirmation landed between the promotion and this retry). Not a conflict, never a
+        // downgrade: the promotion is done, the demo exists on the confirmed booking, and the
+        // confirmation the retailer's action sent supersedes the pending-stage payment notice.
+        else if (tr.reason === 'already_advanced') advanced = true;
         else throw new Error('promote_refused:' + (tr.reason || 'unknown') + ':' + (tr.status_before || ''));
       } else if (row.target_status === 'confirmed' && !tr.demo_id) {
         throw new Error('demo_not_materialised');   // a confirmed booking must have its demo; retry
       }
+    } else {
+      // Codex C1: held-stage work is only current if the booking is STILL held with a live authorization
+      // and the outbox row is still this claim's generation. Otherwise it was captured (the paid work is
+      // a NEW generation this lease cannot touch — the completion below is refused) or cancelled/expired
+      // (this generation is current and the work is superseded); a "hold placed" notice is wrong either way.
+      // The claimed object said 'held'; decide on the CURRENT facts: the booking must still be held with
+      // a live authorization AND the outbox row must still be this claim's generation. A capture flips
+      // payment_status to 'paid' and re-issues the row before the booking is promoted, so the status
+      // alone would still read 'held' — that is exactly the stale notice C1 forbids.
+      let genNow = generation;
+      try { const g = await sb(`booking_fulfillments?booking_id=eq.${encodeURIComponent(bookingId)}&select=generation`); genNow = (Array.isArray(g) && g[0] && Number.isInteger(g[0].generation)) ? g[0].generation : generation; } catch (_) {}
+      if (ctx.status !== 'held' || ctx.payment_status !== 'authorized' || genNow !== generation) superseded = true;
     }
     if (superseded) {
-      // A cancelled booking has no demo to create and must not receive a confirmation now.
-      demoOk = true; mailOk = true; err = 'superseded:booking_no_longer_active';
+      // No demo to create and no stale notice to send.
+      demoOk = true; mailOk = true;
+      err = row.target_status === 'held' ? ('superseded:hold_no_longer_active:' + (ctx.status || 'unknown') + ':' + (ctx.payment_status || 'unknown')) : 'superseded:booking_no_longer_active';
+    } else if (advanced) {
+      demoOk = true; mailOk = true; err = 'already_advanced:confirmed:payment_notice_superseded_by_confirmation';
     } else {
       demoOk = true;   // 'held' has no demo; 'pending' materialises on manual confirm; 'confirmed' was created above
       if (!mailOk) {
@@ -82,9 +106,14 @@ export async function runFulfillment(row, owner) {
   let recorded = false;
   try {
     const r = await sbRpc('complete_fulfillment', {
-      p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err,
+      p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err, p_generation: generation,
     });
     recorded = (r === true) || (Array.isArray(r) && r[0] === true);
+    if (!recorded) {
+      // A stale (owner, generation) pair: the row was re-issued (capture) or re-leased (expiry) under
+      // us. Nothing was written; the current generation's owner finishes the work. Say so.
+      err = (err ? err + '; ' : '') + 'record:stale_lease_or_generation:' + generation;
+    }
   } catch (e) {
     err = (err ? err + '; ' : '') + 'record:' + String((e && e.message) || e).slice(0, 120);
   }
