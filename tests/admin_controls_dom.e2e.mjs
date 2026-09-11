@@ -37,10 +37,22 @@ try {
   const future = new Date(); future.setUTCDate(future.getUTCDate() + 45); const ymd = future.toISOString().slice(0, 10);
   const nextM = new Date(); nextM.setUTCMonth(nextM.getUTCMonth() + 2); nextM.setUTCDate(15); const ymd2 = nextM.toISOString().slice(0, 10);
   // A legacy malformed group id written AROUND the API (guard disabled): must render inert and be refused on use.
-  await c.query('ALTER TABLE venues DISABLE TRIGGER trg_venue_availability_guard');
-  await c.query(`UPDATE venues SET availability = jsonb_set(availability, '{blackouts}', $2::jsonb) WHERE id = $1`,
-    [V1, JSON.stringify([{ id: '6d3a2b9e-1c3f-4b6e-9f0a-2b7c1d9e8f10', date: ymd2, reason: HOSTILE_NOTE, group_id: LEGACY_GROUP }])]);
-  await c.query('ALTER TABLE venues ENABLE TRIGGER trg_venue_availability_guard');
+  // Codex R7: the bypass is ONE transaction (DISABLE -> write -> ENABLE -> COMMIT, rolled back on error)
+  // so a failure can never leave the shared guard disabled; the browser work runs after the commit.
+  const guardEnabled = async () => (await one(`SELECT tgenabled FROM pg_trigger WHERE tgrelid = 'venues'::regclass AND tgname = 'trg_venue_availability_guard'`)).tgenabled !== 'D';
+  const writeLegacyEntry = async () => {
+    await c.query('BEGIN');
+    try {
+      await c.query('ALTER TABLE venues DISABLE TRIGGER trg_venue_availability_guard');
+      await c.query(`UPDATE venues SET availability = jsonb_set(availability, '{blackouts}', $2::jsonb) WHERE id = $1`,
+        [V1, JSON.stringify([{ id: '6d3a2b9e-1c3f-4b6e-9f0a-2b7c1d9e8f10', date: ymd2, reason: HOSTILE_NOTE, group_id: LEGACY_GROUP }])]);
+      await c.query('ALTER TABLE venues ENABLE TRIGGER trg_venue_availability_guard');
+      await c.query('COMMIT');
+    } catch (e) { try { await c.query('ROLLBACK'); } catch (_) {} throw e; }
+  };
+  ok('R7: the availability guard is enabled before the fixture bypass', await guardEnabled());
+  await writeLegacyEntry();
+  ok('R7: the availability guard is enabled again after the fixture bypass committed', await guardEnabled());
   for (const role of ['owner', 'manager']) await c.query(`INSERT INTO retailer_admins (retailer_id, email, email_normalized, name, role) VALUES ($1, $2, $2, $3, $4)`, [R, `${role}-${slug}@fixture.test`, role, role]);
 
   browser = await chromium.launch();
@@ -110,13 +122,74 @@ try {
     await page.waitForTimeout(1200);
     const saved = await one(`SELECT availability->'slots' AS slots FROM venues WHERE id = $1`, [V1]);
     ok(`${role}: the slot editor (delegated controls) adds a 09:00/2h slot and saves it`, /Saved/.test(await page.locator('#slotsSaveStatus').textContent()) && Array.isArray(saved.slots) && saved.slots.some(x => x.start === '09:00' && x.hours === 2), JSON.stringify(saved.slots) + ' status=' + (await page.locator('#slotsSaveStatus').textContent()) + ' err=' + (await page.locator('#slotsError').textContent()) + ' draft=' + (await page.evaluate(() => JSON.stringify(_slotsDraft))) + ' errors=' + errors.join('|').slice(0,200));
+    // Codex R1: the Apply-to-All confirm carries the store name inside an HTML message -> escaped.
+    await page.locator('#availabilityApplyAllBtn').click();
+    await page.waitForTimeout(400);
+    const applyCard = page.locator('.dhm-card').first();
+    const applyText = await applyCard.locator('p').first().textContent();
+    const applyHtml = await applyCard.locator('p').first().innerHTML();
+    ok(`${role}: the Apply-to-All confirm renders the hostile store name as text (escaped, no element created)`, applyText.includes('<img src=x onerror=') && !applyHtml.includes('<img') && (await applyCard.locator('img').count()) === 0 && (await page.evaluate(() => window.__pwned)) === undefined, applyHtml.slice(0, 160));
+    ok(`${role}: the Apply-to-All confirm says whether demo slots are copied (kill switch ON here)`, /demo slots/.test(applyText), applyText.slice(0, 160));
+    await applyCard.locator('[data-act="cancel"]').click();
+    await page.waitForTimeout(300);
+    ok(`${role}: cancelling the confirm applies nothing`, (await one(`SELECT availability->'slots' AS s FROM venues WHERE id = $1`, [V2])).s === null || !((await one(`SELECT availability->'slots' AS s FROM venues WHERE id = $1`, [V2])).s || []).some(x => x.start === '09:00'));
+
+    // Codex R5: a second tab saves a different slot list; this tab holds an UNSAVED draft and then
+    // blocks a date. The blackout response is a full snapshot -> the stale draft is discarded, the
+    // editor re-renders from the saved version, and a visible notice says so.
+    const tokB = await one(`INSERT INTO admin_tokens (email, retailer_id) VALUES ($1, $2) RETURNING token`, [`${role}-${slug}@fixture.test`, R]);
+    const pageB = await (await browser.newContext({ viewport: { width: 1440, height: 1100 } })).newPage();
+    await pageB.goto(`${BASE}/r/${slug}/admin?token=${tokB.token}`, { waitUntil: 'networkidle' });
+    await pageB.waitForTimeout(1500);
+    await pageB.evaluate(() => { document.querySelectorAll('.onboarding-tour, .tour-overlay, [class*=tour]').forEach(e => e.remove()); onboardingGo('settingsSection', 'availabilityCard'); });
+    await pageB.waitForTimeout(800);
+    await pageB.locator('#availabilityVenueSelect').selectOption(V1);
+    await pageB.waitForTimeout(500);
+    await pageB.locator('#availabilitySlotsBody button[data-act="slot-add"]').click();
+    await pageB.waitForTimeout(300);
+    const rowsB = pageB.locator('#availabilitySlotsBody .slot-row');
+    await rowsB.nth((await rowsB.count()) - 1).locator('input[data-slot-field="start"]').fill('14:00');
+    await rowsB.nth((await rowsB.count()) - 1).locator('input[data-slot-field="start"]').dispatchEvent('change');
+    await pageB.waitForTimeout(200);
+    const rowsB2 = pageB.locator('#availabilitySlotsBody .slot-row');
+    await rowsB2.nth((await rowsB2.count()) - 1).locator('select[data-slot-field="hours"]').selectOption('1');
+    await pageB.waitForTimeout(200);
+    await pageB.locator('#availabilitySlotsBody button[data-act="slot-save"]').click();
+    await pageB.waitForTimeout(1200);
+    const savedB = await one(`SELECT availability->'slots' AS slots, availability_version AS v FROM venues WHERE id = $1`, [V1]);
+    ok(`${role}: (R5 setup) the second tab saved a 14:00/1h slot (adjacent to 15:00, no overlap)`, Array.isArray(savedB.slots) && savedB.slots.some(x => x.start === '14:00' && x.hours === 1), JSON.stringify(savedB.slots) + ' ' + (await pageB.locator('#slotsSaveStatus').textContent()));
+    await pageB.context().close();
+    // this tab: an unsaved 10:00 draft row on the now-stale editor
+    await page.locator('#availabilitySlotsBody button[data-act="slot-add"]').click();
+    await page.waitForTimeout(300);
+    const rowsA = page.locator('#availabilitySlotsBody .slot-row');
+    await rowsA.nth((await rowsA.count()) - 1).locator('input[data-slot-field="start"]').fill('10:00');
+    await rowsA.nth((await rowsA.count()) - 1).locator('input[data-slot-field="start"]').dispatchEvent('change');
+    await page.waitForTimeout(200);
+    ok(`${role}: (R5 setup) this tab holds an unsaved 10:00 draft and does not yet see 14:00`, await page.evaluate(() => _slotsDraft.slots.some(s => s.start === '10:00') && !_slotsDraft.slots.some(s => s.start === '14:00')), await page.evaluate(() => JSON.stringify(_slotsDraft)));
+    await page.evaluate((y) => { while (!document.querySelector('#availabilityBlackoutsBody').textContent.includes(new Date(y + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }))) blackoutMonthShift(1); }, ymd);
+    await page.locator(`#availabilityBlackoutsBody button[data-ymd="${ymd}"]`).click();
+    await page.waitForTimeout(400);
+    await page.getByRole('button', { name: 'Block date' }).click();
+    await page.waitForTimeout(1500);
+    const noticeA = await page.locator('#availabilityStatus').textContent();
+    const draftA = await page.evaluate(() => JSON.stringify(_slotsDraft.slots));
+    const domA = await page.evaluate(() => [...document.querySelectorAll('#availabilitySlotsBody input[data-slot-field="start"]')].map(i => i.value));
+    ok(`${role}: after the blackout the stale draft is discarded and the editor shows the saved 14:00 slot (no 10:00)`, /14:00/.test(draftA) && !/10:00/.test(draftA) && domA.includes('14:00') && !domA.includes('10:00'), draftA + ' dom=' + JSON.stringify(domA));
+    ok(`${role}: a visible notice explains the reload (unsaved edits replaced)`, /Reloaded/.test(noticeA) && /Unsaved edits/.test(noticeA), noticeA);
+    ok(`${role}: the blackout itself was stored and the cached version caught up`, (await one(`SELECT jsonb_array_length(availability->'blackouts')::int AS n FROM venues WHERE id = $1`, [V1])).n === 1 && (await page.evaluate((id) => (window.state.venues.find(v => v.id === id) || {}).availability_version, V1)) === (await one(`SELECT availability_version AS v FROM venues WHERE id = $1`, [V1])).v);
+    const entryBtnR5 = page.locator('#availabilityBlackoutsBody button[data-act="unblock-entry"]');
+    await entryBtnR5.first().click();
+    await page.waitForTimeout(800);
+    ok(`${role}: (R5 cleanup) unblocked again`, /Unblocked/.test(await page.locator('#blackoutStatus').textContent()));
+    // A save from the refreshed editor now succeeds (the version is current).
     await page.locator('#availabilitySlotsBody button[data-act="slot-standard"]').click();
     await page.locator('#availabilitySlotsBody button[data-act="slot-save"]').click();
     await page.waitForTimeout(1000);
-    // Reinstate the malformed legacy entry for the next role's pass.
-    await c.query('ALTER TABLE venues DISABLE TRIGGER trg_venue_availability_guard');
-    await c.query(`UPDATE venues SET availability = jsonb_set(availability, '{blackouts}', $2::jsonb) WHERE id = $1`, [V1, JSON.stringify([{ id: '6d3a2b9e-1c3f-4b6e-9f0a-2b7c1d9e8f10', date: ymd2, reason: HOSTILE_NOTE, group_id: LEGACY_GROUP }])]);
-    await c.query('ALTER TABLE venues ENABLE TRIGGER trg_venue_availability_guard');
+    ok(`${role}: a save after the refresh goes through (current version, no stale-version refusal)`, /Saved/.test(await page.locator('#slotsSaveStatus').textContent()), await page.locator('#slotsSaveStatus').textContent() + ' ' + (await page.locator('#slotsError').textContent()));
+    // Reinstate the malformed legacy entry for the next role's pass (same transactional bypass).
+    await writeLegacyEntry();
+    ok(`${role}: R7 guard enabled after the reinstating bypass`, await guardEnabled());
     ok(`${role}: no page errors`, errors.length === 0, errors.join(' | ').slice(0, 200));
     await page.context().close();
   }

@@ -3541,7 +3541,10 @@ END:VEVENT
             if (!v) { if (status) status.textContent = 'No store selected.'; return; }
             const otherVenues = (window.state.venues || []).filter(x => x.id !== v.id);
             if (otherVenues.length === 0) { if (status) status.textContent = 'No other stores to apply to.'; return; }
-            if (!(await DhModal.confirm({title:'Copy schedule to all stores?', message:`Copy ${v.name}'s hours + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule.`, ok:'Apply to all'}))) return;
+            // Codex R1: the message is rendered as HTML, so the store name (operator-entered) is escaped.
+            // Whether slots are copied depends on the kill switch the server reported.
+            const copiesSlots = !(window.state.features && window.state.features.slot_editing === false);
+            if (!(await DhModal.confirm({title:'Copy schedule to all stores?', message:`Copy <strong>${escapeHtml(v.name)}</strong>'s hours${copiesSlots ? ', demo slots' : ''} + capacity to all ${otherVenues.length} other store${otherVenues.length === 1 ? '' : 's'}? This will overwrite their current schedule${copiesSlots ? ' and slot lists' : ' (each store keeps its own demo slots)'}. Blackout dates are not copied.`, ok:'Apply to all'}))) return;
             const schedule = buildScheduleFromDom();
             const maxInput = document.getElementById('availabilityMaxPerSlot');
             // F-08: same rule as the single-venue save — whole number >= 1, otherwise stop and tell the user.
@@ -3931,13 +3934,35 @@ END:VEVENT
             _blackoutMonth = { y, m }; renderBlackoutsEditor(getSelectedVenue());
         }
         function _applyBlackoutResult(r) {
+            // Codex R5: the server returns each touched location's FULL availability (hours, slots,
+            // blackouts), version and capacity. Adopt the whole snapshot — never splice blackouts into a
+            // locally cached copy. If the selected location's hours/slots/capacity turn out to differ
+            // from what this tab was showing (another tab or user saved in between), the local editor
+            // draft is discarded and re-rendered from the snapshot, with a visible notice.
+            const sel = getSelectedVenue();
+            let selectedChanged = false;
             (r.venues || []).forEach(x => {
                 const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
                 if (idx < 0) return;
                 const cur = window.state.venues[idx];
-                const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
-                window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
+                const curAv = (cur.availability && typeof cur.availability === 'object') ? cur.availability : {};
+                const av = (x.availability && typeof x.availability === 'object')
+                    ? x.availability
+                    : { ...curAv, blackouts: Array.isArray(x.blackouts) ? x.blackouts : (curAv.blackouts || []) };
+                const cap = (x.max_demos_per_slot !== undefined && x.max_demos_per_slot !== null) ? x.max_demos_per_slot : cur.max_demos_per_slot;
+                if (sel && sel.id === x.venue_id) {
+                    const same = (a, b) => JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+                    if (!same(curAv.schedule, av.schedule) || !same(curAv.slots, av.slots) || String(cur.max_demos_per_slot) !== String(cap)) selectedChanged = true;
+                }
+                window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version, max_demos_per_slot: cap };
             });
+            if (selectedChanged) {
+                if (_autoSaveTimer) { clearTimeout(_autoSaveTimer); _autoSaveTimer = null; }
+                _slotsDraft.venueId = null;   // forces the slot editor to rebuild from the snapshot
+                renderAvailabilityEditor();
+                const st = document.getElementById('availabilityStatus');
+                if (st) { st.textContent = 'Reloaded — this location\'s hours, slots or capacity were changed elsewhere. Unsaved edits here were replaced with the saved version.'; st.style.color = 'var(--clay-700)'; }
+            }
         }
         async function toggleBlackout(ymd) {
             const v = getSelectedVenue(); if (!v) return;
@@ -3990,7 +4015,12 @@ END:VEVENT
                 renderBlackoutsEditor(getSelectedVenue());
                 const st = document.getElementById('blackoutStatus');
                 if (st) {
-                    st.textContent = r.removed ? ('Unblocked ' + label + (groupId ? ' everywhere it was blocked together.' : '.')) : ('That block was already gone — nothing changed.');
+                    // Honest wording: removing ONE entry does not unblock the date while another entry
+                    // (a local block next to an all-locations one, say) still covers it here.
+                    const still = target ? DhSlots.blackouts(getSelectedVenue() || v).some(e => e.date === target.date) : false;
+                    st.textContent = !r.removed ? 'That block was already gone — nothing changed.'
+                        : still ? ('Removed that block — ' + label + ' is still blocked here by another entry.')
+                        : ('Unblocked ' + label + (groupId ? ' everywhere it was blocked together.' : '.'));
                     st.style.color = r.removed ? 'var(--forest-700)' : 'var(--ink-500)';
                 }
             } catch (e) {
@@ -4256,7 +4286,7 @@ END:VEVENT
             const venues = window.state.venues || [];
             const names = ids.map(id => (venues.find(v => v.id === id) || {}).name).filter(Boolean);
             const preview = names.slice(0, 3).join(', ') + (names.length > 3 ? `, +${names.length-3} more` : '');
-            if (!(await DhModal.confirm({title:`Delete ${ids.length} location${ids.length===1?'':'s'}?`, message:`${preview}\n\nThis can't be undone.`, ok:'Delete', danger:true}))) return;
+            if (!(await DhModal.confirm({title:`Delete ${ids.length} location${ids.length===1?'':'s'}?`, message:`${escapeHtml(preview)}\n\nThis can't be undone.`, ok:'Delete', danger:true}))) return;
             const results = await Promise.allSettled(ids.map(id =>
                 fetch(`/api/admin?table=venues&id=${encodeURIComponent(id)}`, {
                     method: 'DELETE', credentials: 'same-origin'
@@ -5879,7 +5909,7 @@ END:VEVENT
             } catch (e) { DhModal.toast('Could not change role: ' + e.message, 'error'); loadTeam(); }
         }
         async function removeTeamMember(id, email) {
-            if (!(await DhModal.confirm({title:'Remove team member?', message:`${email} will lose admin access immediately.`, ok:'Remove', danger:true}))) return;
+            if (!(await DhModal.confirm({title:'Remove team member?', message:`${escapeHtml(email)} will lose admin access immediately.`, ok:'Remove', danger:true}))) return;
             try {
                 const r = await fetch('/api/admin-auth', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
