@@ -17,6 +17,8 @@
 //
 // Every fixture (retailer, venue, booking) is created by this run and removed in a finally block.
 import pg from 'pg';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 const { Client } = pg;
 
@@ -130,8 +132,8 @@ async function mkRetailer(c) {
 }
 async function mkVenue(c, rid, cap) {
   const r = await c.query(
-    `INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot)
-     VALUES ($1, 'Main', '1 Serial St', 30, $2) RETURNING id`, [rid, cap]);
+    `INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot, availability)
+     VALUES ($1, 'Main', '1 Serial St', 30, $2, $3::jsonb) RETURNING id`, [rid, cap, HOURLY_JSON]);
   fx.venues.push(r.rows[0].id);
   return r.rows[0].id;
 }

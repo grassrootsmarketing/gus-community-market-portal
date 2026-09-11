@@ -25,6 +25,8 @@
 //
 // Run from the repository root with test-database creds:  node tests/notification_worker.test.mjs
 import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 import { getBinding } from '../api/_env.js';
 import { MailError, sendMail } from '../api/_mail.js';
 import { demoStartUtc, reminderWindow } from '../api/_local-time.js';
@@ -79,7 +81,7 @@ const slug = uniq('nw');
 const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
   slug, name: 'Worker Fixture Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
   platform_keeps_all: true, timezone: LA, auto_confirm_bookings: false }) })).id);
-const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Main', address: '1 Worker Way', demo_fee: 30 }) })).id);
+const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Main', address: '1 Worker Way', demo_fee: 30, availability: STANDARD }) })).id);
 const C1e = `c1-${slug}@fixture.test`;
 const C1 = track('internal_contacts', one(await db('internal_contacts', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Contact', role: 'Lead', email: C1e, venue_ids: [V1], notification_prefs: { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['d3', 'd1', 'morning_of', 'h1'] } }) })).id);
 const brandEmail = `${uniq('wbrand')}@fixture.test`;
@@ -263,7 +265,7 @@ try {
   // =========================================================================
   {
     // A fresh confirmed booking gives the route real fan-out + dispatch work.
-    const bk2 = await confirmedBooking(dayP(16), '1:00 PM');
+    const bk2 = await confirmedBooking(dayP(16), '5:00 PM');
     const hb0 = (await hbRows()).length;
     spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_resend_fault' });
     const r = await callRoute('notification-worker.js', req({ method: 'GET', headers: CRON }));

@@ -1,6 +1,8 @@
 // tests/live_flows.test.mjs — Codex Step 4, the remaining valid-binding flow groups.
 // Run against the rebuilt staging project. Every group cleans up what it creates.
 import { rest, rpc, ok, summary, uniq } from './_live.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 const bin = [];   // [table, id] teardown, reverse order
 const track = (t, id) => { if (id) bin.push([t, id]); return id; };
@@ -13,7 +15,7 @@ async function mkRetailer(extra = {}) {
 }
 async function mkVenue(rid, extra = {}) {
   const r = await rest('venues', { method: 'POST', body: JSON.stringify({
-    retailer_id: rid, name: 'Main', address: '1 Flow St', demo_fee: 30, ...extra }) });
+    retailer_id: rid, name: 'Main', address: '1 Flow St', demo_fee: 30, availability: HOURLY, ...extra }) });
   return track('venues', r.ok && r.body[0] && r.body[0].id);
 }
 async function mkBrand(extra = {}) {

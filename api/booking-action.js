@@ -201,7 +201,7 @@ async function handleReschedulePropose(req, res, body) {
   const sess = { retailer_id: _auth.retailer_id, email: _auth.email };
 
   let demo;
-  try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=*,retailers(name,slug),venues(name)`); demo = Array.isArray(rows) ? rows[0] : null; }
+  try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=*,retailers(name,slug,timezone),venues(name)`); demo = Array.isArray(rows) ? rows[0] : null; }
   catch (_) { return res.status(404).json({ error: 'Demo not found' }); }
   if (!demo) return res.status(404).json({ error: 'Demo not found' });
   if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
@@ -217,7 +217,7 @@ async function handleReschedulePropose(req, res, body) {
     catch (_) { venueRow = null; }
     if (!venueRow) return res.status(409).json({ error: 'no_venue', message: 'This demo has no location on file, so it cannot be moved from here.' });
     const requested = (typeof new_time === 'string' && new_time.trim()) ? new_time.trim() : (demo.demo_time || '');
-    const slotRes = resolveRequestedSlot(venueRow.availability, new_date, requested);
+    const slotRes = resolveRequestedSlot(venueRow.availability, new_date, requested, demo.retailers && demo.retailers.timezone);
     if (!slotRes.ok) {
       const code = slotRes.reason === 'invalid_time' ? 'invalid_new_time' : slotRes.reason;
       return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: code, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available at this location.' });
@@ -536,10 +536,20 @@ export default async function handler(req, res) {
         patch.payment_status = 'refund_pending';
       }
     }
-    await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}`, {
+    // Codex B-03: the transition is CONDITIONAL on the state this handler read at the top. A
+    // cancellation (or any other transition) that committed in between makes this PATCH match no
+    // row; the handler then stops before creating a demo, emailing, or reporting success. The
+    // `status` filter is the same allow-list the top-of-handler check applied.
+    const fromStates = action === 'cancel' ? ['pending', 'confirmed', 'held'] : ['pending', 'held'];
+    const transitioned = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&status=in.(${fromStates.join(',')})`, {
       method: 'PATCH',
       body: JSON.stringify(patch),
     });
+    if (!(Array.isArray(transitioned) && transitioned.length)) {
+      let now = null;
+      try { const cur = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=status,payment_status`); now = Array.isArray(cur) && cur[0] ? cur[0] : null; } catch (_) {}
+      return res.status(409).json({ error: 'state_changed', message: `This booking changed while you were working (now ${now ? now.status : 'unknown'}). Reload and try again.`, status: now && now.status, payment_status: now && now.payment_status });
+    }
     // 2) Cancel the demo on the calendar. `demos` has no cancelled_at column — the cancellation
     //    audit timestamp lives on bookings.cancelled_at (set above) — so patch only the existing
     //    `status` column. This MUST converge: a refunded/cancelled booking that leaves a live

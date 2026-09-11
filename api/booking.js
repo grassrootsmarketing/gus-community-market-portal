@@ -314,7 +314,7 @@ export default async function handler(req, res) {
 
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode`, {
+    const retailerResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode,timezone`, {
       headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const retailers = await retailerResp.json();
@@ -365,7 +365,7 @@ export default async function handler(req, res) {
     if (!venueRow) return res.status(400).json({ error: 'invalid_venue', message: 'That location does not exist for this retailer.' });
     // Release B: staff bookings obey the same offering rule as the public endpoint (configured
     // slots, weekday hours, blackouts). Canonical spelling + configured length are stored.
-    const slotRes = resolveRequestedSlot(venueRow.availability, String(demo_date), String(demo_time));
+    const slotRes = resolveRequestedSlot(venueRow.availability, String(demo_date), String(demo_time), retailer.timezone);
     if (!slotRes.ok) {
       return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slotRes.reason, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available.' });
     }

@@ -58,6 +58,9 @@ export const ENV = {
   // needs a human reviewer. COI_AI_VERIFICATION_ENABLED is deliberately ABSENT, so it
   // takes its default-off value rather than being set to a string that happens to be false.
   COI_UPLOAD_ENABLED: 'true',
+  // Release B: slot/blackout editing is a kill switch (SLOT_EDITING_ENABLED, off by default). Route
+  // tests exercise the editors, so it is on here; tests/launch_flags.test.mjs proves the default.
+  SLOT_EDITING_ENABLED: 'true',
 };
 
 // ---------------------------------------------------------------------------

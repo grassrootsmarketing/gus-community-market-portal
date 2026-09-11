@@ -26,7 +26,7 @@ export default async function handler(req, res) {
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
-  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug`);
+  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
   const venue = await one(`venues?id=eq.${encodeURIComponent(String(body.venue_id||''))}&select=id,retailer_id,active,demo_fee,availability`);
   if (!venue || venue.retailer_id !== retailer.id) return res.status(400).json({ error: 'invalid_venue' });
@@ -39,7 +39,7 @@ export default async function handler(req, res) {
   // stored — the browser never picks a storage label, a duration or an end time. The database
   // re-runs the same check under the venue lock (booking_slot_resolve, 0075); this is the early,
   // precise refusal.
-  const slot = resolveRequestedSlot(venue.availability, String(body.demo_date), String(body.demo_time));
+  const slot = resolveRequestedSlot(venue.availability, String(body.demo_date), String(body.demo_time), retailer.timezone);
   if (!slot.ok) {
     return res.status(slot.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slot.reason, message: SLOT_REFUSAL_MESSAGES[slot.reason] || 'That time is not available.' });
   }

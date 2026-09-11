@@ -85,7 +85,7 @@ try {
     const c1 = await connect('res'); const c2 = await connect('blk');
     await c1.query('BEGIN');
     const ins = await c1.query(INSERT, [R, V1, D, '11:00 AM']);          // holds venue FOR SHARE until commit
-    const blk = capture(c2.query(`SELECT venue_id, affected FROM venue_blackouts_set($1, 'add', ARRAY[$2::date], ARRAY[$3::uuid], 'Race', NULL)`, [R, D, V1]));
+    const blk = capture(c2.query(`SELECT venue_id, affected, blackouts FROM venue_blackouts_set($1, 'add', ARRAY[$2::date], ARRAY[$3::uuid], 'Race', NULL, NULL)`, [R, D, V1]));
     const w = await waitUntilBlocked(ctl, c2.pid);
     ok('1a: the blackout RPC blocks on the venue row while the reservation is uncommitted', !!w && (await settledWithin(blk, 300)) === 'pending', JSON.stringify(w));
     await c1.query('COMMIT');
@@ -95,7 +95,7 @@ try {
     ok('1c: the reservation is retained, status unchanged', kept && kept.status === 'pending', JSON.stringify(kept));
     const late = await capture(ctl.query(INSERT, [R, V1, D, '3:00 PM']));
     ok('1d: a NEW reservation on that date is now refused with date_blackout', !late.ok && /date_blackout/.test(late.e.message), late.ok ? 'inserted' : late.e.message.slice(0, 100));
-    await q(`SELECT venue_blackouts_set($1, 'remove', ARRAY[$2::date], ARRAY[$3::uuid], NULL, NULL)`, [R, D, V1]);
+    await q(`SELECT venue_blackouts_set($1, 'remove', NULL, NULL, NULL, NULL, ARRAY[$2::uuid])`, [R, r.r.rows[0].blackouts.find(e => e.date === D).id]);
     await release(c1, c2);
   }
 
@@ -105,14 +105,14 @@ try {
     const D = day(2);
     const c1 = await connect('blk2'); const c2 = await connect('res2');
     await c1.query('BEGIN');
-    await c1.query(`SELECT venue_blackouts_set($1, 'add', ARRAY[$2::date], ARRAY[$3::uuid], 'Race', NULL)`, [R, D, V1]);   // venue FOR UPDATE until commit
+    await c1.query(`SELECT venue_blackouts_set($1, 'add', ARRAY[$2::date], ARRAY[$3::uuid], 'Race', NULL, NULL)`, [R, D, V1]);   // venue FOR UPDATE until commit
     const ins = capture(c2.query(INSERT, [R, V1, D, '11:00 AM']));
     const w = await waitUntilBlocked(ctl, c2.pid);
     ok('2a: the reservation blocks (FOR SHARE) behind the uncommitted blackout', !!w && (await settledWithin(ins, 300)) === 'pending', JSON.stringify(w));
     await c1.query('COMMIT');
     const r = await ins;
     ok('2b: once the blackout commits the reservation is refused with date_blackout (the read happened under the lock)', !r.ok && /date_blackout/.test(r.e.message), r.ok ? 'inserted' : r.e.message.slice(0, 100));
-    await q(`SELECT venue_blackouts_set($1, 'remove', ARRAY[$2::date], ARRAY[$3::uuid], NULL, NULL)`, [R, D, V1]);
+    { const e = (await one(`SELECT availability FROM venues WHERE id = $1`, [V1])).availability.blackouts.find(x => x.date === D); await q(`SELECT venue_blackouts_set($1, 'remove', NULL, NULL, NULL, NULL, ARRAY[$2::uuid])`, [R, e.id]); }
     const n = await one(`SELECT count(*)::int AS n FROM bookings WHERE venue_id = $1 AND demo_date = $2`, [V1, D]);
     ok('2c: no row was written for the refused reservation', n.n === 0, JSON.stringify(n));
     await release(c1, c2);

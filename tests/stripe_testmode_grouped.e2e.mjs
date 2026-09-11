@@ -24,6 +24,8 @@ import { createHmac } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 // ---------------------------------------------------------------------------
 // Safety gates — BEFORE the harness is imported and before any network call.
@@ -170,8 +172,8 @@ async function setup() {
   }) });
   retailerId = one(r) && one(r).id;
   if (!retailerId) throw new Error('retailer fixture failed: ' + JSON.stringify(r.body).slice(0, 200));
-  venueA = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'E2E Venue A ($7)', address: '7 A St', demo_fee: 7 }) })).id;
-  venueB = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'E2E Venue B ($9)', address: '9 B St', demo_fee: 9 }) })).id;
+  venueA = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'E2E Venue A ($7)', address: '7 A St', demo_fee: 7, availability: HOURLY }) })).id;
+  venueB = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'E2E Venue B ($9)', address: '9 B St', demo_fee: 9, availability: { ...HOURLY, slots: [{ start: '09:00', hours: 2 }, { start: '11:00', hours: 2 }, { start: '13:00', hours: 2 }, { start: '16:00', hours: 2 }] } }) })).id;
   staffEmail = `staff-${retailerSlug}@example.com`;
   await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, email: staffEmail, email_normalized: staffEmail, name: 'E2E Staff', role: 'admin' }) });
 
@@ -390,6 +392,26 @@ async function run() {
   const demos = (await db(`demos?booking_id=in.(${A},${B})&select=id,booking_id,status`)).body || [];
   for (const d of demos) if (!bin.demos.includes(d.id)) bin.demos.push(d.id);
   ok('exactly one confirmed demo per booking on the calendar', demos.length === 2 && demos.every(d => d.status === 'confirmed'), JSON.stringify(demos));
+  // Release B (Codex review): the paid journey carries CUSTOM slot lengths end to end — venue A is on
+  // the hourly fixture (13:00/1h), venue B on custom 2-hour slots (13:00/2h). Booking, demo and the
+  // retailer calendar feed must agree, and the amounts above were unaffected by the slot length.
+  {
+    const rows = (await db(`bookings?id=in.(${A},${B})&select=id,venue_id,demo_time,duration_hours,start_at,end_at`)).body || [];
+    const bA = rows.find(r => r.id === A), bB = rows.find(r => r.id === B);
+    const drows = (await db(`demos?booking_id=in.(${A},${B})&select=booking_id,duration_hours`)).body || [];
+    const dA = drows.find(r => r.booking_id === A), dB = drows.find(r => r.booking_id === B);
+    const hrs = (r) => (new Date(r.end_at) - new Date(r.start_at)) / 3600e3;
+    ok('custom duration: booking A (hourly venue) is 1h and booking B (custom venue) is 2h, canonical "1:00 PM"', bA && bB && bA.duration_hours === 1 && bB.duration_hours === 2 && hrs(bA) === 1 && hrs(bB) === 2 && bA.demo_time === '1:00 PM' && bB.demo_time === '1:00 PM', JSON.stringify(rows));
+    ok('custom duration: the confirmed demos carry the same lengths (1h / 2h)', dA && dB && dA.duration_hours === 1 && dB.duration_hours === 2, JSON.stringify(drows));
+    const feedKey = 'fk_' + uniq('k').replace(/-/g, '');
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: feedKey }) });
+    const feed = await callRoute('cal.js', req({ method: 'GET', query: { slug: retailerSlug, key: feedKey } }));
+    const evB = String(feed.body || '').split('BEGIN:VEVENT').find(x => x.includes('UID:' + (demos.find(d => d.booking_id === B) || {}).id)) || '';
+    const toDate = (x) => new Date(x.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, '$1-$2-$3T$4:$5:$6Z'));
+    const st = (evB.match(/DTSTART:(\d{8}T\d{6}Z)/) || [])[1], en = (evB.match(/DTEND:(\d{8}T\d{6}Z)/) || [])[1];
+    ok('custom duration: the retailer calendar feed shows B as a 2-hour event from the booking snapshot', feed.statusCode === 200 && st && en && (toDate(en) - toDate(st)) / 3600e3 === 2 && toDate(st).getTime() === new Date(bB.start_at).getTime(), `${feed.statusCode} ${st} ${en} demoB=${(demos.find(d => d.booking_id === B) || {}).id} body=${String(feed.body || '').split('\n').join(' | ').slice(0, 600)}`);
+    evidence.notes.push(`custom-duration: A 1h (hourly venue), B 2h (custom slots); feed DTSTART/DTEND for B = ${st}/${en}`);
+  }
 
   // ---- 6. Cancel A -> REAL partial refund of A's allocation only ----------------------------
   console.log('\n— 6: cancel A (shipped admin payload) -> real Stripe refund of 700 —');

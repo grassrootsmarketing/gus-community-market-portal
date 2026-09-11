@@ -27,6 +27,8 @@
 //
 // Run from the repository root with staging creds:  node tests/compliance_tenant.test.mjs
 import { ENV, installSpy, callRoute, req, ok, summary, uniq } from './_route.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 // api/_flags.js reads env ONCE at first import. admin.js / admin-auth.js do not import it;
 // coi-enforcement.js does, so these must be on the harness ENV before that route is first loaded.
@@ -72,7 +74,7 @@ const slugA = uniq('ct-a'), slugB = uniq('ct-b');
 const mkRetailer = async (slug, name) => track('retailers', must('retailer', await db('retailers', { method: 'POST', body: JSON.stringify({
   slug, name, billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true }) })).id);
 const mkVenue = async (rid, name) => track('venues', must('venue', await db('venues', { method: 'POST', body: JSON.stringify({
-  retailer_id: rid, name, address: '1 Tenant St', demo_fee: 30, max_demos_per_slot: 5 }) })).id);
+  retailer_id: rid, name, address: '1 Tenant St', demo_fee: 30, max_demos_per_slot: 5, availability: HOURLY }) })).id);
 const mkContact = async (rid, name, email) => track('brand_contacts', must('contact', await db('brand_contacts', { method: 'POST', body: JSON.stringify({
   retailer_id: rid, name, company: 'CT Brand Co', email }) })).id);
 const mkMember = async (rid, email, role) => track('retailer_admins', must('member', await db('retailer_admins', { method: 'POST', body: JSON.stringify({

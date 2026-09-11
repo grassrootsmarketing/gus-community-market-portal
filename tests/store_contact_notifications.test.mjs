@@ -24,6 +24,8 @@
 // Run from the repository root with test-database creds:  node tests/store_contact_notifications.test.mjs
 import { createHmac } from 'node:crypto';
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV } from './_route.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 import { getBinding } from '../api/_env.js';
 import { demoStartUtc, reminderWindow } from '../api/_local-time.js';
 import { dispatchDue, scheduleReminders, fanOutEvents } from '../api/_notification-outbox.js';
@@ -70,8 +72,8 @@ const slug = uniq('nt');
 const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
   slug, name: 'Notify Fixture Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
   platform_keeps_all: true, timezone: LA, auto_confirm_bookings: false, cancellation_mode: 'refundable' }) })).id);
-const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Main', address: '12 Notify Ave, Portland, OR', demo_fee: 30 }) })).id);
-const V2 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Annex', address: '99 Annex Rd', demo_fee: 30 }) })).id);
+const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Main', address: '12 Notify Ave, Portland, OR', demo_fee: 30, availability: STANDARD }) })).id);
+const V2 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Annex', address: '99 Annex Rd', demo_fee: 30, availability: STANDARD }) })).id);
 const otherSlug = uniq('nx');
 const otherRetailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
   slug: otherSlug, name: 'Other Market', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
@@ -166,7 +168,7 @@ try {
     ok('a worker run before confirmation sends nothing to store contacts', w0.statusCode === 200 && anyToContacts(mailsSince(n2), ALL).length === 0, `${w0.statusCode} ${JSON.stringify(w0.body).slice(0, 200)}`);
 
     // A never-confirmed request that is declined writes no event at all (trigger: pending -> declined is silent).
-    const dec = one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_id: brandId, brand_name: 'Notify Brand Co', contact_email: brandEmail, demo_date: dayP(25), demo_time: '1:00 PM', status: 'pending', payment_status: 'unpaid' }) }));
+    const dec = one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_id: brandId, brand_name: 'Notify Brand Co', contact_email: brandEmail, demo_date: dayP(25), demo_time: '5:00 PM', status: 'pending', payment_status: 'unpaid' }) }));
     track('bookings', dec.id);
     await db(`bookings?id=eq.${dec.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'declined' }) });
     const decEv = (await db(`notification_events?booking_id=eq.${dec.id}&select=id`)).body || [];

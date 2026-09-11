@@ -34,6 +34,8 @@
 // Env: SB_URL, SB_KEY, SB_REF (route harness) and SB_DB_URL (direct/session pg connection to the
 // SAME test project). Production and retired refs are refused. Teardown is FK-ordered.
 import pg from 'pg';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 import { installSpy, callRoute, req, ok, summary, uniq } from './_route.mjs';
 
 const { Client } = pg;
@@ -98,7 +100,7 @@ try {
   fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode)
                             VALUES ($1, 'Reschedule Fixture Market', $2, 'pro', 'active', true, $3, false, 'refundable') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
   const R = fx.retailer;
-  const mkVenue = async (name, cap) => { const v = await one(`INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot) VALUES ($1, $2, '1 Move St', 30, $3) RETURNING id`, [R, name, cap]); fx.venues.push(v.id); return v.id; };
+  const mkVenue = async (name, cap) => { const v = await one(`INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot, availability) VALUES ($1, $2, '1 Move St', 30, $3, $4::jsonb) RETURNING id`, [R, name, cap, STANDARD_JSON]); fx.venues.push(v.id); return v.id; };
   const V1 = await mkVenue('Cap-1 Hall', 1);
   const V2 = await mkVenue('Cap-2 Annex', 2);
 
@@ -294,14 +296,14 @@ try {
   // =========================================================================
   console.log('\n— 9: demo_confirmed exactly once on -> confirmed; nothing for pending -> declined; demo_cancelled only from confirmed —');
   // =========================================================================
-  const B4 = (await one(`INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_email, demo_date, demo_time, status, payment_status) VALUES ($1, $2, $3, 'B4', 'b4@fixture.test', $4, '3:00 PM', 'pending', 'paid') RETURNING id`, [R, V2, A.id, dayP(21)])).id; fx.bookings.push(B4);
-  const B5 = (await one(`INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_email, demo_date, demo_time, status, payment_status) VALUES ($1, $2, $3, 'B5', 'b5@fixture.test', $4, '3:00 PM', 'pending', 'paid') RETURNING id`, [R, V2, B.id, dayP(21)])).id; fx.bookings.push(B5);
+  const B4 = (await one(`INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_email, demo_date, demo_time, status, payment_status) VALUES ($1, $2, $3, 'B4', 'b4@fixture.test', $4, '5:00 PM', 'pending', 'paid') RETURNING id`, [R, V2, A.id, dayP(21)])).id; fx.bookings.push(B4);
+  const B5 = (await one(`INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_email, demo_date, demo_time, status, payment_status) VALUES ($1, $2, $3, 'B5', 'b5@fixture.test', $4, '5:00 PM', 'pending', 'paid') RETURNING id`, [R, V2, B.id, dayP(21)])).id; fx.bookings.push(B5);
   ok('pending insert writes no event', (await events(B4, null)).length === 0 && (await events(B5, null)).length === 0);
   await q(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [B4]);
   await q(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [B4]);   // re-save of the same status
   await q(`UPDATE bookings SET payment_status = 'paid' WHERE id = $1`, [B4]); // unrelated column
   const ev9 = await events(B4, null);
-  ok('pending -> confirmed (then re-saved) writes exactly ONE demo_confirmed with the slot in the payload', ev9.length === 1 && ev9[0].kind === 'demo_confirmed' && ev9[0].transition_id === `${B4}:confirmed:1` && ev9[0].payload.demo_time === '3:00 PM' && ev9[0].payload.venue_id === V2, JSON.stringify(ev9));
+  ok('pending -> confirmed (then re-saved) writes exactly ONE demo_confirmed with the slot in the payload', ev9.length === 1 && ev9[0].kind === 'demo_confirmed' && ev9[0].transition_id === `${B4}:confirmed:1` && ev9[0].payload.demo_time === '5:00 PM' && ev9[0].payload.venue_id === V2, JSON.stringify(ev9));
   await q(`UPDATE bookings SET status = 'declined' WHERE id = $1`, [B5]);
   ok('pending -> declined writes NOTHING (contacts were never told)', (await events(B5, null)).length === 0, JSON.stringify(await events(B5, null)));
   await q(`INSERT INTO notification_deliveries (retailer_id, booking_id, recipient_kind, recipient_email, kind, occurrence_key, dedupe_key, due_at, status)

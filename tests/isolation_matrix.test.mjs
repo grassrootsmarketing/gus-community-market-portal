@@ -14,6 +14,8 @@
 // (venue B1; owner). Brands: brandA (booked at A1), brandB (booked at B1), brandX (no relationship).
 // Everything created here is torn down in FK-safe order.
 import { installSpy, callRoute, req, ok, summary, uniq } from './_route.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 const SB = process.env.SB_URL.replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
 const KEY = process.env.SB_KEY;
@@ -40,7 +42,7 @@ const slugA = uniq('iso-a'), slugB = uniq('iso-b');
 const mkRetailer = async (slug, name) => track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
   slug, name, billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true }) })).id);
 const mkVenue = async (rid, name) => track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({
-  retailer_id: rid, name, address: '1 Iso St', demo_fee: 30, max_demos_per_slot: 5 }) })).id);
+  retailer_id: rid, name, address: '1 Iso St', demo_fee: 30, max_demos_per_slot: 5, availability: HOURLY }) })).id);
 const mkBrand = async (label) => {
   const email = `${uniq(label)}@fixture.test`;
   const row = one(await db('brands', { method: 'POST', body: JSON.stringify({

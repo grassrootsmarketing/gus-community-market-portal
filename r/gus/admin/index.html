@@ -1745,8 +1745,11 @@
                     const card = document.createElement('div'); card.className = 'dhm-card';
                     const showInput = kind === 'prompt';
                     const showCancel = kind !== 'alert';
+                    // Codex B-01: the title is PLAIN TEXT at this shared boundary (textContent below) —
+                    // callers pass venue names and other stored strings here. `message`/`extraHTML`
+                    // remain the intentionally rich API and must be built with escapeHtml by callers.
                     card.innerHTML = `
-                        ${title ? `<h4>${title}</h4>` : ''}
+                        ${title ? `<h4 class="dhm-title"></h4>` : ''}
                         ${message ? `<p>${message}</p>` : ''}
                         ${showInput ? `<input class="dhm-input" type="${inputType||'text'}" value="${(defaultValue||'').toString().replace(/"/g,'&quot;')}" />` : ''}
                         ${extraHTML || ''}
@@ -1755,6 +1758,7 @@
                             <button type="button" class="dhm-btn ${danger?'dhm-btn-danger':'dhm-btn-primary'}" data-act="ok">${ok||'OK'}</button>
                         </div>
                     `;
+                    if (title) { const h = card.querySelector('h4.dhm-title'); if (h) h.textContent = String(title); }
                     bd.appendChild(card);
                     const input = card.querySelector('input.dhm-input');
                     function close(val){ bd.remove(); document.removeEventListener('keydown', esc); resolve(val); }
@@ -2633,6 +2637,7 @@ END:VEVENT
                 console.error('admin data load failed', e);
             }
             window.state.retailer = data.retailer || null;
+            window.state.features = data.features || null;
             window.state.venues = data.venues || [];
             window.state.bookings = data.bookings || [];
             window.state.brandContacts = data.brand_contacts || [];
@@ -3552,23 +3557,12 @@ END:VEVENT
             if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
             if (status) status.textContent = '';
             try {
-                // Release B: save this location (hours + capacity, merged under its version), then copy
-                // hours + slots + capacity to every other location in ONE atomic call. Each location
-                // keeps its own blackout dates — "Apply to all" never clears them.
-                const r1 = await adminAction('availability-set', { venue_id: v.id, expected_version: _venueVersion(v), schedule, max_demos_per_slot: maxPerSlot });
-                _applyVenueAvailability(v.id, r1.availability, r1.availability_version, r1.max_demos_per_slot);
-                const r2 = await adminAction('availability-apply-all', { source_venue_id: v.id });
-                const src = (window.state.venues || []).find(x => x.id === v.id);
-                (r2.venues || []).forEach(x => {
-                    const idx = window.state.venues.findIndex(y => y.id === x.venue_id);
-                    if (idx < 0) return;
-                    const cur = window.state.venues[idx];
-                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}) };
-                    if (src && src.availability && Object.prototype.hasOwnProperty.call(src.availability, 'schedule')) av.schedule = src.availability.schedule; else delete av.schedule;
-                    if (src && src.availability && Object.prototype.hasOwnProperty.call(src.availability, 'slots')) av.slots = src.availability.slots; else delete av.slots;
-                    if (!Array.isArray(av.blackouts)) av.blackouts = [];
-                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version, max_demos_per_slot: maxPerSlot };
-                });
+                // Codex B-06: ONE version-checked call saves this location's hours + capacity AND copies
+                // hours + slots + capacity to every other location, all-or-nothing, venues locked in id
+                // order. Each location keeps its own blackout dates. The UI refreshes from the snapshots
+                // the server returns, never from a guessed local copy.
+                const r = await adminAction('availability-apply-all', { source_venue_id: v.id, expected_version: _venueVersion(v), schedule, max_demos_per_slot: maxPerSlot });
+                (r.venues || []).forEach(x => _applyVenueAvailability(x.venue_id, x.availability, x.availability_version, x.max_demos_per_slot));
                 if (status) { status.textContent = `Applied to ${otherVenues.length + 1} stores ✓`; status.style.color = 'var(--forest-600)'; }
                 DhModal.toast(`Hours, slots and capacity applied to ${otherVenues.length + 1} stores. Each store keeps its own blackout dates.`, 'success');
             } catch (e) {
@@ -3668,7 +3662,7 @@ END:VEVENT
                     if (typeof el.start !== 'string' || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(el.start)) return { ok: false, error: 'Every slot needs a start time.' };
                     if (!Number.isInteger(el.hours) || el.hours < 1 || el.hours > 12) return { ok: false, error: 'Slot length must be 1–12 whole hours.' };
                     const startMin = DhSlots.minutes(el.start);
-                    if (startMin + el.hours * 60 > 1440) return { ok: false, error: `The ${DhSlots.label(startMin)} slot runs past midnight.` };
+                    if (startMin + el.hours * 60 >= 1440) return { ok: false, error: `The ${DhSlots.label(startMin)} slot must end before midnight.` };
                     if (seen.has(startMin)) return { ok: false, error: `Two slots start at ${DhSlots.label(startMin)}.` };
                     seen.add(startMin);
                     out.push({ start: el.start, hours: el.hours, startMin });
@@ -3727,6 +3721,10 @@ END:VEVENT
             const body = document.getElementById('availabilitySlotsBody');
             if (!body) return;
             if (!v) { body.innerHTML = ''; return; }
+            if (window.state.features && window.state.features.slot_editing === false) {
+                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Demo time slots</strong> — editing is switched off right now. The saved slots still apply to bookings.</div>';
+                return;
+            }
             const cfg = DhSlots.config(v);
             if (_slotsDraft.venueId !== v.id) {
                 _slotsDraft = { venueId: v.id, slots: cfg.ok ? cfg.slots.map(s => ({ start: s.start, hours: s.hours })) : [], invalid: !cfg.ok };
@@ -3735,13 +3733,13 @@ END:VEVENT
                 const startMin = DhSlots.minutes(s.start);
                 const fits = (startMin != null && Number.isInteger(s.hours)) ? DhSlots.fitsAnyDay(v, { startMin, hours: s.hours }) : true;
                 return `<div class="slot-row" data-slot-idx="${i}" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0;">
-                    <input type="time" step="900" value="${escapeHtml(s.start || '')}" aria-label="Slot ${i + 1} start" onchange="slotDraftChange(${i}, 'start', this.value)" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
-                    <select aria-label="Slot ${i + 1} length" onchange="slotDraftChange(${i}, 'hours', this.value)" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
+                    <input type="time" step="900" value="${escapeHtml(s.start || '')}" aria-label="Slot ${i + 1} start" data-slot-idx="${i}" data-slot-field="start" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
+                    <select aria-label="Slot ${i + 1} length" data-slot-idx="${i}" data-slot-field="hours" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
                         ${[1,2,3,4,5,6,7,8,9,10,11,12].map(h => `<option value="${h}" ${s.hours === h ? 'selected' : ''}>${h} ${h === 1 ? 'hour' : 'hours'}</option>`).join('')}
                     </select>
                     <span style="font-size:0.82rem; color:var(--ink-500); min-width:150px;">${startMin != null && Number.isInteger(s.hours) ? escapeHtml(DhSlots.rangeLabel({ startMin, hours: s.hours })) : ''}</span>
                     ${fits ? '' : '<span title="No day\'s hours contain this whole slot, so it is never offered. Extend the hours above or shorten the slot." style="font-size:0.75rem; color:#8a6114; background:#fff8ed; border:1px solid #e0b56a55; border-radius:6px; padding:2px 8px;">Outside your hours</span>'}
-                    <button type="button" onclick="slotDraftRemove(${i})" aria-label="Remove slot" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.85rem; font-weight:600; padding:2px 6px;">Remove</button>
+                    <button type="button" data-act="slot-remove" data-slot-idx="${i}" aria-label="Remove slot" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.85rem; font-weight:600; padding:2px 6px;">Remove</button>
                 </div>`;
             }).join('');
             body.innerHTML = `
@@ -3753,13 +3751,33 @@ END:VEVENT
                     <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:8px;">The start times brands can pick at this location, with how long each demo runs. A slot is offered on a day only when it fits inside that day's hours above. ${cfg.defaulted ? '<strong>Using the standard slots</strong> (11 AM – 2 PM and 3 – 6 PM) until you save your own.' : ''}${_slotsDraft.invalid ? '<strong style="color:var(--clay-700);">The saved slots are invalid — fix and save.</strong>' : ''}</div>
                     ${rows || '<div style="font-size:0.85rem; color:var(--clay-700); padding:6px 0;">No slots — brands cannot book this location until you add one.</div>'}
                     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px;">
-                        <button type="button" onclick="slotDraftAdd()" style="background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add slot</button>
-                        <button type="button" onclick="slotDraftStandard()" style="background:none; border:none; color:var(--ink-500); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:500;">Use standard slots</button>
-                        <button type="button" class="btn btn-primary" id="slotsSaveBtn" onclick="saveSlots()" style="padding:7px 14px; font-size:0.82rem; margin-left:auto;">Save slots</button>
+                        <button type="button" data-act="slot-add" style="background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add slot</button>
+                        <button type="button" data-act="slot-standard" style="background:none; border:none; color:var(--ink-500); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:500;">Use standard slots</button>
+                        <button type="button" class="btn btn-primary" id="slotsSaveBtn" data-act="slot-save" style="padding:7px 14px; font-size:0.82rem; margin-left:auto;">Save slots</button>
                     </div>
                     <div id="slotsError" style="display:none; font-size:0.82rem; color:var(--clay-700); margin-top:6px;"></div>
                 </div>`;
         }
+        // One delegated listener for the slot editor (wired once; survives re-renders).
+        document.addEventListener('DOMContentLoaded', () => {
+            const body = document.getElementById('availabilitySlotsBody');
+            if (!body || body.dataset.wired) return;
+            body.dataset.wired = '1';
+            body.addEventListener('change', (ev) => {
+                const el = ev.target.closest('[data-slot-field]');
+                if (!el || !body.contains(el)) return;
+                slotDraftChange(parseInt(el.getAttribute('data-slot-idx'), 10), el.getAttribute('data-slot-field'), el.value);
+            });
+            body.addEventListener('click', (ev) => {
+                const btn = ev.target.closest('button[data-act]');
+                if (!btn || !body.contains(btn)) return;
+                const act = btn.getAttribute('data-act');
+                if (act === 'slot-remove') slotDraftRemove(parseInt(btn.getAttribute('data-slot-idx'), 10));
+                else if (act === 'slot-add') slotDraftAdd();
+                else if (act === 'slot-standard') slotDraftStandard();
+                else if (act === 'slot-save') saveSlots();
+            });
+        });
         function slotDraftChange(i, key, value) {
             const s = _slotsDraft.slots[i]; if (!s) return;
             if (key === 'start') s.start = String(value || '').slice(0, 5);
@@ -3825,19 +3843,27 @@ END:VEVENT
         }
 
         // ---- Blackout dates ----
+        // Codex B-01/B-05: no inline handlers carry stored values — every control is a data attribute
+        // read by ONE delegated listener; entries are addressed by their server-generated id, and an
+        // all-locations block by its group id. Titles go through DhModal as plain text.
         let _blackoutMonth = null;   // { y, m } being shown
         function renderBlackoutsEditor(v) {
             const body = document.getElementById('availabilityBlackoutsBody');
             if (!body) return;
             if (!v) { body.innerHTML = ''; return; }
+            if (window.state.features && window.state.features.slot_editing === false) {
+                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Blackout dates</strong> — editing is switched off right now. Existing blocked dates still apply.</div>';
+                return;
+            }
             const today = new Date(); today.setHours(0, 0, 0, 0);
             if (!_blackoutMonth) _blackoutMonth = { y: today.getFullYear(), m: today.getMonth() };
             const { y, m } = _blackoutMonth;
             const monthName = new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
             const first = new Date(y, m, 1).getDay();
             const days = new Date(y, m + 1, 0).getDate();
-            const blackouts = DhSlots.blackouts(v);
-            const bySet = new Map(blackouts.map(b => [b.date, b]));
+            const entries = DhSlots.blackouts(v);
+            const byDate = new Map();
+            entries.forEach(e => { if (!byDate.has(e.date)) byDate.set(e.date, []); byDate.get(e.date).push(e); });
             const bookedDates = new Set();
             (window.state.bookings || []).forEach(b => { if (b.venue_id === v.id && !['cancelled', 'declined', 'expired', 'auth_canceled'].includes(String(b.status || '').toLowerCase())) bookedDates.add(b.demo_date); });
             let grid = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div style="text-align:center; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); padding:4px 0;">${d}</div>`).join('');
@@ -3846,33 +3872,34 @@ END:VEVENT
                 const date = new Date(y, m, d);
                 const ymd = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const past = date < today;
-                const isB = bySet.has(ymd);
+                const list = byDate.get(ymd) || [];
+                const isB = list.length > 0;
                 const hasBookings = bookedDates.has(ymd);
                 const bg = isB ? 'var(--forest-900)' : 'transparent';
                 const color = isB ? '#fff' : (past ? 'var(--sand-300)' : 'var(--forest-900)');
-                const title = isB ? ('Blocked' + (bySet.get(ymd).reason ? ': ' + bySet.get(ymd).reason : '') + ' — click to unblock') : (past ? '' : 'Click to block this date');
-                grid += `<button type="button" ${past ? 'disabled' : ''} onclick="toggleBlackout('${ymd}')" title="${escapeHtml(title)}" aria-pressed="${isB ? 'true' : 'false'}" style="aspect-ratio:1; border:1px solid ${isB ? 'var(--forest-900)' : 'var(--sand-200)'}; border-radius:8px; background:${bg}; color:${color}; font-size:0.85rem; font-family:inherit; cursor:${past ? 'default' : 'pointer'}; position:relative; ${isB ? 'text-decoration:line-through;' : ''}">${d}${hasBookings ? '<span title="Has upcoming demos" style="position:absolute; right:4px; top:4px; width:6px; height:6px; border-radius:50%; background:' + (isB ? '#fbd38d' : 'var(--clay-600)') + ';"></span>' : ''}</button>`;
+                const hint = isB ? ('Blocked' + (list.some(e => e.reason) ? ': ' + list.filter(e => e.reason).map(e => e.reason).join('; ') : '') + ' — click to unblock') : (past ? '' : 'Click to block this date');
+                grid += `<button type="button" ${past ? 'disabled' : ''} data-ymd="${ymd}" title="${escapeHtml(hint)}" aria-pressed="${isB ? 'true' : 'false'}" style="aspect-ratio:1; border:1px solid ${isB ? 'var(--forest-900)' : 'var(--sand-200)'}; border-radius:8px; background:${bg}; color:${color}; font-size:0.85rem; font-family:inherit; cursor:${past ? 'default' : 'pointer'}; position:relative; ${isB ? 'text-decoration:line-through;' : ''}">${d}${hasBookings ? '<span title="Has upcoming demos" style="position:absolute; right:4px; top:4px; width:6px; height:6px; border-radius:50%; background:' + (isB ? '#fbd38d' : 'var(--clay-600)') + ';"></span>' : ''}</button>`;
             }
-            const upcoming = blackouts.filter(b => b.date >= dateToYmdLocal(today)).sort((a, b) => a.date.localeCompare(b.date));
-            const list = upcoming.map(b => `<li style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--sand-100); font-size:0.88rem;">
-                    <span style="min-width:150px; font-weight:600; color:var(--forest-900);">${escapeHtml(formatDemoDate(b.date))}</span>
-                    <span style="flex:1; color:var(--ink-500);">${escapeHtml(b.reason || '')}${b.group_id ? ' <span title="Blocked at several locations at once" style="font-size:0.72rem; background:var(--sand-100); border-radius:999px; padding:1px 7px;">all locations</span>' : ''}</span>
-                    <button type="button" onclick="removeBlackout('${escapeHtml(b.date)}', null)" style="background:none; border:none; color:var(--forest-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock here</button>
-                    ${b.group_id ? `<button type="button" onclick="removeBlackout('${escapeHtml(b.date)}', '${escapeHtml(b.group_id)}')" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock everywhere</button>` : ''}
+            const upcoming = entries.filter(e => e.date >= dateToYmdLocal(today)).sort((a, b) => a.date.localeCompare(b.date) || (a.group_id ? 1 : 0) - (b.group_id ? 1 : 0));
+            const list = upcoming.map(e => `<li style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--sand-100); font-size:0.88rem; flex-wrap:wrap;">
+                    <span style="min-width:150px; font-weight:600; color:var(--forest-900);">${escapeHtml(formatDemoDate(e.date))}</span>
+                    <span style="flex:1; color:var(--ink-500);">${escapeHtml(e.reason || '')} <span title="${e.group_id ? 'Blocked at all locations at once' : 'Blocked at this location only'}" style="font-size:0.72rem; background:var(--sand-100); border-radius:999px; padding:1px 7px;">${e.group_id ? 'all locations' : 'this location'}</span></span>
+                    <button type="button" data-act="unblock-entry" data-entry="${escapeHtml(e.id)}" style="background:none; border:none; color:var(--forest-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock here</button>
+                    ${e.group_id ? `<button type="button" data-act="unblock-group" data-group="${escapeHtml(e.group_id)}" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock everywhere</button>` : ''}
                 </li>`).join('');
             const otherCount = (window.state.venues || []).length - 1;
             body.innerHTML = `
                 <div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px;">
                     <div style="font-size:0.82rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Blackout dates</div>
-                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:10px;">Click a date to stop new bookings on it at this location. Demos already booked on that date stay valid — you’ll see them listed before it takes effect. Brands only see that the date is unavailable; your note stays private.</div>
+                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:10px;">Click a date to stop new bookings on it at this location. Demos already booked on that date stay valid — you’ll see them listed before it takes effect. Brands only see that the date is unavailable; your note stays private. A block placed for all locations is undone everywhere at once; a block placed here is undone here.</div>
                     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
                         <input type="text" id="blackoutReason" maxlength="200" placeholder="Private note (optional), e.g. Inventory day" style="flex:1; min-width:200px; padding:7px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.86rem;">
                         ${otherCount > 0 ? `<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.84rem; color:var(--ink-700); cursor:pointer;"><input type="checkbox" id="blackoutAllVenues" style="accent-color:var(--forest-700);"> Block at all ${otherCount + 1} current locations</label>` : ''}
                     </div>
                     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-                        <button type="button" onclick="blackoutMonthShift(-1)" aria-label="Previous month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&lsaquo;</button>
+                        <button type="button" data-act="month-prev" aria-label="Previous month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&lsaquo;</button>
                         <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem;">${escapeHtml(monthName)}</div>
-                        <button type="button" onclick="blackoutMonthShift(1)" aria-label="Next month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&rsaquo;</button>
+                        <button type="button" data-act="month-next" aria-label="Next month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&rsaquo;</button>
                     </div>
                     <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; max-width:420px;">${grid}</div>
                     <div style="display:flex; gap:14px; font-size:0.75rem; color:var(--ink-500); margin-top:6px;"><span><span style="display:inline-block; width:10px; height:10px; background:var(--forest-900); border-radius:3px; vertical-align:middle;"></span> Blocked</span><span><span style="display:inline-block; width:6px; height:6px; background:var(--clay-600); border-radius:50%; vertical-align:middle;"></span> Has upcoming demos</span></div>
@@ -3880,16 +3907,49 @@ END:VEVENT
                     ${upcoming.length ? `<ul style="list-style:none; padding:0; margin:10px 0 0;">${list}</ul>` : ''}
                 </div>`;
         }
+        // One delegated listener for the whole blackout editor (wired once; survives re-renders).
+        document.addEventListener('DOMContentLoaded', () => {
+            const body = document.getElementById('availabilityBlackoutsBody');
+            if (!body || body.dataset.wired) return;
+            body.dataset.wired = '1';
+            body.addEventListener('click', (ev) => {
+                const btn = ev.target.closest('button');
+                if (!btn || !body.contains(btn) || btn.disabled) return;
+                const ymd = btn.getAttribute('data-ymd');
+                if (ymd && /^\d{4}-\d{2}-\d{2}$/.test(ymd)) { toggleBlackout(ymd); return; }
+                const act = btn.getAttribute('data-act');
+                if (act === 'month-prev') blackoutMonthShift(-1);
+                else if (act === 'month-next') blackoutMonthShift(1);
+                else if (act === 'unblock-entry') removeBlackout({ entryId: btn.getAttribute('data-entry') });
+                else if (act === 'unblock-group') removeBlackout({ groupId: btn.getAttribute('data-group') });
+            });
+        });
         function dateToYmdLocal(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
         function blackoutMonthShift(n) {
             if (!_blackoutMonth) return;
             let { y, m } = _blackoutMonth; m += n; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
             _blackoutMonth = { y, m }; renderBlackoutsEditor(getSelectedVenue());
         }
+        function _applyBlackoutResult(r) {
+            (r.venues || []).forEach(x => {
+                const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
+                if (idx < 0) return;
+                const cur = window.state.venues[idx];
+                const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
+                window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
+            });
+        }
         async function toggleBlackout(ymd) {
             const v = getSelectedVenue(); if (!v) return;
-            const isB = DhSlots.blackouts(v).some(b => b.date === ymd);
-            if (isB) return removeBlackout(ymd, null);
+            const here = DhSlots.blackouts(v).filter(e => e.date === ymd);
+            if (here.length) {
+                const local = here.find(e => !e.group_id);
+                if (local) return removeBlackout({ entryId: local.id });
+                const grp = here.find(e => e.group_id);
+                const ok = await DhModal.confirm({ title: 'Unblock ' + formatDemoDate(ymd) + ' everywhere?', message: '<div style="font-size:0.9rem;">This date was blocked for all locations at once. Unblocking removes it at every location that block covered.</div>', ok: 'Unblock everywhere' });
+                if (ok) return removeBlackout({ groupId: grp.group_id });
+                return;
+            }
             const reasonEl = document.getElementById('blackoutReason');
             const allEl = document.getElementById('blackoutAllVenues');
             const all = !!(allEl && allEl.checked);
@@ -3899,6 +3959,7 @@ END:VEVENT
             const listHtml = affectedLocal.length
                 ? '<div style="margin-top:10px; padding:10px 12px; background:#fff8ed; border:1px solid #e0b56a55; border-radius:8px; font-size:0.85rem; line-height:1.5;"><strong>' + affectedLocal.length + ' upcoming demo' + (affectedLocal.length === 1 ? '' : 's') + ' already booked on this date:</strong><ul style="margin:6px 0 0; padding-left:18px;">' + affectedLocal.slice(0, 20).map(b => '<li>' + escapeHtml(b.brand_name || 'Brand') + ' · ' + escapeHtml(b.demo_time || '') + (all ? ' · ' + escapeHtml(((window.state.venues || []).find(t => t.id === b.venue_id) || {}).name || '') : '') + '</li>').join('') + '</ul><div style="margin-top:6px;">They stay valid. Blocking only stops <em>new</em> bookings; nothing is cancelled, refunded or moved.</div></div>'
                 : '';
+            // DhModal renders the title as plain text (Codex B-01); the venue name is safe here.
             const ok = await DhModal.confirm({
                 title: 'Block ' + formatDemoDate(ymd) + (all ? ' at all ' + targets.length + ' locations?' : ' at ' + v.name + '?'),
                 message: '<div style="font-size:0.9rem;">No new demos can be booked on this date' + (all ? ' at any current location. Locations you add later are not included.' : ' at this location.') + '</div>' + listHtml,
@@ -3908,13 +3969,7 @@ END:VEVENT
             const status = document.getElementById('blackoutStatus');
             try {
                 const r = await adminAction('availability-blackouts', { op: 'add', dates: [ymd], venue_ids: all ? null : [v.id], reason: reason || null });
-                (r.venues || []).forEach(x => {
-                    const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
-                    if (idx < 0) return;
-                    const cur = window.state.venues[idx];
-                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
-                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
-                });
+                _applyBlackoutResult(r);
                 const affected = (r.venues || []).reduce((n, x) => n + ((x.affected && x.affected.length) || 0), 0);
                 if (reasonEl) reasonEl.value = '';
                 renderBlackoutsEditor(getSelectedVenue());
@@ -3924,24 +3979,20 @@ END:VEVENT
                 if (status) { status.textContent = 'Could not block: ' + e.message; status.style.color = 'var(--clay-700)'; }
             }
         }
-        async function removeBlackout(ymd, groupId) {
+        async function removeBlackout({ entryId, groupId }) {
             const v = getSelectedVenue(); if (!v) return;
-            const everywhere = !!groupId;
             const status = document.getElementById('blackoutStatus');
+            const target = DhSlots.blackouts(v).find(e => entryId ? e.id === entryId : e.group_id === groupId);
+            const label = target ? formatDemoDate(target.date) : 'that date';
             try {
-                const r = await adminAction('availability-blackouts', everywhere
-                    ? { op: 'remove', dates: [ymd], venue_ids: null, group_id: groupId }
-                    : { op: 'remove', dates: [ymd], venue_ids: [v.id] });
-                (r.venues || []).forEach(x => {
-                    const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
-                    if (idx < 0) return;
-                    const cur = window.state.venues[idx];
-                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
-                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
-                });
+                const r = await adminAction('availability-blackouts', groupId ? { op: 'remove', group_id: groupId } : { op: 'remove', entry_ids: [entryId] });
+                _applyBlackoutResult(r);
                 renderBlackoutsEditor(getSelectedVenue());
                 const st = document.getElementById('blackoutStatus');
-                if (st) { st.textContent = 'Unblocked ' + formatDemoDate(ymd) + (everywhere ? ' everywhere it was blocked together.' : '.'); st.style.color = 'var(--forest-700)'; }
+                if (st) {
+                    st.textContent = r.removed ? ('Unblocked ' + label + (groupId ? ' everywhere it was blocked together.' : '.')) : ('That block was already gone — nothing changed.');
+                    st.style.color = r.removed ? 'var(--forest-700)' : 'var(--ink-500)';
+                }
             } catch (e) {
                 if (status) { status.textContent = 'Could not unblock: ' + e.message; status.style.color = 'var(--clay-700)'; }
             }

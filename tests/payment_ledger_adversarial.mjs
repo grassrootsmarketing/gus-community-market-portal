@@ -66,7 +66,7 @@ function uniqueSlot() {
   return d.toISOString().slice(0, 10);
 }
 const MIN0 = Math.floor(Math.random() * 50);
-function uniqueTime() { return `${8 + (seedN % 10)}:${String((MIN0 + seedN) % 60).padStart(2, '0')}`; }
+function uniqueTime() { return `${6 + (seedN % 16)}:00`; }   // an OFFERED hourly start (0076: no arbitrary minutes)
 async function seedBooking(retailer, venue, { status = 'pending_payment', payment_status = 'unpaid' } = {}) {
   const resp = await rest('bookings', { method: 'POST', body: JSON.stringify({
     retailer_id: retailer, venue_id: venue, brand_id: BRAND1, brand_name: 'Adv ' + RUN,

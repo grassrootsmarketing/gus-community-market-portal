@@ -750,6 +750,8 @@ export default async function handler(req, res) {
           date_blackout:      'The store has since blocked that date. Ask them to propose another date.',
           venue_closed:       'The store is closed on that day now. Ask them to propose another date.',
           slot_config_invalid:'The store’s demo slots are misconfigured. Ask them to check Settings and propose again.',
+          venue_hours_not_set:'The store has not set hours for that location. Ask them to set hours and propose again.',
+          invalid_local_time: 'That local time does not exist exactly once on that date (daylight-saving change). Ask the store to propose another slot.',
           coi_not_covered: 'Your Certificate of Insurance does not cover the proposed date. Upload a current COI, then ask the store to propose again.',
           cancelled:       'This demo is no longer active.',
           date_in_past:    'The proposed date has already passed.',
@@ -1649,11 +1651,23 @@ export default async function handler(req, res) {
         fold('X-WR-CALDESC:' + escapeICS(`All your Demohub demos across every retailer`)),
         'X-WR-TIMEZONE:America/Los_Angeles',
       ];
+      // Codex B-04: prefer the booking's accepted snapshot (start_at/end_at); reconstruct only for
+      // legacy demos without one, so a retailer timezone change never moves an accepted appointment.
+      const snapById = {};
+      {
+        const ids = (demos || []).map(d => d.booking_id).filter(Boolean);
+        if (ids.length) {
+          const bR = await sb(`bookings?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,start_at,end_at,timezone`);
+          const rows = bR.ok ? await bR.json() : [];
+          (rows || []).forEach(b => { if (b.start_at && b.end_at) snapById[b.id] = b; });
+        }
+      }
       (demos || []).forEach(d => {
-        const start = parseDemoTime(d.demo_date, d.demo_time, _safeZone(d.retailers?.timezone));
-        if (!start) return;
+        const snap = d.booking_id ? snapById[d.booking_id] : null;
+        const start = snap ? new Date(snap.start_at) : parseDemoTime(d.demo_date, d.demo_time, _safeZone(d.retailers?.timezone));
+        if (!start || Number.isNaN(start.getTime())) return;
         const durHours = d.duration_hours || 3;
-        const end = new Date(start.getTime() + durHours * 60 * 60 * 1000);
+        const end = snap ? new Date(snap.end_at) : new Date(start.getTime() + durHours * 60 * 60 * 1000);
         const retailerName = d.retailers?.name || 'Unknown retailer';
         const venueName = d.venues?.name || '';
         const venueAddr = d.venues?.address || '';

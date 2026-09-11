@@ -141,6 +141,17 @@ export async function fetchBookingContext(bookingId) {
 // (falls back to core columns if the demos-carry-fields migration has not run).
 export async function createDemoForConfirmedBooking(ctx) {
   if (!ctx || !ctx.retailer_id || !ctx.venue_id) return;
+  // Codex B-03: materialise ONLY for a booking that is confirmed NOW. A stale fulfilment/outbox
+  // item (or a webhook retry) that arrives after the booking was cancelled must not recreate a
+  // calendar entry. The booking id is the identity; its current status is re-read, not trusted
+  // from the context that was captured earlier.
+  if (ctx.booking_id) {
+    try {
+      const cur = await sb(`bookings?id=eq.${encodeURIComponent(ctx.booking_id)}&select=status`);
+      const st = Array.isArray(cur) && cur[0] ? String(cur[0].status || '') : null;
+      if (st !== 'confirmed') { console.warn('demo materialisation skipped: booking', ctx.booking_id, 'is', st || 'missing', 'not confirmed'); return; }
+    } catch (e) { console.warn('demo materialisation skipped: could not re-read booking', ctx.booking_id, (e && e.message) || e); return; }
+  }
   try {
     const existing = await sb(`demos?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&venue_id=eq.${encodeURIComponent(ctx.venue_id)}&demo_date=eq.${encodeURIComponent(ctx.demo_date)}&demo_time=eq.${encodeURIComponent(ctx.demo_time || '')}&status=in.(confirmed,completed)&select=id&limit=1`);
     if (Array.isArray(existing) && existing.length) return;   // already created — don't duplicate
@@ -525,7 +536,17 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
       }
       const patch = ledgerPaid ? {} : { payment_status: 'paid', payment_intent_id: piId, paid_at: paidAt };
       if (nextStatus) patch.status = nextStatus;   // status transition (confirmed/pending) still applies
-      if (Object.keys(patch).length) await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      if (Object.keys(patch).length) {
+        // Codex B-03: the promotion is CONDITIONAL on the booking still being pending_payment. A
+        // cancellation that committed between the read above and this write wins: the PATCH matches
+        // no row, and none of the promotion side effects (demo, emails) run.
+        const cond = nextStatus ? `&status=eq.pending_payment` : '';
+        const rows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}${cond}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        if (nextStatus && !(Array.isArray(rows) && rows.length)) {
+          console.warn('promotion skipped: booking', bookingId, 'is no longer pending_payment');
+          nextStatus = null;
+        }
+      }
       // Only email on a real promotion (this booking was pending_payment and just got paid).
       // This is where the brand confirmation + staff alert fire — never at unpaid creation time.
       if (nextStatus) {

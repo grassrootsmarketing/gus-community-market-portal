@@ -6,6 +6,8 @@
 // route stopped returning 503, but the DB trigger still carried pro=10 — which moved the failure
 // from "always" to "at the 11th location", a worse defect because it looks like it works.
 import { rest, ok, summary, uniq } from './_live.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 async function mkRetailer(tier, slug) {
   const r = await rest('retailers', { method: 'POST', body: JSON.stringify({
@@ -15,7 +17,7 @@ async function mkRetailer(tier, slug) {
   return r.body[0].id;
 }
 const addVenue = (rid, n) => rest('venues', { method: 'POST', body: JSON.stringify({
-  retailer_id: rid, name: `loc ${n}`, address: `${n} Test St`, demo_fee: 30,
+  retailer_id: rid, name: `loc ${n}`, address: `${n} Test St`, demo_fee: 30, availability: HOURLY,
 })});
 
 const created = [];

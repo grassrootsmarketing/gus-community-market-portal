@@ -45,6 +45,12 @@ export const FLAGS = {
   // Off = the route answers 200 {disabled:true}, writes no heartbeat, and the status probe does not
   // require the job. Turn on only after 0074 is applied and RESEND_API_KEY is bound.
   notificationWorker: exactTrue(process.env.NOTIFICATION_WORKER_ENABLED),
+  // Release B: per-location demo-slot and blackout EDITING (api/admin.js availability actions that
+  // carry a slot list, the blackout action, and the admin editors). Off = existing configurations
+  // keep being enforced and read, hours/capacity autosave still works, but no new slot/blackout
+  // intake — the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
+  // compatible rollback once custom slots exist.
+  slotEditing: exactTrue(process.env.SLOT_EDITING_ENABLED),
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -83,6 +89,7 @@ export function flagSnapshot() {
     checkoutEnabled: FLAGS.checkoutEnabled,
     coiUploadEnabled: FLAGS.coiUploadEnabled,
     brandInviteEnabled: FLAGS.brandInviteEnabled,
+    slotEditing: FLAGS.slotEditing,
     notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,

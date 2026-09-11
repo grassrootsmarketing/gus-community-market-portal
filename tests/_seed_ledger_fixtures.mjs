@@ -11,6 +11,8 @@
 //
 // Idempotent: upserts on primary key, so re-running after a rebuild is safe.
 import { rest, ok, summary } from './_live.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 
 const F = {
   KEEPS_RETAILER: '8cf80c18-ff37-4c32-8154-dcdd90486942',
@@ -43,9 +45,9 @@ const r2 = await up('retailers', {
 ok('fixture retailer test-b (connected)', r2.ok, `${r2.status} ${JSON.stringify(r2.body).slice(0,140)}`);
 
 // Venues. The fee values matter: the suite asserts allocation maths against $30 and $45.
-const v1 = await up('venues', { id: F.KEEPS_VENUE, retailer_id: F.KEEPS_RETAILER, name: 'A - Main', address: '1 A St', demo_fee: 30 });
+const v1 = await up('venues', { id: F.KEEPS_VENUE, retailer_id: F.KEEPS_RETAILER, name: 'A - Main', address: '1 A St', demo_fee: 30, availability: HOURLY });
 ok('fixture venue A - Main @ $30', v1.ok, `${v1.status} ${JSON.stringify(v1.body).slice(0,140)}`);
-const v2 = await up('venues', { id: F.CONN_VENUE, retailer_id: F.CONN_RETAILER, name: 'B - Main', address: '1 B St', demo_fee: 45 });
+const v2 = await up('venues', { id: F.CONN_VENUE, retailer_id: F.CONN_RETAILER, name: 'B - Main', address: '1 B St', demo_fee: 45, availability: HOURLY });
 ok('fixture venue B - Main @ $45', v2.ok, `${v2.status} ${JSON.stringify(v2.body).slice(0,140)}`);
 
 const b1 = await up('brands', { id: F.BRAND1, email: 'brand1@fixture.test', company_name: 'Fixture Brand One', is_verified: true });

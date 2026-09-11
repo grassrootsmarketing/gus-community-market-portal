@@ -62,11 +62,11 @@ let staffCookie = null, brandCookie = null;
 
 try {
   const pre = await one(`SELECT to_regprocedure('public.venue_availability_set(uuid,uuid,integer,jsonb,jsonb,boolean,integer)') AS s,
-                                to_regprocedure('public.venue_blackouts_set(uuid,text,date[],uuid[],text,uuid)') AS b,
-                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid)') AS a,
+                                to_regprocedure('public.venue_blackouts_set(uuid,text,date[],uuid[],text,uuid,uuid[])') AS b,
+                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid,integer,jsonb,jsonb,boolean,integer)') AS a,
                                 to_regprocedure('public.offering_anomalies(uuid)') AS o,
                                 (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_booking_slot_resolve','trg_venue_availability_guard'))::int AS trg`);
-  ok('preflight: 0075 applied (RPCs + triggers present)', pre.s && pre.b && pre.a && pre.o && pre.trg === 2, JSON.stringify(pre));
+  ok('preflight: 0075 + 0076 applied (RPCs + triggers present)', pre.s && pre.b && pre.a && pre.o && pre.trg === 2, JSON.stringify(pre));
 
   // ---------------------------------------------------------------------------------------------
   // Fixtures
@@ -132,20 +132,35 @@ try {
   }
 
   // ---------------------------------------------------------------------------------------------
-  console.log('\n— 2: an unconfigured venue ({}) has no offering rule, but capacity is still spelling-proof —');
+  console.log('\n— 2: a venue with no hours takes NO new reservations; hours alone enforce the default slots (Codex B-02) —');
   {
     const D = futureDow(2);
     const ins = (t) => pgErr(`INSERT INTO bookings (retailer_id, venue_id, brand_name, contact_name, contact_email, demo_date, demo_time, status, payment_status)
                               VALUES ($1, $2, 'B', 'C', 'c@fixture.test', $3, $4, 'pending', 'unpaid')`, [R, V2, D, t]);
+    for (const t of ['11:00 AM', '10:00', '2:00 AM']) {
+      const e = await ins(t);
+      ok(`2a: "${t}" on a venue with NO hours ({}) is refused (venue_hours_not_set) — no wildcard`, e && /venue_hours_not_set/.test(e.message), e ? e.message.slice(0, 100) : 'inserted');
+    }
+    const api = await book(V2, D, '11:00 AM');
+    ok('2a: the same refusal through /api/book (400 venue_hours_not_set)', api.statusCode === 400 && api.body.error === 'venue_hours_not_set', `${api.statusCode} ${api.body && api.body.error}`);
+    const hrs = await admin('availability-set', { venue_id: V2, expected_version: 0, schedule: STD_SCHEDULE });
+    ok('2b: setting hours only (no slot list) succeeds', hrs.statusCode === 200 && hrs.body.availability_version === 1 && !Object.prototype.hasOwnProperty.call(hrs.body.availability, 'slots'), `${hrs.statusCode} ${JSON.stringify(hrs.body).slice(0, 140)}`);
     const e1 = await ins('11:00');
-    ok('2a: "11:00" inserts on the unconfigured venue', !e1, e1 && e1.message);
+    ok('2c: with hours, "11:00" (a default slot) inserts', !e1, e1 && e1.message);
     const e2 = await ins('11:00 am');
-    ok('2b: "11:00 am" on the same date is slot_full (one slot, one count)', e2 && /slot_full/.test(e2.message), e2 ? e2.message.slice(0, 100) : 'inserted');
+    ok('2d: "11:00 am" on the same date is slot_full (one slot, one count)', e2 && /slot_full/.test(e2.message), e2 ? e2.message.slice(0, 100) : 'inserted');
     const e3 = await ins('10:00');
-    ok('2c: "10:00" inserts — no slot list or hours means no offering rule at the database level', !e3, e3 && e3.message);
-    const dur = await one(`SELECT duration_hours FROM bookings WHERE venue_id = $1 AND demo_time = '10:00'`, [V2]);
-    ok('2d: an unconfigured booking still gets duration_hours 3 for end_at', dur && dur.duration_hours === 3, JSON.stringify(dur));
+    ok('2e: "10:00" is refused — a missing slot list means the STANDARD slots, never arbitrary starts', e3 && /slot_not_offered/.test(e3.message), e3 ? e3.message.slice(0, 100) : 'inserted');
+    const dur = await one(`SELECT duration_hours FROM bookings WHERE venue_id = $1 AND demo_time = '11:00'`, [V2]);
+    ok('2f: the default slot length (3h) was stored', dur && dur.duration_hours === 3, JSON.stringify(dur));
     await q(`DELETE FROM bookings WHERE venue_id = $1`, [V2]);
+    // Malformed blobs fail CLOSED (never treated as absent).
+    for (const [label, av] of [['schedule:null', { schedule: null, blackouts: [] }], ['schedule as list', { schedule: [], blackouts: [] }], ['slots as string', { schedule: STD_SCHEDULE, slots: 'x', blackouts: [] }]]) {
+      const w = await pgErr(`UPDATE venues SET availability = $2::jsonb WHERE id = $1`, [V2, JSON.stringify(av)]);
+      ok(`2g: a malformed configuration (${label}) cannot be written (guard)`, w && /availability_invalid|slot_config_invalid/.test(w.message), w ? w.message.slice(0, 100) : 'accepted');
+    }
+    const back = await venue(V2);
+    ok('2g: V2 still has its hours-only configuration (version 1)', back.availability_version === 1 && back.availability.schedule, JSON.stringify(back.availability).slice(0, 80));
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -189,16 +204,18 @@ try {
     ok('3j: Wednesday "9:00 AM" still fits', r6.statusCode === 200, `${r6.statusCode}`);
 
     // Explicit empty list = nothing offered (not "defaults"). On a venue with no reservations (V2).
-    const set3 = await admin('availability-set', { venue_id: V2, expected_version: 0, slots: [] });
-    ok('3k: an explicit empty slot list saves', set3.statusCode === 200 && set3.body.availability_version === 1, `${set3.statusCode} ${JSON.stringify(set3.body).slice(0, 120)}`);
+    const v2v = (await venue(V2)).availability_version;
+    const set3 = await admin('availability-set', { venue_id: V2, expected_version: v2v, slots: [] });
+    ok('3k: an explicit empty slot list saves', set3.statusCode === 200 && set3.body.availability_version === v2v + 1, `${set3.statusCode} ${JSON.stringify(set3.body).slice(0, 120)}`);
     const r7 = await book(V2, THU, '10:00');
     const r8 = await book(V2, THU, '11:00 AM');
     ok('3k: with [] nothing is offered — neither an arbitrary time nor the default start (slot_not_offered)', r7.statusCode === 400 && r7.body.error === 'slot_not_offered' && r8.statusCode === 400 && r8.body.error === 'slot_not_offered', `${r7.statusCode}/${r8.statusCode}`);
-    const reset = await admin('availability-set', { venue_id: V2, expected_version: 1, reset_slots: true });
-    ok('3k: reset_slots drops the key again (back to "never configured": no slots key, no schedule)', reset.statusCode === 200 && !Object.prototype.hasOwnProperty.call(reset.body.availability, 'slots'), `${reset.statusCode} ${JSON.stringify(reset.body).slice(0, 120)}`);
+    const reset = await admin('availability-set', { venue_id: V2, expected_version: v2v + 1, reset_slots: true });
+    ok('3k: reset_slots drops the key again (standard slots apply; hours stay)', reset.statusCode === 200 && !Object.prototype.hasOwnProperty.call(reset.body.availability, 'slots') && reset.body.availability.schedule, `${reset.statusCode} ${JSON.stringify(reset.body).slice(0, 120)}`);
     const r9 = await book(V2, THU, '10:00');
-    ok('3k: an unconfigured venue accepts any parseable time again', r9.statusCode === 200, `${r9.statusCode} ${JSON.stringify(r9.body).slice(0, 100)}`);
-    if (r9.body && r9.body.booking_id) await q(`DELETE FROM bookings WHERE id = $1`, [r9.body.booking_id]);
+    const r10 = await book(V2, THU, '11:00 AM');
+    ok('3k: after the reset the STANDARD slots apply ("10:00" refused, "11:00 AM" offered)', r9.statusCode === 400 && r9.body.error === 'slot_not_offered' && r10.statusCode === 200, `${r9.statusCode}/${r10.statusCode}`);
+    if (r10.body && r10.body.booking_id) await q(`DELETE FROM bookings WHERE id = $1`, [r10.body.booking_id]);
     const emptyOnBooked = await admin('availability-set', { venue_id: V3, expected_version: 2, slots: [] });
     ok('3k: an empty list on a venue WITH reservations is refused (slot_in_use) — reservations are never orphaned', emptyOnBooked.statusCode === 409 && emptyOnBooked.body.error === 'slot_in_use', `${emptyOnBooked.statusCode} ${JSON.stringify(emptyOnBooked.body).slice(0, 120)}`);
 
@@ -238,7 +255,9 @@ try {
     ok('4b: a NEW booking on the blacked-out date is refused (400 date_blackout)', r.statusCode === 400 && r.body.error === 'date_blackout', `${r.statusCode} ${r.body && r.body.error}`);
     const v1 = await venue(V1);
     const entry = v1.availability.blackouts.find(x => x.date === D1);
-    ok('4b: the venue carries the blackout with its private reason and NO group id (single-venue block)', entry && entry.reason === 'Inventory count' && entry.group_id === undefined, JSON.stringify(v1.availability.blackouts));
+    ok('4b: the venue carries the blackout with its private reason, a server-generated entry id and NO group id (single-venue block)', entry && entry.reason === 'Inventory count' && entry.group_id === undefined && /^[0-9a-f-]{36}$/.test(entry.id || ''), JSON.stringify(v1.availability.blackouts));
+    const again = await admin('availability-blackouts', { op: 'add', dates: [D1], venue_ids: [V1], reason: 'Second attempt' });
+    ok('4b: repeating a local block on the same date is idempotent (nothing added, first note kept)', again.statusCode === 200 && again.body.added === 0 && (await venue(V1)).availability.blackouts.filter(x => x.date === D1).length === 1, JSON.stringify(again.body).slice(0, 120));
     // Hours save must not clear blackouts (the old "Apply to all" wrote blackouts: []).
     const hrs = await admin('availability-set', { venue_id: V1, expected_version: v1.availability_version, schedule: STD_SCHEDULE, max_demos_per_slot: 1 });
     const v1b = await venue(V1);
@@ -252,18 +271,24 @@ try {
     ok('4e: "all current locations" blocks every venue of the retailer in one call', all.statusCode === 200 && all.body.venues.length === 3, `${all.statusCode} ${JSON.stringify(all.body).slice(0, 200)}`);
     groupId = all.body.venues.find(x => x.venue_id === V1).group_id;
     const v2e = await venue(V2);
-    const v2entry = v2e.availability.blackouts.find(x => x.date === D2);
-    ok('4e: the venue that already had D2 keeps its OWN entry (reason untouched, still no group — merge, not overwrite)', v2entry && v2entry.reason === 'Local only' && v2entry.group_id === undefined && typeof groupId === 'string', JSON.stringify(v2entry));
+    const v2entry = v2e.availability.blackouts.find(x => x.date === D2 && !x.group_id);
+    const v2group = v2e.availability.blackouts.find(x => x.date === D2 && x.group_id === groupId);
+    ok('4e: the venue that already had a LOCAL D2 keeps it AND gains the all-locations entry (both intents preserved)', v2entry && v2entry.reason === 'Local only' && v2group && typeof groupId === 'string', JSON.stringify(v2e.availability.blackouts));
     const r2 = await book(V3, D2, '9:00 AM');
     ok('4e: V3 refuses a booking on the all-locations date', r2.statusCode === 400 && r2.body.error === 'date_blackout', `${r2.statusCode}`);
-    const undo = await admin('availability-blackouts', { op: 'remove', dates: [D2], venue_ids: null, group_id: groupId });
-    ok('4f: undoing the all-locations block by group id', undo.statusCode === 200 && undo.body.venues.length === 3, `${undo.statusCode}`);
+    const undo = await admin('availability-blackouts', { op: 'remove', group_id: groupId });
+    ok('4f: undoing the all-locations block by group id removes exactly the three group entries', undo.statusCode === 200 && undo.body.removed === 3, `${undo.statusCode} ${JSON.stringify(undo.body).slice(0, 120)}`);
     const [v1f, v2f, v3f] = await Promise.all([venue(V1), venue(V2), venue(V3)]);
     ok('4f: V1 and V3 no longer have D2; V2 keeps its independent local block', !v1f.availability.blackouts.some(x => x.date === D2) && !v3f.availability.blackouts.some(x => x.date === D2) && v2f.availability.blackouts.some(x => x.date === D2 && x.reason === 'Local only'), JSON.stringify([v1f.availability.blackouts, v2f.availability.blackouts, v3f.availability.blackouts]));
     ok('4f: V1 still has its D1 blackout (unrelated dates preserved)', v1f.availability.blackouts.some(x => x.date === D1));
-    const rmLocal = await admin('availability-blackouts', { op: 'remove', dates: [D2], venue_ids: [V2] });
+    const localId = (await venue(V2)).availability.blackouts.find(x => x.date === D2 && !x.group_id).id;
+    const rmLocal = await admin('availability-blackouts', { op: 'remove', entry_ids: [localId] });
     const v2g = await venue(V2);
-    ok('4g: a local remove clears the local block', rmLocal.statusCode === 200 && !v2g.availability.blackouts.some(x => x.date === D2), JSON.stringify(v2g.availability.blackouts));
+    ok('4g: a local remove by entry id clears the local block', rmLocal.statusCode === 200 && rmLocal.body.removed === 1 && !v2g.availability.blackouts.some(x => x.date === D2), JSON.stringify(v2g.availability.blackouts));
+    const replay = await admin('availability-blackouts', { op: 'remove', entry_ids: [localId] });
+    ok('4g: replaying the same remove is a no-op (removed 0), never a delete of something newer', replay.statusCode === 200 && replay.body.removed === 0, JSON.stringify(replay.body).slice(0, 100));
+    const noTarget = await admin('availability-blackouts', { op: 'remove' });
+    ok('4g: a remove without entry ids or a group id is refused', noTarget.statusCode === 400 && noTarget.body.error === 'invalid_target', `${noTarget.statusCode}`);
     const foreign = await admin('availability-blackouts', { op: 'add', dates: [D2], venue_ids: ['00000000-0000-0000-0000-000000000001'] });
     ok('4h: a venue id that is not yours is refused (404, nothing applied)', foreign.statusCode === 404, `${foreign.statusCode} ${JSON.stringify(foreign.body).slice(0, 100)}`);
     const badDate = await admin('availability-blackouts', { op: 'add', dates: ['2026-02-30'], venue_ids: [V1] });
@@ -275,7 +300,7 @@ try {
   {
     // V3's slots (09:00/2, 13:00/4, 17:00/1) do not contain V1's booked 11:00 AM / 3:00 PM -> V1 refuses -> NOTHING applied.
     const v2before = await venue(V2);
-    const refused = await admin('availability-apply-all', { source_venue_id: V3 });
+    const refused = await admin('availability-apply-all', { source_venue_id: V3, expected_version: (await venue(V3)).availability_version });
     ok('5a: apply-all is refused when ANY venue has reservations on a slot the copy removes (409 slot_in_use, names the venue)', refused.statusCode === 409 && refused.body.error === 'slot_in_use' && refused.body.venue_id === V1, `${refused.statusCode} ${JSON.stringify(refused.body).slice(0, 200)}`);
     const v2after = await venue(V2);
     ok('5a: the other venue was NOT touched (all-or-nothing)', v2after.availability_version === v2before.availability_version && JSON.stringify(v2after.availability) === JSON.stringify(v2before.availability), `${v2before.availability_version} -> ${v2after.availability_version}`);
@@ -284,12 +309,16 @@ try {
     const v3 = await venue(V3);
     const set = await admin('availability-set', { venue_id: V3, expected_version: v3.availability_version, slots: [{ start: '09:00', hours: 2 }, { start: '11:00', hours: 3 }, { start: '15:00', hours: 3 }] });
     ok('5b: V3 slot list widened to cover every venue\'s reservations', set.statusCode === 200, `${set.statusCode} ${JSON.stringify(set.body).slice(0, 160)}`);
-    const applied = await admin('availability-apply-all', { source_venue_id: V3 });
-    ok('5c: apply-all succeeds for both other venues', applied.statusCode === 200 && applied.body.venues.length === 2, `${applied.statusCode} ${JSON.stringify(applied.body).slice(0, 160)}`);
+    const staleAll = await admin('availability-apply-all', { source_venue_id: V3, expected_version: 0 });
+    ok('5c: apply-all with a stale source version is refused (409 stale_version)', staleAll.statusCode === 409 && staleAll.body.error === 'stale_version', `${staleAll.statusCode}`);
+    const applied = await admin('availability-apply-all', { source_venue_id: V3, expected_version: (await venue(V3)).availability_version, max_demos_per_slot: 2 });
+    ok('5c: apply-all (source edit + fan-out in one call) returns every venue\'s snapshot', applied.statusCode === 200 && applied.body.venues.length === 3 && applied.body.venues.every(x => x.availability && Number.isInteger(x.availability_version) && x.max_demos_per_slot === 2), `${applied.statusCode} ${JSON.stringify(applied.body).slice(0, 160)}`);
     const [v1, v2] = await Promise.all([venue(V1), venue(V2)]);
     ok('5c: V1 received V3\'s slots and hours', canon(v1.availability.slots) === canon([{ start: '09:00', hours: 2 }, { start: '11:00', hours: 3 }, { start: '15:00', hours: 3 }]) && canon(v1.availability.schedule) === canon((await venue(V3)).availability.schedule), JSON.stringify(v1.availability).slice(0, 200));
     ok('5c: V1 KEPT its own D1 blackout', v1.availability.blackouts.some(x => x.date === D1), JSON.stringify(v1.availability.blackouts));
-    ok('5c: the unconfigured venue is now configured with the same slots, blackouts []', canon(v2.availability.slots) === canon(v1.availability.slots) && Array.isArray(v2.availability.blackouts) && v2.availability.blackouts.length === 0, JSON.stringify(v2.availability).slice(0, 160));
+    ok('5c: V2 received the same slots and hours, and kept its (empty) blackouts', canon(v2.availability.slots) === canon(v1.availability.slots) && Array.isArray(v2.availability.blackouts), JSON.stringify(v2.availability).slice(0, 160));
+    const patchCap = await callRoute('admin.js', req({ method: 'PATCH', query: { table: 'venues', id: V2 }, body: { max_demos_per_slot: 5 }, cookies: { dh_retailer_session: staffCookie } }));
+    ok('5e: capacity through the generic venues PATCH is refused (it must go through the versioned actions)', patchCap.statusCode === 400 && JSON.parse(patchCap.body).error === 'use_availability_actions', `${patchCap.statusCode}`);
     const r = await book(V2, futureDow(6), '10:00');
     ok('5d: after apply-all the formerly unconfigured venue enforces the slot list ("10:00" refused)', r.statusCode === 400 && r.body.error === 'slot_not_offered', `${r.statusCode}`);
   }
@@ -331,7 +360,7 @@ try {
     ok('7d: accept_reschedule refuses with date_blackout (no move)', acc && acc.ok === false && acc.reason === 'date_blackout', JSON.stringify(acc));
     const after = await booking(b.id);
     ok('7d: the booking is exactly where it was (date, slot, revision 1)', after.demo_date === D3 && after.demo_time === '11:00 AM' && after.schedule_revision === 1, JSON.stringify(after));
-    await admin('availability-blackouts', { op: 'remove', dates: [D4], venue_ids: [V1] });
+    { const e = (await venue(V1)).availability.blackouts.find(x => x.date === D4); await admin('availability-blackouts', { op: 'remove', entry_ids: [e.id] }); }
     const acc2 = await one(`SELECT * FROM accept_reschedule($1, $2, $3)`, [b.id, brand.id, p3.body.proposal_version]);
     const moved = await booking(b.id);
     ok('7e: once unblocked the same proposal is accepted and the booking moves with the slot\'s duration', acc2 && acc2.ok === true && moved.demo_date === D4 && moved.demo_time === '3:00 PM' && moved.duration_hours === 3 && moved.schedule_revision === 2, JSON.stringify({ acc2, moved }));

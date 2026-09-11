@@ -8,6 +8,8 @@
 // concurrency. This file proves the ROUTE: binding, cookie, CSRF, parsing, authorization,
 // and email containment, which direct PostgREST calls cannot exercise.
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ORIGIN, ENV } from './_route.mjs';
+import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+
 // Release A: store-contact notices come from the 0074 outbox via api/notification-worker.js, which
 // is flag-gated. api/_flags.js reads env once per process, so the flag is set BEFORE the first route
 // import in this file (tests/launch_flags.test.mjs proves the default-off behaviour separately).
@@ -43,7 +45,7 @@ let ownerRetailerId, retailerId, venueId, brandId, retailerSlug;
     billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true }) })).body[0].id);
 
   venueId = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({
-    retailer_id: retailerId, name: 'Route Main', address: '1 Route St', demo_fee: 30 }) })).body[0].id);
+    retailer_id: retailerId, name: 'Route Main', address: '1 Route St', demo_fee: 30, availability: HOURLY }) })).body[0].id);
 
   await db('retailer_admins', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, email: `staff-${retailerSlug}@fixture.test`,
@@ -243,7 +245,7 @@ let bookingId = null;
 
   // A venue belonging to a different retailer must be refused by the route.
   const otherR = track('retailers', (await db('retailers', { method: 'POST', body: JSON.stringify({ slug: uniq('oth'), name: 'Other', billing_email: `${uniq('o')}@fixture.test`, billing_tier: 'pro', billing_status: 'active' }) })).body[0].id);
-  const otherV = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: otherR, name: 'Other Main', address: '9 Other St', demo_fee: 30 }) })).body[0].id);
+  const otherV = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: otherR, name: 'Other Main', address: '9 Other St', demo_fee: 30, availability: HOURLY }) })).body[0].id);
   const crossed = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: otherV, demo_date: day(2), demo_time: '11:00' }, cookies: { dh_brand_session: brandCookie } }));
   ok('a venue from another retailer is refused by the route', crossed.statusCode === 400 && crossed.body.error === 'invalid_venue', `${crossed.statusCode} ${JSON.stringify(crossed.body)}`);
 
