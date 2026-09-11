@@ -399,6 +399,7 @@ export default async function handler(req, res) {
     // Capture -> apply_verified_payment (sync; the webhook replay is idempotent) -> outbox drain
     // promotes held -> 'pending' + sends the payment email; the normal confirm flow below then
     // finishes pending -> 'confirmed' with demo + confirmation email, exactly like a paid booking.
+    let capturedHeldNow = false;   // Codex C2: this request captured the hold (emails are due even if the transition converged)
     if (action === 'confirm' && booking.status === 'held') {
       if (booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
         return res.status(409).json({ error: 'hold_not_authorized', message: 'The brand has not completed checkout for this hold yet — there is nothing to charge. Ask them to finish payment, or decline to free the slot.' });
@@ -427,14 +428,23 @@ export default async function handler(req, res) {
         }
         return res.status(500).json({ error: 'capture_apply_failed', detail: capd.error, case_id: capd.case_id });
       }
-      // fall through to the normal confirm flow with the promoted state
-      booking.status = 'pending';
-      booking.payment_status = 'paid';
+      capturedHeldNow = true;
+      // Codex C2: read the booking back rather than assuming 'pending'. With auto-confirm on, the
+      // capture-side outbox drain has ALREADY promoted it to 'confirmed' and created its demo; the
+      // transition below then converges idempotently (already_applied) instead of failing, and the
+      // capacity re-check must not count the booking's own demo against it.
+      try {
+        const fresh = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=status,payment_status`);
+        const fr = Array.isArray(fresh) ? fresh[0] : null;
+        booking.status = (fr && fr.status) || 'pending';
+        booking.payment_status = (fr && fr.payment_status) || 'paid';
+      } catch (_) { booking.status = 'pending'; booking.payment_status = 'paid'; }
     }
 
     // Race check at confirmation. For a held booking this ran AFTER capture above (harmless now —
     // capacity was already verified pre-capture); for a normal paid confirm this is the only check.
-    if (action === 'confirm') {
+    // A booking that is already confirmed (capture-side auto-confirm) holds its own slot: skip.
+    if (action === 'confirm' && booking.status !== 'confirmed') {
       const capStatus = await slotCapacityStatus(booking);
       if (capStatus.full) {
         return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
@@ -577,8 +587,48 @@ export default async function handler(req, res) {
         reconciliation_case_id: caseId, reconciliation_recorded: !!caseId });
     }
     if (!tr || tr.ok !== true) {
-      return res.status(409).json({ error: 'state_changed', message: `This booking changed while you were working (now ${tr && tr.status_before ? tr.status_before : 'unknown'}). Reload and try again.`, status: tr && tr.status_before, payment_status: booking.payment_status });
+      // Codex C2-B: a LOGICAL refusal after money already moved is not an ordinary stale tab. The
+      // refund (or the authorization release) happened; the booking is in a state this action cannot
+      // transition (a concurrent confirm, say). Record ONE deduplicated reconciliation case so an
+      // operator converges booking/demo/refund, and say explicitly what has already happened.
+      const moneyMoved = refundStatus === 'submitted' || refundStatus === 'auth_released';
+      let caseId = null;
+      if (moneyMoved) {
+        try {
+          const _c = await sbRpc('_open_case', {
+            p_kind: 'settlement_exception', p_dedupe: 'transition:' + booking_id,
+            p_reason: 'booking_transition_refused_after_refund_step',
+            p_group: null, p_request: null, p_operation: null,
+            p_session: null, p_pi: null, p_charge: null, p_refund: (refundInfo && refundInfo.refund_id) || null, p_amount: null, p_currency: null,
+            p_details: { booking_id, action, refund_status: refundStatus, transition_reason: (tr && tr.reason) || 'no_result', status_now: (tr && tr.status_before) || null },
+          });
+          caseId = Array.isArray(_c) ? _c[0] : _c;
+        } catch (caseErr) {
+          console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
+        }
+      }
+      return res.status(409).json({
+        ok: false, error: 'state_changed', action, booking_id,
+        status: tr && tr.status_before, payment_status: booking.payment_status,
+        refund_status: moneyMoved ? refundStatus : undefined,
+        refund_id: (moneyMoved && refundInfo && refundInfo.refund_id) || undefined,
+        reconciliation_case_id: caseId || undefined,
+        reconciliation_recorded: moneyMoved ? !!caseId : undefined,
+        message: `This booking changed while you were working (now ${tr && tr.status_before ? tr.status_before : 'unknown'}). ` +
+          (moneyMoved
+            ? (refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded — contact support with this booking id.')
+            : 'Reload and try again.'),
+      });
     }
+    // Codex C2-A: reason 'already_applied' = this action's terminal state was ALREADY in place when
+    // the transition ran — the authorization release above did it (held cancel/decline), the
+    // capture-side auto-confirm did it (held confirm), or a concurrent identical request did. The
+    // transition converged the audited fields and the projection; the outcome is a truthful
+    // success. Emails: still due when THIS request did the provider-side work (release/capture);
+    // for a concurrent duplicate the first request sent them.
+    const alreadyApplied = tr.reason === 'already_applied';
+    const thisRequestDidTheWork = refundStatus === 'auth_released' || capturedHeldNow;
+    const idempotentReplay = alreadyApplied && !thisRequestDidTheWork;
     demoCancelConverged = true;   // retired in the same transaction as the cancellation
     let demoId = tr.demo_id || null;
     if (action === 'confirm') {
@@ -617,7 +667,7 @@ export default async function handler(req, res) {
 
     // 3) Send email (best-effort)
     let emailOk = false;
-    if (_b.resendApiKey && booking.contact_email) {
+    if (_b.resendApiKey && booking.contact_email && !idempotentReplay) {
       const dateLabel = booking.demo_date ? new Date(booking.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
       let subject, htmlBody;
       if (action === 'confirm') {
@@ -654,6 +704,7 @@ export default async function handler(req, res) {
       action,
       booking_id,
       demo_id: demoId,
+      idempotent: idempotentReplay || undefined,
       email_sent: emailOk,
       refund_status: action === 'cancel' ? refundStatus : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
