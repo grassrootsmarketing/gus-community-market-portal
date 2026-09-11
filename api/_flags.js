@@ -50,7 +50,10 @@ export const FLAGS = {
   // keep being enforced and read, hours/capacity autosave still works, but no new slot/blackout
   // intake — the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
   // compatible rollback once custom slots exist.
-  slotEditing: exactTrue(process.env.SLOT_EDITING_ENABLED),
+  // Read at request time (getter) rather than at module load: the kill switch is still the literal
+  // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
+  // proven in-process (tests/release_b_corrections.test.mjs R4) without re-importing the module graph.
+  get slotEditing() { return exactTrue(process.env.SLOT_EDITING_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and

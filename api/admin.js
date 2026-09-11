@@ -491,9 +491,12 @@ export default async function handler(req, res) {
         if (max_demos_per_slot !== undefined && max_demos_per_slot !== null && !(Number.isInteger(max_demos_per_slot) && max_demos_per_slot >= 1)) {
           return send(res, 400, { error: 'invalid_capacity', message: 'Max demos per time slot must be a whole number of 1 or more.' });
         }
+        // Codex R4: with editing OFF the copy is hours + capacity only — every destination keeps its
+        // own slot list and the source's persisted slots are not propagated.
         const rows = await rpc('venue_availability_apply_all', {
           p_retailer_id: rid, p_source_venue_id: source_venue_id, p_expected_version: expected_version,
           p_schedule: schedule ?? null, p_slots: slots ?? null, p_reset_slots: reset_slots === true, p_max_demos_per_slot: max_demos_per_slot ?? null,
+          p_copy_slots: FLAGS.slotEditing === true,
         });
         const list = Array.isArray(rows) ? rows : [];
         const refused = list.find(r => r.ok === false);
@@ -577,6 +580,16 @@ export default async function handler(req, res) {
     body.retailer_id = session.retailer_id;
     // ===== Tier enforcement: venues =====
     if (table === 'venues') {
+      // Codex R4: a NEW venue may carry hours, but blackouts exist only through the blackout action
+      // (server-generated identity) and a slot list only while slot editing is ON.
+      if (body.availability !== undefined && body.availability !== null) {
+        if (typeof body.availability !== 'object' || Array.isArray(body.availability)) return send(res, 400, { error: 'invalid_availability' });
+        if (Object.prototype.hasOwnProperty.call(body.availability, 'slots') && !FLAGS.slotEditing) {
+          return send(res, 503, { error: 'slot_editing_disabled', message: 'Demo slot editing is switched off right now; create the location with hours only.' });
+        }
+        body.availability = { ...body.availability, blackouts: [] };
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'availability_version')) delete body.availability_version;
       try {
         const { limit, tier } = await getVenueLimitForRetailer(session.retailer_id);
         if (limit > 0) {
