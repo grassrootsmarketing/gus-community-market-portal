@@ -31,14 +31,26 @@ export async function fetchBookingSnapshots(get, ids, { chunk = SNAPSHOT_CHUNK }
     if (!Array.isArray(rows)) throw new SnapshotLookupError('snapshot_lookup_malformed', { got: typeof rows });
     for (const b of rows) {
       if (!b || typeof b.id !== 'string') throw new SnapshotLookupError('snapshot_lookup_malformed', { row: 'no id' });
-      if (b.start_at && b.end_at) {
-        const s = new Date(b.start_at), e = new Date(b.end_at);
-        if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id });
-        out.set(b.id, { start_at: s, end_at: e, timezone: b.timezone || null });
+      if (b.start_at == null && b.end_at == null) {
+        // Codex C4: an EXPLICIT no-snapshot state established by a successful read (a linked legacy
+        // booking whose local time could not be resolved by the 0075 backfill; offering_anomalies()
+        // reports these as class=legacy). Recorded as null so the caller can tell it from "missing".
+        out.set(b.id, null);
+        continue;
       }
-      // A linked booking WITHOUT a snapshot is a genuine legacy row: the caller may reconstruct it.
+      // One timestamp without the other, unparseable values, or an interval that does not run
+      // forwards are not a snapshot — the feed must not guess.
+      if (b.start_at == null || b.end_at == null) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id, reason: 'partial_snapshot' });
+      const s = new Date(b.start_at), e = new Date(b.end_at);
+      if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id, reason: 'unparseable' });
+      if (e.getTime() <= s.getTime()) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id, reason: 'end_not_after_start' });
+      out.set(b.id, { start_at: s, end_at: e, timezone: b.timezone || null });
     }
   }
+  // Codex C4: every requested linked booking must have been returned. A missing row (a short read,
+  // a filtered-out id, a later chunk that came back empty) is an incomplete lookup, not legacy.
+  const missing = uniqueIds.filter(id => !out.has(id));
+  if (missing.length) throw new SnapshotLookupError('snapshot_lookup_incomplete', { missing: missing.length, first: missing[0] });
   return out;
 }
 
