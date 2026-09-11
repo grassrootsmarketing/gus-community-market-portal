@@ -36,33 +36,42 @@ export async function runFulfillment(row, owner) {
   const bookingId = row.booking_id;
   let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
   try {
-    // 1. status transition (idempotent — only moves a booking still awaiting this promotion).
-    // Provisional holds: a captured hold is promoted FROM 'held'; target 'held' itself is a no-op
-    // transition (the booking is already held — this row only exists to send the hold email).
-    if (row.target_status !== 'held') {
-      await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}&status=in.(pending_payment,held)`, {
-        method: 'PATCH', body: JSON.stringify({ status: row.target_status || 'pending' }),
-      });
-    }
-
-    // 2. demo + emails via the webhook module's shared helpers
+    // Codex R2 (2026-09-11): the promotion and (for auto-confirm) the demo projection are ONE
+    // database transaction (0077 booking_transition 'promote_paid'), judged on the booking's CURRENT
+    // state. Outcomes are explicit: applied (possibly idempotently on a retry), superseded (the
+    // booking was cancelled/declined/expired in between — the fulfilment is deliberately skipped and
+    // recorded as such, and no stale confirmation mail goes out), or a thrown database failure that
+    // leaves the outbox row retryable.
     const wh = await import('./stripe-webhook.js');
     const ctx = await wh.fetchBookingContext(bookingId);
     if (!ctx) throw new Error('no_booking_context');
     ctx.booking_id = bookingId;
-
-    if (!demoOk) {
-      if (row.target_status === 'confirmed') { await wh.createDemoForConfirmedBooking(ctx); demoOk = true; }
-      else demoOk = true;   // non-auto-confirm retailers materialise the demo on manual confirm; 'held' has no demo
+    let superseded = false;
+    if (row.target_status !== 'held') {
+      const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: ctx.retailer_id, p_action: 'promote_paid', p_fields: { status: row.target_status || 'pending' }, p_demo_fee: null });
+      const tr = Array.isArray(rows) ? rows[0] : rows;
+      if (!tr) throw new Error('promote_no_result');
+      if (tr.ok !== true) {
+        if (tr.reason === 'superseded') superseded = true;
+        else throw new Error('promote_refused:' + (tr.reason || 'unknown') + ':' + (tr.status_before || ''));
+      } else if (row.target_status === 'confirmed' && !tr.demo_id) {
+        throw new Error('demo_not_materialised');   // a confirmed booking must have its demo; retry
+      }
     }
-    if (!mailOk) {
-      if (!ctx.contact_email) { mailOk = true; }
-      else if (row.target_status === 'held') {
-        const { sendHoldPlacedEmail } = await import('./_provisional.js');
-        await sendHoldPlacedEmail(ctx);   // throws on failure -> outbox retries
-        mailOk = true;
-      } else {
-        await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;
+    if (superseded) {
+      // A cancelled booking has no demo to create and must not receive a confirmation now.
+      demoOk = true; mailOk = true; err = 'superseded:booking_no_longer_active';
+    } else {
+      demoOk = true;   // 'held' has no demo; 'pending' materialises on manual confirm; 'confirmed' was created above
+      if (!mailOk) {
+        if (!ctx.contact_email) { mailOk = true; }
+        else if (row.target_status === 'held') {
+          const { sendHoldPlacedEmail } = await import('./_provisional.js');
+          await sendHoldPlacedEmail(ctx);   // throws on failure -> outbox retries
+          mailOk = true;
+        } else {
+          await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;
+        }
       }
     }
   } catch (e) {

@@ -92,7 +92,8 @@ env:
   # 2026-09-06 (Codex feature round, Release A): 0074_release_a_schedule_and_outbox.sql -> 75 SQL files.
   # 2026-09-10 (Codex feature round, Release B): 0075_release_b_slots_blackouts.sql -> 76 SQL files.
   # 2026-09-11 (Codex Release B review, B-01..B-08): 0076_release_b_corrections.sql -> 77 SQL files.
-  EXPECTED_MIGRATIONS: '77'
+  # 2026-09-11 (Codex closure review R2/R4/R5/R6): 0077_release_b_projection_and_transitions.sql -> 78 SQL files.
+  EXPECTED_MIGRATIONS: '78'
 
 jobs:
   # --------------------------------------------------------------------------

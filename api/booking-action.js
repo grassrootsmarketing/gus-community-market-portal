@@ -536,109 +536,53 @@ export default async function handler(req, res) {
         patch.payment_status = 'refund_pending';
       }
     }
-    // Codex B-03: the transition is CONDITIONAL on the state this handler read at the top. A
-    // cancellation (or any other transition) that committed in between makes this PATCH match no
-    // row; the handler then stops before creating a demo, emailing, or reporting success. The
-    // `status` filter is the same allow-list the top-of-handler check applied.
-    const fromStates = action === 'cancel' ? ['pending', 'confirmed', 'held'] : ['pending', 'held'];
-    const transitioned = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&status=in.(${fromStates.join(',')})`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    });
-    if (!(Array.isArray(transitioned) && transitioned.length)) {
-      let now = null;
-      try { const cur = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=status,payment_status`); now = Array.isArray(cur) && cur[0] ? cur[0] : null; } catch (_) {}
-      return res.status(409).json({ error: 'state_changed', message: `This booking changed while you were working (now ${now ? now.status : 'unknown'}). Reload and try again.`, status: now && now.status, payment_status: now && now.payment_status });
-    }
-    // 2) Cancel the demo on the calendar. `demos` has no cancelled_at column — the cancellation
-    //    audit timestamp lives on bookings.cancelled_at (set above) — so patch only the existing
-    //    `status` column. This MUST converge: a refunded/cancelled booking that leaves a live
-    //    'confirmed' demo on the retailer calendar is a real inconsistency. The refund may already
-    //    be in flight, so a failure is NOT swallowed into a clean success — it is recorded as a
-    //    durable reconciliation case and surfaced in the response (demo_cancelled:false).
-    if (action === 'cancel' && booking.status === 'confirmed') {
-      try {
-        await sb(`demos?booking_id=eq.${encodeURIComponent(booking_id)}&status=in.(confirmed,scheduled)`, {
-          method: 'PATCH',
-          body: JSON.stringify({ status: 'cancelled' }),
-        });
-        demoCancelConverged = true;
-      } catch (e) {
-        demoCancelConverged = false;
-        console.error('demo cancel did NOT converge for booking', booking_id, '-', (e && e.message) || e);
-        // Durable AND deduplicated: open the reconciliation case through the shared _open_case RPC with a
-        // stable per-booking key, so a retry (or the charge.refunded replay) cannot pile up duplicate
-        // cases. The RPC returns the case id (existing or newly created).
-        try {
-          const _c = await sbRpc('_open_case', {
-            p_kind: 'settlement_exception', p_dedupe: 'demo-cancel:' + booking_id,
-            p_reason: 'demo_not_cancelled_after_booking_cancel',
-            p_group: null, p_request: null, p_operation: null,
-            p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
-            p_details: { booking_id, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
-          });
-          demoCancelCaseId = Array.isArray(_c) ? _c[0] : _c;   // RETURNS uuid
-        } catch (caseErr) {
-          demoCancelCaseId = null;
-          console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
-        }
-      }
-    }
-
-    let demoId = null;
+    // Codex R2 (2026-09-11): the booking transition AND its calendar projection are ONE database
+    // transaction (0077 booking_transition): the booking row is locked, its CURRENT state is judged
+    // against the action's allow-list, the audited fields are applied, and the linked demo is
+    // created / reactivated (confirm) or retired (cancel, decline) from the booking's current
+    // schedule and duration. No check-then-write gap, no separate demo INSERT/PATCH, no "core-only"
+    // fallback that could produce an unlinked demo. Stripe (above) and mail (below) stay outside it.
+    let demoFee = null;
     if (action === 'confirm') {
       const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : null);
       if (fee == null || Number.isNaN(fee) || fee < 0) return res.status(400).json({ error: 'venue_missing_fee', message: 'This venue has no demo fee configured. Set one in the admin before confirming this booking.' });
-      const brandId = booking.brand_id || null;
-
-      // Build demo payload — include confirmed_at so the welcome-series cron can find
-      // brands 24h after their first confirmed demo. If the column doesn't exist yet
-      // (migration not run), retry without it.
-      const demoPayload = {
-        retailer_id: booking.retailer_id,
-        venue_id: booking.venue_id,
-        company_name: booking.brand_name || 'Unknown',
-        contact_name: booking.contact_name || null,
-        contact_email: booking.contact_email || null,
-        contact_phone: booking.contact_phone || null,
-        product: booking.product || null,
-        product_skus: (Array.isArray(booking.product_skus) && booking.product_skus.length) ? booking.product_skus : null,
-        demo_date: booking.demo_date,
-        demo_time: booking.demo_time,
-        // Release B: the booking's resolved slot length (0075 booking_slot_resolve); legacy rows = 3.
-        duration_hours: (Number.isInteger(booking.duration_hours) && booking.duration_hours >= 1 && booking.duration_hours <= 12) ? booking.duration_hours : 3,
-        status: 'confirmed',
-        confirmed_at: new Date().toISOString(),
-        demo_fee: fee,
-        notes: booking.notes || null,
-        brand_id: brandId,
-        booking_id: booking.id,  // DH-08: link demo->booking so a unique index enforces one demo per booking
-      };
-      let created = null;
-      try {
-        created = await sb(`demos`, { method: 'POST', body: JSON.stringify(demoPayload) });
-      } catch (e) {
-        const msg = String(e?.message || e);
-        if (/duplicate key|already exists|23505|demos_one_per_booking/i.test(msg)) {
-          // DH-08: a demo for this booking already exists (concurrent double-confirm). Reuse it
-          // instead of creating a second row. The DB unique index is the real guard; this makes
-          // confirm idempotent under a race.
-          console.warn('demos insert hit unique guard, reusing existing demo for booking', booking_id);
-          try {
-            const existing = await sb(`demos?booking_id=eq.${encodeURIComponent(booking_id)}&select=id&limit=1`);
-            demoId = (Array.isArray(existing) && existing[0]) ? existing[0].id : null;
-          } catch (_) {}
-        } else {
-          // A confirmation must never fail because an OPTIONAL column is missing (migration
-          // not run yet — including booking_id itself). Retry with only the core columns.
-          console.warn('demos insert failed on full payload, retrying core-only:', msg.slice(0, 200));
-          const { confirmed_at, product_skus, contact_email, contact_phone, booking_id: _bid, ...core } = demoPayload;
-          created = await sb(`demos`, { method: 'POST', body: JSON.stringify(core) });
+      demoFee = fee;
+    }
+    let tr = null;
+    try {
+      const rows = await sbRpc('booking_transition', { p_booking_id: booking_id, p_retailer_id: session.retailer_id, p_action: action, p_fields: patch, p_demo_fee: demoFee });
+      tr = Array.isArray(rows) ? rows[0] : rows;
+    } catch (e) {
+      // The transition did NOT happen. For a cancel/decline the refund may already be in flight
+      // (Stripe ran above): record a deduplicated reconciliation case so an operator resolves the
+      // booking, and report a non-success. Nothing was half-applied.
+      console.error('booking_transition failed for', booking_id, '-', (e && e.message) || e);
+      let caseId = null;
+      if (action !== 'confirm') {
+        try {
+          const _c = await sbRpc('_open_case', {
+            p_kind: 'settlement_exception', p_dedupe: 'transition:' + booking_id,
+            p_reason: 'booking_transition_failed_after_refund_step',
+            p_group: null, p_request: null, p_operation: null,
+            p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+            p_details: { booking_id, action, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
+          });
+          caseId = Array.isArray(_c) ? _c[0] : _c;
+        } catch (caseErr) {
+          console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
         }
       }
-      if (created) demoId = Array.isArray(created) ? created[0]?.id : null;
-
-      // Ensure a brand_contacts row exists for this (retailer, email).
+      return res.status(500).json({ ok: false, action, booking_id, error: 'transition_failed', refund_status: refundStatus,
+        message: 'The booking could not be updated. ' + (caseId ? 'A reconciliation case was opened.' : 'Retry; if a refund was submitted it is tracked by the refund ledger.'),
+        reconciliation_case_id: caseId, reconciliation_recorded: !!caseId });
+    }
+    if (!tr || tr.ok !== true) {
+      return res.status(409).json({ error: 'state_changed', message: `This booking changed while you were working (now ${tr && tr.status_before ? tr.status_before : 'unknown'}). Reload and try again.`, status: tr && tr.status_before, payment_status: booking.payment_status });
+    }
+    demoCancelConverged = true;   // retired in the same transaction as the cancellation
+    let demoId = tr.demo_id || null;
+    if (action === 'confirm') {
+      const brandId = booking.brand_id || null;
       if (booking.contact_email) {
         try {
           const existing = await sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(booking.retailer_id)}&email=eq.${encodeURIComponent(booking.contact_email)}&select=id,brand_id`);

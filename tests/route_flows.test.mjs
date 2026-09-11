@@ -1001,40 +1001,50 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   ok('cancel with a DEMO id (not a booking id) is refused 404',
      wrongId.statusCode === 404, `${wrongId.statusCode} ${JSON.stringify(wrongId.body).slice(0, 120)}`);
 
-  // (Codex #6) Force the demo PATCH to fail: the booking cancels and the refund submits, but the demo
-  // does not cancel — the route must open EXACTLY ONE deduplicated settlement_exception and return its id.
+  // (Codex #6, re-based on R2) The booking cancellation and the demo retirement are ONE database
+  // transaction (0077 booking_transition). Force THAT transaction to fail after the refund step ran:
+  // the booking must NOT be cancelled, the demo must stay, and the route must open EXACTLY ONE
+  // deduplicated settlement_exception (the refund is in flight) and return a non-success.
   const failBk = bookingIds[1];
-  spy.faults.push({ url: `demos?booking_id=eq.${failBk}`, method: 'PATCH', status: 500, message: 'injected_demo_patch_failure' });
+  spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure' });
   const f1 = await callRoute('booking-action.js', req({
     body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
-  ok('a forced demo-cancel failure still returns 200 (booking cancelled, refund submitted)',
-     f1.statusCode === 200, `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 160)}`);
-  ok('the response reports demo_cancelled:false', f1.body && f1.body.demo_cancelled === false, JSON.stringify(f1.body).slice(0, 160));
+  ok('a forced transition failure after the refund step returns a non-success (500 transition_failed)',
+     f1.statusCode === 500 && f1.body && f1.body.ok === false && f1.body.error === 'transition_failed', `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 160)}`);
   ok('the response returns a reconciliation_case_id', !!(f1.body && f1.body.reconciliation_case_id), JSON.stringify(f1.body).slice(0, 160));
-  const caseRows = ((await db(`reconciliation_cases?dedupe_key=eq.demo-cancel:${failBk}&select=id,kind`)).body) || [];
+  const notCancelled = ((await db(`bookings?id=eq.${failBk}&select=status`)).body || [])[0];
+  const demoKept = ((await db(`demos?booking_id=eq.${failBk}&select=status`)).body || [])[0];
+  ok('nothing was half-applied: the booking is still confirmed and its demo still active', notCancelled && notCancelled.status === 'confirmed' && demoKept && demoKept.status === 'confirmed', JSON.stringify({ notCancelled, demoKept }));
+  const caseRows = ((await db(`reconciliation_cases?dedupe_key=eq.transition:${failBk}&select=id,kind`)).body) || [];
   track('reconciliation_cases', caseRows[0] && caseRows[0].id);
   ok('exactly ONE settlement_exception case is keyed to the booking',
      caseRows.length === 1 && caseRows[0].kind === 'settlement_exception', JSON.stringify(caseRows));
   ok('the returned case_id matches the persisted case', f1.body && caseRows[0] && f1.body.reconciliation_case_id === caseRows[0].id);
+  spy.faults.length = 0;
   const stripeAfterF1 = spy.calls.stripe.length;
 
-  // (Codex #7) Replay: the booking is already cancelled → refused; no second case, no second Stripe refund.
+  // (Codex #7) Retry without the fault: the cancellation now applies ATOMICALLY (booking + demo),
+  // the refund is not submitted twice (ledger idempotency), and no second case is opened.
   const f2 = await callRoute('booking-action.js', req({
     body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
-  ok('replaying the cancel on an already-cancelled booking is refused', f2.statusCode === 409, `${f2.statusCode}`);
-  const caseRows2 = ((await db(`reconciliation_cases?dedupe_key=eq.demo-cancel:${failBk}&select=id`)).body) || [];
-  ok('replay does NOT create a second reconciliation case', caseRows2.length === 1, `${caseRows2.length}`);
-  ok('replay makes NO further Stripe refund call', spy.calls.stripe.length === stripeAfterF1, `${stripeAfterF1} -> ${spy.calls.stripe.length}`);
-  spy.faults.length = 0;
+  ok('the retried cancel succeeds atomically (200, demo_cancelled:true)', f2.statusCode === 200 && f2.body && f2.body.demo_cancelled === true, `${f2.statusCode} ${JSON.stringify(f2.body).slice(0, 160)}`);
+  const afterRetry = ((await db(`demos?booking_id=eq.${failBk}&select=status`)).body || [])[0];
+  ok('the demo was retired in the same transaction', afterRetry && afterRetry.status === 'cancelled', JSON.stringify(afterRetry));
+  const f3 = await callRoute('booking-action.js', req({
+    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+  ok('replaying the cancel on an already-cancelled booking is refused', f3.statusCode === 409, `${f3.statusCode}`);
+  const caseRows2 = ((await db(`reconciliation_cases?dedupe_key=eq.transition:${failBk}&select=id`)).body) || [];
+  ok('retry + replay do NOT create a second reconciliation case', caseRows2.length === 1, `${caseRows2.length}`);
+  ok('retry + replay make NO further Stripe refund call (the ledger already holds this child\'s refund)', spy.calls.stripe.length === stripeAfterF1, `${stripeAfterF1} -> ${spy.calls.stripe.length}`);
 
-  // (Codex #8) Force BOTH the demo cancel AND the reconciliation write to fail: the route must NOT
-  // report ok:true — it returns an explicit non-success that the state may already have changed.
+  // (Codex #8) Force BOTH the transition AND the reconciliation write to fail: the route must NOT
+  // report ok:true and must say the case was not recorded.
   const failBk2 = bookingIds[2];
-  spy.faults.push({ url: `demos?booking_id=eq.${failBk2}`, method: 'PATCH', status: 500, message: 'injected_demo_patch_failure' });
+  spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure' });
   spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 500, message: 'injected_open_case_failure' });
   const g1 = await callRoute('booking-action.js', req({
     body: { action: 'cancel', booking_id: failBk2, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
-  ok('when BOTH the demo cancel and the reconciliation write fail, the route does NOT return ok:true',
+  ok('when BOTH the transition and the reconciliation write fail, the route does NOT return ok:true',
      g1.statusCode >= 400 && !(g1.body && g1.body.ok === true), `${g1.statusCode} ${JSON.stringify(g1.body).slice(0, 160)}`);
   ok('the both-failed response marks reconciliation_recorded:false',
      g1.body && g1.body.reconciliation_recorded === false, JSON.stringify(g1.body).slice(0, 160));
@@ -1169,6 +1179,41 @@ for (const [t, id] of bin) {
   await db(`notification_events?booking_id=eq.${id}`, { method: 'DELETE' });
 }
 await db(`cron_heartbeat?cron_name=eq.notification-worker&ran_at=gte.${encodeURIComponent(new Date(Date.now() - 3600000).toISOString())}`, { method: 'DELETE' });
-for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
+// Ledger rows the routes created around the fixture bookings are not tracked individually and carry
+// RESTRICT foreign keys (reconciliation cases -> refund requests -> allocations -> groups; fulfilment
+// rows -> bookings/groups). They are removed in dependency order, mirroring the Stripe journey's
+// teardown — otherwise the bookings, brands and retailers below are silently left behind and show
+// up in the occurrence audits as fixture noise. Failed deletes are printed, never swallowed.
+{
+  const del = async (p) => { const d = await db(p, { method: 'DELETE' }); if (d.status >= 400) console.log(`  teardown: DELETE ${p} -> ${d.status} ${JSON.stringify(d.body).slice(0, 160)}`); return d; };
+  const fxBookings = bin.filter(([t]) => t === 'bookings').map(([, id]) => id);
+  const fxRetailers = bin.filter(([t]) => t === 'retailers').map(([, id]) => id);
+  for (const [t, id] of bin) if (t === 'reconciliation_cases') await del(`reconciliation_cases?id=eq.${id}`);
+  for (const rid of fxRetailers) {
+    const groups = ((await db(`payment_groups?retailer_id=eq.${rid}&select=id`)).body || []).map(g => g.id);
+    for (const gid of groups) {
+      const allocs = (await db(`payment_allocations?payment_group_id=eq.${gid}&select=id`)).body || [];
+      for (const a of allocs) {
+        const reqs = (await db(`refund_requests?payment_allocation_id=eq.${a.id}&select=id`)).body || [];
+        for (const rq of reqs) { await del(`reconciliation_cases?refund_request_id=eq.${rq.id}`); await del(`refund_review_actions?refund_request_id=eq.${rq.id}`); }
+        const ops = (await db(`refund_operations?payment_allocation_id=eq.${a.id}&select=id`)).body || [];
+        for (const op of ops) await del(`refund_review_actions?refund_operation_id=eq.${op.id}`);
+        await del(`refund_requests?payment_allocation_id=eq.${a.id}`);
+        await del(`refund_operations?payment_allocation_id=eq.${a.id}`);
+      }
+      await del(`booking_fulfillments?payment_group_id=eq.${gid}`);
+      await del(`reconciliation_cases?payment_group_id=eq.${gid}`);
+      await del(`payment_attempts?payment_group_id=eq.${gid}`);
+      await del(`payment_allocations?payment_group_id=eq.${gid}`);
+      await del(`payment_groups?id=eq.${gid}`);
+    }
+    await del(`brand_retailer_agreements?retailer_id=eq.${rid}`);
+  }
+  if (fxBookings.length) for (const t of ['refund_operations', 'refund_requests', 'booking_fulfillments']) await del(`${t}?booking_id=in.(${fxBookings.join(',')})`);
+}
+for (const [t, id] of bin.reverse()) {
+  const d = await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
+  if (d.status >= 400) console.log(`  teardown: DELETE ${t} ${id} -> ${d.status} ${JSON.stringify(d.body).slice(0, 160)}`);
+}
 spy.restore();
 process.exit(summary('route flows') ? 0 : 1);

@@ -55,6 +55,23 @@ const ctl = await connect('ctl');
 const q = async (sql, params) => (await ctl.query(sql, params)).rows;
 const one = async (sql, params) => (await q(sql, params))[0] || null;
 const pgErr = async (sql, params) => { try { await ctl.query(sql, params); return null; } catch (e) { return e; } };
+// Codex R7: a malformed-fixture injection that must bypass a guard runs as ONE short transaction on a
+// dedicated connection: DISABLE TRIGGER -> write -> ENABLE TRIGGER -> COMMIT; any error rolls back
+// (including the DISABLE), and the connection is closed afterwards so a crash cannot leave the shared
+// guard off. The browser/route work runs AFTER the commit, never inside the transaction.
+async function withTriggerBypass(table, trigger, fn) {
+  const tx = await connect('bypass');
+  try {
+    await tx.query('BEGIN');
+    await tx.query(`ALTER TABLE ${table} DISABLE TRIGGER ${trigger}`);
+    const out = await fn(tx);
+    await tx.query(`ALTER TABLE ${table} ENABLE TRIGGER ${trigger}`);
+    await tx.query('COMMIT');
+    return out;
+  } catch (e) { try { await tx.query('ROLLBACK'); } catch (_) {} throw e; }
+  finally { await release(tx); }
+}
+const triggerEnabled = async (table, trigger) => (await one(`SELECT tgenabled FROM pg_trigger WHERE tgrelid = $1::regclass AND tgname = $2`, [table, trigger])).tgenabled !== 'D';
 const allDays = (w) => Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [String(d), w]));
 const HOURS = allDays([{ open: '08:00', close: '21:00' }]);
 const canon = (v) => JSON.stringify(v, (k, val) => (val && typeof val === 'object' && !Array.isArray(val)) ? Object.fromEntries(Object.keys(val).sort().map(k2 => [k2, val[k2]])) : val);
@@ -64,10 +81,12 @@ const fx = { retailer: null, brands: [] };
 let staffCookie = null, brandCookie = null;
 try {
   const pre = await one(`SELECT to_regprocedure('public.venue_blackouts_set(uuid,text,date[],uuid[],text,uuid,uuid[])') AS b,
-                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid,integer,jsonb,jsonb,boolean,integer)') AS a,
+                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid,integer,jsonb,jsonb,boolean,integer,boolean)') AS a,
+                                to_regprocedure('public.booking_transition(uuid,uuid,text,jsonb,numeric)') AS t,
+                                to_regprocedure('public.projection_anomalies(uuid)') AS p,
                                 to_regprocedure('public.booking_slot_start_strict(date,text,text)') AS s,
                                 to_regprocedure('public.snapshot_drift(uuid)') AS d`);
-  ok('preflight: 0076 applied (new RPC signatures, strict parser, snapshot_drift)', pre.b && pre.a && pre.s && pre.d, JSON.stringify(pre));
+  ok('preflight: 0076 + 0077 applied (RPC signatures, strict parser, snapshot_drift, booking_transition, projection_anomalies)', pre.b && pre.a && pre.s && pre.d && pre.t && pre.p, JSON.stringify(pre));
 
   // ---------------------------------------------------------------------------------------------
   // Fixtures
@@ -132,9 +151,10 @@ try {
     const a2 = await insertBooking(VN, D, '11:00 AM');
     ok('B-02: the standard "11:00 AM" inserts with the 3h default', !!a2 && (await booking(a2.id)).duration_hours === 3);
     // A legacy reservation (accepted before hours existed) is inventoried as LEGACY, not corruption.
-    await q(`ALTER TABLE bookings DISABLE TRIGGER trg_booking_slot_resolve`);
-    const legacy = await one(INSERT, [R, VBO, brand.id, brandEmail, futureDow(3), '10:37', 'confirmed']);
-    await q(`ALTER TABLE bookings ENABLE TRIGGER trg_booking_slot_resolve`);
+    // Codex R7: bypass + fixture write + restore in ONE transaction; a failure rolls everything back
+    // (the guard can never be left disabled by a failed middle statement or an exit).
+    const legacy = await withTriggerBypass('bookings', 'trg_booking_slot_resolve', async (tx) =>
+      (await tx.query(INSERT, [R, VBO, brand.id, brandEmail, futureDow(3), '10:37', 'confirmed'])).rows[0]);
     const audit = await q(`SELECT booking_id, reason, class FROM offering_anomalies($1)`, [R]);
     const row = audit.find(a => a.booking_id === legacy.id);
     ok('B-02: offering_anomalies() reports the pre-hours reservation as class=legacy (venue_hours_not_set), and nothing else', row && row.class === 'legacy' && row.reason === 'venue_hours_not_set' && audit.length === 1, JSON.stringify(audit));
@@ -150,7 +170,7 @@ try {
     const realFetch = globalThis.fetch;
     globalThis.fetch = async (url, opts = {}) => {
       const u = String(url);
-      if (gate && String(opts.method || 'GET').toUpperCase() === 'PATCH' && u.includes('/rest/v1/bookings?id=eq.') && u.includes('&status=in.(')) { gateHit++; await gate; }
+      if (gate && u.includes('/rpc/booking_transition') && String(opts.body || '').includes('"p_action":"confirm"')) { gateHit++; await gate; }
       return realFetch(url, opts);
     };
     for (const variant of ['blackout', 'slot-removal']) {
@@ -269,8 +289,21 @@ try {
     const okRow = okDay.body.booking_id ? await booking(okDay.body.booking_id) : null;
     ok('B-04: a normal daytime slot on the transition day books with a 3h elapsed duration', okDay.statusCode === 200 && okRow && hoursBetween(okRow.start_at, okRow.end_at) === 3, `${okDay.statusCode} ${JSON.stringify(okRow)}`);
     const span = await book(VD, '2026-11-01', '12:30 AM');
-    const spanRow = span.body.booking_id ? await booking(span.body.booking_id) : null;
-    ok('B-04: a slot spanning the fall-back hour (00:30 + 3h) stores 3 ELAPSED hours (end = start + 3h, i.e. 02:30 wall clock the second time)', span.statusCode === 200 && spanRow && hoursBetween(spanRow.start_at, spanRow.end_at) === 3, `${span.statusCode} ${JSON.stringify(spanRow)}`);
+    ok('R6: a slot spanning the fall-back hour (00:30 + 3h) is REFUSED by /api/book (invalid_local_time)', span.statusCode === 400 && span.body.error === 'invalid_local_time', `${span.statusCode} ${span.body && span.body.error}`);
+    const spanDb = await pgErr(INSERT, [R, VD, brand.id, brandEmail, '2026-11-01', '12:30 AM', 'pending']);
+    ok('R6: the database refuses the fall-back span too', spanDb && /spans a daylight-saving change/.test(spanDb.message), spanDb ? spanDb.message.slice(0, 100) : 'inserted');
+    const spring = await book(VD, '2027-03-14', '12:30 AM');
+    const springDb = await pgErr(INSERT, [R, VD, brand.id, brandEmail, '2027-03-14', '12:30 AM', 'pending']);
+    ok('R6: the spring-forward span (00:30 + 3h crosses 02:00) is refused by route and database alike', spring.statusCode === 400 && spring.body.error === 'invalid_local_time' && springDb && /spans a daylight-saving change/.test(springDb.message), `${spring.statusCode} ${springDb ? springDb.message.slice(0, 80) : 'inserted'}`);
+    // A refused move leaves the old reservation untouched.
+    const keepD = futureDow(2, 6);
+    const K = await mkConfirmed(VD, keepD, '11:00 AM');
+    const pK = await callRoute('booking-action.js', req({ body: { action: 'reschedule', demo_id: K.demo, new_date: '2027-03-14', new_time: '12:30 AM' }, cookies: { dh_retailer_session: staffCookie } }));
+    const kRow = await booking(K.booking);
+    ok('R6: proposing a transition-spanning move is refused (400) and the reservation is untouched', pK.statusCode === 400 && pK.body.error === 'invalid_local_time' && kRow.demo_date === keepD && kRow.schedule_revision === 1, `${pK.statusCode} ${JSON.stringify(kRow)}`);
+    const pKok = await callRoute('booking-action.js', req({ body: { action: 'reschedule', demo_id: K.demo, new_date: '2027-03-14', new_time: '11:00 AM' }, cookies: { dh_retailer_session: staffCookie } }));
+    ok('R6: an ordinary daytime slot on the transition date can still be proposed', pKok.statusCode === 200, `${pKok.statusCode} ${JSON.stringify(pKok.body).slice(0, 100)}`);
+    await one(`SELECT * FROM decline_reschedule($1, $2, $3)`, [K.booking, brand.id, pKok.body.proposal_version]);
     const mism = await q(`SELECT * FROM schedule_mismatches() WHERE retailer_id = $1`, [R]);
     ok('B-04: schedule_mismatches() (now incl. duration) is empty for the fixture retailer', mism.length === 0, JSON.stringify(mism).slice(0, 200));
     await q(`UPDATE demos SET duration_hours = 4 WHERE id = $1`, [B.demo]);
@@ -362,6 +395,193 @@ try {
     ok('B-06: a valid one-call apply-all returns every venue\'s new snapshot (capacity 2 everywhere)', okAll.statusCode === 200 && okAll.body.venues.length === 7 && okAll.body.venues.every(x => x.max_demos_per_slot === 2), `${okAll.statusCode} ${JSON.stringify(okAll.body).slice(0, 120)}`);
     const patch = parsed(await callRoute('admin.js', req({ method: 'PATCH', query: { table: 'venues', id: VB }, body: { max_demos_per_slot: 9 }, cookies: { dh_retailer_session: staffCookie } })));
     ok('B-06: a capacity edit through the generic venues PATCH is refused (versioned actions only)', patch.statusCode === 400 && patch.body.error === 'use_availability_actions', `${patch.statusCode}`);
+  }
+
+  // ===========================================================================================
+  console.log('\n— R2: booking state and demo projection are one transaction; fulfilment retries are honest —');
+  {
+    process.env = { ...ENV }; _resetBindingCache();
+    const wh = await import('../api/stripe-webhook.js?t=' + Date.now());
+    const ful = await import('../api/_fulfillment.js?t=' + Date.now());
+    const D = futureDow(1, 5), D2 = futureDow(2, 5), D3 = futureDow(3, 5), D4 = futureDow(4, 5);
+    const confirmRoute = (id) => callRoute('booking-action.js', req({ body: { booking_id: id, action: 'confirm' }, cookies: { dh_retailer_session: staffCookie } }));
+    const cancelRoute = (id) => callRoute('booking-action.js', req({ body: { booking_id: id, action: 'cancel' }, cookies: { dh_retailer_session: staffCookie } }));
+    // (a) cancel commits BEFORE the transition: the confirm is refused, no demo.
+    {
+      const b = await insertBooking(VA, D, '9:00 AM', 'pending');
+      await q(`UPDATE bookings SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [b.id]);
+      const c = await confirmRoute(b.id);
+      ok('R2 (a): confirm after a committed cancel -> 409 state_changed, no demo', c.statusCode === 409 && (await q(`SELECT id FROM demos WHERE booking_id = $1`, [b.id])).length === 0, `${c.statusCode}`);
+    }
+    // (b) the transition and the demo are one statement: a cancel that lands after the confirm
+    //     committed retires the demo the confirm created (the old separate-write gap is gone).
+    {
+      const b = await insertBooking(VA, D2, '9:00 AM', 'pending');
+      const c = await confirmRoute(b.id);
+      const demoRow = (await q(`SELECT id, status FROM demos WHERE booking_id = $1`, [b.id]))[0];
+      ok('R2 (b): confirm creates the demo atomically with the status change', c.statusCode === 200 && demoRow && demoRow.status === 'confirmed' && c.body.demo_id === demoRow.id, `${c.statusCode} ${JSON.stringify(demoRow)}`);
+      const x = await cancelRoute(b.id);
+      const after = (await q(`SELECT status FROM demos WHERE booking_id = $1`, [b.id]))[0];
+      ok('R2 (b): a later cancel retires that demo in the same transaction (demos_cancelled)', x.statusCode === 200 && x.body.demo_cancelled === true && after.status === 'cancelled', `${x.statusCode} ${JSON.stringify(x.body).slice(0, 120)}`);
+    }
+    // (c) cancellation judged on CURRENT state: a cancel that read "pending" while another request
+    //     confirmed (and materialised) still retires the demo, because the retirement is decided
+    //     inside the transaction, not from the handler's stale object.
+    {
+      const b = await insertBooking(VA, D3, '9:00 AM', 'pending');
+      let gate = null, gateResolve = null, hit = 0;
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = async (url, opts = {}) => {
+        const u = String(url);
+        // park the CANCEL's transition (first rpc call after its refund-free preparation)
+        if (gate && u.includes('/rpc/booking_transition') && String(opts.body || '').includes('"p_action":"cancel"')) { hit++; await gate; }
+        return realFetch(url, opts);
+      };
+      gate = new Promise(r => { gateResolve = r; });
+      const cancelling = cancelRoute(b.id);
+      for (let i = 0; i < 100 && hit === 0; i++) await sleep(50);
+      ok('R2 (c): the cancel is parked at its transition with a stale "pending" read', hit === 1);
+      const c = await confirmRoute(b.id);
+      ok('R2 (c): meanwhile the confirm applies and materialises the demo', c.statusCode === 200 && c.body.demo_id, `${c.statusCode}`);
+      gateResolve(); gate = null;
+      const x = await cancelling;
+      globalThis.fetch = realFetch;
+      const st = await booking(b.id); const dm = (await q(`SELECT status FROM demos WHERE booking_id = $1`, [b.id]))[0];
+      ok('R2 (c): the resumed cancel still wins on current state and retires the demo the confirm created', x.statusCode === 200 && x.body.demo_cancelled === true && st.status === 'cancelled' && dm.status === 'cancelled', `${x.statusCode} ${JSON.stringify({ st: st.status, dm })}`);
+    }
+    // (d) fulfilment: a temporary lookup failure is RETRYABLE, never "done"; a cancelled booking is
+    //     deliberately superseded (no demo, no mail); an unequal-duration booking gets its own length.
+    {
+      const b = await insertBooking(VB, D4, '11:00 AM', 'pending_payment');   // 4h slot at Bravo
+      const row = { booking_id: b.id, target_status: 'confirmed', demo_created: false, emails_sent: false };
+      spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure', once: true });
+      const f = await ful.runFulfillment(row, 'test-owner');
+      ok('R2 (d): a transient transition failure leaves the fulfilment NOT done and retryable', f.done === false && f.demo_created === false && /injected_transition_failure/.test(f.error || ''), JSON.stringify(f));
+      ok('R2 (d): no demo and no email came out of the failed attempt', (await q(`SELECT id FROM demos WHERE booking_id = $1`, [b.id])).length === 0 && !spy.calls.resend.some(m => /confirmed/i.test(m.subject || '') && (m.html || '').includes(D4)));
+      spy.calls.resend.length = 0;
+      const f2 = await ful.runFulfillment(row, 'test-owner');
+      const dm = (await q(`SELECT status, duration_hours FROM demos WHERE booking_id = $1`, [b.id]))[0];
+      const bk = await booking(b.id);
+      ok('R2 (d): the retry promotes AND materialises atomically with the booking\'s own 4h duration', f2.done === true && f2.demo_created === true && bk.status === 'confirmed' && dm && dm.status === 'confirmed' && dm.duration_hours === 4 && bk.duration_hours === 4, JSON.stringify({ f2, dm, bk: bk.status }));
+      const f3 = await ful.runFulfillment({ ...row, demo_created: false, emails_sent: true }, 'test-owner');
+      ok('R2 (d): a replayed fulfilment is idempotent (already_present, still one demo)', f3.done === true && (await q(`SELECT id FROM demos WHERE booking_id = $1`, [b.id])).length === 1, JSON.stringify(f3));
+      // superseded: cancelled before the worker ran
+      const c2 = await insertBooking(VB, futureDow(5, 5), '11:00 AM', 'pending_payment');
+      await q(`UPDATE bookings SET status = 'cancelled', cancelled_at = now() WHERE id = $1`, [c2.id]);
+      spy.calls.resend.length = 0;
+      const f4 = await ful.runFulfillment({ booking_id: c2.id, target_status: 'confirmed', demo_created: false, emails_sent: false }, 'test-owner');
+      ok('R2 (d): a cancelled booking\'s fulfilment is recorded as superseded — no demo, no mail, not retried forever', f4.done === true && /superseded/.test(f4.error || '') && (await q(`SELECT id FROM demos WHERE booking_id = $1`, [c2.id])).length === 0 && spy.calls.resend.length === 0, JSON.stringify(f4));
+      const m = await wh.createDemoForConfirmedBooking({ booking_id: c2.id, retailer_id: R, venue_id: VB });
+      ok('R2 (d): direct materialisation of a cancelled booking reports superseded (explicit result, nothing created)', m && m.result === 'superseded', JSON.stringify(m));
+    }
+    // (e) audit
+    const pa = await q(`SELECT reason FROM projection_anomalies($1)`, [R]);
+    ok('R2 (e): projection_anomalies() is empty after the scenarios', pa.length === 0, JSON.stringify(pa).slice(0, 200));
+    const orphan = await insertBooking(VA, futureDow(6, 5), '9:00 AM', 'pending');
+    await q(`UPDATE bookings SET status = 'confirmed' WHERE id = $1`, [orphan.id]);   // confirmed without a demo (bypassing the route)
+    const pa2 = await q(`SELECT reason FROM projection_anomalies($1)`, [R]);
+    ok('R2 (e): a confirmed booking without its demo is reported (confirmed_booking_without_demo)', pa2.length === 1 && pa2[0].reason === 'confirmed_booking_without_demo', JSON.stringify(pa2));
+    const mat = await wh.createDemoForConfirmedBooking({ booking_id: orphan.id, retailer_id: R, venue_id: VA });
+    ok('R2 (e): materialise repairs it (created) and the audit is clean again', mat.result === 'created' && (await q(`SELECT * FROM projection_anomalies($1)`, [R])).length === 0, JSON.stringify(mat));
+    await q(`UPDATE bookings SET status = 'cancelled' WHERE id = $1`, [orphan.id]);   // bypassing the route: demo stays active
+    const pa3 = await q(`SELECT reason FROM projection_anomalies($1)`, [R]);
+    ok('R2 (e): an active demo on an inactive booking is reported (active_demo_for_inactive_booking)', pa3.length === 1 && pa3[0].reason === 'active_demo_for_inactive_booking', JSON.stringify(pa3));
+    await q(`UPDATE demos SET status = 'cancelled' WHERE booking_id = $1`, [orphan.id]);
+  }
+
+  // ===========================================================================================
+  console.log('\n— R3: a failed snapshot lookup can never become a reconstructed calendar —');
+  {
+    const D = futureDow(2, 7);
+    const B = await mkConfirmed(VA, D, '9:00 AM');
+    const feedKey = 'fk_' + uniq('k').replace(/-/g, '');
+    await q(`UPDATE retailers SET cal_feed_key = $1 WHERE id = $2`, [feedKey, R]);
+    const tz0 = (await one(`SELECT timezone FROM retailers WHERE id = $1`, [R])).timezone;
+    const retailerFeed = () => callRoute('cal.js', req({ method: 'GET', query: { slug, key: feedKey } }));
+    const brandTok = await callRoute('brand-account.js', req({ body: { action: 'cal_token' }, cookies: { dh_brand_session: brandCookie } }));
+    const brandFeed = () => callRoute('brand-account.js', req({ method: 'GET', query: { action: 'cal', token: brandTok.body.token } }));
+    const parseEv = (body, demoId) => { const ev = String(body || '').split('BEGIN:VEVENT').find(s => s.includes(demoId + '@')) || ''; const st = (ev.match(/DTSTART:(\d{8}T\d{6}Z)/) || [])[1]; return st ? new Date(st.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, '$1-$2-$3T$4:$5:$6Z')) : null; };
+    const b0 = await booking(B.booking);
+    const okR = await retailerFeed(), okB = await brandFeed();
+    ok('R3: healthy reads serve the accepted instant on BOTH feeds', okR.statusCode === 200 && okB.statusCode === 200 && parseEv(okR.body, B.demo) && parseEv(okR.body, B.demo).getTime() === b0.start_at.getTime() && parseEv(okB.body, B.demo) && parseEv(okB.body, B.demo).getTime() === b0.start_at.getTime(), `${okR.statusCode}/${okB.statusCode} ${brandTok.statusCode}`);
+    await q(`UPDATE retailers SET timezone = 'America/New_York' WHERE id = $1`, [R]);   // reconstruction would now shift by 3h
+    for (const [label, fault] of [['non-OK response', { status: 500, message: 'injected_snapshot_failure' }], ['malformed result', { status: 200, message: 'not json' }]]) {
+      spy.faults.push({ url: '/rest/v1/bookings?id=in.(', method: 'GET', ...fault });
+      const r = await retailerFeed();
+      spy.faults.push({ url: '/rest/v1/bookings?id=in.(', method: 'GET', ...fault });
+      const bf = await brandFeed();
+      spy.faults.length = 0;
+      ok(`R3: retailer feed under a ${label} snapshot lookup answers 503 no-store, never a shifted calendar`, r.statusCode === 503 && /no-store/.test(String(r.headers['Cache-Control'] || '')) && !String(r.body || '').includes('BEGIN:VEVENT'), `${r.statusCode} ${JSON.stringify(r.headers)}`);
+      ok(`R3: brand feed under a ${label} snapshot lookup answers 503 no-store`, bf.statusCode === 503 && /no-store/.test(String(bf.headers['Cache-Control'] || '')) && !String(bf.body || '').includes('BEGIN:VEVENT'), `${bf.statusCode}`);
+    }
+    const okR2 = await retailerFeed();
+    ok('R3: with the lookup healthy again the feed serves the SAME instant despite the changed retailer setting', okR2.statusCode === 200 && parseEv(okR2.body, B.demo) && parseEv(okR2.body, B.demo).getTime() === b0.start_at.getTime(), `${okR2.statusCode}`);
+    await q(`UPDATE retailers SET timezone = $2 WHERE id = $1`, [R, tz0]);
+    // a genuine legacy demo (no booking) still renders from its own fields after a SUCCESSFUL read
+    const legacyDemo = await one(`INSERT INTO demos (retailer_id, venue_id, brand_id, company_name, contact_name, contact_email, demo_date, demo_time, duration_hours, status, confirmed_at) VALUES ($1, $2, $3, 'Legacy', 'Rep', $4, $5, '9:00 AM', 2, 'confirmed', now()) RETURNING id`, [R, VA, brand.id, brandEmail, futureDow(3, 7)]);
+    const okR3 = await retailerFeed();
+    ok('R3: an unlinked legacy demo is still reconstructed and served', okR3.statusCode === 200 && String(okR3.body).includes('UID:' + legacyDemo.id));
+  }
+
+  // ===========================================================================================
+  console.log('\n— R4: the OFF switch (SLOT_EDITING_ENABLED) is a real disable, tested through the API —');
+  {
+    const pick = async (venueId) => await venue(venueId);
+    // A dedicated, reservation-free location is the one edited (so a slot reset is legal when ON); its
+    // slot list equals the others' so an ON apply-all is a no-op on slots and the invariants below hold.
+    const VOFF = await mkVenue('Off matrix', { schedule: HOURS, slots: (await pick(VA)).availability.slots, blackouts: [] });
+    const before = { a: await pick(VA), b: await pick(VB), c: await pick(VC) };
+    const flagValues = [['unset', undefined], ['false', 'false'], ['malformed', ' True '], ['literal true', 'true']];
+    for (const [label, value] of flagValues) {
+      if (value === undefined) delete ENV.SLOT_EDITING_ENABLED; else ENV.SLOT_EDITING_ENABLED = value;
+      const on = value === 'true';
+      const va = await pick(VOFF);
+      const ver = async () => (await pick(VOFF)).availability_version;
+      const slotSave = await admin('availability-set', { venue_id: VOFF, expected_version: await ver(), slots: va.availability.slots });
+      const reset = await admin('availability-set', { venue_id: VOFF, expected_version: await ver(), reset_slots: true });
+      const restore = on ? await admin('availability-set', { venue_id: VOFF, expected_version: await ver(), slots: va.availability.slots }) : { statusCode: 200 };
+      const hours = await admin('availability-set', { venue_id: VOFF, expected_version: await ver(), schedule: va.availability.schedule, max_demos_per_slot: va.max_demos_per_slot });
+      const applyAll = await admin('availability-apply-all', { source_venue_id: VOFF, expected_version: await ver(), schedule: va.availability.schedule, max_demos_per_slot: va.max_demos_per_slot });
+      const blk = await admin('availability-blackouts', { op: 'add', dates: [futureDow(1, 8)], venue_ids: [VOFF] });
+      const create = parsed(await callRoute('admin.js', req({ method: 'POST', query: { table: 'venues' }, body: { name: 'Off ' + label + ' ' + uniq('v'), address: '1 Off St', demo_fee: 30, availability: { schedule: HOURS, slots: [{ start: '10:00', hours: 1 }], blackouts: [{ date: futureDow(1, 9), reason: 'x' }] } }, cookies: { dh_retailer_session: staffCookie } })));
+      const createHours = parsed(await callRoute('admin.js', req({ method: 'POST', query: { table: 'venues' }, body: { name: 'Off hours ' + label + ' ' + uniq('v'), address: '2 Off St', demo_fee: 30, availability: { schedule: HOURS, blackouts: [{ date: futureDow(1, 9) }] } }, cookies: { dh_retailer_session: staffCookie } })));
+      if (on) {
+        ok(`R4 [${label}]: slot save, reset, restore, hours, apply-all, blackout and slotted creation all succeed`, slotSave.statusCode === 200 && reset.statusCode === 200 && restore.statusCode === 200 && hours.statusCode === 200 && applyAll.statusCode === 200 && blk.statusCode === 200 && create.statusCode === 201, `${slotSave.statusCode}/${reset.statusCode}/${restore.statusCode}/${hours.statusCode}/${applyAll.statusCode}/${blk.statusCode}/${create.statusCode}`);
+        const resetShape = (await q(`SELECT availability->'slots' AS s FROM venues WHERE id = $1`, [VOFF]))[0];
+        ok(`R4 [${label}]: (sanity) the restored slot list is back to the shared one`, canon(resetShape.s) === canon(va.availability.slots), JSON.stringify(resetShape.s));
+        const created = Array.isArray(create.body) ? create.body[0] : null;
+        ok(`R4 [${label}]: a new venue's client-supplied blackouts are dropped (identity is server-side only) while its slot list is kept`, created && Array.isArray(created.availability.blackouts) && created.availability.blackouts.length === 0 && created.availability.slots.length === 1, JSON.stringify(created && created.availability).slice(0, 160));
+        const gid = ((blk.body.venues[0].availability || {}).blackouts || blk.body.venues[0].blackouts || []).find(x => x.date === futureDow(1, 8)).id;
+        await admin('availability-blackouts', { op: 'remove', entry_ids: [gid] });
+      } else {
+        ok(`R4 [${label}]: slot save and reset are refused (503 slot_editing_disabled)`, slotSave.statusCode === 503 && slotSave.body.error === 'slot_editing_disabled' && reset.statusCode === 503, `${slotSave.statusCode}/${reset.statusCode}`);
+        ok(`R4 [${label}]: hours + capacity still save`, hours.statusCode === 200, `${hours.statusCode} ${JSON.stringify(hours.body).slice(0, 100)}`);
+        ok(`R4 [${label}]: apply-all still copies hours + capacity but every destination KEEPS its own slot list`, applyAll.statusCode === 200 && (await pick(VB)).availability.slots && canon((await pick(VB)).availability.slots) === canon(before.b.availability.slots) && canon((await pick(VC)).availability.slots) === canon(before.c.availability.slots), `${applyAll.statusCode} ${JSON.stringify(applyAll.body).slice(0, 120)}`);
+        ok(`R4 [${label}]: blackout add is refused`, blk.statusCode === 503 && blk.body.error === 'slot_editing_disabled', `${blk.statusCode}`);
+        ok(`R4 [${label}]: creating a venue WITH a slot list is refused; hours-only creation works and its client blackouts are dropped`, create.statusCode === 503 && create.body.error === 'slot_editing_disabled' && createHours.statusCode === 201 && Array.isArray(createHours.body) && createHours.body[0].availability.blackouts.length === 0 && !Object.prototype.hasOwnProperty.call(createHours.body[0].availability, 'slots'), `${create.statusCode}/${createHours.statusCode} ${JSON.stringify(createHours.body).slice(0, 120)}`);
+      }
+      // slot lists unchanged on every venue in all OFF cases (and restored in the ON case)
+      const now = { a: await pick(VA), b: await pick(VB), c: await pick(VC), o: await pick(VOFF) };
+      ok(`R4 [${label}]: persisted slot lists on Alpha/Bravo/Charlie/Off-matrix are what they were`, canon(now.a.availability.slots) === canon(before.a.availability.slots) && canon(now.b.availability.slots) === canon(before.b.availability.slots) && canon(now.c.availability.slots) === canon(before.c.availability.slots) && canon(now.o.availability.slots) === canon(va.availability.slots), JSON.stringify([now.a.availability.slots, now.o.availability.slots]).slice(0, 200));
+    }
+    ENV.SLOT_EDITING_ENABLED = 'true';
+    await q(`DELETE FROM venues WHERE retailer_id = $1 AND name LIKE 'Off %'`, [R]);
+  }
+
+  // ===========================================================================================
+  console.log('\n— R7: guard bypass fixtures are transactional; the guard is on before and after —');
+  {
+    ok('R7: trg_booking_slot_resolve is enabled before the failing bypass', await triggerEnabled('bookings', 'trg_booking_slot_resolve'));
+    const failed = await capture(withTriggerBypass('bookings', 'trg_booking_slot_resolve', async (tx) => { await tx.query('SELECT 1'); throw new Error('injected_fixture_failure'); }));
+    ok('R7: a failing fixture write inside the bypass is rolled back and reported', !failed.ok && /injected_fixture_failure/.test(String(failed.e && failed.e.message)));
+    ok('R7: the shared guard is enabled again after the failure (observed from another connection)', await triggerEnabled('bookings', 'trg_booking_slot_resolve'));
+    // interrupt: the bypass connection is terminated mid-transaction; the guard must still be on
+    const tx = await connect('bypass-kill');
+    tx.on('error', () => {});   // the termination below surfaces as a client error event
+    await tx.query('BEGIN'); await tx.query('ALTER TABLE bookings DISABLE TRIGGER trg_booking_slot_resolve');
+    await q(`SELECT pg_terminate_backend($1)`, [tx.pid]).catch(() => null);
+    const i = clients.indexOf(tx); if (i >= 0) clients.splice(i, 1); try { await tx.end(); } catch (_) {}
+    ok('R7: a terminated bypass connection leaves the guard enabled (DDL rolled back with the transaction)', await triggerEnabled('bookings', 'trg_booking_slot_resolve'));
   }
 
   // ===========================================================================================

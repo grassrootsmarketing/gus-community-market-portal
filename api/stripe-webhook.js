@@ -140,53 +140,18 @@ export async function fetchBookingContext(bookingId) {
 // Idempotent (skips if a confirmed demo already exists for the slot) and resilient
 // (falls back to core columns if the demos-carry-fields migration has not run).
 export async function createDemoForConfirmedBooking(ctx) {
-  if (!ctx || !ctx.retailer_id || !ctx.venue_id) return;
-  // Codex B-03: materialise ONLY for a booking that is confirmed NOW. A stale fulfilment/outbox
-  // item (or a webhook retry) that arrives after the booking was cancelled must not recreate a
-  // calendar entry. The booking id is the identity; its current status is re-read, not trusted
-  // from the context that was captured earlier.
-  if (ctx.booking_id) {
-    try {
-      const cur = await sb(`bookings?id=eq.${encodeURIComponent(ctx.booking_id)}&select=status`);
-      const st = Array.isArray(cur) && cur[0] ? String(cur[0].status || '') : null;
-      if (st !== 'confirmed') { console.warn('demo materialisation skipped: booking', ctx.booking_id, 'is', st || 'missing', 'not confirmed'); return; }
-    } catch (e) { console.warn('demo materialisation skipped: could not re-read booking', ctx.booking_id, (e && e.message) || e); return; }
-  }
-  try {
-    const existing = await sb(`demos?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&venue_id=eq.${encodeURIComponent(ctx.venue_id)}&demo_date=eq.${encodeURIComponent(ctx.demo_date)}&demo_time=eq.${encodeURIComponent(ctx.demo_time || '')}&status=in.(confirmed,completed)&select=id&limit=1`);
-    if (Array.isArray(existing) && existing.length) return;   // already created — don't duplicate
-  } catch (_) { /* if the check fails, fall through and rely on the transition guard */ }
-  let fee = null;
-  try {
-    const v = await sb(`venues?id=eq.${encodeURIComponent(ctx.venue_id)}&select=demo_fee`);
-    fee = (Array.isArray(v) && v[0] && v[0].demo_fee != null) ? v[0].demo_fee : null;
-  } catch (_) {}
-  const payload = {
-    retailer_id: ctx.retailer_id,
-    venue_id: ctx.venue_id,
-    company_name: ctx.brand_name || 'Unknown',
-    contact_name: ctx.contact_name || null,
-    contact_email: ctx.contact_email || null,
-    contact_phone: ctx.contact_phone || null,
-    product: ctx.product || null,
-    product_skus: (Array.isArray(ctx.product_skus) && ctx.product_skus.length) ? ctx.product_skus : null,
-    demo_date: ctx.demo_date,
-    demo_time: ctx.demo_time,
-    // Release B: the booking's resolved slot length (0075 booking_slot_resolve); legacy rows = 3.
-    duration_hours: (Number.isInteger(ctx.duration_hours) && ctx.duration_hours >= 1 && ctx.duration_hours <= 12) ? ctx.duration_hours : 3,
-    status: 'confirmed',
-    confirmed_at: new Date().toISOString(),
-    demo_fee: fee,
-    notes: ctx.notes || null,
-    brand_id: ctx.brand_id || null,
-    booking_id: ctx.booking_id || null,   // P1-7: link demo->booking for reliable cancel/idempotency
-  };
-  try {
-    await sb('demos', { method: 'POST', body: JSON.stringify(payload) });
-  } catch (e) {
-    const { confirmed_at, product_skus, contact_email, contact_phone, ...core } = payload;
-    await sb('demos', { method: 'POST', body: JSON.stringify(core) });
-  }
+  // Codex R2 (2026-09-11): materialisation is the database's job (0077 booking_transition
+  // 'materialize'): it locks the booking, requires status = confirmed NOW, and creates or
+  // reactivates the ONE linked demo from the booking's current schedule/duration. The result is
+  // explicit — created / reactivated / already_present / superseded (booking no longer active) /
+  // not_confirmed — and a database failure is thrown so a fulfilment retry can happen. An
+  // unreadable booking is never turned into a "created" demo.
+  if (!ctx || !ctx.booking_id || !ctx.retailer_id) return { result: 'skipped', reason: 'no_booking_identity' };
+  const rows = await sbRpc('booking_transition', { p_booking_id: ctx.booking_id, p_retailer_id: ctx.retailer_id, p_action: 'materialize', p_fields: {}, p_demo_fee: null });
+  const tr = Array.isArray(rows) ? rows[0] : rows;
+  if (!tr) throw new Error('materialize_no_result');
+  if (tr.ok === true) return { result: tr.demo_created ? 'created' : (tr.demo_reactivated ? 'reactivated' : 'already_present'), demo_id: tr.demo_id };
+  return { result: tr.reason === 'superseded' ? 'superseded' : 'not_confirmed', status: tr.status_before };
 }
 
 // Returns {ok, id, reason}. Callers that must NOT report success on failure use sendEmailOrThrow().
@@ -534,30 +499,24 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
         const r = Array.isArray(retailerRows) ? retailerRows[0] : null;
         nextStatus = (r && r.auto_confirm_bookings) ? 'confirmed' : 'pending';
       }
-      const patch = ledgerPaid ? {} : { payment_status: 'paid', payment_intent_id: piId, paid_at: paidAt };
-      if (nextStatus) patch.status = nextStatus;   // status transition (confirmed/pending) still applies
-      if (Object.keys(patch).length) {
-        // Codex B-03: the promotion is CONDITIONAL on the booking still being pending_payment. A
-        // cancellation that committed between the read above and this write wins: the PATCH matches
-        // no row, and none of the promotion side effects (demo, emails) run.
-        const cond = nextStatus ? `&status=eq.pending_payment` : '';
-        const rows = await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}${cond}`, { method: 'PATCH', body: JSON.stringify(patch) });
-        if (nextStatus && !(Array.isArray(rows) && rows.length)) {
-          console.warn('promotion skipped: booking', bookingId, 'is no longer pending_payment');
-          nextStatus = null;
-        }
+      const fields = ledgerPaid ? {} : { payment_status: 'paid', payment_intent_id: piId, paid_at: paidAt };
+      if (nextStatus) {
+        // Codex R2: the promotion and (on auto-confirm) the demo are ONE transaction, judged on the
+        // booking's CURRENT state — a cancellation that landed in between wins (superseded) and no
+        // promotion side effect runs.
+        fields.status = nextStatus;
+        const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: b.retailer_id, p_action: 'promote_paid', p_fields: fields, p_demo_fee: null });
+        const tr = Array.isArray(rows) ? rows[0] : rows;
+        if (!tr || tr.ok !== true) { console.warn('promotion skipped: booking', bookingId, 'is', (tr && tr.status_before) || 'unknown', '(' + ((tr && tr.reason) || 'no result') + ')'); nextStatus = null; }
+      } else if (Object.keys(fields).length) {
+        await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, { method: 'PATCH', body: JSON.stringify(fields) });
       }
       // Only email on a real promotion (this booking was pending_payment and just got paid).
       // This is where the brand confirmation + staff alert fire — never at unpaid creation time.
       if (nextStatus) {
         try {
           const ctx = await fetchBookingContext(bookingId);
-          // Auto-confirm: materialise the demo so it's visible to brand + retailer right away.
-          if (nextStatus === 'confirmed' && ctx) {
-            ctx.booking_id = bookingId;
-            try { await createDemoForConfirmedBooking(ctx); }
-            catch (demoErr) { console.warn('auto-confirm demo create failed for', bookingId, ':', (demoErr && demoErr.message) || demoErr); }
-          }
+          // (the demo was materialised inside booking_transition when nextStatus === 'confirmed')
           if (ctx && ctx.contact_email) await sendPromotionEmails(ctx, bookingId);
         } catch (mailErr) {
           console.warn('post-payment confirmation email skipped for', bookingId, ':', (mailErr && mailErr.message) || mailErr);
