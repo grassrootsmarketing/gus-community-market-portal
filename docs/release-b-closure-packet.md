@@ -18,7 +18,7 @@
 | Production | demohub-prod (`dkgjvsstbgnhcfboqqnd`): unchanged (ledger `0060`–`0072`, code `1806de4`); read-only inventory in §8 |
 | CI | run **34579737286** (verify #131) on `778ef1e`: **all six jobs green** — suites (ubuntu + windows), clean build A/B, staging pass 1, staging pass 2 (consecutive, same commit); David approved the `staging` environment (§9) |
 | Kill switch | `SLOT_EDITING_ENABLED` (Vercel env, literal `true` only; **default OFF**) — now gates slot-list saves/resets, blackout add/remove, apply-all slot copying, slot lists on venue creation and the admin editors (§2 R4) |
-| Containment | unchanged (Gus only, signup OFF, holds OFF, capacity 1, no viewers, support OFF) |
+| Containment | Gus only, signup OFF, capacity 1, no viewers, support OFF. **Change 2026-09-11 (David's decision, recorded here on purpose):** `PROVISIONAL_HOLDS_ENABLED=true` in Vercel Production on the current build `1806de4` — the hard COI gate was a real friction point for brands, and the 24-hour hold (validated live 2026-09-01 both paths; adversarial suite in CI) removes it: book immediately, card authorized not charged, capture on COI approval within 24h, else /usr/bin/bash release. Verified from the public status probe: `provisional-sweep` reports `required: true` and healthy. Release B does not touch the hold code. |
 
 ## 2. R1 … R7 + G1 status
 
