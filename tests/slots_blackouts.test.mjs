@@ -238,7 +238,7 @@ try {
     ok('4b: a NEW booking on the blacked-out date is refused (400 date_blackout)', r.statusCode === 400 && r.body.error === 'date_blackout', `${r.statusCode} ${r.body && r.body.error}`);
     const v1 = await venue(V1);
     const entry = v1.availability.blackouts.find(x => x.date === D1);
-    ok('4b: the venue carries the blackout with its private reason and a group id', entry && entry.reason === 'Inventory count' && typeof entry.group_id === 'string', JSON.stringify(v1.availability.blackouts));
+    ok('4b: the venue carries the blackout with its private reason and NO group id (single-venue block)', entry && entry.reason === 'Inventory count' && entry.group_id === undefined, JSON.stringify(v1.availability.blackouts));
     // Hours save must not clear blackouts (the old "Apply to all" wrote blackouts: []).
     const hrs = await admin('availability-set', { venue_id: V1, expected_version: v1.availability_version, schedule: STD_SCHEDULE, max_demos_per_slot: 1 });
     const v1b = await venue(V1);
@@ -253,7 +253,7 @@ try {
     groupId = all.body.venues.find(x => x.venue_id === V1).group_id;
     const v2e = await venue(V2);
     const v2entry = v2e.availability.blackouts.find(x => x.date === D2);
-    ok('4e: the venue that already had D2 keeps its OWN entry (reason/group untouched — merge, not overwrite)', v2entry && v2entry.reason === 'Local only' && v2entry.group_id !== groupId, JSON.stringify(v2entry));
+    ok('4e: the venue that already had D2 keeps its OWN entry (reason untouched, still no group — merge, not overwrite)', v2entry && v2entry.reason === 'Local only' && v2entry.group_id === undefined && typeof groupId === 'string', JSON.stringify(v2entry));
     const r2 = await book(V3, D2, '9:00 AM');
     ok('4e: V3 refuses a booking on the all-locations date', r2.statusCode === 400 && r2.body.error === 'date_blackout', `${r2.statusCode}`);
     const undo = await admin('availability-blackouts', { op: 'remove', dates: [D2], venue_ids: null, group_id: groupId });

@@ -42,8 +42,9 @@
 --                                         never replaces the blob from stale client state.
 --        venue_blackouts_set(...)         add/remove dates on one venue or ALL CURRENT venues of the
 --                                         retailer; merges dates only; returns the reservations that
---                                         remain valid on those dates; group_id lets an all-location
---                                         block be undone without deleting an independent local one.
+--                                         remain valid on those dates; an all-current-locations block
+--                                         carries a group_id so it can be undone everywhere without
+--                                         deleting an independently placed local block.
 --        venue_availability_apply_all(...) copies hours+slots+capacity to every venue, keeping each
 --                                         venue's own blackouts; all-or-nothing.
 --   7. accept_reschedule (0074) maps the new refusals to ok=false reasons.
@@ -661,7 +662,9 @@ BEGIN
     END IF;
   END IF;
   IF v_ids IS NULL OR cardinality(v_ids) = 0 THEN RETURN; END IF;
-  v_group := coalesce(p_group_id, gen_random_uuid());
+  -- A group id marks an all-current-locations block (undo everywhere at once). A single-venue
+  -- block carries none unless the caller supplies one.
+  v_group := CASE WHEN p_venue_ids IS NULL THEN coalesce(p_group_id, gen_random_uuid()) ELSE p_group_id END;
 
   -- Lock every target venue in id order (one lock order everywhere), then merge.
   FOR v IN SELECT * FROM venues x WHERE x.id = ANY (v_ids) ORDER BY x.id FOR UPDATE LOOP
@@ -681,7 +684,7 @@ BEGIN
       SELECT coalesce(jsonb_agg(e.value), '[]'::jsonb) INTO v_new
         FROM jsonb_array_elements(v_arr) e
        WHERE NOT ( (e.value->>'date') = ANY (SELECT to_char(d, 'YYYY-MM-DD') FROM unnest(p_dates) d)
-                   AND (p_group_id IS NULL OR e.value->>'group_id' = p_group_id::text) );
+                   AND (p_group_id IS NULL OR coalesce(e.value->>'group_id', '') = p_group_id::text) );   -- an entry with NO group is never a group-undo target
     END IF;
 
     UPDATE venues
