@@ -103,6 +103,9 @@
         .calendar-day:hover:not(.disabled):not(.empty) { background: var(--forest-50); border-color: var(--forest-300); }
         .calendar-day.selected { background: var(--forest-600); color: white; }
         .calendar-day.disabled { color: var(--sand-300); cursor: not-allowed; }
+        .calendar-day.blackout { color: var(--sand-300); cursor: not-allowed; text-decoration: line-through; background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(15,44,23,0.05) 4px 6px); }
+        .time-slot.unavailable { opacity: 0.35; pointer-events: none; }
+        .time-slots-empty { padding: 14px 16px; border: 1px dashed var(--sand-300); border-radius: var(--radius-sm); font-size: 0.88rem; color: var(--bark-500); }
         .calendar-day.empty { cursor: default; }
         
         .time-slots-label { font-size: 0.9rem; font-weight: 500; color: var(--forest-800); margin-bottom: 12px; }
@@ -424,16 +427,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                             </div>
                             <div class="calendar-grid" id="calendarGrid"></div>
                             <div class="time-slots-label">Available Time Slots <span id="selectedDateLabel" style="font-weight: 400; color: var(--bark-500);"></span></div>
-                            <div class="time-slots">
-                                <div class="time-slot" onclick="selectTime(this, '11:00 AM')">
-                                    <span class="time-slot-time">11:00 AM – 2:00 PM</span>
-                                    <span class="time-slot-duration">3 hours</span>
-                                </div>
-                                <div class="time-slot" onclick="selectTime(this, '3:00 PM')">
-                                    <span class="time-slot-time">3:00 PM – 6:00 PM</span>
-                                    <span class="time-slot-duration">3 hours</span>
-                                </div>
-                            </div>
+                            <!-- Release B: slots are rendered from the location's configuration (renderTimeSlots). -->
+                            <div class="time-slots" id="timeSlotsList"></div>
                             <button class="btn add-slot-btn" onclick="addToCart()">
                                 <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
                                 Add to Cart
@@ -1195,7 +1190,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             selectedDate = null;
             // A stale time selection from the previous venue/date could bypass the availability
             // gate — clear it whenever context changes.
-            selectedTime = null;
+            selectedTime = null; selectedHours = null; selectedSlotLabel = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
             renderCalendar();
@@ -1265,6 +1260,59 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             return s >= o && (s + slotDurMin) <= c;
         }
 
+        // ===== Release B: demo slots + blackouts (browser mirror of api/_slots.js; the server and the
+        // database are the authority — this only decides what to OFFER on screen) =====
+        const DEFAULT_SLOTS = [{ start: '11:00', hours: 3 }, { start: '15:00', hours: 3 }];
+        function slotMinutesJs(s) {
+            if (s == null) return null;
+            const m = String(s).trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/i);
+            if (!m) return null;
+            let h = parseInt(m[1], 10); const min = m[2] ? parseInt(m[2], 10) : 0;
+            const ap = (m[3] || '').toLowerCase().replace(/\./g, '');
+            if (min > 59) return null;
+            if (ap) { if (h < 1 || h > 12) return null; if (ap === 'pm' && h !== 12) h += 12; if (ap === 'am' && h === 12) h = 0; }
+            else if (h > 23) return null;
+            return h * 60 + min;
+        }
+        function slotLabelJs(min) {
+            const h24 = Math.floor(min / 60), m = min % 60, h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+            return h12 + ':' + String(m).padStart(2, '0') + ' ' + (h24 >= 12 ? 'PM' : 'AM');
+        }
+        // Configured slots for a venue: key absent -> defaults; [] -> none; malformed -> none (fail closed).
+        function venueSlotsConfig(venue) {
+            const av = venue && venue.availability;
+            if (!av || typeof av !== 'object' || !Object.prototype.hasOwnProperty.call(av, 'slots')) {
+                return DEFAULT_SLOTS.map(s => ({ start: s.start, hours: s.hours, startMin: slotMinutesJs(s.start) }));
+            }
+            if (!Array.isArray(av.slots)) return [];
+            const out = [];
+            for (const s of av.slots) {
+                if (!s || typeof s !== 'object' || typeof s.start !== 'string' || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(s.start)) return [];
+                if (!Number.isInteger(s.hours) || s.hours < 1 || s.hours > 12) return [];
+                out.push({ start: s.start, hours: s.hours, startMin: slotMinutesJs(s.start) });
+            }
+            return out.sort((a, b) => a.startMin - b.startMin);
+        }
+        function venueBlackoutSet(venue) {
+            const set = new Set();
+            const arr = venue && venue.availability && venue.availability.blackouts;
+            if (Array.isArray(arr)) arr.forEach(b => { if (b && typeof b.date === 'string') set.add(b.date); });
+            return set;
+        }
+        // Slots offered on a given local Date at this venue (blackout -> none; closed day -> none;
+        // otherwise the configured slots that fit inside that weekday's open windows).
+        function offeredSlotsFor(venue, dateObj) {
+            if (!venue) return [];
+            if (venueBlackoutSet(venue).has(dateToYmd(dateObj))) return [];
+            const slots = venueSlotsConfig(venue);
+            const windows = getVenueDayWindows(venue, dateObj.getDay());
+            if (windows.length === 0) return [];
+            return slots.filter(s => windows.some(w => slotFitsInWindow(s.start, s.hours * 60, w.open, w.close)));
+        }
+        function slotRangeLabelJs(slot) {
+            return slotLabelJs(slot.startMin) + ' – ' + slotLabelJs(slot.startMin + slot.hours * 60);
+        }
+
         function renderCalendar() {
             const grid = document.getElementById('calendarGrid');
             if (!grid) return;
@@ -1282,13 +1330,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dow = date.getDay();
                 let disabled = date < minDate;
-                // Disable days where the venue has no open windows
-                if (!disabled && venue) {
-                    const windows = getVenueDayWindows(venue, dow);
-                    if (windows.length === 0) disabled = true;
+                // Release B: a blacked-out date is shown as such; a day with no open windows, or whose
+                // windows fit none of the configured slots, is simply unavailable.
+                let blackout = false;
+                if (venue) {
+                    blackout = venueBlackoutSet(venue).has(dateToYmd(date));
+                    if (blackout) disabled = true;
+                    else if (!disabled && offeredSlotsFor(venue, date).length === 0) disabled = true;
                 }
                 const selected = selectedDate && selectedDate.getDate() === day && selectedDate.getMonth() === currentMonth && selectedDate.getFullYear() === currentYear;
-                html += '<div class="calendar-day' + (disabled ? ' disabled' : '') + (selected ? ' selected' : '') + '" onclick="selectDate(' + day + ',' + disabled + ')">' + day + '</div>';
+                html += '<div class="calendar-day' + (disabled ? ' disabled' : '') + (blackout ? ' blackout' : '') + (selected ? ' selected' : '') + '"' + (blackout ? ' title="Not taking demos on this date"' : '') + ' onclick="selectDate(' + day + ',' + disabled + ')">' + day + '</div>';
             }
             grid.innerHTML = html;
         }
@@ -1321,7 +1372,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const status = (d.status || '').toLowerCase();
                 if (status !== 'confirmed' && status !== 'completed') return false;
                 if (d.demo_date !== dateStr) return false;
-                if (d.demo_time !== slotTime) return false;
+                // Release B: compare by resolved minute — "11:00", "11:00 AM" and "11:00 am" are one slot.
+                if (slotMinutesJs(d.demo_time) !== slotMinutesJs(slotTime)) return false;
                 if (d.venue_id && d.venue_id !== venueId) return false;
                 return true;
             }).length;
@@ -1329,63 +1381,60 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const pending = (window.state && window.state.pendingBookings) || [];
             const pendingCount = pending.filter(b => {
                 if (b.demo_date !== dateStr) return false;
-                if (b.demo_time !== slotTime) return false;
+                if (slotMinutesJs(b.demo_time) !== slotMinutesJs(slotTime)) return false;
                 if (b.venue_id && b.venue_id !== venueId) return false;
                 return true;
             }).length;
             return demoCount + pendingCount;
         }
 
-        function applyTimeSlotAvailability() {
-            // Iterate hardcoded .time-slot elements; mark unavailable when outside venue hours OR at capacity
-            const slots = document.querySelectorAll('.time-slots .time-slot');
-            if (!slots.length) return;
+        // Release B: render the location's configured slots for the selected date (labels and
+        // length come from the configuration), then mark capacity. Nothing here is trusted by the
+        // server — /api/book resolves the slot again and the database enforces it under lock.
+        function renderTimeSlots() {
+            const list = document.getElementById('timeSlotsList');
+            if (!list) return;
             const venue = getCurrentVenue();
-            slots.forEach(el => {
-                el.classList.remove('unavailable');
-                el.style.opacity = '';
-                el.style.pointerEvents = '';
-                // Clean any prior badge
-                const oldBadge = el.querySelector('.slot-status-badge');
-                if (oldBadge) oldBadge.remove();
-                if (!selectedDate || !venue) return;
-                const dow = selectedDate.getDay();
-                const windows = getVenueDayWindows(venue, dow);
-                const onclick = el.getAttribute('onclick') || '';
-                const m = onclick.match(/selectTime\(this,\s*'([^']+)'\)/);
-                if (!m) return;
-                const slotStart = m[1];
-                const fits = windows.length > 0 && windows.some(w => slotFitsInWindow(slotStart, 180, w.open, w.close));
-                if (!fits) {
-                    el.classList.add('unavailable');
-                    el.style.opacity = '0.35';
-                    el.style.pointerEvents = 'none';
-                    return;
-                }
-                // Capacity check: count confirmed demos at venue/date/slot, compare to venue.max_demos_per_slot
-                const ymd = dateToYmd(selectedDate);
-                const taken = countConfirmedDemosForVenue(venue.id, venue.name, ymd, slotStart);
-                const cap = Math.max(1, parseInt(venue.max_demos_per_slot || 1, 10));
+            list.innerHTML = '';
+            if (!venue) { list.innerHTML = '<div class="time-slots-empty">Pick a location to see its demo times.</div>'; return; }
+            if (!selectedDate) {
+                const cfg = venueSlotsConfig(venue);
+                list.innerHTML = cfg.length
+                    ? cfg.map(s => '<div class="time-slot unavailable" aria-disabled="true"><span class="time-slot-time">' + escapeHtml(slotRangeLabelJs(s)) + '</span><span class="time-slot-duration">' + s.hours + (s.hours === 1 ? ' hour' : ' hours') + '</span></div>').join('')
+                    : '<div class="time-slots-empty">This location has no demo times configured yet.</div>';
+                return;
+            }
+            if (venueBlackoutSet(venue).has(dateToYmd(selectedDate))) {
+                list.innerHTML = '<div class="time-slots-empty">This location is not taking demos on that date.</div>';
+                return;
+            }
+            const offered = offeredSlotsFor(venue, selectedDate);
+            if (!offered.length) {
+                list.innerHTML = '<div class="time-slots-empty">No demo times on this day at this location — pick another date.</div>';
+                return;
+            }
+            const ymd = dateToYmd(selectedDate);
+            const cap = Math.max(1, parseInt(venue.max_demos_per_slot || 1, 10));
+            offered.forEach(s => {
+                const start = slotLabelJs(s.startMin);
+                const el = document.createElement('div');
+                el.className = 'time-slot';
+                el.dataset.time = start; el.dataset.hours = String(s.hours); el.dataset.label = slotRangeLabelJs(s);
+                el.setAttribute('onclick', 'selectTime(this)');
+                const taken = countConfirmedDemosForVenue(venue.id, venue.name, ymd, start);
+                let badge = '';
                 if (taken >= cap) {
                     el.classList.add('unavailable');
-                    el.style.opacity = '0.35';
-                    el.style.pointerEvents = 'none';
-                    const badge = document.createElement('span');
-                    badge.className = 'slot-status-badge';
-                    badge.textContent = 'Full';
-                    badge.style.cssText = 'font-size:0.75rem;color:#a14e2a;background:#fdebe5;padding:2px 8px;border-radius:999px;margin-left:8px;';
-                    el.querySelector('.time-slot-duration')?.appendChild(badge);
+                    badge = '<span class="slot-status-badge" style="font-size:0.75rem;color:#a14e2a;background:#fdebe5;padding:2px 8px;border-radius:999px;margin-left:8px;">Full</span>';
                 } else if (cap > 1 && taken > 0) {
-                    // Show "X / cap booked" indicator
-                    const remaining = cap - taken;
-                    const badge = document.createElement('span');
-                    badge.className = 'slot-status-badge';
-                    badge.textContent = remaining + ' left';
-                    badge.style.cssText = 'font-size:0.75rem;color:#2a5b32;background:#e3edd6;padding:2px 8px;border-radius:999px;margin-left:8px;';
-                    el.querySelector('.time-slot-duration')?.appendChild(badge);
+                    badge = '<span class="slot-status-badge" style="font-size:0.75rem;color:#2a5b32;background:#e3edd6;padding:2px 8px;border-radius:999px;margin-left:8px;">' + (cap - taken) + ' left</span>';
                 }
+                el.innerHTML = '<span class="time-slot-time">' + escapeHtml(slotRangeLabelJs(s)) + '</span><span class="time-slot-duration">' + s.hours + (s.hours === 1 ? ' hour' : ' hours') + badge + '</span>';
+                if (selectedTime === start) el.classList.add('selected');
+                list.appendChild(el);
             });
         }
+        function applyTimeSlotAvailability() { renderTimeSlots(); }
         
         function prevMonth() { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentYear--; } renderCalendar(); }
         function nextMonth() { currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentYear++; } renderCalendar(); }
@@ -1402,10 +1451,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             applyTimeSlotAvailability();
         }
         
+        let selectedHours = null, selectedSlotLabel = null;
         function selectTime(el, time) {
+            if (el && el.classList.contains('unavailable')) return;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             el.classList.add('selected');
-            selectedTime = time;
+            selectedTime = (el.dataset && el.dataset.time) || time;
+            selectedHours = parseInt(el.dataset && el.dataset.hours, 10) || 3;
+            selectedSlotLabel = (el.dataset && el.dataset.label) || selectedTime;
         }
         
         function addToCart() {
@@ -1434,12 +1487,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 date: new Date(selectedDate),
                 dateStr: dateStr,
                 time: selectedTime,
+                hours: selectedHours || 3,
+                label: selectedSlotLabel || selectedTime,
                 location: currentLocation,
                 displayDate: selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
             });
-            
+
             // Reset selection
-            selectedTime = null;
+            selectedTime = null; selectedHours = null; selectedSlotLabel = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
 
             updateCartDisplay();
@@ -1507,7 +1562,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     html += '<div class="cart-item">' +
                         '<div class="cart-item-info">' +
                             '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
-                            '<div class="cart-item-time">' + escapeHtml(item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
+                            '<div class="cart-item-time">' + escapeHtml(item.label || item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
                         '<span class="cart-item-price">$' + Number(itemFees[index]).toFixed(0) + '</span>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
@@ -1954,23 +2009,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         document.getElementById('successModal').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
         
         // Calendar Functions
-        function formatDateForICS(date, time) {
+        function formatDateForICS(date, time, durationHours) {
             const year = date.getFullYear();
             const month = String(date.getMonth() + 1).padStart(2, '0');
             const day = String(date.getDate()).padStart(2, '0');
-            
-            // Parse time (e.g., "11:00 AM" or "3:00 PM")
-            let hours = parseInt(time.split(':')[0]);
-            const isPM = time.includes('PM');
-            if (isPM && hours !== 12) hours += 12;
-            if (!isPM && hours === 12) hours = 0;
-            
-            const startHour = String(hours).padStart(2, '0');
-            const endHour = String(hours + 3).padStart(2, '0'); // 3 hour duration
-            
+            // Release B: the slot's configured length (not a fixed 3 h); "11:00 AM" / "3:30 PM" / "15:00".
+            const startMin = slotMinutesJs(time) ?? 11 * 60;
+            const dur = Number.isInteger(durationHours) && durationHours >= 1 ? durationHours : 3;
+            const endMin = Math.min(startMin + dur * 60, 24 * 60 - 1);
+            const hhmm = (m) => String(Math.floor(m / 60)).padStart(2, '0') + String(m % 60).padStart(2, '0');
             return {
-                start: `${year}${month}${day}T${startHour}0000`,
-                end: `${year}${month}${day}T${endHour}0000`
+                start: `${year}${month}${day}T${hhmm(startMin)}00`,
+                end: `${year}${month}${day}T${hhmm(endMin)}00`
             };
         }
         
@@ -1980,7 +2030,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const safeSlug = RETAILER_SLUG || 'demo';
             let ics = `BEGIN:VCALENDAR\nVERSION:2.0\nPRODID:-//${safeName}//Demo Scheduling//EN\nCALSCALE:GREGORIAN\nMETHOD:PUBLISH\n`;
             cart.forEach((item, index) => {
-                const times = formatDateForICS(item.date, item.time);
+                const times = formatDateForICS(item.date, item.time, item.hours);
                 const uid = `${safeSlug}-demo-${Date.now()}-${index}@demohubhq.com`;
                 ics += `BEGIN:VEVENT\nDTSTART:${times.start}\nDTEND:${times.end}\nSUMMARY:Product Demo at ${retailerName} - ${item.location}\nLOCATION:${retailerName}, ${item.location}\nDESCRIPTION:Product demonstration slot at ${retailerName} ${item.location}.\nUID:${uid}\nSTATUS:CONFIRMED\nEND:VEVENT\n`;
             });
@@ -2004,8 +2054,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (cart.length === 0) return;
             
             const item = cart[0];
-            const times = formatDateForICS(item.date, item.time);
-            
+            const times = formatDateForICS(item.date, item.time, item.hours);
+
             const retailerName = (window.state.retailer && window.state.retailer.name) || 'Demo';
             const title = encodeURIComponent(`Product Demo at ${retailerName} - ${item.location}`);
             const location = encodeURIComponent(`${retailerName}, ${item.location}`);
@@ -2025,16 +2075,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (cart.length === 0) return;
             
             const item = cart[0];
-            const times = formatDateForICS(item.date, item.time);
-            
-            // Format dates for Outlook (ISO format)
-            const startDate = item.date.toISOString().split('T')[0];
-            let hours = parseInt(item.time.split(':')[0]);
-            const isPM = item.time.includes('PM');
-            if (isPM && hours !== 12) hours += 12;
-            if (!isPM && hours === 12) hours = 0;
-            const startTime = String(hours).padStart(2, '0') + ':00:00';
-            const endTime = String(hours + 3).padStart(2, '0') + ':00:00';
+            const times = formatDateForICS(item.date, item.time, item.hours);
+
+            // Format dates for Outlook (ISO format); start/end come from the slot's configured length.
+            const startDate = item.dateStr || dateToYmd(item.date);
+            const startTime = times.start.slice(9, 11) + ':' + times.start.slice(11, 13) + ':00';
+            const endTime = times.end.slice(9, 11) + ':' + times.end.slice(11, 13) + ':00';
             
             const retailerName = (window.state.retailer && window.state.retailer.name) || 'Demo';
             const title = encodeURIComponent(`Product Demo at ${retailerName} - ${item.location}`);

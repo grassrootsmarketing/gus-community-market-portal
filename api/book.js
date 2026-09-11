@@ -7,6 +7,7 @@ import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 import { parseYmd, parseDemoTime } from './_local-time.js';
+import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } from './_slots.js';
 let _b = null;
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
@@ -27,12 +28,21 @@ export default async function handler(req, res) {
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
   const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
-  const venue = await one(`venues?id=eq.${encodeURIComponent(String(body.venue_id||''))}&select=id,retailer_id,active,demo_fee`);
+  const venue = await one(`venues?id=eq.${encodeURIComponent(String(body.venue_id||''))}&select=id,retailer_id,active,demo_fee,availability`);
   if (!venue || venue.retailer_id !== retailer.id) return res.status(400).json({ error: 'invalid_venue' });
   if (venue.active === false) return res.status(400).json({ error: 'venue_inactive' });
   if (!body.demo_date || !body.demo_time) return res.status(400).json({ error: 'date_time_required' });
   if (!parseYmd(String(body.demo_date))) return res.status(400).json({ error: 'invalid_demo_date', message: 'demo_date must be a real calendar date (YYYY-MM-DD).' });
   if (!parseDemoTime(String(body.demo_time))) return res.status(400).json({ error: 'invalid_demo_time', message: 'demo_time must be a time such as "11:00 AM" or "13:00".' });
+  // Release B: the requested time must be a slot this location OFFERS on that date (configured
+  // slots, weekday hours, blackouts). The canonical spelling and the configured length are what get
+  // stored — the browser never picks a storage label, a duration or an end time. The database
+  // re-runs the same check under the venue lock (booking_slot_resolve, 0075); this is the early,
+  // precise refusal.
+  const slot = resolveRequestedSlot(venue.availability, String(body.demo_date), String(body.demo_time));
+  if (!slot.ok) {
+    return res.status(slot.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slot.reason, message: SLOT_REFUSAL_MESSAGES[slot.reason] || 'That time is not available.' });
+  }
   // Release A: electricity is a TYPED per-booking value. true/false from the form's toggle, absent
   // -> null ("Not specified"). Anything else is refused — never parsed out of the notes text.
   if (body.needs_electricity !== undefined && body.needs_electricity !== null && typeof body.needs_electricity !== 'boolean') {
@@ -57,7 +67,8 @@ export default async function handler(req, res) {
   // 4) create the booking — server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
-    demo_date: body.demo_date, demo_time: body.demo_time, product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
+    demo_date: body.demo_date, demo_time: slot.time, duration_hours: slot.hours,
+    product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
     needs_electricity: needsElectricity,
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
@@ -72,7 +83,7 @@ export default async function handler(req, res) {
     if (t.includes('slot_full') && FLAGS.provisionalHolds && cov.covered) {
       const { releaseHeldBooking } = await import('./_provisional.js');
       for (let attempt = 0; attempt < 3 && !r.ok && t.includes('slot_full'); attempt++) {
-        const held = await rest(`bookings?venue_id=eq.${encodeURIComponent(venue.id)}&demo_date=eq.${encodeURIComponent(body.demo_date)}&demo_time=eq.${encodeURIComponent(body.demo_time)}&status=eq.held&select=id,status,payment_status,payment_intent_id,contact_email&order=created_at.desc&limit=1`);
+        const held = await rest(`bookings?venue_id=eq.${encodeURIComponent(venue.id)}&demo_date=eq.${encodeURIComponent(body.demo_date)}&demo_time=eq.${encodeURIComponent(slot.time)}&status=eq.held&select=id,status,payment_status,payment_intent_id,contact_email&order=created_at.desc&limit=1`);
         const victim = held.ok ? (await held.json())[0] : null;
         if (!victim) break;
         const rel = await releaseHeldBooking(victim, { target: 'expired', reason: 'bumped_by_verified_booking', notify: true, bumped: true });
@@ -86,7 +97,15 @@ export default async function handler(req, res) {
         if (!r.ok) t = await r.text();
       }
     }
-    if (!r.ok) { if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' }); return res.status(500).json({ error: 'booking_failed' }); }
+    if (!r.ok) {
+      if (t.includes('slot_full')) return res.status(409).json({ error: 'slot_full' });
+      // The venue's offering changed between our read and the insert (blackout added, slot
+      // removed): the database refused under the venue lock. Same vocabulary, 409 because the
+      // request was valid when quoted.
+      const dbRefusal = slotRefusalFromDbError(t);
+      if (dbRefusal) return res.status(409).json({ error: dbRefusal, message: SLOT_REFUSAL_MESSAGES[dbRefusal] });
+      return res.status(500).json({ error: 'booking_failed' });
+    }
   }
   const booking = (await r.json())[0];
   return res.status(200).json({ ok: true, booking_id: booking.id, next: 'checkout' });

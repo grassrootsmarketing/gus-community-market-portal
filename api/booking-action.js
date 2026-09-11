@@ -12,6 +12,7 @@ import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
+import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -206,13 +207,31 @@ async function handleReschedulePropose(req, res, body) {
   if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
   if (demo.status !== 'confirmed') return res.status(409).json({ error: 'Only a confirmed demo can be rescheduled.' });
 
+  // Release B: the proposed destination must be a slot the venue OFFERS on that date (configured
+  // slots, weekday hours, blackouts). The canonical spelling is what the proposal stores; the
+  // database re-checks at acceptance under the venue lock (accept_reschedule -> 0075 trigger).
+  let proposedTime = null;
+  {
+    let venueRow = null;
+    try { const vr = await sb(`venues?id=eq.${encodeURIComponent(demo.venue_id)}&retailer_id=eq.${encodeURIComponent(sess.retailer_id)}&select=id,availability`); venueRow = Array.isArray(vr) ? vr[0] : null; }
+    catch (_) { venueRow = null; }
+    if (!venueRow) return res.status(409).json({ error: 'no_venue', message: 'This demo has no location on file, so it cannot be moved from here.' });
+    const requested = (typeof new_time === 'string' && new_time.trim()) ? new_time.trim() : (demo.demo_time || '');
+    const slotRes = resolveRequestedSlot(venueRow.availability, new_date, requested);
+    if (!slotRes.ok) {
+      const code = slotRes.reason === 'invalid_time' ? 'invalid_new_time' : slotRes.reason;
+      return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: code, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available at this location.' });
+    }
+    proposedTime = slotRes.time;
+  }
+
   // 0074: the proposal is written on demos (reschedule_to_*) AND versioned on the booking
   // (bookings.reschedule_proposal_version += 1) in ONE transaction. The brand's accept/decline must
   // quote the version returned here; a stale tab or a superseded proposal is refused by the RPC.
   // A demo with no booking (legacy row) cannot be versioned and cannot be moved atomically — refused.
   let proposal;
   try {
-    const rows = await sbRpc('propose_reschedule', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: new_time || null });
+    const rows = await sbRpc('propose_reschedule', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: proposedTime });
     proposal = Array.isArray(rows) ? rows[0] : rows;
   } catch (e) {
     console.error('propose_reschedule failed:', (e && e.message) || e);
@@ -576,7 +595,8 @@ export default async function handler(req, res) {
         product_skus: (Array.isArray(booking.product_skus) && booking.product_skus.length) ? booking.product_skus : null,
         demo_date: booking.demo_date,
         demo_time: booking.demo_time,
-        duration_hours: 3,
+        // Release B: the booking's resolved slot length (0075 booking_slot_resolve); legacy rows = 3.
+        duration_hours: (Number.isInteger(booking.duration_hours) && booking.duration_hours >= 1 && booking.duration_hours <= 12) ? booking.duration_hours : 3,
         status: 'confirmed',
         confirmed_at: new Date().toISOString(),
         demo_fee: fee,

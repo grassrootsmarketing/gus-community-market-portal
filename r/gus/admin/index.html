@@ -1022,6 +1022,10 @@
                             <div id="availabilityStatus" style="font-size:0.85rem; color: var(--ink-500); margin-top:6px; min-height:1.2em;"></div>
                         </div>
                         <div class="settings-card-body" id="availabilityEditorBody" style="padding-top:4px;"></div>
+                        <!-- Release B: demo time slots + blackout dates. Separate bodies so the hours autosave
+                             listener on #availabilityEditorBody does not fire while these are edited. -->
+                        <div class="settings-card-body" id="availabilitySlotsBody" style="padding-top:0;"></div>
+                        <div class="settings-card-body" id="availabilityBlackoutsBody" style="padding-top:0;"></div>
                     </div>
                     <div id="policySetupCallout" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ed682f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;" aria-hidden="true">
@@ -1172,20 +1176,11 @@
                                 </div>
                             </div>
                             <div class="form-group">
-                                <label class="form-label">Demo Duration</label>
-                                <div style="display:flex; gap:8px;">
-                                    <select class="form-input" id="settingDemoDuration" disabled onchange="onDemoDurationChange()" style="flex:1;">
-                                        <option value="1 hour">1 hour</option>
-                                        <option value="2 hours">2 hours</option>
-                                        <option value="3 hours" selected>3 hours</option>
-                                        <option value="4 hours">4 hours</option>
-                                        <option value="6 hours">6 hours</option>
-                                        <option value="8 hours">8 hours</option>
-                                        <option value="custom">Custom…</option>
-                                    </select>
-                                    <input type="number" id="settingDemoDurationCustom" min="1" max="24" step="1" placeholder="hrs" style="display:none; width:90px; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-family:inherit; font-size:0.95rem;">
-                                </div>
-                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Length of each demo slot. Custom lets you pick any whole number of hours (1–24).</div>
+                                <label class="form-label">Demo time slots</label>
+                                <!-- Release B: the inert global "Demo Duration" control is gone. Slot start times and
+                                     lengths are configured per location under Location availability, which is the
+                                     one authority the booking page, calendar feeds and reminders read. -->
+                                <div style="font-size:0.85rem; color:var(--ink-700); padding:10px 12px; background:#f9f7f2; border-radius:8px; line-height:1.5;">Start times and length are set per location. <a onclick="onboardingGo('settingsSection','availabilityCard')" style="color:var(--forest-700); font-weight:600; cursor:pointer; text-decoration:none;">Edit demo time slots &rarr;</a></div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Minimum booking lead time<span data-tooltip="How far in advance brands must book a demo. Gives your team time to prepare for the demo and order product in advance." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
@@ -2648,6 +2643,7 @@ END:VEVENT
                 // (api/booking-action queries bookings.id); reschedule operates on the demo id. Conflating
                 // them sent a demo id as booking_id and 404'd the real cancel path.
                 booking_id: d.booking_id || null,
+                venue_id: d.venue_id || null,
                 date: d.demo_date,
                 time: d.demo_time,
                 company: d.company_name,
@@ -3127,6 +3123,9 @@ END:VEVENT
             body.innerHTML = html;
             const status = document.getElementById('availabilityStatus');
             if (status) status.textContent = '';
+            // Release B: per-location demo slots and blackout dates live in their own bodies.
+            if (typeof renderSlotsEditor === 'function') renderSlotsEditor(v);
+            if (typeof renderBlackoutsEditor === 'function') renderBlackoutsEditor(v);
         }
 
         function renderDayWindowsHtml(day, windows) {
@@ -3452,12 +3451,14 @@ END:VEVENT
             if (maxInput) maxInput.removeAttribute('aria-invalid');
             if (legacyStatus && legacyStatus.textContent.startsWith('Max demos per time slot')) legacyStatus.textContent = '';
             const maxPerSlot = cap.value;
-            const payload = { availability: { schedule, blackouts: (v.availability && v.availability.blackouts) || [] }, max_demos_per_slot: maxPerSlot };
             if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-500)'; }
             try {
-                await adminUpdate('venues', v.id, payload);
-                const idx = window.state.venues.findIndex(x => x.id === v.id);
-                if (idx >= 0) window.state.venues[idx] = { ...window.state.venues[idx], availability: payload.availability, max_demos_per_slot: maxPerSlot };
+                // Release B: hours + capacity are MERGED server-side under a version check (0075
+                // venue_availability_set). Slots and blackouts on this venue are never touched by this save.
+                const r = await adminAction('availability-set', {
+                    venue_id: v.id, expected_version: _venueVersion(v), schedule, max_demos_per_slot: maxPerSlot,
+                });
+                _applyVenueAvailability(v.id, r.availability, r.availability_version, r.max_demos_per_slot);
                 if (status) {
                     // Persistent trust indicator — shows time of last successful save
                     const now = new Date();
@@ -3474,8 +3475,35 @@ END:VEVENT
                 }
                 if (legacyStatus) legacyStatus.textContent = '';
             } catch (e) {
+                if (e && e.code === 'stale_version') {
+                    // Another tab or teammate saved this location first. Take the server's copy and
+                    // re-render; the user re-applies their edit on top of the current state.
+                    _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
+                    renderAvailabilityEditor();
+                    if (status) { status.textContent = 'Reloaded — this location was changed elsewhere. Check it and save again.'; status.style.color = 'var(--clay-700)'; }
+                    return;
+                }
+                if (e && e.code === 'capacity_below_active_reservations') {
+                    if (status) { status.textContent = 'Not saved'; status.style.color = 'var(--clay-700)'; }
+                    if (legacyStatus) { legacyStatus.textContent = 'Capacity can’t go below the demos already booked on an upcoming slot. Cancel or move those first.'; legacyStatus.style.color = 'var(--clay-700)'; }
+                    return;
+                }
                 if (status) { status.textContent = 'Save failed: ' + e.message; status.style.color = 'var(--clay-700)'; }
             }
+        }
+
+        // Release B helpers shared by the hours, slots and blackout editors.
+        function _venueVersion(v) { return Number.isInteger(v && v.availability_version) ? v.availability_version : 0; }
+        function _applyVenueAvailability(venueId, availability, version, maxPerSlot) {
+            const idx = (window.state.venues || []).findIndex(x => x.id === venueId);
+            if (idx < 0) return;
+            const cur = window.state.venues[idx];
+            window.state.venues[idx] = {
+                ...cur,
+                availability: availability !== undefined ? availability : cur.availability,
+                availability_version: Number.isInteger(version) ? version : cur.availability_version,
+                max_demos_per_slot: Number.isInteger(maxPerSlot) ? maxPerSlot : cur.max_demos_per_slot,
+            };
         }
 
         // Delegated change handler: any input/select/checkbox change inside the availability editor
@@ -3520,23 +3548,44 @@ END:VEVENT
             }
             if (maxInput) maxInput.removeAttribute('aria-invalid');
             const maxPerSlot = cap.value;
-            const payload = { availability: { schedule, blackouts: [] }, max_demos_per_slot: maxPerSlot };
             const btn = document.getElementById('availabilityApplyAllBtn');
             if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
             if (status) status.textContent = '';
             try {
-                // Also save the current one (so the visible state is consistent)
-                await adminUpdate('venues', v.id, payload);
-                // Then push to all others
-                for (const other of otherVenues) {
-                    await adminUpdate('venues', other.id, payload);
-                }
-                // Refresh local cache
-                window.state.venues = window.state.venues.map(x => ({ ...x, availability: payload.availability, max_demos_per_slot: maxPerSlot }));
+                // Release B: save this location (hours + capacity, merged under its version), then copy
+                // hours + slots + capacity to every other location in ONE atomic call. Each location
+                // keeps its own blackout dates — "Apply to all" never clears them.
+                const r1 = await adminAction('availability-set', { venue_id: v.id, expected_version: _venueVersion(v), schedule, max_demos_per_slot: maxPerSlot });
+                _applyVenueAvailability(v.id, r1.availability, r1.availability_version, r1.max_demos_per_slot);
+                const r2 = await adminAction('availability-apply-all', { source_venue_id: v.id });
+                const src = (window.state.venues || []).find(x => x.id === v.id);
+                (r2.venues || []).forEach(x => {
+                    const idx = window.state.venues.findIndex(y => y.id === x.venue_id);
+                    if (idx < 0) return;
+                    const cur = window.state.venues[idx];
+                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}) };
+                    if (src && src.availability && Object.prototype.hasOwnProperty.call(src.availability, 'schedule')) av.schedule = src.availability.schedule; else delete av.schedule;
+                    if (src && src.availability && Object.prototype.hasOwnProperty.call(src.availability, 'slots')) av.slots = src.availability.slots; else delete av.slots;
+                    if (!Array.isArray(av.blackouts)) av.blackouts = [];
+                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version, max_demos_per_slot: maxPerSlot };
+                });
                 if (status) { status.textContent = `Applied to ${otherVenues.length + 1} stores ✓`; status.style.color = 'var(--forest-600)'; }
-                DhModal.toast(`Schedule applied to ${otherVenues.length + 1} stores`, 'success');
+                DhModal.toast(`Hours, slots and capacity applied to ${otherVenues.length + 1} stores. Each store keeps its own blackout dates.`, 'success');
             } catch (e) {
-                if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
+                if (e && e.code === 'stale_version') {
+                    _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
+                    renderAvailabilityEditor();
+                    if (status) { status.textContent = 'Reloaded — this location was changed elsewhere. Check it and try again.'; status.style.color = 'var(--clay-700)'; }
+                } else if (e && e.code === 'slot_in_use') {
+                    const where = (e.body && e.body.venue_name) ? ` at ${e.body.venue_name}` : '';
+                    if (status) { status.textContent = `Not applied: upcoming demos${where} sit on a slot this would remove. Nothing was changed.`; status.style.color = 'var(--clay-700)'; }
+                    _showAffectedBookings('Slots can’t change yet' + where, (e.body && e.body.detail && e.body.detail.affected) || []);
+                } else if (e && e.code === 'capacity_below_active_reservations') {
+                    const where = (e.body && e.body.venue_name) ? ` at ${e.body.venue_name}` : '';
+                    if (status) { status.textContent = `Not applied: capacity${where} would drop below demos already booked. Nothing was changed.`; status.style.color = 'var(--clay-700)'; }
+                } else {
+                    if (status) { status.textContent = 'Error: ' + e.message; status.style.color = 'var(--clay-700)'; }
+                }
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Apply to all stores'; }
             }
@@ -3584,6 +3633,319 @@ END:VEVENT
             }, 500);
         });
 
+
+        // =====================================================================================
+        // Release B: demo time slots + blackout dates (per location).
+        // Browser mirror of api/_slots.js for DISPLAY only — the server validates every save and
+        // the database enforces the offering under the venue lock (migration 0075).
+        // =====================================================================================
+        const DhSlots = {
+            DEFAULTS: [{ start: '11:00', hours: 3 }, { start: '15:00', hours: 3 }],
+            minutes(s) {
+                if (s == null) return null;
+                const m = String(s).trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/i);
+                if (!m) return null;
+                let h = parseInt(m[1], 10); const min = m[2] ? parseInt(m[2], 10) : 0;
+                const ap = (m[3] || '').toLowerCase().replace(/\./g, '');
+                if (min > 59) return null;
+                if (ap) { if (h < 1 || h > 12) return null; if (ap === 'pm' && h !== 12) h += 12; if (ap === 'am' && h === 12) h = 0; }
+                else if (h > 23) return null;
+                return h * 60 + min;
+            },
+            label(min) {
+                const h24 = Math.floor(min / 60), m = min % 60, h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+                return h12 + ':' + String(m).padStart(2, '0') + ' ' + (h24 >= 12 ? 'PM' : 'AM');
+            },
+            hhmm(min) { return String(Math.floor(min / 60)).padStart(2, '0') + ':' + String(min % 60).padStart(2, '0'); },
+            rangeLabel(s) { return DhSlots.label(s.startMin) + ' – ' + DhSlots.label(s.startMin + s.hours * 60); },
+            // Structural validation (same rules as the server): { ok, slots (sorted), error }
+            validate(list) {
+                if (!Array.isArray(list)) return { ok: false, error: 'Slots must be a list.' };
+                if (list.length > 24) return { ok: false, error: 'At most 24 slots.' };
+                const out = []; const seen = new Set();
+                for (const el of list) {
+                    if (!el || typeof el !== 'object') return { ok: false, error: 'Each slot needs a start time and a length.' };
+                    if (typeof el.start !== 'string' || !/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(el.start)) return { ok: false, error: 'Every slot needs a start time.' };
+                    if (!Number.isInteger(el.hours) || el.hours < 1 || el.hours > 12) return { ok: false, error: 'Slot length must be 1–12 whole hours.' };
+                    const startMin = DhSlots.minutes(el.start);
+                    if (startMin + el.hours * 60 > 1440) return { ok: false, error: `The ${DhSlots.label(startMin)} slot runs past midnight.` };
+                    if (seen.has(startMin)) return { ok: false, error: `Two slots start at ${DhSlots.label(startMin)}.` };
+                    seen.add(startMin);
+                    out.push({ start: el.start, hours: el.hours, startMin });
+                }
+                out.sort((a, b) => a.startMin - b.startMin);
+                for (let i = 1; i < out.length; i++) {
+                    if (out[i].startMin < out[i - 1].startMin + out[i - 1].hours * 60) return { ok: false, error: `The ${DhSlots.label(out[i].startMin)} slot overlaps the one before it.` };
+                }
+                return { ok: true, slots: out };
+            },
+            // Configured slots: key absent -> defaults; [] -> none; malformed -> fail closed.
+            config(venue) {
+                const av = venue && venue.availability;
+                if (!av || typeof av !== 'object' || !Object.prototype.hasOwnProperty.call(av, 'slots')) {
+                    return { ok: true, defaulted: true, slots: DhSlots.DEFAULTS.map(s => ({ start: s.start, hours: s.hours, startMin: DhSlots.minutes(s.start) })) };
+                }
+                const v = DhSlots.validate(av.slots);
+                return v.ok ? { ok: true, defaulted: false, slots: v.slots } : { ok: false, defaulted: false, slots: [], error: v.error };
+            },
+            windows(venue, dow) {
+                const sched = venue && venue.availability && venue.availability.schedule;
+                if (!sched || typeof sched !== 'object') return null;   // no hours configured at all
+                return normalizeDayWindows(sched[String(dow)]).map(w => ({ o: DhSlots.minutes(w.open), c: DhSlots.minutes(w.close) })).filter(w => w.o != null && w.c != null && w.c > w.o);
+            },
+            blackouts(venue) {
+                const arr = venue && venue.availability && venue.availability.blackouts;
+                return Array.isArray(arr) ? arr.filter(b => b && typeof b.date === 'string') : [];
+            },
+            // { ok, reason, slots } for one local date (YYYY-MM-DD).
+            offeredFor(venue, ymd) {
+                if (!venue || !/^\d{4}-\d{2}-\d{2}$/.test(ymd || '')) return { ok: false, reason: 'invalid_date', slots: [] };
+                if (DhSlots.blackouts(venue).some(b => b.date === ymd)) return { ok: false, reason: 'date_blackout', slots: [] };
+                const cfg = DhSlots.config(venue);
+                if (!cfg.ok) return { ok: false, reason: 'slot_config_invalid', slots: [] };
+                const dow = new Date(ymd + 'T00:00:00').getDay();
+                const windows = DhSlots.windows(venue, dow);
+                if (windows === null) return { ok: true, reason: null, slots: cfg.slots };
+                if (windows.length === 0) return { ok: false, reason: 'venue_closed', slots: [] };
+                const slots = cfg.slots.filter(s => windows.some(w => s.startMin >= w.o && s.startMin + s.hours * 60 <= w.c));
+                return { ok: true, reason: slots.length ? null : 'no_slot_fits', slots };
+            },
+            // Does a slot fit inside the hours of at least one weekday? (editor hint)
+            fitsAnyDay(venue, s) {
+                for (let d = 0; d < 7; d++) {
+                    const w = DhSlots.windows(venue, d);
+                    if (w === null) return true;
+                    if (w.some(x => s.startMin >= x.o && s.startMin + s.hours * 60 <= x.c)) return true;
+                }
+                return false;
+            },
+        };
+
+        // ---- Slots editor ----
+        let _slotsDraft = { venueId: null, slots: [] };
+        function renderSlotsEditor(v) {
+            const body = document.getElementById('availabilitySlotsBody');
+            if (!body) return;
+            if (!v) { body.innerHTML = ''; return; }
+            const cfg = DhSlots.config(v);
+            if (_slotsDraft.venueId !== v.id) {
+                _slotsDraft = { venueId: v.id, slots: cfg.ok ? cfg.slots.map(s => ({ start: s.start, hours: s.hours })) : [], invalid: !cfg.ok };
+            }
+            const rows = _slotsDraft.slots.map((s, i) => {
+                const startMin = DhSlots.minutes(s.start);
+                const fits = (startMin != null && Number.isInteger(s.hours)) ? DhSlots.fitsAnyDay(v, { startMin, hours: s.hours }) : true;
+                return `<div class="slot-row" data-slot-idx="${i}" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 0;">
+                    <input type="time" step="900" value="${escapeHtml(s.start || '')}" aria-label="Slot ${i + 1} start" onchange="slotDraftChange(${i}, 'start', this.value)" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
+                    <select aria-label="Slot ${i + 1} length" onchange="slotDraftChange(${i}, 'hours', this.value)" style="padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.88rem; background:#fff;">
+                        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(h => `<option value="${h}" ${s.hours === h ? 'selected' : ''}>${h} ${h === 1 ? 'hour' : 'hours'}</option>`).join('')}
+                    </select>
+                    <span style="font-size:0.82rem; color:var(--ink-500); min-width:150px;">${startMin != null && Number.isInteger(s.hours) ? escapeHtml(DhSlots.rangeLabel({ startMin, hours: s.hours })) : ''}</span>
+                    ${fits ? '' : '<span title="No day\'s hours contain this whole slot, so it is never offered. Extend the hours above or shorten the slot." style="font-size:0.75rem; color:#8a6114; background:#fff8ed; border:1px solid #e0b56a55; border-radius:6px; padding:2px 8px;">Outside your hours</span>'}
+                    <button type="button" onclick="slotDraftRemove(${i})" aria-label="Remove slot" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.85rem; font-weight:600; padding:2px 6px;">Remove</button>
+                </div>`;
+            }).join('');
+            body.innerHTML = `
+                <div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:4px;">
+                        <div style="font-size:0.82rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Demo time slots</div>
+                        <span id="slotsSaveStatus" style="font-size:0.78rem; color:var(--ink-500);"></span>
+                    </div>
+                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:8px;">The start times brands can pick at this location, with how long each demo runs. A slot is offered on a day only when it fits inside that day's hours above. ${cfg.defaulted ? '<strong>Using the standard slots</strong> (11 AM – 2 PM and 3 – 6 PM) until you save your own.' : ''}${_slotsDraft.invalid ? '<strong style="color:var(--clay-700);">The saved slots are invalid — fix and save.</strong>' : ''}</div>
+                    ${rows || '<div style="font-size:0.85rem; color:var(--clay-700); padding:6px 0;">No slots — brands cannot book this location until you add one.</div>'}
+                    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px;">
+                        <button type="button" onclick="slotDraftAdd()" style="background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add slot</button>
+                        <button type="button" onclick="slotDraftStandard()" style="background:none; border:none; color:var(--ink-500); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:500;">Use standard slots</button>
+                        <button type="button" class="btn btn-primary" id="slotsSaveBtn" onclick="saveSlots()" style="padding:7px 14px; font-size:0.82rem; margin-left:auto;">Save slots</button>
+                    </div>
+                    <div id="slotsError" style="display:none; font-size:0.82rem; color:var(--clay-700); margin-top:6px;"></div>
+                </div>`;
+        }
+        function slotDraftChange(i, key, value) {
+            const s = _slotsDraft.slots[i]; if (!s) return;
+            if (key === 'start') s.start = String(value || '').slice(0, 5);
+            if (key === 'hours') s.hours = parseInt(value, 10);
+            renderSlotsEditor(getSelectedVenue());
+        }
+        function slotDraftRemove(i) { _slotsDraft.slots.splice(i, 1); renderSlotsEditor(getSelectedVenue()); }
+        function slotDraftAdd() {
+            // Next free hour after the last slot, or 11:00.
+            const last = _slotsDraft.slots[_slotsDraft.slots.length - 1];
+            const lastMin = last ? (DhSlots.minutes(last.start) ?? 660) + (last.hours || 3) * 60 : 660;
+            const startMin = Math.min(lastMin, 23 * 60);
+            _slotsDraft.slots.push({ start: DhSlots.hhmm(startMin), hours: Math.max(1, Math.min(3, Math.floor((1440 - startMin) / 60))) });
+            renderSlotsEditor(getSelectedVenue());
+        }
+        function slotDraftStandard() {
+            _slotsDraft.slots = DhSlots.DEFAULTS.map(s => ({ start: s.start, hours: s.hours }));
+            renderSlotsEditor(getSelectedVenue());
+        }
+        async function saveSlots() {
+            const v = getSelectedVenue(); if (!v || _slotsDraft.venueId !== v.id) return;
+            const err = document.getElementById('slotsError');
+            const status = document.getElementById('slotsSaveStatus');
+            const btn = document.getElementById('slotsSaveBtn');
+            const show = (m) => { if (err) { err.textContent = m; err.style.display = m ? 'block' : 'none'; } };
+            const val = DhSlots.validate(_slotsDraft.slots);
+            if (!val.ok) { show(val.error); return; }
+            show('');
+            if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+            try {
+                const r = await adminAction('availability-set', { venue_id: v.id, expected_version: _venueVersion(v), slots: val.slots.map(s => ({ start: s.start, hours: s.hours })) });
+                _applyVenueAvailability(v.id, r.availability, r.availability_version, r.max_demos_per_slot);
+                _slotsDraft.venueId = null;
+                renderSlotsEditor(getSelectedVenue());
+                const st = document.getElementById('slotsSaveStatus'); if (st) { st.textContent = 'Saved'; st.style.color = 'var(--forest-700)'; }
+                DhModal.toast('Demo time slots saved', 'success');
+            } catch (e) {
+                if (e && e.code === 'stale_version') {
+                    _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
+                    _slotsDraft.venueId = null;
+                    renderAvailabilityEditor();
+                    DhModal.toast('This location was changed elsewhere — reloaded. Re-apply your edit and save again.', 'error');
+                } else if (e && e.code === 'slot_in_use') {
+                    show('Not saved: upcoming demos sit on a slot this change removes or shortens. Keep those slots (same start and length) or wait until those demos have run.');
+                    _showAffectedBookings('These demos block the slot change', (e.body && e.body.detail && e.body.detail.affected) || []);
+                } else if (e && (e.code === 'invalid_slots' || e.code === 'availability_invalid' || e.code === 'slot_config_invalid')) {
+                    show('Not saved: ' + ((e.body && e.body.message) || (e.body && e.body.detail && e.body.detail.message) || e.message));
+                } else {
+                    show('Save failed: ' + e.message);
+                }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Save slots'; }
+            }
+        }
+        function _showAffectedBookings(title, affected) {
+            const list = Array.isArray(affected) ? affected : [];
+            const rows = list.slice(0, 50).map(a => '<li>' + escapeHtml(formatDemoDate(a.demo_date)) + ' · ' + escapeHtml(a.demo_time || '') + ' · ' + escapeHtml(a.brand_name || 'Brand') + ' <span style="color:var(--ink-500);">(' + escapeHtml(a.status || '') + ')</span></li>').join('');
+            DhModal.alert({
+                title: title,
+                message: '<ul style="margin:0; padding-left:18px; font-size:0.88rem; line-height:1.6;">' + (rows || '<li>No details returned.</li>') + '</ul><div style="margin-top:10px; font-size:0.85rem; color:var(--ink-500);">Nothing was changed. These bookings stay exactly as they are.</div>',
+                ok: 'OK',
+            });
+        }
+
+        // ---- Blackout dates ----
+        let _blackoutMonth = null;   // { y, m } being shown
+        function renderBlackoutsEditor(v) {
+            const body = document.getElementById('availabilityBlackoutsBody');
+            if (!body) return;
+            if (!v) { body.innerHTML = ''; return; }
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            if (!_blackoutMonth) _blackoutMonth = { y: today.getFullYear(), m: today.getMonth() };
+            const { y, m } = _blackoutMonth;
+            const monthName = new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            const first = new Date(y, m, 1).getDay();
+            const days = new Date(y, m + 1, 0).getDate();
+            const blackouts = DhSlots.blackouts(v);
+            const bySet = new Map(blackouts.map(b => [b.date, b]));
+            const bookedDates = new Set();
+            (window.state.bookings || []).forEach(b => { if (b.venue_id === v.id && !['cancelled', 'declined', 'expired', 'auth_canceled'].includes(String(b.status || '').toLowerCase())) bookedDates.add(b.demo_date); });
+            let grid = ['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => `<div style="text-align:center; font-size:0.68rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); padding:4px 0;">${d}</div>`).join('');
+            for (let i = 0; i < first; i++) grid += '<div></div>';
+            for (let d = 1; d <= days; d++) {
+                const date = new Date(y, m, d);
+                const ymd = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const past = date < today;
+                const isB = bySet.has(ymd);
+                const hasBookings = bookedDates.has(ymd);
+                const bg = isB ? 'var(--forest-900)' : 'transparent';
+                const color = isB ? '#fff' : (past ? 'var(--sand-300)' : 'var(--forest-900)');
+                const title = isB ? ('Blocked' + (bySet.get(ymd).reason ? ': ' + bySet.get(ymd).reason : '') + ' — click to unblock') : (past ? '' : 'Click to block this date');
+                grid += `<button type="button" ${past ? 'disabled' : ''} onclick="toggleBlackout('${ymd}')" title="${escapeHtml(title)}" aria-pressed="${isB ? 'true' : 'false'}" style="aspect-ratio:1; border:1px solid ${isB ? 'var(--forest-900)' : 'var(--sand-200)'}; border-radius:8px; background:${bg}; color:${color}; font-size:0.85rem; font-family:inherit; cursor:${past ? 'default' : 'pointer'}; position:relative; ${isB ? 'text-decoration:line-through;' : ''}">${d}${hasBookings ? '<span title="Has upcoming demos" style="position:absolute; right:4px; top:4px; width:6px; height:6px; border-radius:50%; background:' + (isB ? '#fbd38d' : 'var(--clay-600)') + ';"></span>' : ''}</button>`;
+            }
+            const upcoming = blackouts.filter(b => b.date >= dateToYmdLocal(today)).sort((a, b) => a.date.localeCompare(b.date));
+            const list = upcoming.map(b => `<li style="display:flex; align-items:center; gap:10px; padding:6px 0; border-bottom:1px solid var(--sand-100); font-size:0.88rem;">
+                    <span style="min-width:150px; font-weight:600; color:var(--forest-900);">${escapeHtml(formatDemoDate(b.date))}</span>
+                    <span style="flex:1; color:var(--ink-500);">${escapeHtml(b.reason || '')}${b.group_id ? ' <span title="Blocked at several locations at once" style="font-size:0.72rem; background:var(--sand-100); border-radius:999px; padding:1px 7px;">all locations</span>' : ''}</span>
+                    <button type="button" onclick="removeBlackout('${escapeHtml(b.date)}', null)" style="background:none; border:none; color:var(--forest-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock here</button>
+                    ${b.group_id ? `<button type="button" onclick="removeBlackout('${escapeHtml(b.date)}', '${escapeHtml(b.group_id)}')" style="background:none; border:none; color:var(--clay-700); cursor:pointer; font-size:0.8rem; font-weight:600;">Unblock everywhere</button>` : ''}
+                </li>`).join('');
+            const otherCount = (window.state.venues || []).length - 1;
+            body.innerHTML = `
+                <div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px;">
+                    <div style="font-size:0.82rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Blackout dates</div>
+                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:10px;">Click a date to stop new bookings on it at this location. Demos already booked on that date stay valid — you’ll see them listed before it takes effect. Brands only see that the date is unavailable; your note stays private.</div>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+                        <input type="text" id="blackoutReason" maxlength="200" placeholder="Private note (optional), e.g. Inventory day" style="flex:1; min-width:200px; padding:7px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.86rem;">
+                        ${otherCount > 0 ? `<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.84rem; color:var(--ink-700); cursor:pointer;"><input type="checkbox" id="blackoutAllVenues" style="accent-color:var(--forest-700);"> Block at all ${otherCount + 1} current locations</label>` : ''}
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+                        <button type="button" onclick="blackoutMonthShift(-1)" aria-label="Previous month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&lsaquo;</button>
+                        <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem;">${escapeHtml(monthName)}</div>
+                        <button type="button" onclick="blackoutMonthShift(1)" aria-label="Next month" style="background:none; border:1px solid var(--sand-200); border-radius:6px; padding:4px 10px; cursor:pointer; font-family:inherit;">&rsaquo;</button>
+                    </div>
+                    <div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; max-width:420px;">${grid}</div>
+                    <div style="display:flex; gap:14px; font-size:0.75rem; color:var(--ink-500); margin-top:6px;"><span><span style="display:inline-block; width:10px; height:10px; background:var(--forest-900); border-radius:3px; vertical-align:middle;"></span> Blocked</span><span><span style="display:inline-block; width:6px; height:6px; background:var(--clay-600); border-radius:50%; vertical-align:middle;"></span> Has upcoming demos</span></div>
+                    <div id="blackoutStatus" style="font-size:0.82rem; color:var(--ink-500); margin-top:8px; min-height:1.2em;"></div>
+                    ${upcoming.length ? `<ul style="list-style:none; padding:0; margin:10px 0 0;">${list}</ul>` : ''}
+                </div>`;
+        }
+        function dateToYmdLocal(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+        function blackoutMonthShift(n) {
+            if (!_blackoutMonth) return;
+            let { y, m } = _blackoutMonth; m += n; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
+            _blackoutMonth = { y, m }; renderBlackoutsEditor(getSelectedVenue());
+        }
+        async function toggleBlackout(ymd) {
+            const v = getSelectedVenue(); if (!v) return;
+            const isB = DhSlots.blackouts(v).some(b => b.date === ymd);
+            if (isB) return removeBlackout(ymd, null);
+            const reasonEl = document.getElementById('blackoutReason');
+            const allEl = document.getElementById('blackoutAllVenues');
+            const all = !!(allEl && allEl.checked);
+            const reason = reasonEl ? reasonEl.value.trim() : '';
+            const targets = all ? (window.state.venues || []) : [v];
+            const affectedLocal = (window.state.bookings || []).filter(b => b.demo_date === ymd && targets.some(t => t.id === b.venue_id) && !['cancelled', 'declined', 'expired', 'auth_canceled'].includes(String(b.status || '').toLowerCase()));
+            const listHtml = affectedLocal.length
+                ? '<div style="margin-top:10px; padding:10px 12px; background:#fff8ed; border:1px solid #e0b56a55; border-radius:8px; font-size:0.85rem; line-height:1.5;"><strong>' + affectedLocal.length + ' upcoming demo' + (affectedLocal.length === 1 ? '' : 's') + ' already booked on this date:</strong><ul style="margin:6px 0 0; padding-left:18px;">' + affectedLocal.slice(0, 20).map(b => '<li>' + escapeHtml(b.brand_name || 'Brand') + ' · ' + escapeHtml(b.demo_time || '') + (all ? ' · ' + escapeHtml(((window.state.venues || []).find(t => t.id === b.venue_id) || {}).name || '') : '') + '</li>').join('') + '</ul><div style="margin-top:6px;">They stay valid. Blocking only stops <em>new</em> bookings; nothing is cancelled, refunded or moved.</div></div>'
+                : '';
+            const ok = await DhModal.confirm({
+                title: 'Block ' + formatDemoDate(ymd) + (all ? ' at all ' + targets.length + ' locations?' : ' at ' + v.name + '?'),
+                message: '<div style="font-size:0.9rem;">No new demos can be booked on this date' + (all ? ' at any current location. Locations you add later are not included.' : ' at this location.') + '</div>' + listHtml,
+                ok: 'Block date',
+            });
+            if (!ok) return;
+            const status = document.getElementById('blackoutStatus');
+            try {
+                const r = await adminAction('availability-blackouts', { op: 'add', dates: [ymd], venue_ids: all ? null : [v.id], reason: reason || null });
+                (r.venues || []).forEach(x => {
+                    const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
+                    if (idx < 0) return;
+                    const cur = window.state.venues[idx];
+                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
+                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
+                });
+                const affected = (r.venues || []).reduce((n, x) => n + ((x.affected && x.affected.length) || 0), 0);
+                if (reasonEl) reasonEl.value = '';
+                renderBlackoutsEditor(getSelectedVenue());
+                const st = document.getElementById('blackoutStatus');
+                if (st) { st.textContent = 'Blocked ' + formatDemoDate(ymd) + (all ? ' at ' + (r.venues || []).length + ' locations' : '') + (affected ? ' — ' + affected + ' existing demo' + (affected === 1 ? '' : 's') + ' on that date remain valid.' : '.'); st.style.color = 'var(--forest-700)'; }
+            } catch (e) {
+                if (status) { status.textContent = 'Could not block: ' + e.message; status.style.color = 'var(--clay-700)'; }
+            }
+        }
+        async function removeBlackout(ymd, groupId) {
+            const v = getSelectedVenue(); if (!v) return;
+            const everywhere = !!groupId;
+            const status = document.getElementById('blackoutStatus');
+            try {
+                const r = await adminAction('availability-blackouts', everywhere
+                    ? { op: 'remove', dates: [ymd], venue_ids: null, group_id: groupId }
+                    : { op: 'remove', dates: [ymd], venue_ids: [v.id] });
+                (r.venues || []).forEach(x => {
+                    const idx = window.state.venues.findIndex(t => t.id === x.venue_id);
+                    if (idx < 0) return;
+                    const cur = window.state.venues[idx];
+                    const av = { ...((cur.availability && typeof cur.availability === 'object') ? cur.availability : {}), blackouts: x.blackouts };
+                    window.state.venues[idx] = { ...cur, availability: av, availability_version: x.availability_version };
+                });
+                renderBlackoutsEditor(getSelectedVenue());
+                const st = document.getElementById('blackoutStatus');
+                if (st) { st.textContent = 'Unblocked ' + formatDemoDate(ymd) + (everywhere ? ' everywhere it was blocked together.' : '.'); st.style.color = 'var(--forest-700)'; }
+            } catch (e) {
+                if (status) { status.textContent = 'Could not unblock: ' + e.message; status.style.color = 'var(--clay-700)'; }
+            }
+        }
 
         // Phase F: Demo Duration custom option toggle
         function onDemoDurationChange() {
@@ -3669,7 +4031,6 @@ END:VEVENT
             const feeSlider = document.getElementById('settingDemoFeeSlider');
             if (feeSlider) feeSlider.value = String(feeVal);
             _updateDemoFeeSplit(feeVal);
-            if (dur) applyDemoDurationValue(s.demo_duration || '3 hours');
             if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
             // Load booking preferences from retailer row (not settings row)
             if (window.state.retailer) {
@@ -4151,6 +4512,23 @@ END:VEVENT
         const adminInsert = (table, payload) => adminWrite('POST', table, null, payload);
         const adminUpdate = (table, id, payload) => adminWrite('PATCH', table, id, payload);
         const adminDelete = (table, id) => adminWrite('DELETE', table, id);
+        // Release B: RPC-backed actions (POST /api/admin?action=...). Resolves to the JSON body on
+        // 2xx; on any other status rejects with an Error carrying .status and .body so callers can
+        // branch on the server's reason (stale_version, slot_in_use, ...).
+        async function adminAction(action, payload) {
+            const resp = await fetch('/api/admin?action=' + encodeURIComponent(action), {
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                body: JSON.stringify(payload || {}),
+            });
+            const text = await resp.text();
+            let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+            if (!resp.ok) {
+                const e = new Error((json && (json.message || json.error)) || text || ('HTTP ' + resp.status));
+                e.status = resp.status; e.body = json || {}; e.code = (json && json.error) || null;
+                throw e;
+            }
+            return json;
+        }
 
 
         function getBrandComplianceStatus(brandId) {
@@ -4600,10 +4978,13 @@ END:VEVENT
         // Phase G: cancel a demo — confirmation modal, fires POST /api/booking-action with action=cancel.
         // Response tells us the refund status; toast reflects what happened.
         // ===== Reschedule: propose a new date to the brand (no money moves) =====
-        function openRescheduleModal(demoId, brandName, curDate, curTime) {
+        function openRescheduleModal(demoId, brandName, curDate, curTime, venueId) {
             const existing = document.getElementById('reschedModal');
             if (existing) existing.remove();
             const today = new Date().toISOString().slice(0, 10);
+            // Release B: the new time is picked from the slots the location OFFERS on the chosen date
+            // (configured slots, that weekday's hours, blackouts) — never typed free-form.
+            const reschedVenue = (window.state.venues || []).find(v => v.id === venueId) || null;
             const wrap = document.createElement('div');
             wrap.id = 'reschedModal';
             wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
@@ -4613,9 +4994,10 @@ END:VEVENT
                 + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">Reschedule ' + escapeHtml(brandName) + '</h3>'
                 + '<p title="The brand accepts or declines from their dashboard. Nothing is charged or refunded \u2014 only the date changes." style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. Pick a new date and we\'ll ask the brand to accept it. No money moves.</p>'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
-                + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
-                + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time <span style="font-weight:400;color:var(--ink-500);">(optional \u2014 keeps current if blank)</span></label>'
-                + '<input type="text" id="reschedTime" placeholder="' + escapeHtml(curTime || '11:00 AM') + '" value="' + escapeHtml(curTime || '') + '" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;">'
+                + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" onchange="reschedRenderTimes()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
+                + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time</label>'
+                + '<select id="reschedTime" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;background:#fff;"></select>'
+                + '<div id="reschedTimeNote" style="font-size:0.78rem;color:var(--ink-500);margin:-2px 0 6px;"></div>'
                 + '<div id="reschedErr" style="display:none;font-size:0.82rem;color:var(--clay-700);margin:6px 0 0;"></div>'
                 + '<div style="display:flex;gap:10px;margin-top:20px;">'
                 + '<button onclick="document.getElementById(\'reschedModal\').remove()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
@@ -4623,6 +5005,45 @@ END:VEVENT
                 + '</div></div>';
             wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
             document.body.appendChild(wrap);
+            wrap._venue = reschedVenue; wrap._curTime = curTime || '';
+            reschedRenderTimes();
+        }
+
+        // Fill the reschedule modal's time <select> with the slots offered on the picked date.
+        function reschedRenderTimes() {
+            const wrap = document.getElementById('reschedModal');
+            const dateEl = document.getElementById('reschedDate');
+            const sel = document.getElementById('reschedTime');
+            const note = document.getElementById('reschedTimeNote');
+            const btn = document.getElementById('reschedSubmit');
+            if (!wrap || !sel) return;
+            const venue = wrap._venue;
+            const ymd = dateEl ? dateEl.value : '';
+            sel.innerHTML = '';
+            if (!venue) {
+                sel.disabled = true; if (btn) btn.disabled = true;
+                if (note) note.textContent = 'This demo has no location on file, so it cannot be moved from here.';
+                return;
+            }
+            const res = DhSlots.offeredFor(venue, ymd);
+            if (!res.ok || res.slots.length === 0) {
+                sel.disabled = true; if (btn) btn.disabled = true;
+                if (note) note.textContent = res.reason === 'date_blackout' ? 'That date is blocked at this location.'
+                    : res.reason === 'venue_closed' ? 'This location is closed that day.'
+                    : res.reason === 'slot_config_invalid' ? 'This location’s demo slots are misconfigured — fix them under Location availability.'
+                    : 'No demo slots fit this location’s hours that day.';
+                return;
+            }
+            sel.disabled = false; if (btn) btn.disabled = false;
+            const curMin = DhSlots.minutes(wrap._curTime);
+            res.slots.forEach(s => {
+                const o = document.createElement('option');
+                o.value = DhSlots.label(s.startMin);
+                o.textContent = DhSlots.rangeLabel(s) + ' · ' + s.hours + (s.hours === 1 ? ' hour' : ' hours');
+                if (curMin != null && curMin === s.startMin) o.selected = true;
+                sel.appendChild(o);
+            });
+            if (note) note.textContent = res.slots.length === 1 ? 'The only slot offered that day.' : '';
         }
 
         async function submitReschedule(demoId) {
@@ -4631,8 +5052,9 @@ END:VEVENT
             const err = document.getElementById('reschedErr');
             const btn = document.getElementById('reschedSubmit');
             const newDate = dateEl ? dateEl.value : '';
-            const newTime = timeEl ? timeEl.value.trim() : '';
+            const newTime = timeEl ? String(timeEl.value || '').trim() : '';
             if (!newDate) { if (err) { err.textContent = 'Pick a new date.'; err.style.display = 'block'; } return; }
+            if (!newTime) { if (err) { err.textContent = 'Pick a time slot the location offers on that date.'; err.style.display = 'block'; } return; }
             if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
             try {
                 const r = await fetch('/api/booking-action', {
@@ -4760,7 +5182,7 @@ END:VEVENT
                 const canResched = status === 'confirmed' && d.id;
                 const rescheduleBtn = d.reschedule_to_date
                     ? '<span title="You proposed a new date. Waiting on the brand to accept or decline." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Reschedule proposed</span>'
-                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
+                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-venue="' + escapeHtml(String(d.venue_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
                 return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
@@ -4771,7 +5193,7 @@ END:VEVENT
                 + '</tr>';
             }).join('');
             tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.bookingId, b.dataset.company, b.dataset.date, b.dataset.time); }); });
-            tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time); }); });
+            tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time, b.dataset.venue); }); });
         }
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
         function _coiBadgeHtml(d) {
@@ -6194,7 +6616,7 @@ END:VEVENT
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
                             demo_fee: feeToApply,
-                            demo_duration: getDemoDurationValue(),          // dropdown or custom input
+                            // Release B: demo_duration is no longer written — slot length lives per location.
                             advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
                         });
                         // One-price model: this fee is the master control, so push it to every store.

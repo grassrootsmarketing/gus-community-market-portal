@@ -11,6 +11,7 @@ import { getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { parseYmd } from './_local-time.js';
+import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } from './_slots.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -356,11 +357,20 @@ export default async function handler(req, res) {
     const CANCELLATION_POLICY = retailer.cancellation_policy || '';
 
     // Look up venue by retailer + name (for venue_id on the row)
-    const venueResp = await fetch(`${_b.supabaseUrl}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee`, {
+    const venueResp = await fetch(`${_b.supabaseUrl}/rest/v1/venues?retailer_id=eq.${encodeURIComponent(RETAILER_ID)}&name=eq.${encodeURIComponent(venue)}&select=id,demo_fee,availability`, {
       headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const venues = await venueResp.json();
     const venueRow = Array.isArray(venues) ? venues[0] : null;
+    if (!venueRow) return res.status(400).json({ error: 'invalid_venue', message: 'That location does not exist for this retailer.' });
+    // Release B: staff bookings obey the same offering rule as the public endpoint (configured
+    // slots, weekday hours, blackouts). Canonical spelling + configured length are stored.
+    const slotRes = resolveRequestedSlot(venueRow.availability, String(demo_date), String(demo_time));
+    if (!slotRes.ok) {
+      return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slotRes.reason, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available.' });
+    }
+    const demoTimeCanonical = slotRes.time;
+    const demoDurationHours = slotRes.hours;
 
     // Auto-link to a brand account if email matches an existing brand
     // (cross-retailer brand profiles — the brand sees this in /brand/dashboard)
@@ -650,7 +660,8 @@ export default async function handler(req, res) {
         contact_phone: contact_phone || null,
         product: product || null,
         demo_date,
-        demo_time,
+        demo_time: demoTimeCanonical,
+        duration_hours: demoDurationHours,
         notes: notes || null,
         needs_electricity: needsElectricity,
         status: bookingStatus,
@@ -683,7 +694,8 @@ export default async function handler(req, res) {
           contact_phone: contact_phone || null,
           product: product || null,
           demo_date,
-          demo_time,
+          demo_time: demoTimeCanonical,
+          duration_hours: demoDurationHours,
           notes: notes || null,
           needs_electricity: needsElectricity,
           status: bookingStatus,
@@ -694,6 +706,9 @@ export default async function handler(req, res) {
 
     if (!finalInsertResp.ok) {
       const detail = await finalInsertResp.text();
+      if (detail.includes('slot_full')) return res.status(409).json({ error: 'slot_full', message: 'That slot is full.' });
+      const dbRefusal = slotRefusalFromDbError(detail);
+      if (dbRefusal) return res.status(409).json({ error: dbRefusal, message: SLOT_REFUSAL_MESSAGES[dbRefusal] });
       return res.status(502).json({ error: 'DB insert failed', detail });
     }
     const inserted = await finalInsertResp.json();

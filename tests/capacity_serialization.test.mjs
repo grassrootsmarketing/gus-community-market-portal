@@ -163,8 +163,9 @@ async function assertNoViolations(label, c, vid) {
   const v = await violations(c, vid);
   ok(`${label}: capacity_invariant_violations() returns zero rows`, v.length === 0, JSON.stringify(v).slice(0, 200));
 }
-// Identical key expression to 0047/0066/0069/0070.
-const SLOT_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || '|' || coalesce($2::date::text,'') || '|' || coalesce($3::text,''), 0))`;
+// Identical key expression to 0075 (which re-keyed 0047/0066/0069/0070 on the NORMALIZED slot:
+// slot_key(demo_time), so "11:00" and "11:00 AM" share one lock and one count).
+const SLOT_LOCK = `SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || '|' || coalesce($2::date::text,'') || '|' || slot_key($3::text), 0))`;
 
 // =====================================================================
 async function main() {

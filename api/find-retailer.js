@@ -7,6 +7,7 @@
 
 import { getBinding, sendBindingFailure, BindingError } from './_env.js';
 import { FLAGS } from './_flags.js';
+import { publicAvailability } from './_slots.js';
 let _b = null;
 
 // Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
@@ -207,7 +208,8 @@ export default async function handler(req, res) {
       return res.status(200).json({
         ok: true,
         retailer,
-        venues: venues || [],
+        // Release B: hours/slots are public (the page renders them); blackout REASONS are not.
+        venues: (venues || []).map(v => ({ ...v, availability: publicAvailability(v.availability) })),
         bookings: bookings || [],
         demos: demos || [],
         settings,

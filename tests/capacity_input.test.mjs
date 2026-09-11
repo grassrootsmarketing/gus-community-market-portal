@@ -69,8 +69,11 @@ console.log('\n— capacity input: whole number >= 1, never null —');
 {
   const applyFn = slice('async function applyScheduleToAllStores()', 'const _PLATFORM_FEE');
   check('applyScheduleToAllStores parses capacity through parseCapacityInput', /parseCapacityInput\(/.test(applyFn));
+  // Release B: the save goes through the availability actions (adminAction) instead of a venues
+  // PATCH (adminUpdate); either way the invalid-capacity return must precede the first request.
+  const firstRequestIdx = Math.min(...['adminUpdate(', 'adminAction('].map(k => applyFn.indexOf(k)).filter(i => i >= 0));
   check('applyScheduleToAllStores returns before any request when capacity is invalid',
-    /if \(!cap\.ok\)\s*\{[\s\S]*?\breturn;\s*\}/.test(applyFn) && applyFn.indexOf('if (!cap.ok)') < applyFn.indexOf('adminUpdate('));
+    /if \(!cap\.ok\)\s*\{[\s\S]*?\breturn;\s*\}/.test(applyFn) && Number.isFinite(firstRequestIdx) && applyFn.indexOf('if (!cap.ok)') < firstRequestIdx);
   check('applyScheduleToAllStores no longer silently coerces (Math.max(1, parseInt(...) || 1)) the capacity',
     !/Math\.max\(1,\s*parseInt\(maxInput/.test(applyFn));
   check('applyScheduleToAllStores payload uses cap.value', /const maxPerSlot = cap\.value;/.test(applyFn) && /max_demos_per_slot: maxPerSlot/.test(applyFn));

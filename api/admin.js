@@ -14,7 +14,8 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { validateNotificationPrefs, normalizePrefs } from './_notification-prefs.js';
-import { isValidZone } from './_local-time.js';
+import { isValidZone, parseYmd } from './_local-time.js';
+import { validateSlots } from './_slots.js';
 let _b = null;
 
 // P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
@@ -390,6 +391,86 @@ export default async function handler(req, res) {
     }
   }
 
+  // === Release B: availability actions (hours / slots / capacity / blackouts) ===
+  // These go through tenant-scoped RPCs (migration 0075) instead of the generic venues PATCH:
+  //   * keys are MERGED under a version check, so a stale tab cannot replace the whole blob;
+  //   * a slot change that would orphan an upcoming reservation is refused with the affected list;
+  //   * "all current locations" is one atomic call; each venue keeps its own blackouts.
+  // The write-role gate above (owner/admin/manager) already applies. Bodies are validated here so a
+  // malformed request never reaches Postgres as a type error.
+  if (req.method === 'POST' && ['availability-set', 'availability-blackouts', 'availability-apply-all'].includes(String(req.query?.action || ''))) {
+    let body;
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
+    catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'Invalid body' });
+    const action = String(req.query.action);
+    const rid = session.retailer_id;
+    const rpc = async (fn, args) => sb(`rpc/${fn}`, { method: 'POST', body: JSON.stringify(args), headers: { Prefer: 'return=representation' } });
+    try {
+      if (action === 'availability-set') {
+        const { venue_id, expected_version, schedule, slots, reset_slots, max_demos_per_slot } = body;
+        if (!isUuid(venue_id)) return send(res, 400, { error: 'invalid_venue_id' });
+        if (!Number.isInteger(expected_version) || expected_version < 0) return send(res, 400, { error: 'expected_version_required', message: 'Send the availability_version you loaded.' });
+        if (schedule !== undefined && schedule !== null && (typeof schedule !== 'object' || Array.isArray(schedule))) return send(res, 400, { error: 'invalid_schedule' });
+        if (slots !== undefined && slots !== null) {
+          const v = validateSlots(slots);
+          if (!v.ok) return send(res, 400, { error: 'invalid_slots', message: v.error });
+        }
+        if (max_demos_per_slot !== undefined && max_demos_per_slot !== null && !(Number.isInteger(max_demos_per_slot) && max_demos_per_slot >= 1)) {
+          return send(res, 400, { error: 'invalid_capacity', message: 'Max demos per time slot must be a whole number of 1 or more.' });
+        }
+        const rows = await rpc('venue_availability_set', {
+          p_retailer_id: rid, p_venue_id: venue_id, p_expected_version: expected_version,
+          p_schedule: schedule ?? null, p_slots: slots ?? null, p_reset_slots: reset_slots === true,
+          p_max_demos_per_slot: max_demos_per_slot ?? null,
+        });
+        const r = Array.isArray(rows) ? rows[0] : rows;
+        if (!r) return send(res, 500, { error: 'availability_unavailable' });
+        if (r.ok !== true) {
+          const status = r.reason === 'not_found' ? 404 : r.reason === 'stale_version' ? 409 : r.reason === 'slot_in_use' ? 409 : r.reason === 'capacity_below_active_reservations' ? 409 : 400;
+          return send(res, status, { error: r.reason, detail: r.detail || null, availability: r.availability, availability_version: r.availability_version, max_demos_per_slot: r.max_demos_per_slot });
+        }
+        return send(res, 200, { ok: true, availability: r.availability, availability_version: r.availability_version, max_demos_per_slot: r.max_demos_per_slot });
+      }
+      if (action === 'availability-blackouts') {
+        const { op, dates, venue_ids, reason, group_id } = body;
+        if (!['add', 'remove'].includes(op)) return send(res, 400, { error: 'invalid_op' });
+        if (!Array.isArray(dates) || dates.length === 0 || dates.length > 366 || !dates.every(d => typeof d === 'string' && parseYmd(d))) {
+          return send(res, 400, { error: 'invalid_dates', message: 'dates must be 1-366 real calendar dates (YYYY-MM-DD).' });
+        }
+        if (venue_ids !== undefined && venue_ids !== null && !(Array.isArray(venue_ids) && venue_ids.length > 0 && venue_ids.every(isUuid))) {
+          return send(res, 400, { error: 'invalid_venue_ids', message: 'venue_ids must be a non-empty list of ids, or omitted for all current locations.' });
+        }
+        if (reason !== undefined && reason !== null && (typeof reason !== 'string' || reason.length > 200)) return send(res, 400, { error: 'invalid_reason' });
+        if (group_id !== undefined && group_id !== null && !isUuid(group_id)) return send(res, 400, { error: 'invalid_group_id' });
+        let rows;
+        try {
+          rows = await rpc('venue_blackouts_set', { p_retailer_id: rid, p_op: op, p_dates: dates, p_venue_ids: venue_ids ?? null, p_reason: reason ?? null, p_group_id: group_id ?? null });
+        } catch (e) {
+          const msg = String(e?.message || e);
+          if (msg.includes('not_found')) return send(res, 404, { error: 'not_found' });
+          throw e;
+        }
+        return send(res, 200, { ok: true, venues: Array.isArray(rows) ? rows : [] });
+      }
+      if (action === 'availability-apply-all') {
+        const { source_venue_id } = body;
+        if (!isUuid(source_venue_id)) return send(res, 400, { error: 'invalid_venue_id' });
+        const rows = await rpc('venue_availability_apply_all', { p_retailer_id: rid, p_source_venue_id: source_venue_id });
+        const list = Array.isArray(rows) ? rows : [];
+        const refused = list.find(r => r.ok === false);
+        if (refused) {
+          const status = refused.reason === 'not_found' ? 404 : 409;
+          return send(res, status, { error: refused.reason, detail: refused.detail || null, venue_id: refused.venue_id, venue_name: refused.venue_name });
+        }
+        return send(res, 200, { ok: true, venues: list.map(r => ({ venue_id: r.venue_id, venue_name: r.venue_name, availability_version: r.availability_version })) });
+      }
+    } catch (e) {
+      console.error('availability action failed:', e?.message || e);
+      return send(res, 503, { error: 'availability_unavailable', message: 'Could not save availability just now. Try again in a moment.' });
+    }
+  }
+
   // For non-data actions, the table must be in the allowed list
   if (!table || !ALLOWED_TABLES.has(table)) return send(res, 400, { error: 'invalid or missing table parameter' });
 
@@ -563,6 +644,18 @@ export default async function handler(req, res) {
         req.body = JSON.stringify(body);
       }
     }
+  }
+
+  // Release B: venues.availability is edited ONLY through the availability actions above (merged
+  // keys, version check, reservation guard). A whole-blob PATCH from stale client state is refused.
+  // POST (new venue) may still carry an initial availability — the 0075 guard validates it.
+  if (table === 'venues' && ['PATCH', 'PUT'].includes(req.method)) {
+    try {
+      const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      if (b && typeof b === 'object' && (Object.prototype.hasOwnProperty.call(b, 'availability') || Object.prototype.hasOwnProperty.call(b, 'availability_version'))) {
+        return send(res, 400, { error: 'use_availability_actions', message: 'Hours, slots and blackouts are saved through the availability actions, not a venue PATCH.' });
+      }
+    } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
   }
 
   // DH-05/DH-06: strip server-owned fields from any write body, and keep status to a simple

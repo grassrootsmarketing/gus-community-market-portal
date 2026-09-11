@@ -90,7 +90,8 @@ env:
   # 2026-09-04 (Codex cleanup FC-02): 0072_support_access_atomic.sql -> 73 SQL files (README.md is not a migration).
   # 2026-09-06 (store-contact notifications): 0073_demo_notifications.sql -> 74.
   # 2026-09-06 (Codex feature round, Release A): 0074_release_a_schedule_and_outbox.sql -> 75 SQL files.
-  EXPECTED_MIGRATIONS: '75'
+  # 2026-09-10 (Codex feature round, Release B): 0075_release_b_slots_blackouts.sql -> 76 SQL files.
+  EXPECTED_MIGRATIONS: '76'
 
 jobs:
   # --------------------------------------------------------------------------

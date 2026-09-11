@@ -15,7 +15,7 @@
     "test:routes": "node tests/route_flows.test.mjs && node tests/cron_heartbeats.test.mjs && node tests/store_contact_notifications.test.mjs && node tests/notification_worker.test.mjs && node tests/isolation_matrix.test.mjs && node tests/compliance_tenant.test.mjs && node tests/support_access.test.mjs && node tests/support_access_race.test.mjs && node tests/venues_bulk_import.test.mjs",
     "test:live": "node tests/live_entitlements.test.mjs && node tests/live_flows.test.mjs",
     "test:ledger": "node tests/_seed_ledger_fixtures.mjs && node tests/payment_ledger_adversarial.mjs && node tests/provisional_holds_adversarial.mjs",
-    "test:capacity": "node tests/capacity_guard.test.mjs && node tests/capacity_serialization.test.mjs",
+    "test:capacity": "node tests/capacity_guard.test.mjs && node tests/capacity_serialization.test.mjs && node tests/slots_blackouts.test.mjs && node tests/slots_blackouts_race.test.mjs",
     "test:staging": "npm run check:columns && npm run test:routes && npm run test:live && npm run test:ledger && npm run test:capacity"
   }
 }

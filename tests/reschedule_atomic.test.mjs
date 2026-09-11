@@ -212,7 +212,8 @@ try {
   ok('race setup: both proposals accepted by propose_reschedule (v3 for B1, v1 for B2)', pr1.ok === true && pr1.proposal_version === 3 && pr2.ok === true && pr2.proposal_version === 1, JSON.stringify({ pr1, pr2 }));
   const c1 = await connect('c1'), c2 = await connect('c2');
   await ctl.query('BEGIN');
-  await ctl.query(`SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || '|' || $2::date::text || '|' || $3::text, 0))`, [V1, D4, '11:00 AM']);
+  // 0075 re-keyed the per-slot advisory lock on the NORMALIZED slot (slot_key), so "11:00" and "11:00 AM" are one lock.
+  await ctl.query(`SELECT pg_advisory_xact_lock(hashtextextended($1::uuid::text || '|' || $2::date::text || '|' || slot_key($3::text), 0))`, [V1, D4, '11:00 AM']);
   const r1p = capture(c1.query('SELECT * FROM accept_reschedule($1, $2, $3)', [B1.booking, A.id, 3]));
   const r2p = capture(c2.query('SELECT * FROM accept_reschedule($1, $2, $3)', [B2.booking, B.id, 1]));
   const w1 = await waitUntilBlocked(ctl, c1.pid), w2 = await waitUntilBlocked(ctl, c2.pid);

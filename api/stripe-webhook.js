@@ -161,7 +161,8 @@ export async function createDemoForConfirmedBooking(ctx) {
     product_skus: (Array.isArray(ctx.product_skus) && ctx.product_skus.length) ? ctx.product_skus : null,
     demo_date: ctx.demo_date,
     demo_time: ctx.demo_time,
-    duration_hours: 3,
+    // Release B: the booking's resolved slot length (0075 booking_slot_resolve); legacy rows = 3.
+    duration_hours: (Number.isInteger(ctx.duration_hours) && ctx.duration_hours >= 1 && ctx.duration_hours <= 12) ? ctx.duration_hours : 3,
     status: 'confirmed',
     confirmed_at: new Date().toISOString(),
     demo_fee: fee,

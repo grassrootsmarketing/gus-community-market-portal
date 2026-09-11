@@ -744,6 +744,12 @@ export default async function handler(req, res) {
           no_proposal:     'There is no reschedule to respond to.',
           stale_proposal:  'The store has changed this proposal since you loaded the page. Reload to see the current one.',
           slot_full:       'That slot just filled up. Ask the store to propose another date.',
+          // Release B (0075): the venue's offering changed after the proposal was made.
+          slot_not_offered:   'The store no longer offers that time slot. Ask them to propose another date.',
+          slot_outside_hours: 'That slot is outside the store’s hours on that day now. Ask them to propose another date.',
+          date_blackout:      'The store has since blocked that date. Ask them to propose another date.',
+          venue_closed:       'The store is closed on that day now. Ask them to propose another date.',
+          slot_config_invalid:'The store’s demo slots are misconfigured. Ask them to check Settings and propose again.',
           coi_not_covered: 'Your Certificate of Insurance does not cover the proposed date. Upload a current COI, then ask the store to propose again.',
           cancelled:       'This demo is no longer active.',
           date_in_past:    'The proposed date has already passed.',
