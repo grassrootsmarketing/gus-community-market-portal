@@ -364,7 +364,7 @@ try {
     await q(`DELETE FROM bookings WHERE retailer_id = $1`, [R]);
     const va = await venue(VA), vb = await venue(VB);
     const c1 = await connect('applyA'), c2 = await connect('applyB');
-    const RPC = `SELECT ok, reason, venue_id FROM venue_availability_apply_all($1, $2, $3, NULL, NULL, false, NULL)`;
+    const RPC = `SELECT ok, reason, venue_id FROM venue_availability_apply_all($1, $2, $3, NULL, NULL, false, NULL, true)`;   // 0079: the copy mode is explicit (default is now false)
     const [r1, r2] = await Promise.all([capture(c1.query(RPC, [R, VA, va.availability_version])), capture(c2.query(RPC, [R, VB, vb.availability_version]))]);
     ok('B-06: opposing-source apply-all calls run concurrently without a deadlock (both complete)', r1.ok && r2.ok, `${r1.ok ? 'ok' : r1.e.message} / ${r2.ok ? 'ok' : r2.e.message}`);
     // exactly one can win at its version; the other sees stale_version (both are legitimate outcomes, never a lock abort)
