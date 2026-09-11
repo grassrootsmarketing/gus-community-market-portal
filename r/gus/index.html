@@ -1307,7 +1307,35 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const slots = venueSlotsConfig(venue);
             const windows = getVenueDayWindows(venue, dateObj.getDay());
             if (windows.length === 0) return [];
-            return slots.filter(s => windows.some(w => slotFitsInWindow(s.start, s.hours * 60, w.open, w.close)));
+            // Codex R6: a slot whose interval would cross a clock change on this date is not offered
+            // (the server and database refuse it too).
+            const tz = (window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
+            return slots.filter(s => windows.some(w => slotFitsInWindow(s.start, s.hours * 60, w.open, w.close)) && !slotSpansTransition(dateToYmd(dateObj), s, tz));
+        }
+        // UTC offset (minutes) of an instant in an IANA zone, via Intl (no library).
+        function zoneOffsetMinutesJs(date, tz) {
+            try {
+                const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(date).filter(x => x.type !== 'literal').map(x => [x.type, x.value]));
+                const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second);
+                return Math.round((asUtc - date.getTime()) / 60000);
+            } catch (_) { return null; }
+        }
+        // The instant of a wall-clock time in a zone (two-pass offset resolution), or null if unresolvable.
+        function localInstantJs(ymd, minutes, tz) {
+            const [y, m, d] = ymd.split('-').map(Number);
+            const naive = Date.UTC(y, m - 1, d, Math.floor(minutes / 60), minutes % 60);
+            let off = zoneOffsetMinutesJs(new Date(naive), tz); if (off == null) return null;
+            let inst = new Date(naive - off * 60000);
+            const off2 = zoneOffsetMinutesJs(inst, tz); if (off2 == null) return null;
+            if (off2 !== off) inst = new Date(naive - off2 * 60000);
+            return inst;
+        }
+        function slotSpansTransition(ymd, slot, tz) {
+            const start = localInstantJs(ymd, slot.startMin, tz);
+            if (!start) return false;
+            const end = new Date(start.getTime() + slot.hours * 3600e3);
+            const a = zoneOffsetMinutesJs(start, tz), b = zoneOffsetMinutesJs(end, tz);
+            return a != null && b != null && a !== b;
         }
         function slotRangeLabelJs(slot) {
             return slotLabelJs(slot.startMin) + ' – ' + slotLabelJs(slot.startMin + slot.hours * 60);

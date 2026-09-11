@@ -186,7 +186,9 @@ export default async function handler(req, res) {
       // Whitelist of safe retailer columns. Explicitly excludes: billing_email,
       // stripe_customer_id, stripe_subscription_id, billing_status, billing_tier,
       // billing_period_*, welcome_day0_sent_at, and any email field.
-      const retailerCols = 'id,slug,name,branding,demo_policy,cancellation_policy,logo_url,platform_keeps_all';
+      // Release B (Codex R6): the store's zone is public so the booking page can withhold a slot
+      // whose interval would cross a clock change on the chosen date.
+      const retailerCols = 'id,slug,name,branding,demo_policy,cancellation_policy,logo_url,platform_keeps_all,timezone';
       const rets = await sb(`retailers?slug=eq.${encodeURIComponent(slug)}&select=${retailerCols}`, true);
       const retailer = Array.isArray(rets) ? rets[0] : null;
       if (!retailer) return res.status(404).json({ error: 'not found' });

@@ -14,7 +14,7 @@
 //              present = a slot is offered on a date only when it fits inside an open window
 //              of that weekday; absent = no hours filter
 //   blackouts  [{ date: 'YYYY-MM-DD', reason?, group_id?, created_at? }]   reason is PRIVATE
-import { parseDemoTime, parseYmd, resolveLocalTime, safeZone } from './_local-time.js';
+import { parseDemoTime, parseYmd, resolveLocalTime, safeZone, zoneOffsetMinutes } from './_local-time.js';
 
 export const DEFAULT_SLOTS = Object.freeze([
   Object.freeze({ start: '11:00', hours: 3 }),
@@ -208,7 +208,18 @@ export function resolveRequestedSlot(availability, ymd, timeStr, tz) {
   }
   const local = resolveLocalTime({ ...d, hour: Math.floor(min / 60), minute: min % 60 }, safeZone(tz));
   if (!local.ok) return { ok: false, reason: 'invalid_local_time', detail: local.error };
+  // Codex R6: the WHOLE interval must sit on one side of any clock change — elapsed duration and the
+  // wall clock would otherwise disagree (a "3-hour" slot ending at 04:30 after spring-forward
+  // overlaps the next slot; a fall-back span shows a wrong local end). Mirrors booking_interval_ok().
+  if (intervalSpansTransition(local.date, slot.hours, tz)) return { ok: false, reason: 'invalid_local_time', detail: 'spans_transition' };
   return { ok: true, time: slotLabel(min), hours: slot.hours, slot, startAt: local.date };
+}
+
+// Does [start, start + hours) cross a UTC-offset transition in `tz`?
+export function intervalSpansTransition(startDate, hours, tz) {
+  const zone = safeZone(tz);
+  const end = new Date(startDate.getTime() + hours * 3600e3);
+  return zoneOffsetMinutes(startDate, zone) !== zoneOffsetMinutes(end, zone);
 }
 
 // Human copy for the refusal codes above (routes send code + message; UIs show the message).
