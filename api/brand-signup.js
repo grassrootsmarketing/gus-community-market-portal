@@ -27,6 +27,28 @@ function setBrandCookie(res, token) {
   setRoleCookie(res, 'brand', token);
 }
 
+// The signup card's single primary category rides the challenge payload exactly like the name and
+// phone do, and is applied ONCE at redeem, only when the brand has none yet. Previously it was
+// persisted by a page-side follow-up call after the code was accepted, which only ran on one of the
+// two signup surfaces — so the booking form kept asking "What are you demoing?" on every booking.
+function cleanCategory(v) {
+  const s = String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, 80);
+  return s || null;
+}
+async function applyChallengeCategory(email, brandId) {
+  try {
+    const r = await rest(`email_verifications?email=eq.${encodeURIComponent(email)}&purpose=eq.brand_signup&consumed_at=not.is.null&order=consumed_at.desc&limit=1&select=payload`);
+    if (!r.ok) return;
+    const rows = await r.json();
+    const cat = cleanCategory(rows && rows[0] && rows[0].payload && rows[0].payload.default_categories);
+    if (!cat || !brandId) return;
+    // Blank-only, like the RPC's own profile fields: never overwrites a category the brand already set.
+    await rest(`brands?id=eq.${encodeURIComponent(brandId)}&default_categories=is.null`, {
+      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ default_categories: cat }),
+    });
+  } catch (_) { /* best-effort — the Profile page remains the place to set it */ }
+}
+
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -178,6 +200,7 @@ export default async function handler(req, res) {
         company_name: String(body.company_name || '').trim() || null,
         contact_name: String(body.contact_name || '').trim() || null,
         phone: String(body.phone || '').trim() || null,
+        default_categories: cleanCategory(body.default_categories),
       });
       await sendCode(email, ch.code);
     } catch (e) {
@@ -216,6 +239,7 @@ export default async function handler(req, res) {
     }
 
     setBrandCookie(res, token);
+    await applyChallengeCategory(email, out.brand_id);
     // Codex finding B: the session goes in the HttpOnly cookie ONLY. It is not returned in the
     // body, so page JavaScript cannot read it and it cannot land in localStorage or a log.
     return res.status(200).json({ ok: true, brand_id: out.brand_id, created: !!out.created });

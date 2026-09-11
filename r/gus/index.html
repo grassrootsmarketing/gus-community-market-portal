@@ -1688,6 +1688,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (!((bp.company_name)||'').trim() && brandName) patch.company_name = brandName;
                 if (!((bp.contact_name)||'').trim() && contactName) patch.contact_name = contactName;
                 if (!((bp.phone)||'').trim() && contactPhone) patch.phone = contactPhone;
+                // Remember the category too, so "What are you demoing?" is asked once and then pre-filled
+                // (and hidden) on every later booking — it was only ever stored on the booking row.
+                if (!((bp.default_categories)||'').trim() && product) patch.default_categories = product;
                 if (Object.keys(patch).length) {
                     try {
                         const _pr = await fetch('/api/brand-account?action=profile-update', {

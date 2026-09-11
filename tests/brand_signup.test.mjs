@@ -108,6 +108,49 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   ok('verify: no session token in the body', !/session_token/.test(JSON.stringify(res.body || {})));
 }
 
+// ---- the signup category rides the challenge and is applied once at redeem (blank-only) ----
+{
+  process.env = { ...ENV }; _resetBindingCache();
+  const base = spyFetch();
+  const bodies = [];
+  const scenario = { category: 'Protein, bars & energy' };
+  globalThis.fetch = async (url, opts = {}) => {
+    const u = String(url); const method = opts.method || 'GET';
+    if (u.includes('/rpc/redeem_brand_signup')) { base.rpcs.push('redeem'); return { ok: true, status: 200, text: async () => JSON.stringify({ outcome: 'ok', brand_id: 'b-1', created: true, expires_at: '2027-01-01T00:00:00Z' }) }; }
+    if (u.includes('/rest/v1/email_verifications') && method === 'GET' && u.includes('consumed_at=not.is.null')) {
+      return { ok: true, status: 200, json: async () => [{ payload: { company_name: 'Cat Co', default_categories: scenario.category } }] };
+    }
+    if (u.includes('/rest/v1/') && method !== 'GET') bodies.push({ method, table: u.split('/rest/v1/')[1].split('?')[0], filter: u.split('?')[1] || '', body: String(opts.body || '') });
+    return base(url, opts);
+  };
+  const mod = await import(pathToFileURL(resolve('api', 'brand-signup.js')).href + '?t=' + Math.random());
+
+  // request: the category is part of the challenge payload (bounded, whitespace-normalised)
+  let res = mockRes();
+  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
+    body: { action: 'request', email: 'cat@brand.test', company_name: 'Cat Co', contact_name: 'C', phone: '1', default_categories: '  Protein,   bars & energy  ' } }, res);
+  const chal = bodies.find(b => b.table === 'email_verifications' && b.method === 'POST');
+  ok('request: the challenge payload carries the normalised category', !!chal && JSON.parse(chal.body).payload.default_categories === 'Protein, bars & energy', chal && chal.body.slice(0, 200));
+  ok('request: still no brand writes', !bodies.some(b => /^brands|brand_members|brand_account_sessions/.test(b.table)));
+
+  // verify (correct code): the category lands on the brand row, blank-only, after the atomic redeem
+  bodies.length = 0; res = mockRes();
+  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
+    body: { action: 'verify', email: 'cat@brand.test', code: '123456' } }, res);
+  const patch = bodies.find(b => b.table === 'brands' && b.method === 'PATCH');
+  ok('verify: 200 with the brand id', res.statusCode === 200 && res.body && res.body.brand_id === 'b-1', JSON.stringify(res.body));
+  ok('verify: the category from the consumed challenge is written to the brand', !!patch && JSON.parse(patch.body).default_categories === 'Protein, bars & energy', patch && patch.body);
+  ok('verify: the write is blank-only (filters on default_categories=is.null) and scoped to that brand', !!patch && /id=eq\.b-1/.test(patch.filter) && /default_categories=is\.null/.test(patch.filter), patch && patch.filter);
+  ok('verify: no other provisioning writes (the RPC did those)', bodies.filter(b => /^brands$|brand_members|brand_account_sessions/.test(b.table)).length === 1, JSON.stringify(bodies.map(b => b.method + ' ' + b.table)));
+
+  // verify with NO category on the challenge: nothing is written to brands
+  scenario.category = null; bodies.length = 0; res = mockRes();
+  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
+    body: { action: 'verify', email: 'cat@brand.test', code: '123456' } }, res);
+  ok('verify without a category: 200 and no brands write at all', res.statusCode === 200 && !bodies.some(b => b.table === 'brands'), JSON.stringify(bodies));
+  globalThis.fetch = realFetch;
+}
+
 // ---- the retired path must be gone, not merely discouraged ----
 {
   process.env = { ...ENV }; _resetBindingCache();
