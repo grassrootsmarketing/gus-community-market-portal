@@ -83,7 +83,7 @@ const rpc = (fn, args) => db(`rpc/${fn}`, { method: 'POST', body: JSON.stringify
 const one = (j) => (Array.isArray(j) ? j[0] : j);
 let seedN = 0; const DAY0 = Math.floor(Math.random() * 280); const MIN0 = Math.floor(Math.random() * 50);
 function uniqueSlot() { const d = new Date(Date.UTC(2026, 11, 1)); d.setUTCDate(d.getUTCDate() + DAY0 + seedN); seedN++; return d.toISOString().slice(0, 10); }
-function uniqueTime() { return `${8 + (seedN % 10)}:${String((MIN0 + seedN) % 60).padStart(2, '0')}`; }
+function uniqueTime() { return `${6 + (seedN % 16)}:00`; }   // an OFFERED hourly start (0076: no arbitrary minutes)
 
 // The pinned fixtures are created by tests/_seed_ledger_fixtures.mjs (idempotent upsert on primary key).
 // In CI the clean build resets the database and test:routes runs BEFORE test:ledger, so on a fresh

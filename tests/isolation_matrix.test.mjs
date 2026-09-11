@@ -56,7 +56,7 @@ const mkBooking = async (rid, vid, brand, status = 'pending') => {
   const d = new Date(Date.UTC(2026, 11, 1 + (seedN % 20))).toISOString().slice(0, 10);
   const row = one(await db('bookings', { method: 'POST', body: JSON.stringify({
     retailer_id: rid, venue_id: vid, brand_id: brand.id, brand_name: brand.company_name,
-    contact_name: brand.contact_name, contact_email: brand.email, demo_date: d, demo_time: `${8 + (seedN % 9)}:${String(seedN % 60).padStart(2, '0')}`,
+    contact_name: brand.contact_name, contact_email: brand.email, demo_date: d, demo_time: `${8 + (seedN % 9)}:00`,   // an OFFERED hourly start (0076)
     status, payment_status: 'unpaid' }) }));
   track('bookings', row.id); return row;
 };
