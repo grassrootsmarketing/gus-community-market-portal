@@ -37,6 +37,7 @@ function fold(line) {
 // helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. A missing/unparseable time keeps the
 // feed's long-standing 11:00 default; a date that cannot be resolved (impossible date, DST gap) is
 // dropped from the feed rather than guessed.
+import { fetchBookingSnapshots, sendFeedUnavailable } from './_occurrence.js';
 function parseDemoTime(dateStr, timeStr, tz) {
   if (!dateStr) return null;
   return demoStartUtc(dateStr, timeStr, tz, { lenientTime: true });
@@ -112,23 +113,25 @@ export default async function handler(req, res) {
     // Codex B-04: the ACCEPTED occurrence is the booking's snapshot (start_at/end_at/timezone,
     // 0074/0076). A retailer changing its timezone setting must not move an existing appointment.
     // Only a legacy demo without a usable snapshot falls back to reconstructing the time.
-    const snapById = {};
-    {
-      const ids = (demos || []).map(d => d.booking_id).filter(Boolean);
-      if (ids.length) {
-        const bR = await fetch(`${_b.supabaseUrl}/rest/v1/bookings?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,start_at,end_at,timezone`, {
-          headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
-        });
-        const rows = bR.ok ? await bR.json() : [];
-        (rows || []).forEach(b => { if (b.start_at && b.end_at) snapById[b.id] = b; });
-      }
+    // Codex R3: a FAILED snapshot lookup must not become a reconstructed calendar. Chunked,
+    // de-duplicated lookup; any failed or malformed chunk answers 503 (no-store) instead.
+    let snapById;
+    try {
+      snapById = await fetchBookingSnapshots(
+        (p) => fetch(`${_b.supabaseUrl}/rest/v1/${p}`, { headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` } }),
+        (demos || []).map(d => d.booking_id));
+    } catch (e) {
+      console.error('cal feed snapshot lookup failed:', (e && e.message) || e, e && e.detail);
+      return sendFeedUnavailable(res, e);
     }
     (demos || []).forEach(d => {
-      const snap = d.booking_id ? snapById[d.booking_id] : null;
-      const start = snap ? new Date(snap.start_at) : parseDemoTime(d.demo_date, d.demo_time, tz);
+      const snap = d.booking_id ? snapById.get(d.booking_id) : null;
+      // Reconstruction is for a demo with NO linked booking, or a linked booking that genuinely has
+      // no snapshot (legacy) — both established by a SUCCESSFUL read above.
+      const start = snap ? snap.start_at : parseDemoTime(d.demo_date, d.demo_time, tz);
       if (!start || Number.isNaN(start.getTime())) return;
       const durHours = d.duration_hours || 3;
-      const end = snap ? new Date(snap.end_at) : new Date(start.getTime() + durHours * 60 * 60 * 1000);
+      const end = snap ? snap.end_at : new Date(start.getTime() + durHours * 60 * 60 * 1000);
       const venue = venueById[d.venue_id] || null;
       const venueLabel = venue ? venue.name : '';
       const venueAddr = venue && venue.address ? venue.address : '';

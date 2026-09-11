@@ -1653,21 +1653,23 @@ export default async function handler(req, res) {
       ];
       // Codex B-04: prefer the booking's accepted snapshot (start_at/end_at); reconstruct only for
       // legacy demos without one, so a retailer timezone change never moves an accepted appointment.
-      const snapById = {};
-      {
-        const ids = (demos || []).map(d => d.booking_id).filter(Boolean);
-        if (ids.length) {
-          const bR = await sb(`bookings?id=in.(${ids.map(encodeURIComponent).join(',')})&select=id,start_at,end_at,timezone`);
-          const rows = bR.ok ? await bR.json() : [];
-          (rows || []).forEach(b => { if (b.start_at && b.end_at) snapById[b.id] = b; });
-        }
+      // Codex R3: a failed snapshot lookup answers 503 (no-store); it never becomes a reconstructed
+      // calendar built from the retailer's CURRENT timezone.
+      let snapById;
+      try {
+        const { fetchBookingSnapshots } = await import('./_occurrence.js');
+        snapById = await fetchBookingSnapshots((p) => sb(p), (demos || []).map(d => d.booking_id));
+      } catch (e) {
+        console.error('brand feed snapshot lookup failed:', (e && e.message) || e, e && e.detail);
+        const { sendFeedUnavailable } = await import('./_occurrence.js');
+        return sendFeedUnavailable(res, e);
       }
       (demos || []).forEach(d => {
-        const snap = d.booking_id ? snapById[d.booking_id] : null;
-        const start = snap ? new Date(snap.start_at) : parseDemoTime(d.demo_date, d.demo_time, _safeZone(d.retailers?.timezone));
+        const snap = d.booking_id ? snapById.get(d.booking_id) : null;
+        const start = snap ? snap.start_at : parseDemoTime(d.demo_date, d.demo_time, _safeZone(d.retailers?.timezone));
         if (!start || Number.isNaN(start.getTime())) return;
         const durHours = d.duration_hours || 3;
-        const end = snap ? new Date(snap.end_at) : new Date(start.getTime() + durHours * 60 * 60 * 1000);
+        const end = snap ? snap.end_at : new Date(start.getTime() + durHours * 60 * 60 * 1000);
         const retailerName = d.retailers?.name || 'Unknown retailer';
         const venueName = d.venues?.name || '';
         const venueAddr = d.venues?.address || '';

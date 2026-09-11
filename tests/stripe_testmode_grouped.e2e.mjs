@@ -410,7 +410,12 @@ async function run() {
     const toDate = (x) => new Date(x.replace(/(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/, '$1-$2-$3T$4:$5:$6Z'));
     const st = (evB.match(/DTSTART:(\d{8}T\d{6}Z)/) || [])[1], en = (evB.match(/DTEND:(\d{8}T\d{6}Z)/) || [])[1];
     ok('custom duration: the retailer calendar feed shows B as a 2-hour event from the booking snapshot', feed.statusCode === 200 && st && en && (toDate(en) - toDate(st)) / 3600e3 === 2 && toDate(st).getTime() === new Date(bB.start_at).getTime(), `${feed.statusCode} ${st} ${en} demoB=${(demos.find(d => d.booking_id === B) || {}).id} body=${String(feed.body || '').split('\n').join(' | ').slice(0, 600)}`);
-    evidence.notes.push(`custom-duration: A 1h (hourly venue), B 2h (custom slots); feed DTSTART/DTEND for B = ${st}/${en}`);
+    const btok2 = await callRoute('brand-account.js', req({ body: { action: 'cal_token' }, cookies: { dh_brand_session: brandCookie } }));
+    const bfeed = await callRoute('brand-account.js', req({ method: 'GET', query: { action: 'cal', token: btok2.body && btok2.body.token } }));
+    const evBB = String(bfeed.body || '').split('BEGIN:VEVENT').find(x => x.includes('UID:brand-' + (demos.find(d => d.booking_id === B) || {}).id)) || '';   // brand feed UIDs are prefixed
+    const bst = (evBB.match(/DTSTART:(\d{8}T\d{6}Z)/) || [])[1], ben = (evBB.match(/DTEND:(\d{8}T\d{6}Z)/) || [])[1];
+    ok('custom duration: the BRAND calendar feed shows B as the same 2-hour event from the snapshot', bfeed.statusCode === 200 && bst && ben && (toDate(ben) - toDate(bst)) / 3600e3 === 2 && toDate(bst).getTime() === new Date(bB.start_at).getTime(), `${btok2.statusCode}/${bfeed.statusCode} ${bst} ${ben}`);
+    evidence.notes.push(`custom-duration: A 1h (hourly venue), B 2h (custom slots); retailer feed DTSTART/DTEND for B = ${st}/${en}; brand feed = ${bst}/${ben}`);
   }
 
   // ---- 6. Cancel A -> REAL partial refund of A's allocation only ----------------------------
