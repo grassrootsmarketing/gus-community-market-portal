@@ -26,6 +26,9 @@
 // Run from the repository root with test-database creds:  node tests/notification_worker.test.mjs
 import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs';
 import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+// Release B: a venue only offers its slot list, so the 'early demo' (6:30 AM, before morning_of) case
+// needs an explicit 06:30/1h slot inside opening hours that start early enough.
+const EARLY_STANDARD = { schedule: Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map(d => [String(d), [{ open: '06:00', close: '21:00' }]])), slots: [{ start: '06:30', hours: 1 }, { start: '09:00', hours: 1 }, { start: '10:00', hours: 1 }, { start: '11:00', hours: 3 }, { start: '15:00', hours: 2 }, { start: '17:00', hours: 3 }], blackouts: [] };   // offers every time this suite books: 6:30 AM, 10:00 AM, 11:00 AM, 3:00 PM, 5:00 PM
 
 import { getBinding } from '../api/_env.js';
 import { MailError, sendMail } from '../api/_mail.js';
@@ -81,7 +84,7 @@ const slug = uniq('nw');
 const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
   slug, name: 'Worker Fixture Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
   platform_keeps_all: true, timezone: LA, auto_confirm_bookings: false }) })).id);
-const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Main', address: '1 Worker Way', demo_fee: 30, availability: STANDARD }) })).id);
+const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Main', address: '1 Worker Way', demo_fee: 30, availability: EARLY_STANDARD }) })).id);
 const C1e = `c1-${slug}@fixture.test`;
 const C1 = track('internal_contacts', one(await db('internal_contacts', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Worker Contact', role: 'Lead', email: C1e, venue_ids: [V1], notification_prefs: { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['d3', 'd1', 'morning_of', 'h1'] } }) })).id);
 const brandEmail = `${uniq('wbrand')}@fixture.test`;
@@ -95,9 +98,11 @@ const b = await getBinding();
 
 // A CONFIRMED booking inserted directly: the 0074 trigger writes demo_confirmed on INSERT.
 async function confirmedBooking(demo_date, demo_time, extra = {}) {
-  const row = one(await db('bookings', { method: 'POST', body: JSON.stringify({
+  const res = await db('bookings', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, venue_id: V1, brand_id: brandId, brand_name: 'Worker Brand Co', contact_name: 'Rep W', contact_phone: '555-0100',
-    contact_email: brandEmail, product: 'Cold Brew', demo_date, demo_time, status: 'confirmed', payment_status: 'paid', needs_electricity: true, ...extra }) }));
+    contact_email: brandEmail, product: 'Cold Brew', demo_date, demo_time, status: 'confirmed', payment_status: 'paid', needs_electricity: true, ...extra }) });
+  const row = one(res);
+  if (!row) throw new Error('fixture booking insert failed: ' + res.status + ' ' + JSON.stringify(res.body).slice(0, 300));
   track('bookings', row.id);
   return row;
 }

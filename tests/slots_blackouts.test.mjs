@@ -63,7 +63,7 @@ let staffCookie = null, brandCookie = null;
 try {
   const pre = await one(`SELECT to_regprocedure('public.venue_availability_set(uuid,uuid,integer,jsonb,jsonb,boolean,integer)') AS s,
                                 to_regprocedure('public.venue_blackouts_set(uuid,text,date[],uuid[],text,uuid,uuid[])') AS b,
-                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid,integer,jsonb,jsonb,boolean,integer)') AS a,
+                                to_regprocedure('public.venue_availability_apply_all(uuid,uuid,integer,jsonb,jsonb,boolean,integer,boolean)') AS a,
                                 to_regprocedure('public.offering_anomalies(uuid)') AS o,
                                 (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_booking_slot_resolve','trg_venue_availability_guard'))::int AS trg`);
   ok('preflight: 0075 + 0076 applied (RPCs + triggers present)', pre.s && pre.b && pre.a && pre.o && pre.trg === 2, JSON.stringify(pre));
