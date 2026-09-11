@@ -16,7 +16,7 @@
 | Migrations | 0000–0077 (**78** SQL files + README). New: `0077_release_b_projection_and_transitions.sql` (forward-only; 0075/0076 untouched). CI `EXPECTED_MIGRATIONS: '78'`. |
 | Test DB | demohub-rebuild-check (`tileejdviuvijumjeplv`): 0074, 0075, 0076, **0077** applied; ledger rows `0073`–`0077` recorded (`supabase_migrations.schema_migrations`) |
 | Production | demohub-prod (`dkgjvsstbgnhcfboqqnd`): unchanged (ledger `0060`–`0072`, code `1806de4`); read-only inventory in §8 |
-| CI | run **34579737286** on `778ef1e` (workflow_dispatch, clean_build + staging_gate): suites **green** on ubuntu and windows; the clean build and both staging passes are **waiting** for David's `staging` environment approval (§9) |
+| CI | run **34579737286** (verify #131) on `778ef1e`: **all six jobs green** — suites (ubuntu + windows), clean build A/B, staging pass 1, staging pass 2 (consecutive, same commit); David approved the `staging` environment (§9) |
 | Kill switch | `SLOT_EDITING_ENABLED` (Vercel env, literal `true` only; **default OFF**) — now gates slot-list saves/resets, blackout add/remove, apply-all slot copying, slot lists on venue creation and the admin editors (§2 R4) |
 | Containment | unchanged (Gus only, signup OFF, holds OFF, capacity 1, no viewers, support OFF) |
 
@@ -97,11 +97,11 @@ Labels: route suites run the shipped handlers in-process against the test databa
 ## 9. GitHub gate
 
 - Run 34575245332 on `accaefa1`: suites (ubuntu + windows) **green**, clean build A/B **green** (David approved), staging pass 1 **failed** in `notification_worker.test.mjs` on the fixture described under G1 (`3:00 PM` not offered by the STANDARD list → null insert → crash); pass 2 skipped. Fixed in `1591d23`; no application code changed for it.
-- Run **34579737286** on `778ef1e`: dispatched with `clean_build=true`, `staging_gate=true`; suites **green** on both OS; the clean build and both staging passes (consecutive, same commit) are waiting for David's approval on the `staging` environment. The result is to be appended here; the candidate SHA does not change.
+- Run **34579737286** (verify #131) on `778ef1e`: dispatched with `clean_build=true`, `staging_gate=true`; David approved the `staging` environment; **all six jobs green** — suites ubuntu + windows, clean build A/B (3m35s), staging gate pass 1 (5m28s), staging gate pass 2 consecutive on the same commit (5m46s). Total 1h10m including the approval wait. This is the CI evidence for the frozen candidate.
 
 ## 10. Outstanding before acceptance / deployment (not code)
 
-1. David approves the CI environment gates on run 34579737286; record the clean build and both staging passes on `778ef1e`.
+1. ~~CI environment gates~~ — done: run 34579737286 fully green on `778ef1e`.
 2. Credential rotation (Codex §3 preflight) through the operator workflow.
 3. A deployed preview of `778ef1e` on the existing Vercel project with test bindings, Stripe test mode and the mail sink (branch previews are not built for this project; David enables/authorizes one). Browser evidence here is from the in-process server and labelled as such.
 4. Production: apply 0074/0075/0076/0077 + ledger rows, merge to `main`, set `SLOT_EDITING_ENABLED` and `NOTIFICATION_WORKER_ENABLED` in Production as decided, verify the worker heartbeat and the five audits on production, keep containment.
