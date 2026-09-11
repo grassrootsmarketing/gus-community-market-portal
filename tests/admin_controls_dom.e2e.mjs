@@ -8,6 +8,7 @@
 // Run:  1) start the local server (scratchpad local-server.mjs, port 4174) against demohub-rebuild-check
 //       2) set -a; . demohub.env; set +a; export SB_DB_URL=<session pooler>; PLAYWRIGHT_ROOT=<dir with node_modules/playwright>
 //       3) node tests/admin_controls_dom.e2e.mjs
+/* global document, window, onboardingGo, blackoutMonthShift, _slotsDraft */   // browser-context identifiers inside page.evaluate()
 import { createRequire } from 'node:module';
 import pg from 'pg';
 const { Client } = pg;
