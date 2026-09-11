@@ -11,12 +11,12 @@
 
 | Item | Value |
 |---|---|
-| Corrected candidate SHA | `c49eac706f578fea970e2311244473bf35e5738d` (code: `d5c0a8d`; `c49eac7` adds only a lint declaration to the DOM test) |
+| Corrected candidate SHA | `accaefa10caf39138ea01cb94d52898e69e911fd` (application code: `d5c0a8d`; `c49eac7` = lint declaration in the DOM test; `accaefa1` = two test seeders moved to offered hourly starts after the first staging pass refused their minute-based times) |
 | Rejected candidate | `5100e68f906b4bc6b14ce152022554c391188266` |
 | Migrations | 0000–0076 (77 SQL files + README). New: `0076_release_b_corrections.sql` (forward-only; `0075` untouched because it was already applied to the shared test project). CI `EXPECTED_MIGRATIONS: '77'`. |
 | Test DB | demohub-rebuild-check (`tileejdviuvijumjeplv`): 0074, 0075, 0076 applied; ledger rows `0073`–`0076` recorded |
 | Production | demohub-prod (`dkgjvsstbgnhcfboqqnd`): unchanged (ledger `0060`–`0072`); read-only inventory in §8 |
-| CI | run 34573203650 on `c49eac7` (workflow_dispatch, clean_build + staging_gate) — see §9 for the state at packet time; the clean build and both staging passes require David's environment approval |
+| CI | run 34575245332 on `accaefa1` (workflow_dispatch, clean_build + staging_gate) — see §9; the clean build and both staging passes require David's environment approval |
 | Kill switch | `SLOT_EDITING_ENABLED` (Vercel env, literal `true` only; **default OFF**) — gates slot-list writes, blackout add/remove and the admin editors. Enforcement and reads of existing configurations, hours and capacity autosave are unaffected. |
 | Containment | unchanged (Gus only, signup OFF, holds OFF, capacity 1, no viewers, support OFF) |
 
@@ -90,7 +90,8 @@ Labels: the route suites run the actual handlers in-process against the test dat
 
 ## 9. GitHub gate
 
-- Run 34573203650 on `c49eac7`: dispatched with clean_build + staging_gate. State at packet time: Linux/Windows suites **green**; clean build A/B **waiting** on the environment approval (the previous run 34573045717 on `d5c0a8d` failed only the `no-undef` check on the new DOM test's browser-context identifiers, fixed by the `/* global */` declaration in `c49eac7`). The clean build A/B and the two consecutive staging passes wait on David's environment approval.
+- Run 34573203650 on `c49eac7`: suites green, clean build A/B **green** (David approved), staging pass 1 **failed** on a fixture: `tests/cron_heartbeats.test.mjs` seeded bookings at minute-based times (`9:20 AM`) that 0076 correctly refuses (`slot_not_offered`); a random offset had hidden it locally. Fixed in `accaefa1` (cron_heartbeats + isolation_matrix seed offered hourly starts; both suites re-run green locally). No application code changed.
+- Run 34575245332 on `accaefa1`: dispatched; suites in progress at packet time; clean build and both staging passes need the approval click again.
 
 ## 10. Outstanding before acceptance / deployment (not code)
 
