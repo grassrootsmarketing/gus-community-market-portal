@@ -1208,6 +1208,11 @@ await db(`cron_heartbeat?cron_name=eq.notification-worker&ran_at=gte.${encodeURI
       await del(`payment_groups?id=eq.${gid}`);
     }
     await del(`brand_retailer_agreements?retailer_id=eq.${rid}`);
+    // Codex round 4: demos and notification rows reference the fixture venues/bookings; delete them
+    // BEFORE the venue/retailer rows or the venue delete fails and the fixture retailer is left behind.
+    await del(`notification_deliveries?retailer_id=eq.${rid}`);
+    await del(`notification_events?retailer_id=eq.${rid}`);
+    await del(`demos?retailer_id=eq.${rid}`);
   }
   if (fxBookings.length) for (const t of ['refund_operations', 'refund_requests', 'booking_fulfillments']) await del(`${t}?booking_id=in.(${fxBookings.join(',')})`);
 }

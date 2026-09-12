@@ -65,6 +65,10 @@ on:
         description: 'Run the staging integration gate (real routes, real staging database) TWICE'
         type: boolean
         default: false
+      upgrade_rehearsal:
+        description: 'Codex R4-04: rehearse the PRODUCTION upgrade path on STAGING (reset to 0072 -> seed -> migration up 0074..0081 without 0073 -> verify -> reset)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -378,3 +382,202 @@ jobs:
           set -euo pipefail
           echo "commit under test: ${GITHUB_SHA}"
           npm run test:staging
+
+  # --------------------------------------------------------------------------
+  # UPGRADE REHEARSAL -- Codex Release B round 4, R4-04 (7).
+  #
+  # A clean build proves the migration CHAIN builds a schema. It does not prove the
+  # UPGRADE PATH production will actually take: existing rows (held authorizations, paid
+  # work awaiting confirmation, linked demos, an open case) meeting 0074..0081 on a ledger
+  # that stops at 0072 and that NEVER applied 0073. This job rehearses exactly that:
+  #   1. hide every migration >= 0073 from the CLI and `db reset` staging to 0072 (= production);
+  #   2. verify that starting point, then seed production-shaped data through the product's
+  #      own ledger RPCs (supabase/rehearsal/seed-pre-0074.sql);
+  #   3. un-hide 0074..0081 (0073 stays hidden), `supabase migration up --linked`;
+  #   4. verify the ledger tail is exactly 0074..0081, the seeded rows survived with their
+  #      snapshots and generation 1, every audit is clean, and the runtime contracts behave;
+  #   5. capture the upgraded schema manifest, then restore every file, reset staging to the
+  #      full chain, capture the clean manifest, and require the two to match (documented
+  #      normalization: the ledger row count differs by exactly the deliberately absent 0073).
+  # Manual only, staging only (the same refusals as the clean build), the `staging`
+  # environment gate means a human approves before it touches anything. The final reset runs
+  # even when an earlier step failed, so staging is never left on a half-upgraded schema.
+  # --------------------------------------------------------------------------
+  upgrade-rehearsal:
+    name: upgrade rehearsal 0072 -> 0081 (staging)
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.upgrade_rehearsal && needs.suites.result == 'success' && needs.staging-gate-pass-2.result != 'failure' && needs.staging-gate-pass-2.result != 'cancelled'
+    needs: [suites, staging-gate-pass-2]
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+
+      - name: refuse any target that is not staging
+        env:
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          ./.github/scripts/assert-staging.sh
+          if [ "$TARGET_REF" = "${PRODUCTION_REF_DENIED}" ]; then echo "REFUSING: $TARGET_REF is PRODUCTION"; exit 1; fi
+          if [ "$TARGET_REF" != "${STAGING_REF_EXPECTED}" ]; then echo "REFUSING: $TARGET_REF is not the approved staging project"; exit 1; fi
+
+      - name: rehearsal files must exist and the manifest query must be read-only
+        run: |
+          set -euo pipefail
+          for f in supabase/rehearsal/verify-pre.sql supabase/rehearsal/seed-pre-0074.sql supabase/rehearsal/verify-ledger.sql supabase/rehearsal/verify-post.sql supabase/manifest.sql; do
+            test -s "$f" || { echo "FAIL: $f is missing or empty"; exit 1; }
+          done
+          if grep -inE '^[[:space:]]*(insert|update|delete|drop|alter|truncate|grant|revoke|create)[[:space:]]' supabase/manifest.sql; then echo "FAIL: manifest query contains a write statement"; exit 1; fi
+          echo "rehearsal inputs present"
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+      - name: record CLI version
+        run: supabase --version
+
+      - name: link
+        id: link
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          _link() { supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"; }
+          retry_transient "supabase link" _link
+
+      # ---- 1. production's starting point: 0000..0072 applied, nothing at or after 0073 visible ----
+      - name: hide every migration >= 0073 (production never applied 0073; 0074+ are the release)
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hidden" rehearsal
+          for f in supabase/migrations/*.sql; do
+            n=$(basename "$f" | cut -c1-4)
+            if [ "$((10#$n))" -ge 73 ]; then mv "$f" "$RUNNER_TEMP/hidden/"; fi
+          done
+          echo "visible: $(ls supabase/migrations/*.sql | wc -l) files, last: $(ls supabase/migrations/*.sql | tail -1)"
+          echo "hidden:  $(ls "$RUNNER_TEMP"/hidden/*.sql | wc -l) files: $(ls "$RUNNER_TEMP"/hidden | tr '\n' ' ')"
+          test "$(ls supabase/migrations/*.sql | wc -l)" -eq 73 || { echo "FAIL: expected 73 visible files (0000..0072)"; exit 1; }
+
+      - name: reset staging to 0072
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase db reset --linked --yes | tee rehearsal/00-reset-to-0072.txt
+
+      - name: verify the starting point (ledger max 0072, 0073 absent, pre-Release-B contracts)
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          _q() { supabase db query -f supabase/rehearsal/verify-pre.sql --linked > rehearsal/01-verify-pre.txt 2> rehearsal/01-verify-pre.err; }
+          retry_transient "verify-pre" _q || { cat rehearsal/01-verify-pre.err; exit 1; }
+          cat rehearsal/01-verify-pre.txt
+          supabase migration list --linked > rehearsal/02-ledger-pre.txt 2>&1 || true
+          cat rehearsal/02-ledger-pre.txt
+
+      # ---- 2. production-shaped data on the 0072 schema ----
+      - name: seed representative data through the product's ledger RPCs
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          _q() { supabase db query -f supabase/rehearsal/seed-pre-0074.sql --linked > rehearsal/03-seed.txt 2> rehearsal/03-seed.err; }
+          retry_transient "seed" _q || { cat rehearsal/03-seed.err; exit 1; }
+          cat rehearsal/03-seed.txt
+
+      # ---- 3. the release migrations, in order, with 0073 deliberately still absent ----
+      - name: un-hide 0074..end (0073 stays hidden) and apply them with supabase migration up
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          for f in "$RUNNER_TEMP"/hidden/*.sql; do
+            n=$(basename "$f" | cut -c1-4)
+            if [ "$((10#$n))" -ge 74 ]; then mv "$f" supabase/migrations/; fi
+          done
+          echo "pending (should be 0074..end): $(ls supabase/migrations | grep -E '^00(7[4-9]|8[0-9])_' | tr '\n' ' ')"
+          test ! -e supabase/migrations/0073_demo_notifications.sql || { echo "FAIL: 0073 must stay hidden"; exit 1; }
+          supabase migration up --linked --yes 2>&1 | tee rehearsal/04-migration-up.txt
+
+      # ---- 4. the upgraded state ----
+      - name: verify the ledger tail is exactly the planned sequence
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          supabase migration list --linked > rehearsal/05-ledger-post.txt 2>&1 || true
+          cat rehearsal/05-ledger-post.txt
+          _q() { supabase db query -f supabase/rehearsal/verify-ledger.sql --linked > rehearsal/06-verify-ledger.txt 2> rehearsal/06-verify-ledger.err; }
+          retry_transient "verify-ledger" _q || { cat rehearsal/06-verify-ledger.err; exit 1; }
+          cat rehearsal/06-verify-ledger.txt
+
+      - name: verify data, snapshots, audits and runtime contracts on the upgraded rows
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          _q() { supabase db query -f supabase/rehearsal/verify-post.sql --linked > rehearsal/07-verify-post.txt 2> rehearsal/07-verify-post.err; }
+          retry_transient "verify-post" _q || { cat rehearsal/07-verify-post.err; exit 1; }
+          cat rehearsal/07-verify-post.txt
+
+      - name: manifest of the UPGRADED schema
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./.github/scripts/capture-manifest.sh rehearsal/manifest-upgraded.raw.txt
+
+      # ---- 5. leave staging on the full chain, and prove upgraded == clean ----
+      - name: restore every migration file (0073 included)
+        if: always() && steps.link.outcome == 'success'
+        run: |
+          set -euo pipefail
+          if ls "$RUNNER_TEMP"/hidden/*.sql >/dev/null 2>&1; then mv "$RUNNER_TEMP"/hidden/*.sql supabase/migrations/; fi
+          n=$(ls supabase/migrations/*.sql | wc -l)
+          echo "restored: $n migration files"
+          test "$n" -eq "${EXPECTED_MIGRATIONS}" || { echo "FAIL: expected ${EXPECTED_MIGRATIONS} files after restore"; exit 1; }
+
+      - name: final reset of staging to the full chain (always, so staging is never left half-upgraded)
+        if: always() && steps.link.outcome == 'success'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase db reset --linked --yes | tee rehearsal/08-final-reset.txt
+          ./.github/scripts/provision-identity.sh preview '${{ vars.STAGING_PROJECT_REF }}'
+
+      - name: manifest of the CLEAN schema, compared with the upgraded one
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./.github/scripts/capture-manifest.sh rehearsal/manifest-clean.raw.txt
+          # Documented normalization: the ledger ROW COUNT legitimately differs by one (0073 is
+          # absent on the upgrade path by design). Nothing else may differ.
+          grep -vE 'count migrations = [0-9]+' rehearsal/manifest-upgraded.txt > rehearsal/manifest-upgraded.cmp.txt
+          grep -vE 'count migrations = [0-9]+' rehearsal/manifest-clean.txt > rehearsal/manifest-clean.cmp.txt
+          sha256sum rehearsal/manifest-upgraded.cmp.txt rehearsal/manifest-clean.cmp.txt
+          if ! diff -u rehearsal/manifest-upgraded.cmp.txt rehearsal/manifest-clean.cmp.txt > rehearsal/manifest-diff.txt; then
+            echo "FAIL: the UPGRADED schema differs from a CLEAN build (beyond the ledger row count)"; head -120 rehearsal/manifest-diff.txt; exit 1
+          fi
+          echo "upgraded == clean  ($(wc -l < rehearsal/manifest-clean.cmp.txt) manifest lines each, ledger count excluded by documented normalization)"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: upgrade-rehearsal-evidence
+          path: rehearsal/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: failed-upgrade-rehearsal-diagnostics
+          path: rehearsal/
+          if-no-files-found: warn
