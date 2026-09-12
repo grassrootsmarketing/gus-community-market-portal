@@ -61,8 +61,17 @@ export async function runFulfillment(row, owner) {
         const { sendHoldPlacedEmail } = await import('./_provisional.js');
         await sendHoldPlacedEmail(ctx);   // throws on failure -> outbox retries
         mailOk = true;
+        // Owner ping (David, 2026-09-11): a REAL booking = the brand completed checkout. A hold counts.
+        const { notifyOwnerBooked } = await import('./_owner-alerts.js');
+        await notifyOwnerBooked(ctx, { kind: 'hold', targetStatus: 'held' });   // best-effort, never throws
       } else {
         await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;
+        // Owner ping for a PAID booking. A captured hold (held_expires_at set) was already announced
+        // as a hold — do not announce it twice.
+        if (!ctx.held_expires_at) {
+          const { notifyOwnerBooked } = await import('./_owner-alerts.js');
+          await notifyOwnerBooked(ctx, { kind: 'paid', targetStatus: row.target_status || 'pending' });
+        }
       }
     }
   } catch (e) {
