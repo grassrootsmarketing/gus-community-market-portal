@@ -35,7 +35,7 @@ import { MailError, sendMail } from '../api/_mail.js';
 import { demoStartUtc, reminderWindow } from '../api/_local-time.js';
 import {
   fanOutEvents, scheduleReminders, dispatchDue, claimDue, processClaimed, collectMetrics, runWorker, backoffMs, makeCache,
-  MAX_ATTEMPTS, LEASE_MS,
+  MAX_ATTEMPTS, LEASE_MS, RESEND_IDEMPOTENCY_WINDOW_MS,
 } from '../api/_notification-outbox.js';
 
 ENV.NOTIFICATION_WORKER_ENABLED = 'true';
@@ -222,11 +222,74 @@ try {
     const mine3 = c3.find(r => r.id === oldUnknown.id);
     const r3 = await processClaimed(b, mine3, { now, token: mine3.claim_token, mailer: rec3.mailer });
     const after3 = await delivery(oldUnknown.id);
-    ok('an unknown row whose first attempt was 25h ago: one more try under the same key, then FINAL unknown (idempotency_window_expired), no further retries', r3.outcome === 'unknown' && r3.final === true && after3.status === 'unknown' && after3.next_attempt_at === null && after3.skip_reason === 'idempotency_window_expired' && rec3.calls[0].headers['Idempotency-Key'] === `oldkey:${slug}`, JSON.stringify([r3, after3.status, after3.next_attempt_at, after3.skip_reason]));
+    ok('an unknown row whose first attempt was 25h ago: ZERO provider calls (Codex R4-03 — the window is judged BEFORE the send), FINAL unknown (idempotency_window_expired), no further retries', rec3.calls.length === 0 && r3.outcome === 'unknown' && r3.final === true && after3.status === 'unknown' && after3.next_attempt_at === null && after3.skip_reason === 'idempotency_window_expired' && after3.idempotency_key === `oldkey:${slug}` && after3.frozen_payload.subject === 'Demo confirmed: old', JSON.stringify([r3, after3.status, after3.next_attempt_at, after3.skip_reason]));
     const c4 = await claimDue(b, { now: at(now, HOUR), batch: 5, claimToken: crypto.randomUUID() });
     ok('the final unknown row is never claimed again', !c4.some(r => r.id === oldUnknown.id));
     const metrics = await collectMetrics(b, { now });
     ok('metrics report the unknown row separately from liveness', metrics.unknown_count >= 1 && typeof metrics.backlog_pending === 'number' && typeof metrics.oldest_pending_age_min === 'number', JSON.stringify(metrics));
+  }
+
+  // =========================================================================
+  console.log('\n— 3b (Codex R4-03): eligibility precedes any provider call, on the per-attempt clock; uncertainty outlives claims and later rejections —');
+  // =========================================================================
+  {
+    const now = new Date();
+    const W = RESEND_IDEMPOTENCY_WINDOW_MS;
+    const seed = (tag, { attemptedAt, uncertain = true, status = 'unknown', attempts = 1, extra = {} }) => insertDelivery({
+      retailer_id: retailerId, booking_id: bk1.id, recipient_kind: 'store_contact', recipient_id: C1, recipient_email: C1e, kind: 'demo_confirmed',
+      occurrence_key: `${bk1.id}:1`, dedupe_key: `r403-${tag}:${slug}`, due_at: iso(at(now, -2 * HOUR)), status, attempts, next_attempt_at: iso(at(now, -MIN)),
+      idempotency_key: `r403key-${tag}:${slug}`, frozen_payload: { to: C1e, subject: 'Demo confirmed: r403 ' + tag, html: '<p>r403</p>', ...(attemptedAt === undefined ? {} : { attempted_at: attemptedAt }), uncertain, ...extra },
+    });
+    const claimIt = async (row, clockNow = now) => { const c = await claimDue(b, { now: clockNow, batch: 50, claimToken: crypto.randomUUID() }); const mine = c.find(r => r.id === row.id); for (const r of c) if (r.id !== row.id) await db(`notification_deliveries?id=eq.${r.id}`, { method: 'PATCH', body: JSON.stringify({ claim_token: null, lease_until: null, status: 'pending' }) }); return mine; };
+    const run = async (row, mode, opts = {}) => { const rec = recordingMailer(b, { mode }); const mine = await claimIt(row, opts.claimNow); const r = await processClaimed(b, mine, { now: opts.claimNow || now, clock: opts.clock, token: mine.claim_token, mailer: rec.mailer }); return { r, calls: rec.calls.length, after: await delivery(row.id) }; };
+
+    // boundary cases, all with a provider WILLING TO ACCEPT — zero calls is the only acceptable count past the cutoff
+    const inside = await run(await seed('inside', { attemptedAt: iso(at(now, -(W - MIN))) }), 'ok');
+    ok('just INSIDE the window (W-1min): one call, accepted, uncertainty resolved', inside.calls === 1 && inside.r.outcome === 'accepted' && inside.after.status === 'accepted' && inside.after.frozen_payload.uncertain === false && !!inside.after.frozen_payload.resolved_at, JSON.stringify([inside.r, inside.calls]));
+    const atB = await run(await seed('at', { attemptedAt: iso(at(now, -W)) }), 'ok');
+    ok('AT the boundary (exactly W): ZERO calls, final unknown, idempotency_window_expired', atB.calls === 0 && atB.r.outcome === 'unknown' && atB.r.final === true && atB.after.status === 'unknown' && atB.after.skip_reason === 'idempotency_window_expired' && atB.after.next_attempt_at === null, JSON.stringify([atB.r, atB.calls]));
+    const after = await run(await seed('after', { attemptedAt: iso(at(now, -(W + HOUR))) }), 'ok');
+    ok('AFTER the window (W+1h): ZERO calls, final unknown', after.calls === 0 && after.r.outcome === 'unknown' && after.r.final === true && after.after.status === 'unknown', JSON.stringify([after.r, after.calls]));
+    const badTs = await run(await seed('badts', { attemptedAt: 'not-a-timestamp' }), 'ok');
+    ok('INVALID first-attempt timestamp with uncertain history: ZERO calls, final unknown, review_required', badTs.calls === 0 && badTs.r.outcome === 'unknown' && badTs.r.final === true && badTs.after.status === 'unknown' && badTs.after.skip_reason === 'review_required', JSON.stringify([badTs.r, badTs.calls]));
+    const noTs = await run(await seed('nots', { attemptedAt: undefined }), 'ok');
+    ok('MISSING first-attempt timestamp with uncertain history: ZERO calls, review_required', noTs.calls === 0 && noTs.after.status === 'unknown' && noTs.after.skip_reason === 'review_required', JSON.stringify([noTs.r, noTs.calls]));
+    const defOld = await run(await seed('defold', { attemptedAt: iso(at(now, -(W + HOUR))), uncertain: false, status: 'failed' }), 'ok');
+    ok('a definitely-rejected history past the window is ALSO terminal with zero calls — but stays failed, not unknown (no send may have gone out)', defOld.calls === 0 && defOld.r.outcome === 'failed' && defOld.r.final === true && defOld.after.status === 'failed' && defOld.after.skip_reason === 'idempotency_window_expired', JSON.stringify([defOld.r, defOld.calls]));
+
+    // the per-ATTEMPT clock: claimed inside the window, the attempt itself lands past it
+    const late = await run(await seed('lateclock', { attemptedAt: iso(at(now, -(W - MIN))) }), 'ok', { clock: () => at(now, 2 * MIN) });
+    ok('per-attempt clock: claimed 1 minute inside the window, attempted 1 minute past it -> ZERO calls, final unknown (the run clock alone would have sent)', late.calls === 0 && late.r.outcome === 'unknown' && late.r.final === true, JSON.stringify([late.r, late.calls]));
+
+    // uncertainty is independent of claim status and survives a later definite rejection
+    const sticky = await seed('sticky', { attemptedAt: iso(at(now, -HOUR)) });
+    const rej = await run(sticky, 'reject');
+    ok('unknown -> claim -> DEFINITE rejection: still UNKNOWN (the earlier possible acceptance is not forgotten), envelope uncertain:true, retry scheduled', rej.calls === 1 && rej.r.outcome === 'unknown' && rej.after.status === 'unknown' && rej.after.frozen_payload.uncertain === true && !!rej.after.next_attempt_at && !!rej.after.frozen_payload.settled_at, JSON.stringify([rej.r, rej.after.status, rej.after.frozen_payload.uncertain]));
+    await db(`notification_deliveries?id=eq.${sticky.id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: iso(at(now, -MIN)) }) });
+    const acc = await run(sticky, 'ok');
+    ok('a later VERIFIED acceptance resolves it: accepted, uncertain:false, resolved_at, same key and payload as before', acc.calls === 1 && acc.r.outcome === 'accepted' && acc.after.status === 'accepted' && acc.after.frozen_payload.uncertain === false && !!acc.after.frozen_payload.resolved_at && acc.after.frozen_payload.subject === 'Demo confirmed: r403 sticky' && acc.after.idempotency_key === `r403key-sticky:${slug}`, JSON.stringify([acc.r, acc.after.frozen_payload]));
+
+    // a crash mid-send: the attempt was marked as starting and never settled -> uncertain on the next claim
+    const crashed = await seed('crash', { attemptedAt: iso(at(now, -HOUR)), uncertain: false, status: 'failed', extra: { attempting_at: iso(at(now, -30 * MIN)) } });
+    const afterCrash = await run(crashed, 'reject');
+    ok('an UNSETTLED prior attempt (attempting_at, no settled_at = crash mid-send) is uncertain: a definite rejection now leaves the row UNKNOWN, not failed', afterCrash.r.outcome === 'unknown' && afterCrash.after.status === 'unknown' && afterCrash.after.frozen_payload.uncertain === true, JSON.stringify([afterCrash.r, afterCrash.after.frozen_payload]));
+
+    // legacy envelope (no uncertainty field) is handled conservatively
+    const legacy = await insertDelivery({ retailer_id: retailerId, booking_id: bk1.id, recipient_kind: 'store_contact', recipient_id: C1, recipient_email: C1e, kind: 'demo_confirmed', occurrence_key: `${bk1.id}:1`, dedupe_key: `r403-legacy:${slug}`, due_at: iso(at(now, -2 * HOUR)), status: 'failed', attempts: 1, next_attempt_at: iso(at(now, -MIN)), idempotency_key: `r403key-legacy:${slug}`, frozen_payload: { to: C1e, subject: 'Demo confirmed: r403 legacy', html: '<p>legacy</p>', attempted_at: iso(at(now, -HOUR)) } });
+    const leg = await run(legacy, 'reject');
+    ok('a LEGACY envelope (pre-contract, no uncertainty field) is treated as uncertain: a rejection leaves it unknown', leg.r.outcome === 'unknown' && leg.after.status === 'unknown', JSON.stringify([leg.r, leg.after.status]));
+
+    // a provider that HANGS settles within the bound as unknown, and is marked attempting before the send
+    const hang = await seed('hang', { attemptedAt: iso(at(now, -HOUR)), uncertain: false, status: 'failed' });
+    const hangMine = await claimIt(hang);
+    const hangCalls = [];
+    const hangMailer = (msg, opts) => sendMail(msg, { ...opts, binding: b, timeoutMs: 50, fetch: (u, o) => { hangCalls.push(1); return new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true })); } });
+    const t0 = Date.now();
+    const hr = await processClaimed(b, hangMine, { now, token: hangMine.claim_token, mailer: hangMailer });
+    const hangAfter = await delivery(hang.id);
+    ok('a hanging provider settles within the bound as UNKNOWN (one call), attempting_at recorded before the send and settled_at after', Date.now() - t0 < 5000 && hangCalls.length === 1 && hr.outcome === 'unknown' && hangAfter.status === 'unknown' && !!hangAfter.frozen_payload.attempting_at && !!hangAfter.frozen_payload.settled_at && hangAfter.frozen_payload.uncertain === true && /mail_provider_unreachable/.test(hangAfter.last_error), JSON.stringify([hr, hangAfter.frozen_payload, hangAfter.last_error]));
+    for (const r of [inside, atB, after, badTs, noTs, defOld, late]) void r;
+    for (const tag of ['inside', 'at', 'after', 'badts', 'nots', 'defold', 'lateclock', 'sticky', 'crash', 'legacy', 'hang']) await db(`notification_deliveries?dedupe_key=eq.r403-${tag}:${slug}`, { method: 'DELETE' });
   }
 
   // =========================================================================
@@ -239,11 +302,17 @@ try {
     const c1 = await claimDue(b, { now, batch: 5, claimToken: crypto.randomUUID() });
     const m1 = c1.find(r => r.id === frozenRow.id);
     const rec = recordingMailer(b);
-    spy.faults.push({ url: `notification_deliveries?id=eq.${frozenRow.id}&claim_token=eq.${m1.claim_token}`, method: 'PATCH', status: 500, message: 'injected_completion_fault', once: true });
-    const r1 = await processClaimed(b, m1, { now, token: m1.claim_token, mailer: rec.mailer });
-    spy.faults.length = 0;
+    // Codex R4-03 B: the attempt is marked durably (attempting_at) BEFORE the send, so the fault must hit
+    // the COMPLETION stamp specifically — the PATCH that carries status 'accepted' — not the first write.
+    const realFetchStamp = globalThis.fetch; let stampFaults = 0;
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes(`notification_deliveries?id=eq.${frozenRow.id}&claim_token=eq.${m1.claim_token}`) && String(opts.method || 'GET') === 'PATCH' && String(opts.body || '').includes('"status":"accepted"')) { stampFaults++; return { ok: false, status: 500, json: async () => ({ message: 'injected_completion_fault' }), text: async () => '{"message":"injected_completion_fault"}' }; }
+      return realFetchStamp(url, opts);
+    };
+    let r1; try { r1 = await processClaimed(b, m1, { now, token: m1.claim_token, mailer: rec.mailer }); } finally { globalThis.fetch = realFetchStamp; }
     const after1 = await delivery(frozenRow.id);
-    ok('send succeeded but the completion stamp failed: outcome error, the row STAYS claimed (not lost, not re-sent now)', r1.outcome === 'error' && after1.status === 'claimed' && after1.claim_token === m1.claim_token && rec.calls.length === 1, JSON.stringify([r1, after1.status]));
+    ok('send succeeded but the completion stamp failed: outcome error, the row STAYS claimed (not lost, not re-sent now), the attempt is marked as started and unsettled', stampFaults === 1 && r1.outcome === 'error' && after1.status === 'claimed' && after1.claim_token === m1.claim_token && rec.calls.length === 1 && !!after1.frozen_payload.attempting_at && !after1.frozen_payload.settled_at, JSON.stringify([r1, after1.status, after1.frozen_payload]));
     const later = at(now, LEASE_MS + MIN);
     const c2 = await claimDue(b, { now: later, batch: 5, claimToken: crypto.randomUUID() });
     const m2 = c2.find(r => r.id === frozenRow.id);

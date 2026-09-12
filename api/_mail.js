@@ -93,8 +93,21 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
     finalHtml = banner + (html || '');
   }
 
+  // Codex R4-03 C: ONE deadline for the whole exchange — request, headers AND body. The timer is
+  // cleared in the outermost finalisation only, after the response is fully consumed and classified.
+  // Body reads are raced against the deadline so a fetch implementation that ignores the signal for
+  // body streams cannot leave a send pending past its advertised bound.
   const controller = timeoutMs ? new AbortController() : null;
-  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  let timer = null;
+  const aborted = () => !!(controller && controller.signal.aborted);
+  const deadline = () => new Promise((_, reject) => {
+    if (!controller) return;
+    const fail = () => reject(Object.assign(new Error('mail deadline reached'), { name: 'AbortError' }));
+    if (controller.signal.aborted) fail(); else controller.signal.addEventListener('abort', fail, { once: true });
+  });
+  const bounded = (p) => controller ? Promise.race([p, deadline()]) : p;
+  try {
+  if (controller) timer = setTimeout(() => controller.abort(), timeoutMs);
   let res;
   try {
     res = await fetchImpl(RESEND_ENDPOINT, {
@@ -116,27 +129,43 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
   } catch (e) {
     // No response: the request may or may not have reached the provider. Report that honestly —
     // never as a definite failure. No payload in the log.
-    console.error('MAIL_PROVIDER_UNREACHABLE', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: !!(controller && controller.signal.aborted) }));
-    throw new MailError('mail_provider_unreachable', { aborted: !!(controller && controller.signal.aborted) });
-  } finally {
-    if (timer) clearTimeout(timer);
+    console.error('MAIL_PROVIDER_UNREACHABLE', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: aborted(), stage: 'request' }));
+    throw new MailError('mail_provider_unreachable', { aborted: aborted(), stage: 'request' });
   }
 
   if (!res.ok) {
+    // Error headers: the provider REFUSED (definite). A stalled or unreadable error body cannot turn
+    // that into a hang or a success — it settles within the bound with the status as the detail.
     let detail = `HTTP ${res.status}`;
-    try { const j = await res.json(); detail = j.message || detail; } catch (_) {}
+    try { const j = await bounded(res.json()); detail = (j && j.message) || detail; }
+    catch (_) { detail += aborted() ? ' (error body stalled past the deadline)' : ' (error body unreadable)'; }
     // Log the failure WITHOUT the payload.
     console.error('MAIL_SEND_FAILED', JSON.stringify({
       target: binding.targetName, mode: plan.mode, redirected: plan.redirected,
-      recipients: plan.to.length, status: res.status,
+      recipients: plan.to.length, status: res.status, body_stalled: aborted(),
     }));
     throw new MailError('mail_send_failed', detail);
   }
 
+  // Success headers: the acknowledgment itself must arrive and parse before this is "accepted by the
+  // provider". A stalled body past the deadline is reported as unreachable/aborted (the provider MAY
+  // have accepted); a malformed body as an unverified acknowledgment. Neither is a confirmed delivery.
+  let j = null;
+  try { j = await bounded(res.json()); }
+  catch (_) {
+    console.error(aborted() ? 'MAIL_PROVIDER_UNREACHABLE' : 'MAIL_ACK_UNVERIFIED', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: aborted(), stage: 'body' }));
+    throw new MailError(aborted() ? 'mail_provider_unreachable' : 'mail_ack_unverified', { aborted: aborted(), stage: 'body' });
+  }
+  if (j === null || typeof j !== 'object') {
+    console.error('MAIL_ACK_UNVERIFIED', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: false, stage: 'body', malformed: true }));
+    throw new MailError('mail_ack_unverified', { aborted: false, stage: 'body', malformed: true });
+  }
   // The provider's message id ("accepted by the provider", not "delivered") for callers that record it.
-  let id = null;
-  try { const j = await res.json(); id = (j && j.id) ? String(j.id) : null; } catch (_) {}
+  const id = j.id ? String(j.id) : null;
   return { ok: true, mode: plan.mode, redirected: plan.redirected, delivered: plan.to.length, id };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 // Best-effort variant for genuinely non-blocking notifications (staff alerts, welcome nudges).

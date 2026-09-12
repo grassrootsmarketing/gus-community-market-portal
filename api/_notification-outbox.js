@@ -83,11 +83,20 @@ export function backoffMs(attempts) {
 export class OutboxError extends Error {
   constructor(code, detail) { super(code); this.name = 'OutboxError'; this.code = code; this.detail = detail || null; }
 }
+// Codex R4-03 C: every outbox database call is bounded (DB_TIMEOUT_MS) so a stalled read cannot hold a
+// worker past its budget; a timeout is a db_timeout OutboxError, never a silent hang.
+export const DB_TIMEOUT_MS = 15000;
 async function sb(b, path, opts = {}) {
-  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
-    ...opts,
-    headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
-  });
+  let r;
+  try {
+    r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
+      ...opts,
+      signal: opts.signal || AbortSignal.timeout(DB_TIMEOUT_MS),
+      headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
+    });
+  } catch (e) {
+    throw new OutboxError((e && (e.name === 'TimeoutError' || e.name === 'AbortError')) ? 'db_timeout' : 'db_unreachable', { path: path.split('?')[0], message: String((e && e.message) || e).slice(0, 200) });
+  }
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new OutboxError('db_' + (opts.method || 'GET').toLowerCase() + '_failed', { status: r.status, message: String((j && j.message) || t || '').slice(0, 200), path: path.split('?')[0] });
   return j;
@@ -482,7 +491,24 @@ async function recheckAndBuild(b, cache, row, now) {
 }
 
 // Send one claimed row. Returns 'accepted' | 'skipped' | 'failed' | 'unknown' | 'lost'.
-export async function processClaimed(b, row, { now = new Date(), token, mailer = sendMail, sendTimeoutMs = DEFAULTS.sendTimeoutMs, cache = makeCache() } = {}) {
+// Codex R4-03 B: delivery uncertainty lives in the frozen envelope (outside the immutable provider
+// fields to/subject/html), NOT in the lease/work status that claimDue rewrites. A row is uncertain when
+//   * a previous attempt got no usable answer (uncertain:true — provider unreachable, aborted, or an
+//     unverifiable acknowledgment), or
+//   * a previous attempt was marked as starting (attempting_at) and never settled (crash mid-send), or
+//   * the envelope predates this contract (legacy: no 'uncertain' field) — handled conservatively.
+// Only a verified acceptance clears it; a later definite rejection cannot.
+export function uncertaintyOf(frozen) {
+  if (!frozen || typeof frozen !== 'object') return { uncertain: false, reason: null };
+  if (frozen.uncertain === true) return { uncertain: true, reason: 'prior_attempt_uncertain' };
+  const started = Date.parse(String(frozen.attempting_at || ''));
+  const settled = Date.parse(String(frozen.settled_at || ''));
+  if (Number.isFinite(started) && (!Number.isFinite(settled) || settled < started)) return { uncertain: true, reason: 'prior_attempt_unsettled' };
+  if (frozen.uncertain === false) return { uncertain: false, reason: null };
+  return { uncertain: true, reason: 'legacy_envelope' };
+}
+
+export async function processClaimed(b, row, { now = new Date(), clock = null, token, mailer = sendMail, sendTimeoutMs = DEFAULTS.sendTimeoutMs, cache = makeCache() } = {}) {
   const nowIso = now.toISOString();
   try {
     const check = await recheckAndBuild(b, cache, row, now);
@@ -490,45 +516,71 @@ export async function processClaimed(b, row, { now = new Date(), token, mailer =
       await cas(b, row, token, release({ status: 'skipped', skip_reason: check.skip, updated_at: nowIso }));
       return { outcome: 'skipped', reason: check.skip };
     }
+    // Codex R4-03 A: the per-ATTEMPT clock. A worker's run clock (now) is fixed when the run starts;
+    // eligibility is judged when THIS attempt is about to send.
+    const attemptAt = typeof clock === 'function' ? clock() : now;
+    const attemptIso = attemptAt.toISOString();
     // FREEZE. The first attempt fixes {to, subject, html} and the provider key (the delivery id).
     // Later attempts re-send exactly that; a payload built now is only used when nothing was frozen.
-    let frozen = row.frozen_payload && typeof row.frozen_payload === 'object' ? row.frozen_payload : null;
+    const priorAttempt = !!(row.frozen_payload && typeof row.frozen_payload === 'object');
+    let frozen = priorAttempt ? row.frozen_payload : null;
     if (frozen) {
       if (String(frozen.to || '').toLowerCase() !== check.to.toLowerCase()) {
-        await cas(b, row, token, release({ status: 'skipped', skip_reason: 'recipient_changed', updated_at: nowIso }));
+        await cas(b, row, token, release({ status: 'skipped', skip_reason: 'recipient_changed', updated_at: attemptIso }));
         return { outcome: 'skipped', reason: 'recipient_changed' };
       }
-    } else {
-      frozen = { to: check.to, subject: check.message.subject, html: check.message.html, attempted_at: nowIso };
-      await cas(b, row, token, { frozen_payload: frozen, idempotency_key: row.id, recipient_email: check.to, updated_at: nowIso });
     }
-    const attempts = (row.attempts || 0) + 1;
+    const history = uncertaintyOf(frozen);
+    const attemptsSoFar = row.attempts || 0;
+    if (priorAttempt) {
+      // Codex R4-03 A: the eligibility decision comes BEFORE any provider call. Resend deduplicates a
+      // key for 24h only; a re-send outside that window (or with no trustworthy first-attempt time to
+      // measure it from) could be a duplicate. Such work is terminal — surfaced for an operator — with
+      // ZERO provider calls, and it keeps its uncertainty ('unknown' when a send may have gone out).
+      const firstAttemptMs = Date.parse(String(frozen.attempted_at || ''));
+      const terminal = !Number.isFinite(firstAttemptMs) ? 'review_required'
+        : (attemptAt.getTime() - firstAttemptMs >= RESEND_IDEMPOTENCY_WINDOW_MS) ? 'idempotency_window_expired' : null;
+      if (terminal) {
+        const status = history.uncertain ? 'unknown' : 'failed';
+        await cas(b, row, token, release({ status, attempts: attemptsSoFar, next_attempt_at: null, skip_reason: terminal,
+          last_error: String(terminal + (history.reason ? ': ' + history.reason : '')).slice(0, 300), updated_at: attemptIso,
+          frozen_payload: { ...frozen, uncertain: history.uncertain, settled_at: attemptIso } }));
+        return { outcome: status, final: true, reason: terminal, calls: 0 };
+      }
+      // Codex R4-03 B: mark THIS attempt durably before the send. A crash between here and the settle
+      // leaves attempting_at newer than settled_at — which the next claim reads as uncertain.
+      frozen = { ...frozen, uncertain: history.uncertain, attempting_at: attemptIso };
+      await cas(b, row, token, { frozen_payload: frozen, updated_at: attemptIso });
+    } else {
+      frozen = { to: check.to, subject: check.message.subject, html: check.message.html, attempted_at: attemptIso, attempting_at: attemptIso, uncertain: false };
+      await cas(b, row, token, { frozen_payload: frozen, idempotency_key: row.id, recipient_email: check.to, updated_at: attemptIso });
+    }
+    const attempts = attemptsSoFar + 1;
     const key = row.idempotency_key || row.id;
     let sent = null, err = null;
     try {
       sent = await mailer({ from: FROM_ADDRESS, to: frozen.to, replyTo: REPLY_TO, subject: frozen.subject, html: frozen.html }, { binding: b, idempotencyKey: key, timeoutMs: sendTimeoutMs });
     } catch (e) { err = e; }
     if (sent && sent.ok) {
-      await cas(b, row, token, release({ status: 'accepted', provider_message_id: sent.id || null, attempts, next_attempt_at: null, last_error: null, updated_at: nowIso }));
+      // A verified acceptance resolves any earlier uncertainty.
+      await cas(b, row, token, release({ status: 'accepted', provider_message_id: sent.id || null, attempts, next_attempt_at: null, last_error: null, updated_at: attemptIso,
+        frozen_payload: { ...frozen, uncertain: false, settled_at: attemptIso, resolved_at: attemptIso } }));
       return { outcome: 'accepted' };
     }
     const code = errCode(err) || (sent && sent.code) || 'send_failed';
     const lastError = String(code + (err && err.detail && typeof err.detail === 'string' ? ': ' + err.detail : '')).slice(0, 300);
-    const maybeSent = code === 'mail_provider_unreachable';          // request may have reached the provider
-    const wasUnknown = row.status === 'unknown' || maybeSent;
-    const firstAttemptAt = frozen.attempted_at ? new Date(frozen.attempted_at).getTime() : now.getTime();
-    const insideWindow = now.getTime() - firstAttemptAt < RESEND_IDEMPOTENCY_WINDOW_MS;
+    // The request may have reached the provider (no answer / aborted / unverifiable acknowledgment).
+    const maybeSent = code === 'mail_provider_unreachable' || code === 'mail_ack_unverified';
+    // Uncertainty is sticky: a definite rejection NOW does not erase a possible acceptance BEFORE.
+    const uncertain = history.uncertain || maybeSent;
+    const envelope = { ...frozen, uncertain, settled_at: attemptIso };
+    const status = uncertain ? 'unknown' : 'failed';
     if (attempts >= MAX_ATTEMPTS) {
-      await cas(b, row, token, release({ status: wasUnknown ? 'unknown' : 'failed', attempts, next_attempt_at: null, skip_reason: 'max_attempts', last_error: lastError, updated_at: nowIso }));
-      return { outcome: wasUnknown ? 'unknown' : 'failed', final: true };
+      await cas(b, row, token, release({ status, attempts, next_attempt_at: null, skip_reason: 'max_attempts', last_error: lastError, updated_at: attemptIso, frozen_payload: envelope }));
+      return { outcome: status, final: true };
     }
-    if (wasUnknown && !insideWindow) {
-      // Resend dedupes for 24h only: past that a resend could be a duplicate, so stop and surface it.
-      await cas(b, row, token, release({ status: 'unknown', attempts, next_attempt_at: null, skip_reason: 'idempotency_window_expired', last_error: lastError, updated_at: nowIso }));
-      return { outcome: 'unknown', final: true };
-    }
-    await cas(b, row, token, release({ status: wasUnknown ? 'unknown' : 'failed', attempts, next_attempt_at: new Date(now.getTime() + backoffMs(attempts)).toISOString(), last_error: lastError, updated_at: nowIso }));
-    return { outcome: wasUnknown ? 'unknown' : 'failed' };
+    await cas(b, row, token, release({ status, attempts, next_attempt_at: new Date(attemptAt.getTime() + backoffMs(attempts)).toISOString(), last_error: lastError, updated_at: attemptIso, frozen_payload: envelope }));
+    return { outcome: status };
   } catch (e) {
     if (e && e.code === 'completion_mismatch') {
       const current = await loadFresh(b, 'notification_deliveries', row.id, 'id,status,skip_reason').catch(() => null);
@@ -541,7 +593,7 @@ export async function processClaimed(b, row, { now = new Date(), token, mailer =
   }
 }
 
-export async function dispatchDue(b, { now = new Date(), batch = DEFAULTS.dispatchBatch, maxAttempts = DEFAULTS.maxAttemptsPerRun, sendTimeoutMs = DEFAULTS.sendTimeoutMs, mailer = sendMail, cache = makeCache() } = {}) {
+export async function dispatchDue(b, { now = new Date(), clock = null, batch = DEFAULTS.dispatchBatch, maxAttempts = DEFAULTS.maxAttemptsPerRun, sendTimeoutMs = DEFAULTS.sendTimeoutMs, mailer = sendMail, cache = makeCache() } = {}) {
   const out = { claimed: 0, accepted: 0, skipped: 0, failed: 0, unknown: 0, lost: 0, attempts: 0, budget_exhausted: false, errors: [], skip_reasons: {} };
   while (out.attempts < maxAttempts) {
     const n = Math.min(batch, maxAttempts - out.attempts);
@@ -552,7 +604,7 @@ export async function dispatchDue(b, { now = new Date(), batch = DEFAULTS.dispat
     if (!rows.length) break;
     for (const row of rows) {
       out.claimed++; out.attempts++;
-      const r = await processClaimed(b, row, { now, token, mailer, sendTimeoutMs, cache });
+      const r = await processClaimed(b, row, { now, clock, token, mailer, sendTimeoutMs, cache });
       if (r.outcome === 'accepted') out.accepted++;
       else if (r.outcome === 'skipped') { out.skipped++; out.skip_reasons[r.reason] = (out.skip_reasons[r.reason] || 0) + 1; }
       else if (r.outcome === 'failed') { out.failed++; out.errors.push('send_failed'); }
@@ -595,6 +647,11 @@ export async function collectMetrics(b, { now = new Date() } = {}) {
 // completion record all make the run NOT ok — the route writes a 'failed' heartbeat and answers 500.
 // ---------------------------------------------------------------------------
 export async function runWorker(b, { now = new Date(), mailer = sendMail, budgets = {} } = {}) {
+  // Codex R4-03 A: the run clock is fixed at start (for the audit line); each dispatch attempt reads a
+  // clock that advances with real elapsed time from it — a long run cannot re-send under a decision
+  // made minutes ago.
+  const startedRealMs = Date.now();
+  const clock = () => new Date(now.getTime() + (Date.now() - startedRealMs));
   const cache = makeCache();
   const summary = { ok: true, now: now.toISOString(), errors: 0, first_error: null };
   const errors = [];
@@ -604,7 +661,7 @@ export async function runWorker(b, { now = new Date(), mailer = sendMail, budget
   };
   await step('fanout', () => fanOutEvents(b, { now, cache, batch: budgets.fanoutBatch }));
   await step('schedule', () => scheduleReminders(b, { now, cache, batch: budgets.scheduleBatch }));
-  await step('dispatch', () => dispatchDue(b, { now, cache, mailer, batch: budgets.dispatchBatch, maxAttempts: budgets.maxAttemptsPerRun, sendTimeoutMs: budgets.sendTimeoutMs }));
+  await step('dispatch', () => dispatchDue(b, { now, clock, cache, mailer, batch: budgets.dispatchBatch, maxAttempts: budgets.maxAttemptsPerRun, sendTimeoutMs: budgets.sendTimeoutMs }));
   await step('metrics', () => collectMetrics(b, { now }));
   for (const k of ['fanout', 'schedule', 'dispatch']) if (summary[k] && Array.isArray(summary[k].errors)) summary[k].errors = summary[k].errors.length;
   summary.errors = errors.length;

@@ -206,10 +206,11 @@ try {
     ok('S10 provider unreachable: recorded as UNKNOWN with a retry, frozen payload kept; booking/payment untouched, no demo', r.outcome === 'unknown' && d.status === 'unknown' && !!d.next_attempt_at && !!d.frozen_payload && bk.status === 'pending' && bk.payment_status === 'paid' && (await demosOf(to.id)).length === 0, JSON.stringify({ r, d: [d.status, d.attempts] }));
     // S12 past the provider's dedupe window an ambiguous row is surfaced, not resent
     await db(`notification_deliveries?id=eq.${d.id}`, { method: 'PATCH', body: JSON.stringify({ frozen_payload: { ...d.frozen_payload, attempted_at: at(new Date(), -(RESEND_IDEMPOTENCY_WINDOW_MS + 60000)).toISOString() }, next_attempt_at: new Date().toISOString(), claim_token: null, lease_until: null }) });
+    const n12 = rec.calls.length;
     const c2 = await claimOne(to.id);
     const r2 = await processClaimed(b, c2.row, { now: new Date(), token: c2.token, mailer: rec.mailer });
     const d2 = (await deliveries(to.id))[0];
-    ok('S12 ambiguous outcome past the 24h dedupe window: final UNKNOWN (idempotency_window_expired), surfaced for an operator, not blindly resent', r2.outcome === 'unknown' && r2.final === true && d2.status === 'unknown' && d2.skip_reason === 'idempotency_window_expired' && d2.next_attempt_at === null, JSON.stringify({ r2, d2: [d2.status, d2.skip_reason] }));
+    ok('S12 ambiguous outcome past the 24h dedupe window: final UNKNOWN (idempotency_window_expired), surfaced for an operator, not blindly resent — ZERO provider calls (Codex R4-03)', rec.calls.length === n12 && r2.outcome === 'unknown' && r2.final === true && d2.status === 'unknown' && d2.skip_reason === 'idempotency_window_expired' && d2.next_attempt_at === null, JSON.stringify({ r2, d2: [d2.status, d2.skip_reason] }));
   }
   {
     // S11 multi-demo checkout: one event per child booking
