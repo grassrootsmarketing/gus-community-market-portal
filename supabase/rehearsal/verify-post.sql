@@ -1,7 +1,7 @@
 -- supabase/rehearsal/verify-post.sql — Codex Release B round 4, R4-04 (7): the UPGRADE REHEARSAL, step 4.
 -- Runs on the disposable staging project after: reset to 0072 → seed-pre-0074.sql → `supabase migration up`
 -- with 0073 still hidden (verify-ledger.sql proved the ledger tail). This file proves the UPGRADE PATH
--- itself, which a clean build cannot: pre-existing production-shaped rows survive 0074..0081 with their
+-- itself, which a clean build cannot: pre-existing production-shaped rows survive 0074..0082 with their
 -- snapshots, the outbox rows carry generation 1 and stay claimable, every audit is clean, and the
 -- runtime contracts (claim/record fence, transition projection) behave on the upgraded data.
 -- The DO block RAISEs on the first broken expectation; the SELECTs after it are the evidence listing.
@@ -22,9 +22,15 @@ BEGIN
   -- a paid booking stays pending_payment until the outbox worker promotes it (promote_paid); at cutover that work is exactly what is in flight
   SELECT id INTO bk_paid FROM bookings WHERE retailer_id = r AND demo_date = date '2027-03-12' AND status = 'pending_payment' AND payment_status = 'paid';
   IF bk_paid IS NULL THEN RAISE EXCEPTION 'rehearsal: the paid booking awaiting confirmation lost its state'; END IF;
-  -- Release A/B snapshots were stamped onto the pre-existing rows by the migrations themselves
+  -- Release A/B snapshots were stamped onto the pre-existing rows by the migrations themselves.
+  -- (The first rehearsal run proved 0074/0075 skip held / pending_payment rows -> 0082 backfills every
+  -- active row from its venue's slot configuration; HOURLY slots are 1 h, so every seeded row is 1 h.)
   SELECT count(*) INTO n FROM bookings WHERE retailer_id = r AND (start_at IS NULL OR end_at IS NULL OR timezone IS NULL OR duration_hours IS NULL);
   IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: % pre-existing booking(s) were not stamped with start_at/end_at/timezone/duration_hours', n; END IF;
+  SELECT count(*) INTO n FROM bookings WHERE retailer_id = r AND (duration_hours <> 1 OR timezone <> 'America/Los_Angeles' OR end_at <> start_at + interval '1 hour');
+  IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: % pre-existing booking(s) carry a duration/zone/end that does not match their 1 h slot (0082)', n; END IF;
+  SELECT count(*) INTO n FROM bookings b WHERE b.retailer_id = r AND b.status IN ('held', 'pending_payment') AND b.start_at IS NULL;
+  IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: % held / pending_payment row(s) still without a snapshot (0082 did not run?)', n; END IF;
   -- 0078 backfilled every existing outbox row to generation 1; still pending, still claimable
   SELECT count(*) INTO n FROM booking_fulfillments f JOIN bookings b ON b.id = f.booking_id WHERE b.retailer_id = r;
   IF n < 1 THEN RAISE EXCEPTION 'rehearsal: the seeded outbox rows are gone'; END IF;
@@ -74,6 +80,8 @@ BEGIN
   IF NOT tr.ok OR tr.demo_id IS NULL THEN RAISE EXCEPTION 'rehearsal: booking_transition confirm failed: %', tr.reason; END IF;
   SELECT count(*) INTO n FROM demos WHERE booking_id = bk_paid AND status = 'confirmed';
   IF n <> 1 THEN RAISE EXCEPTION 'rehearsal: the transition must project exactly one linked demo, found %', n; END IF;
+  SELECT count(*) INTO n FROM demos WHERE booking_id = bk_paid AND duration_hours = 1;
+  IF n <> 1 THEN RAISE EXCEPTION 'rehearsal: the projected demo must carry the booking''s 1 h slot length, not the 3 h default (0082)'; END IF;
   SELECT count(*) INTO n FROM projection_anomalies(r); IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: projection_anomalies after the transition: %', n; END IF;
   -- the held row's fence: an obsolete generation is refused even by the current lease holder
   c := record_fulfillment(bk_held, 'rehearsal-worker', 2, true, true, true, NULL, 6);
