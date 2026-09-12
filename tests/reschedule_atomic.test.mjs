@@ -129,12 +129,17 @@ try {
   ok('fixtures: staff + two brand sessions exist', !!staffCookie && !!cookieA && !!cookieB);
 
   // A confirmed booking WITH its demo projection (the state after /api/booking-action confirm).
+  // The demo carries the booking's RESOLVED duration (trg_booking_slot_resolve sets it from the slot:
+  // STANDARD's 10:00 slot is 1 h, 11:00 is 3 h), exactly as booking_transition projects it. The old
+  // hard-coded 3 produced a booking-1/demo-3 pair whenever scenario 6 had to create its own 10:00
+  // booking (only when B1 lost the scenario-4 race) — the once-observed, intermittent
+  // schedule_mismatches() row (Codex round 4: "stop to diagnose if it recurs"). Fixture defect, not product.
   const mkConfirmed = async (brand, venue, date, time) => {
     const b = await one(`INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_name, contact_email, product, demo_date, demo_time, status, payment_status)
-                         VALUES ($1, $2, $3, $4, 'Rep', $5, 'Samples', $6, $7, 'confirmed', 'paid') RETURNING id`, [R, venue, brand.id, `Brand ${brand.id.slice(0, 4)}`, brand.email, date, time]);
+                         VALUES ($1, $2, $3, $4, 'Rep', $5, 'Samples', $6, $7, 'confirmed', 'paid') RETURNING id, duration_hours`, [R, venue, brand.id, `Brand ${brand.id.slice(0, 4)}`, brand.email, date, time]);
     fx.bookings.push(b.id);
     const d = await one(`INSERT INTO demos (retailer_id, venue_id, brand_id, company_name, contact_name, contact_email, demo_date, demo_time, duration_hours, status, confirmed_at, booking_id)
-                         VALUES ($1, $2, $3, 'Brand', 'Rep', $4, $5, $6, 3, 'confirmed', now(), $7) RETURNING id`, [R, venue, brand.id, brand.email, date, time, b.id]);
+                         VALUES ($1, $2, $3, 'Brand', 'Rep', $4, $5, $6, $8, 'confirmed', now(), $7) RETURNING id`, [R, venue, brand.id, brand.email, date, time, b.id, b.duration_hours || 3]);
     return { booking: b.id, demo: d.id };
   };
   const booking = (id) => one(`SELECT id, venue_id, demo_date::text AS demo_date, demo_time, status, schedule_revision, reschedule_proposal_version, start_at, end_at, timezone FROM bookings WHERE id = $1`, [id]);
