@@ -429,22 +429,17 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: 'capture_apply_failed', detail: capd.error, case_id: capd.case_id });
       }
       capturedHeldNow = true;
-      // Codex C2: read the booking back rather than assuming 'pending'. With auto-confirm on, the
-      // capture-side outbox drain has ALREADY promoted it to 'confirmed' and created its demo; the
-      // transition below then converges idempotently (already_applied) instead of failing, and the
-      // capacity re-check must not count the booking's own demo against it.
-      try {
-        const fresh = await sb(`bookings?id=eq.${encodeURIComponent(booking_id)}&select=status,payment_status`);
-        const fr = Array.isArray(fresh) ? fresh[0] : null;
-        booking.status = (fr && fr.status) || 'pending';
-        booking.payment_status = (fr && fr.payment_status) || 'paid';
-      } catch (_) { booking.status = 'pending'; booking.payment_status = 'paid'; }
+      // Codex H1: NO read-back and NO guessed state after the capture. The transition below judges the
+      // CURRENT row under lock — pending -> confirmed, or already_applied when the capture-side
+      // auto-confirm got there first — and capacity was verified BEFORE the capture, so the post-capture
+      // re-check is skipped: it would count this booking's own demo and call a charged, confirmed
+      // booking a capacity failure.
+      booking.payment_status = 'paid';
     }
 
-    // Race check at confirmation. For a held booking this ran AFTER capture above (harmless now —
-    // capacity was already verified pre-capture); for a normal paid confirm this is the only check.
-    // A booking that is already confirmed (capture-side auto-confirm) holds its own slot: skip.
-    if (action === 'confirm' && booking.status !== 'confirmed') {
+    // Race check at confirmation for an ordinary paid confirm (the only check on that path). For a
+    // held booking it ran BEFORE the capture (P0-2) and is not repeated.
+    if (action === 'confirm' && !capturedHeldNow) {
       const capStatus = await slotCapacityStatus(booking);
       if (capStatus.full) {
         return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
@@ -568,11 +563,13 @@ export default async function handler(req, res) {
       // booking, and report a non-success. Nothing was half-applied.
       console.error('booking_transition failed for', booking_id, '-', (e && e.message) || e);
       let caseId = null;
-      if (action !== 'confirm') {
+      // Money moved before this point: a refund/release for cancel/decline, or the CAPTURE for a held
+      // confirm (Codex H1). Either way an operator must converge the booking — record it once.
+      if (action !== 'confirm' || capturedHeldNow) {
         try {
           const _c = await sbRpc('_open_case', {
             p_kind: 'settlement_exception', p_dedupe: 'transition:' + booking_id,
-            p_reason: 'booking_transition_failed_after_refund_step',
+            p_reason: capturedHeldNow ? 'capture_succeeded_confirmation_unverified' : 'booking_transition_failed_after_refund_step',
             p_group: null, p_request: null, p_operation: null,
             p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
             p_details: { booking_id, action, refund_status: refundStatus, error: String((e && e.message) || e).slice(0, 300) },
@@ -581,6 +578,14 @@ export default async function handler(req, res) {
         } catch (caseErr) {
           console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
         }
+      }
+      if (capturedHeldNow) {
+        // Codex H1: the brand HAS been charged and the booking is being confirmed; say exactly that.
+        // Never "declined/rebook", never "nothing was charged".
+        return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true,
+          message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook — refresh the booking. '
+            + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
+          reconciliation_case_id: caseId, reconciliation_recorded: !!caseId });
       }
       return res.status(500).json({ ok: false, action, booking_id, error: 'transition_failed', refund_status: refundStatus,
         message: 'The booking could not be updated. ' + (caseId ? 'A reconciliation case was opened.' : 'Retry; if a refund was submitted it is tracked by the refund ledger.'),
@@ -591,13 +596,13 @@ export default async function handler(req, res) {
       // refund (or the authorization release) happened; the booking is in a state this action cannot
       // transition (a concurrent confirm, say). Record ONE deduplicated reconciliation case so an
       // operator converges booking/demo/refund, and say explicitly what has already happened.
-      const moneyMoved = refundStatus === 'submitted' || refundStatus === 'auth_released';
+      const moneyMoved = refundStatus === 'submitted' || refundStatus === 'auth_released' || capturedHeldNow;
       let caseId = null;
       if (moneyMoved) {
         try {
           const _c = await sbRpc('_open_case', {
             p_kind: 'settlement_exception', p_dedupe: 'transition:' + booking_id,
-            p_reason: 'booking_transition_refused_after_refund_step',
+            p_reason: capturedHeldNow ? 'capture_succeeded_confirmation_unverified' : 'booking_transition_refused_after_refund_step',
             p_group: null, p_request: null, p_operation: null,
             p_session: null, p_pi: null, p_charge: null, p_refund: (refundInfo && refundInfo.refund_id) || null, p_amount: null, p_currency: null,
             p_details: { booking_id, action, refund_status: refundStatus, transition_reason: (tr && tr.reason) || 'no_result', status_now: (tr && tr.status_before) || null },
@@ -608,7 +613,7 @@ export default async function handler(req, res) {
         }
       }
       return res.status(409).json({
-        ok: false, error: 'state_changed', action, booking_id,
+        ok: false, error: capturedHeldNow ? 'capture_succeeded_confirmation_unverified' : 'state_changed', action, booking_id, captured: capturedHeldNow || undefined,
         status: tr && tr.status_before, payment_status: booking.payment_status,
         refund_status: moneyMoved ? refundStatus : undefined,
         refund_id: (moneyMoved && refundInfo && refundInfo.refund_id) || undefined,
@@ -616,7 +621,7 @@ export default async function handler(req, res) {
         reconciliation_recorded: moneyMoved ? !!caseId : undefined,
         message: `This booking changed while you were working (now ${tr && tr.status_before ? tr.status_before : 'unknown'}). ` +
           (moneyMoved
-            ? (refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded — contact support with this booking id.')
+            ? (capturedHeldNow ? 'The brand\'s card WAS captured — do not decline it or ask the brand to rebook; ' : refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded — contact support with this booking id.')
             : 'Reload and try again.'),
       });
     }

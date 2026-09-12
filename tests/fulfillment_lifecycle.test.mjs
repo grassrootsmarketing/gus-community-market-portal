@@ -243,6 +243,68 @@ try {
   }
 
   // ===========================================================================================
+  // ===========================================================================================
+  console.log('\n— H1: after a successful capture the outcome is truthful, even when the confirmation cannot be verified —');
+  {
+    const ownerEvents = async (id) => (await q(`SELECT id FROM notification_events WHERE booking_id = $1 AND kind = 'owner_booking_created'`, [id])).length;
+    // (a) genuinely full BEFORE the capture: refused up front, zero capture calls, nothing charged
+    const F = await authorize('h1-full');
+    await q(`INSERT INTO demos (retailer_id, venue_id, brand_id, company_name, contact_name, contact_email, demo_date, demo_time, duration_hours, status, confirmed_at)
+             VALUES ($1, $2, $3, 'Blocker', 'Rep', $4, $5, $6, 1, 'confirmed', now())`, [KEEPS_RETAILER, KEEPS_VENUE, BRAND1, RUN + '@fixture.test', F.b.demo_date, F.b.demo_time]);
+    spy.fixtures.paymentIntents[F.pi] = capturedPi(F.pi, F.ch);
+    spy.calls.stripe.length = 0;
+    const rf = await route({ booking_id: F.b.id, action: 'confirm' });
+    ok('H1 (a): a slot that is full before the capture is refused with ZERO capture calls and the hold untouched', rf.statusCode === 409 && rf.body && rf.body.error === 'slot_at_capacity' && stripeCalls(/\/capture$/) === 0 && (await booking(F.b.id)).status === 'held', `${rf.statusCode} ${JSON.stringify(rf.body).slice(0, 120)} captures=${stripeCalls(/\/capture$/)}`);
+    await q(`DELETE FROM demos WHERE company_name = 'Blocker' AND venue_id = $1 AND demo_date = $2`, [KEEPS_VENUE, F.b.demo_date]);
+    ok('H1: an authorized hold has exactly ONE owner_booking_created event (0080)', (await ownerEvents(F.b.id)) === 1);
+
+    // a fetch wrapper that (1) fails the route's OWN confirm transition once, after the capture, and
+    // (2) proves the old post-capture read-back is gone
+    const realFetch = globalThis.fetch;
+    let failConfirmOnce = false, readBacks = 0;
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url);
+      if (u.includes('/rest/v1/bookings?id=eq.') && u.includes('select=status,payment_status') && (opts.method || 'GET') === 'GET') { readBacks++; throw new Error('injected read failure'); }
+      if (failConfirmOnce && u.includes('/rpc/booking_transition') && String(opts.body || '').includes('"p_action":"confirm"')) { failConfirmOnce = false; const body = { message: 'injected_transition_failure' }; return { ok: false, status: 500, json: async () => body, text: async () => JSON.stringify(body) }; }
+      return realFetch(url, opts);
+    };
+    try {
+      // (b) auto-confirm OFF: capture succeeds, the drain promotes to pending, the route's confirm transition fails
+      const G = await authorize('h1-off');
+      spy.fixtures.paymentIntents[G.pi] = capturedPi(G.pi, G.ch);
+      spy.calls.stripe.length = 0; failConfirmOnce = true;
+      const rg = await route({ booking_id: G.b.id, action: 'confirm' });
+      const bG = await booking(G.b.id), dG = await demos(G.b.id);
+      const caseG = await q(`SELECT id, reason FROM reconciliation_cases WHERE dedupe_key = $1`, ['transition:' + G.b.id]);
+      created.caseKeys.push('transition:' + G.b.id);
+      ok('H1 (b, auto-confirm OFF): the response is capture_succeeded_confirmation_unverified — captured:true, never a capacity instruction, never "nothing was charged"', rg.statusCode === 500 && rg.body && rg.body.error === 'capture_succeeded_confirmation_unverified' && rg.body.captured === true && !/at capacity|Cannot confirm|nothing was charged/i.test(rg.body.message || '') && /Do not decline it or ask the brand to rebook/.test(rg.body.message || '') && /WAS captured/.test(rg.body.message || ''), `${rg.statusCode} ${JSON.stringify(rg.body).slice(0, 220)}`);
+      ok('H1 (b): one capture, zero refunds, the booking is paid and promoted (pending), no demo invented, ONE reconciliation case with the specific reason', stripeCalls(/\/capture$/) === 1 && stripeCalls(/\/refunds/) === 0 && bG.status === 'pending' && bG.payment_status === 'paid' && dG.length === 0 && caseG.length === 1 && caseG[0].reason === 'capture_succeeded_confirmation_unverified' && rg.body.reconciliation_case_id === caseG[0].id, JSON.stringify({ bG: [bG.status, bG.payment_status], dG, caseG }));
+      const rg2 = await route({ booking_id: G.b.id, action: 'confirm' });
+      ok('H1 (b): a retried confirm converges — 200 with the demo, exactly one demo, no second capture, no second case', rg2.statusCode === 200 && rg2.body.demo_id && (await demos(G.b.id)).length === 1 && stripeCalls(/\/capture$/) === 1 && (await q(`SELECT id FROM reconciliation_cases WHERE dedupe_key = $1`, ['transition:' + G.b.id])).length === 1, `${rg2.statusCode} ${JSON.stringify(rg2.body).slice(0, 120)}`);
+      ok('H1 (b): a captured hold still has exactly ONE owner_booking_created event (capture is not a second booking)', (await ownerEvents(G.b.id)) === 1);
+
+      // (c) auto-confirm ON: the capture-side drain confirms and creates the demo; the route's transition fails
+      await setAutoConfirm(true);
+      const Hh = await authorize('h1-on');
+      spy.fixtures.paymentIntents[Hh.pi] = capturedPi(Hh.pi, Hh.ch);
+      spy.calls.stripe.length = 0; failConfirmOnce = true;
+      const rh = await route({ booking_id: Hh.b.id, action: 'confirm' });
+      const bH = await booking(Hh.b.id), dH = await demos(Hh.b.id);
+      created.caseKeys.push('transition:' + Hh.b.id);
+      ok('H1 (c, auto-confirm ON): unverified outcome reported; the booking is already confirmed with exactly ONE demo; one capture; one case', rh.statusCode === 500 && rh.body.error === 'capture_succeeded_confirmation_unverified' && bH.status === 'confirmed' && dH.length === 1 && stripeCalls(/\/capture$/) === 1 && (await q(`SELECT id FROM reconciliation_cases WHERE dedupe_key = $1`, ['transition:' + Hh.b.id])).length === 1, `${rh.statusCode} ${JSON.stringify(rh.body).slice(0, 160)} demos=${dH.length}`);
+      const rh2 = await route({ booking_id: Hh.b.id, action: 'confirm' });
+      ok('H1 (c): a retried confirm is refused truthfully up front (already confirmed), still exactly one demo, no capacity conflict', rh2.statusCode === 409 && /already confirmed/.test(String(rh2.body && rh2.body.error)) && (await demos(Hh.b.id)).length === 1 && stripeCalls(/\/capture$/) === 1, `${rh2.statusCode} ${JSON.stringify(rh2.body).slice(0, 120)}`);
+      await setAutoConfirm(false);
+
+      // (d) the old read-back is gone: a failing read cannot influence the outcome any more
+      const R = await authorize('h1-read');
+      spy.fixtures.paymentIntents[R.pi] = capturedPi(R.pi, R.ch);
+      spy.calls.stripe.length = 0; readBacks = 0;
+      const rr = await route({ booking_id: R.b.id, action: 'confirm' });
+      ok('H1 (d): no post-capture status read-back exists (a poisoned read is never consulted); the confirm succeeds with its demo', rr.statusCode === 200 && rr.body.demo_id && readBacks === 0 && (await demos(R.b.id)).length === 1 && stripeCalls(/\/capture$/) === 1, `${rr.statusCode} readBacks=${readBacks}`);
+    } finally { globalThis.fetch = realFetch; await setAutoConfirm(false); }
+  }
+
   console.log('\n— C2-B: a successful refund followed by a logical refusal is recorded and reported —');
   {
     const P = await paidUndrained('c2b');

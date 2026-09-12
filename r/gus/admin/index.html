@@ -2974,7 +2974,7 @@ END:VEVENT
             const text = await r.text();
             let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
             // Prefer the human-readable message (e.g. coi_pending explains what to do next).
-            if (!r.ok) throw new Error((json && (json.message || json.error)) || text || ('HTTP ' + r.status));
+            if (!r.ok) { const err = new Error((json && (json.message || json.error)) || text || ('HTTP ' + r.status)); err.code = json && json.error; throw err; }
             return json;
         }
 
@@ -2992,6 +2992,9 @@ END:VEVENT
             } catch (e) {
                 DhModal.toast('Could not confirm: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
+                // Codex H1: the capture happened and the booking is converging server-side — show the
+                // current status instead of leaving a stale "held" row that invites a decline.
+                if (e && e.code === 'capture_succeeded_confirmation_unverified') { try { await refreshAll(); } catch (_) {} }
             }
         }
 
