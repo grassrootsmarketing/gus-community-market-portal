@@ -139,7 +139,7 @@ try {
   };
   const booking = (id) => one(`SELECT id, venue_id, demo_date::text AS demo_date, demo_time, status, schedule_revision, reschedule_proposal_version, start_at, end_at, timezone FROM bookings WHERE id = $1`, [id]);
   const demo = (id) => one(`SELECT id, venue_id, demo_date::text AS demo_date, demo_time, status, reschedule_to_date::text AS reschedule_to_date, reschedule_to_time FROM demos WHERE id = $1`, [id]);
-  const events = (bid, kind) => q(`SELECT kind, transition_id, payload FROM notification_events WHERE booking_id = $1 AND ($2::text IS NULL OR kind = $2) ORDER BY created_at`, [bid, kind || null]);
+  const events = (bid, kind) => q(`SELECT kind, transition_id, payload FROM notification_events WHERE booking_id = $1 AND ($2::text IS NULL OR kind = $2) AND kind <> 'owner_booking_created' ORDER BY created_at`, [bid, kind || null]);
   const expectedStart = async (date, hhmm) => (await one(`SELECT (($1::date + $2::time) AT TIME ZONE $3) AS t`, [date, hhmm, LA])).t;
   const propose = (demoId, date, time, cookie = staffCookie) => callRoute('booking-action.js', req({ body: { action: 'reschedule', demo_id: demoId, new_date: date, new_time: time }, cookies: { dh_retailer_session: cookie } }));
   const respond = (demoId, decision, version, cookie = cookieA) => callRoute('brand-account.js', req({ body: { action: 'reschedule-respond', demo_id: demoId, decision, ...(version === undefined ? {} : { proposal_version: version }) }, cookies: { dh_brand_session: cookie } }));

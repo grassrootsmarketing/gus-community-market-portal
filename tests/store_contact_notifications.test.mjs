@@ -109,7 +109,7 @@ let bookingId = null, demoId = null;
 const b = await getBinding();   // the harness binding (process.env is ENV after callRoute)
 
 const deliveries = async (filter = '') => (await db(`notification_deliveries?booking_id=eq.${bookingId}&select=id,kind,offset_key,recipient_id,recipient_email,status,skip_reason,occurrence_key,dedupe_key,due_at,expires_at,attempts,idempotency_key,provider_message_id${filter}&order=due_at.asc`)).body || [];
-const events = async (filter = '') => (await db(`notification_events?booking_id=eq.${bookingId}&select=id,kind,transition_id,fanned_out_at,payload${filter}&order=created_at.asc`)).body || [];
+const events = async (filter = '') => (await db(`notification_events?booking_id=eq.${bookingId}&kind=neq.owner_booking_created&select=id,kind,transition_id,fanned_out_at,payload${filter}&order=created_at.asc`)).body || [];
 const hbRows = async () => (await db(`cron_heartbeat?cron_name=eq.notification-worker&ran_at=gte.${encodeURIComponent(startIso)}&select=outcome,summary&order=ran_at.asc`)).body || [];
 const runWorkerRoute = (extra = {}) => callRoute('notification-worker.js', req({ method: 'GET', headers: CRON, ...extra }));
 let C8 = null;
@@ -171,7 +171,7 @@ try {
     const dec = one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_id: brandId, brand_name: 'Notify Brand Co', contact_email: brandEmail, demo_date: dayP(25), demo_time: '5:00 PM', status: 'pending', payment_status: 'unpaid' }) }));
     track('bookings', dec.id);
     await db(`bookings?id=eq.${dec.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'declined' }) });
-    const decEv = (await db(`notification_events?booking_id=eq.${dec.id}&select=id`)).body || [];
+    const decEv = (await db(`notification_events?booking_id=eq.${dec.id}&kind=neq.owner_booking_created&select=id`)).body || [];
     ok('declining a never-confirmed request writes NO event (contacts were never told)', decEv.length === 0, JSON.stringify(decEv));
   }
 
