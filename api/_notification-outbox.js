@@ -37,6 +37,7 @@
 // past when it is FIRST scheduled is inserted as skipped 'due_before_scheduling' — first rollout and
 // late opt-ins never produce a backlog burst, and the decision is visible in the table.
 
+import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 import { randomUUID } from 'node:crypto';
 import { sendMail } from './_mail.js';
 import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
@@ -48,6 +49,16 @@ import {
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
 export const COI_KINDS = ['coi_approved', 'coi_rejected'];
+// Codex H2 (2026-09-12): the operator's "a brand actually booked" notice. One event per booking
+// (0080 trigger on the first verified payment state), one delivery to the fixed owner address; the
+// hold-vs-paid wording is decided at dispatch from the CURRENT booking, then frozen like any other row.
+export const OWNER_KINDS = ['owner_booking_created'];
+const INACTIVE_STATUSES = ['cancelled', 'declined', 'expired', 'auth_canceled'];
+// Eligible = verified money state (authorized hold or paid) AND the booking is still live. A hold that
+// released/expired or a booking cancelled before the owner heard about it is obsolete unsent work.
+export function ownerEligible(booking) {
+  return !!booking && ['authorized', 'paid'].includes(String(booking.payment_status || '')) && !INACTIVE_STATUSES.includes(String(booking.status || ''));
+}
 export const BACKOFF_MINUTES = [1, 5, 15, 60, 360];
 export const MAX_ATTEMPTS = 8;
 export const LEASE_MS = 5 * 60 * 1000;
@@ -221,6 +232,21 @@ async function fanOutOne(b, cache, ev, now) {
     }));
     const n = await insertDeliveries(b, rows);
     await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (OWNER_KINDS.includes(ev.kind)) {
+    const booking = await loadFresh(b, 'bookings', ev.booking_id);
+    if (!booking) { await markFannedOut(b, ev, now, 'booking_missing'); return { deliveries: 0, skipped: true }; }
+    if (!ownerEligible(booking)) { await markFannedOut(b, ev, now, `skipped_booking_${INACTIVE_STATUSES.includes(String(booking.status || '')) ? booking.status : 'no_longer_' + (booking.payment_status || 'paid')}`); return { deliveries: 0, skipped: true }; }
+    const rows = [{
+      event_id: ev.id, retailer_id: booking.retailer_id, booking_id: booking.id,
+      recipient_kind: 'owner', recipient_id: null, recipient_email: OWNER_ALERT_EMAIL,
+      kind: ev.kind, offset_key: null, occurrence_key: null,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:owner`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }];
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, null);
     return { deliveries: n, skipped: false };
   }
   await markFannedOut(b, ev, now, 'unknown_kind');
@@ -428,6 +454,29 @@ async function recheckAndBuild(b, cache, row, now) {
     const v = { ...verification, expires_at: payload.expires_at || verification.policy_expiry || null, brand_note: verification.brand_note != null ? verification.brand_note : (payload.brand_note || null) };
     const message = row.kind === 'coi_approved' ? coiApprovedMessage(b, { brand, verification: v }) : coiRejectedMessage(b, { brand, verification: v });
     return { ok: true, to, message };
+  }
+  if (row.recipient_kind === 'owner') {
+    // Codex H2: judged on the CURRENT booking at dispatch. A hold captured before this send goes out
+    // as the paid version; a hold that released, or a booking cancelled/declined before the owner
+    // heard, is skipped with an explicit reason. The retailer's confirmation mode is read fresh so the
+    // hold instructions match what the retailer actually has to do.
+    const booking = await loadFresh(b, 'bookings', row.booking_id);
+    if (!booking) return { skip: 'booking_missing' };
+    if (row.retailer_id && booking.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    if (!ownerEligible(booking)) return { skip: INACTIVE_STATUSES.includes(String(booking.status || '')) ? `booking_${booking.status}` : `booking_no_longer_${booking.payment_status || 'paid'}` };
+    const retailer = await loadFresh(b, 'retailers', booking.retailer_id, 'id,name,slug,timezone,auto_confirm_bookings');
+    const venue = booking.venue_id ? await loadOne(b, cache, 'venues', booking.venue_id, 'id,name,address') : null;
+    let settingDuration = null;
+    try { const s = await sb(b, `settings?retailer_id=eq.${enc(booking.retailer_id)}&select=demo_duration&limit=1`); settingDuration = Array.isArray(s) && s[0] ? s[0].demo_duration : null; } catch (_) {}
+    const facts = {
+      autoConfirm: retailer && typeof retailer.auto_confirm_bookings === 'boolean' ? retailer.auto_confirm_bookings : null,
+      retailerTimezone: (retailer && retailer.timezone) || null,
+      settingDuration,
+    };
+    const kind = booking.payment_status === 'paid' ? 'paid' : 'hold';
+    const ctx = { ...booking, booking_id: booking.id, venues: venue ? { name: venue.name } : null, retailers: retailer ? { name: retailer.name, slug: retailer.slug } : null };
+    const built = ownerBookedEmail(ctx, { kind, targetStatus: booking.status === 'confirmed' ? 'confirmed' : 'pending', facts }, b);
+    return { ok: true, to: OWNER_ALERT_EMAIL, message: { subject: built.subject, html: built.html } };
   }
   return { skip: 'unknown_recipient_kind' };
 }

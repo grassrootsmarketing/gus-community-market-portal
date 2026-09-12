@@ -5,9 +5,11 @@
 // pending). It is NOT sent at /api/book time (an abandoned checkout is not a booking) and it is not
 // re-sent when a hold is later captured (the owner already heard about that booking as a hold).
 //
-// Called from the fulfilment outbox worker (api/_fulfillment.js) right after the brand's own notice
-// succeeded, so it rides the outbox's retry semantics: a fulfilment that retries because the brand
-// mail failed has not yet sent this either. Best-effort — it never throws into the worker.
+// Delivery (Codex H2, 2026-09-12): the message is BUILT here and DELIVERED by the notification
+// outbox (api/_notification-outbox.js, recipient_kind 'owner'). The event is written by the 0080
+// trigger on the booking's first verified payment state, so it has its own durable identity, lease,
+// frozen payload, provider idempotency key, retries and recorded outcome — independent of the
+// payment fulfilment worker and of the brand's own mail. Nothing here sends.
 //
 // Codex preview review (2026-09-11):
 //   1. Hold instructions follow the retailer's CURRENT confirmation mode (auto_confirm_bookings read
@@ -20,8 +22,7 @@
 //      otherwise the documented legacy fallback: demo_date + demo_time in the retailer's timezone
 //      with the retailer's demo-length SETTING (settings.demo_duration, e.g. "3 hours"); a length
 //      that cannot be established is reported as "length not recorded", never invented.
-import { sendMailQuietly, link } from './_mail.js';
-import { getBinding } from './_env.js';
+import { link } from './_mail.js';
 
 export const OWNER_ALERT_EMAIL = 'david@demohubhq.com';
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -119,7 +120,7 @@ export function ownerBookedEmail(ctx, { kind, targetStatus, facts = {} }, bindin
   const status = kind === 'hold'
     ? holdInstructions(typeof facts.autoConfirm === 'boolean' ? facts.autoConfirm : null, expiryLabel)
     : (targetStatus === 'confirmed'
-        ? 'PAID and CONFIRMED (this retailer auto-confirms). The demo is on the calendar.'
+        ? 'PAID and CONFIRMED' + (facts.autoConfirm === true ? ' (this retailer auto-confirms)' : ' by the retailer') + '. The demo is on the calendar.'
         : 'PAID — awaiting the retailer\'s confirmation in their admin.');
   const row = (k, v) => v ? '<tr><td style="padding:3px 14px 3px 0;color:#6b6a64;vertical-align:top;white-space:nowrap;">' + k + '</td><td style="padding:3px 0;">' + v + '</td></tr>' : '';
   const btn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;background:' + bg + ';color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;margin-right:8px;">' + label + '</a>';
@@ -140,39 +141,4 @@ export function ownerBookedEmail(ctx, { kind, targetStatus, facts = {} }, bindin
     + (kind === 'hold' ? btn(link(binding, '/owner'), 'Review the COI', '#ed682f') : '')
     + '</div>';
   return { from: FROM_ADDRESS, to: OWNER_ALERT_EMAIL, replyTo: OWNER_ALERT_EMAIL, subject, html, occurrence_source: occ.source };
-}
-
-// Read the facts the message depends on at SEND time (retailer mode + timezone, demo-length setting).
-// Any read failure degrades to "unknown" (neutral hold copy, default zone, length not recorded).
-export async function readOwnerAlertFacts(ctx, binding) {
-  const facts = { autoConfirm: null, retailerTimezone: null, settingDuration: null };
-  if (!ctx || !ctx.retailer_id) return facts;
-  const get = async (path) => {
-    const r = await fetch(`${binding.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: binding.serviceKey, Authorization: `Bearer ${binding.serviceKey}` } });
-    if (!r.ok) return null;
-    const j = await r.json(); return Array.isArray(j) ? j[0] || null : null;
-  };
-  try {
-    const rr = await get(`retailers?id=eq.${encodeURIComponent(ctx.retailer_id)}&select=auto_confirm_bookings,timezone`);
-    if (rr) { if (typeof rr.auto_confirm_bookings === 'boolean') facts.autoConfirm = rr.auto_confirm_bookings; if (rr.timezone) facts.retailerTimezone = rr.timezone; }
-  } catch (_) {}
-  try {
-    const sr = await get(`settings?retailer_id=eq.${encodeURIComponent(ctx.retailer_id)}&select=demo_duration`);
-    if (sr && sr.demo_duration) facts.settingDuration = sr.demo_duration;
-  } catch (_) {}
-  return facts;
-}
-
-export async function notifyOwnerBooked(ctx, opts = {}) {
-  try {
-    const binding = opts.binding || await getBinding();
-    if (!binding || !binding.resendApiKey) return { sent: false, reason: 'no_mail_binding' };
-    const facts = opts.facts || await readOwnerAlertFacts(ctx, binding);
-    const msg = ownerBookedEmail(ctx, { ...opts, facts }, binding);
-    const r = await sendMailQuietly({ from: msg.from, to: msg.to, replyTo: msg.replyTo, subject: msg.subject, html: msg.html }, { binding });
-    return { sent: !!(r && r.ok), reason: r && r.ok ? null : ((r && (r.error || r.code)) || 'send_failed'), occurrence_source: msg.occurrence_source };
-  } catch (e) {
-    console.warn('owner booked alert skipped:', (e && e.message) || e);
-    return { sent: false, reason: String((e && e.message) || e).slice(0, 120) };
-  }
 }

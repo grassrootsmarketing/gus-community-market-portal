@@ -104,10 +104,16 @@ async function confirmedBooking(demo_date, demo_time, extra = {}) {
   const row = one(res);
   if (!row) throw new Error('fixture booking insert failed: ' + res.status + ' ' + JSON.stringify(res.body).slice(0, 300));
   track('bookings', row.id);
+  // 0080 also queues an owner_booking_created event for this paid row. This suite exercises the
+  // store-contact and brand kinds and counts claimed/dispatched rows exactly, so the owner event is
+  // retired here before it can fan out (its own suite, owner_booking_events, covers it).
+  await db(`notification_events?booking_id=eq.${row.id}&kind=eq.owner_booking_created`, { method: 'PATCH', body: JSON.stringify({ fanned_out_at: new Date().toISOString() }) });
   return row;
 }
 const deliveriesFor = async (bid, filter = '') => (await db(`notification_deliveries?booking_id=eq.${bid}&select=*${filter}&order=due_at.asc`)).body || [];
-const eventsFor = async (bid) => (await db(`notification_events?booking_id=eq.${bid}&select=*&order=created_at.asc`)).body || [];
+// 0080 also writes an owner_booking_created event for paid rows; this suite is about the store-contact
+// and brand kinds, so the owner kind is excluded here (it has its own suite: owner_booking_events).
+const eventsFor = async (bid) => (await db(`notification_events?booking_id=eq.${bid}&kind=neq.owner_booking_created&select=*&order=created_at.asc`)).body || [];
 const delivery = async (id) => one(await db(`notification_deliveries?id=eq.${id}&select=*`));
 const hbRows = async () => (await db(`cron_heartbeat?cron_name=eq.notification-worker&ran_at=gte.${encodeURIComponent(startIso)}&select=outcome,summary&order=ran_at.asc`)).body || [];
 const insertDelivery = async (fields) => one(await db('notification_deliveries', { method: 'POST', body: JSON.stringify(fields) }));
