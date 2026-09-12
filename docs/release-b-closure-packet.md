@@ -17,7 +17,7 @@
 | Migrations | 0000–0079 (**80** SQL files + README). New this round: `0078_release_b_fulfillment_generations_and_outcomes.sql`, `0079_apply_all_copy_slots_default_false.sql` (both forward-only; 0075–0077 untouched). CI `EXPECTED_MIGRATIONS: '80'`. |
 | Test DB | demohub-rebuild-check (`tileejdviuvijumjeplv`): 0074–**0079** applied; ledger rows `0073`–`0079` recorded |
 | Production | demohub-prod (`dkgjvsstbgnhcfboqqnd`): code `9fa0854` (signup-category hotfix, deployed 2026-09-11 10:13Z), ledger `0060`–`0072`; **holds ON** since 2026-09-11 (David's operator decision, §8); inventory §8 |
-| CI (this candidate) | run **34659147025** on `7d6cccd`, dispatched with `clean_build=true`, `staging_gate=true` — suites in progress at packet time; clean build + both consecutive staging passes need David's `staging` approval. (Run 34659121127 on `d6b4f9a` was cancelled by me: superseded by the evidence commit.) |
+| CI (this candidate) | run **34659147025** (verify #135) on `7d6cccd`: **all five jobs green** — suites ubuntu + windows, clean build A/B (2m37s), staging pass 1 (12m42s), staging pass 2 consecutive on the same commit (8m43s); David approved the `staging` environment. (Run 34659121127 on `d6b4f9a` was cancelled by me: superseded by the evidence commit.) |
 | Kill switch | `SLOT_EDITING_ENABLED` (literal `true`; default OFF) gates slot saves/resets, blackouts, apply-all slot copying (`p_copy_slots`, explicit from the API and **default false in the RPC since 0079**), slot lists on venue creation, and the editors |
 | Containment | Gus only, signup OFF, capacity 1, no viewers, support OFF; **holds ON** (reported operator change, §8) |
 
@@ -94,11 +94,11 @@ Labels: route suites run the shipped handlers in-process against the test databa
 
 - `778ef1e`: run 34579737286 — five jobs green (historical evidence, kept).
 - `ba4909e`: run 34588368732 — suites only (not full staging verification).
-- **`7d6cccd`: run 34659147025** — dispatched with `clean_build=true`, `staging_gate=true`; suites in progress; the clean build and both consecutive staging passes require David's approval on the `staging` environment. Result to be appended; the candidate SHA does not change unless Codex asks for further changes.
+- **`7d6cccd`: run 34659147025 (verify #135) — all five jobs green**: suites ubuntu + windows, clean build A/B, staging pass 1, staging pass 2 (consecutive, same commit). David approved the `staging` environment. Total 1h12m including the approval wait. This is the full-gate CI evidence for the final candidate.
 
 ## 10. Outstanding before acceptance / deployment (operator-owned unless noted)
 
-1. David approves the gates on run 34659147025; record the clean build and both staging passes on `7d6cccd`.
+1. ~~CI gates~~ — done: run 34659147025 fully green on `7d6cccd`.
 2. Holds: David decides whether to pause new intake until deployment (flag flip + redeploy) or keep it on with prompt COI approvals.
 3. Credential rotation (Codex §3 preflight); no credentials in any handoff.
 4. Authorized deployed preview of `7d6cccd` on the existing Vercel project with test bindings, test Stripe and the mail sink — then (Claude) the real test-mode **hold** journey through the deployed handlers: authorization on the hosted Checkout, manual/automatic capture, release, expiry, worker overlap, replay.
