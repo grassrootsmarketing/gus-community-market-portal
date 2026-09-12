@@ -9,13 +9,14 @@
 //   * error headers, stalled body        -> mail_send_failed (definite refusal, detail notes the stall)
 //   * success headers, malformed body    -> mail_ack_unverified — never "ok"
 //   * success headers, {id}              -> ok with the id;  {} -> ok, id null (the provider did answer 2xx)
-// Pure: a fetch stub, no network, no database.
+// Pure: a fetch stub and a fixture binding, no network, no database, no environment (runs in the
+// offline CI `suites` job like mail_containment).
 import { sendMail } from '../api/_mail.js';
-import { getBinding, _resetBindingCache } from '../api/_env.js';
-import { ENV, ok, summary } from './_route.mjs';
 
-process.env = { ...ENV }; _resetBindingCache();
-const b = await getBinding();
+const b = { targetName: 'preview', emailMode: 'sink', emailAllowlist: ['deadline@fixture.test'], resendApiKey: 'fixture-not-a-key', siteOrigin: 'https://preview.example.test' };
+let passed = 0, failed = 0; const failures = [];
+function ok(name, cond, extra = '') { if (cond) { passed++; console.log('  ok   ' + name); } else { failed++; failures.push(name + ' ' + extra); console.log('  FAIL ' + name + ' ' + extra); } }
+function summary(label) { console.log(`\n${label}: ${passed} passed, ${failed} failed`); if (failures.length) { console.log('FAILURES:'); for (const x of failures) console.log('  x ' + x); } return failed === 0; }
 const BOUND = 60;                // the advertised deadline for every call below
 const SLACK = 1500;              // generous ceiling: the call must settle well inside this
 
