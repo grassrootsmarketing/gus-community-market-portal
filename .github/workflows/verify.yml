@@ -535,7 +535,11 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          ./.github/scripts/capture-manifest.sh rehearsal/manifest-upgraded.raw.txt
+          # The upgrade path carries one migration fewer in its ledger: 0073 is absent by design (production
+          # never applied it). The capture script's gate 5 asserts the manifest's migration count, so it is
+          # told the upgrade-path count here; the clean manifest below is captured with the full count and
+          # the comparison excludes exactly that one line (documented normalization).
+          EXPECTED_MIGRATIONS=$((EXPECTED_MIGRATIONS - 1)) ./.github/scripts/capture-manifest.sh rehearsal/manifest-upgraded.raw.txt
 
       # ---- 5. leave staging on the full chain, and prove upgraded == clean ----
       - name: restore every migration file (0073 included)
