@@ -153,7 +153,7 @@ try {
     // the old worker's actual JavaScript, resumed after the capture: no hold notice, nothing recorded
     spy.calls.resend.length = 0;
     const oldRun = await ful.runFulfillment({ ...rowA }, 'old-worker');
-    ok('C1: the resumed old worker sends NO hold-placed notice and records nothing (stale generation)', spy.calls.resend.length === 0 && oldRun.recorded === false && /superseded:hold_no_longer_active/.test(oldRun.error || '') && /stale_lease_or_generation/.test(oldRun.error || ''), JSON.stringify(oldRun));
+    ok('C1: the resumed old worker sends NO hold-placed notice and records nothing (stale generation)', spy.calls.resend.length === 0 && oldRun.recorded === false && /superseded:hold_no_longer_active/.test(oldRun.error || '') && /record:stale_claim/.test(oldRun.error || ''), JSON.stringify(oldRun));
     ok('C1: no demo exists for the paid-but-not-yet-promoted booking (nothing was faked)', (await demos(A.b.id)).length === 0);
     // audit: stranded beyond the in-flight interval, and a lying terminal row
     await q(`UPDATE bookings SET paid_at = now() - interval '20 minutes' WHERE id = $1`, [A.b.id]);
@@ -194,6 +194,83 @@ try {
     const oldC = await ful.runFulfillment({ ...rowC }, 'old-worker');
     const bC = await booking(C.b.id), oC = await outbox(C.b.id);
     ok('C1 (expired before completion): the old worker records a superseded outcome, sends no hold notice, booking stays expired', /applied|idempotent|attempt_canceled/.test(exp.outcome || '') && bC.status === 'expired' && oldC.done === true && oldC.recorded === true && /superseded:hold_no_longer_active:expired/.test(oldC.error || '') && spy.calls.resend.length === 0 && oC.status === 'done', JSON.stringify({ exp: exp.outcome, oldC, bC: bC.status, oC }));
+  }
+
+  // ===========================================================================================
+  console.log('\n— R4-01: terminal failure is fenced like completion; a stale claim can never park replacement work —');
+  {
+    const fulfilCase = async (id) => q(`SELECT id, details FROM reconciliation_cases WHERE dedupe_key = $1`, ['fulfil:' + id]);
+    const setAttempts = (id, n) => q(`UPDATE booking_fulfillments SET attempts = $2 WHERE booking_id = $1`, [id, n]);
+    const claimAs = async (owner, gid, bid, secs = 300) => { const c = one((await rpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: secs, p_limit: 50, p_group: gid })).json); return (Array.isArray(c) ? c : [c]).find(r => r && r.booking_id === bid) || null; };
+    // (1) a stale held worker at the retry cap resumes through the FULL drain path after a capture
+    await setAutoConfirm(true);
+    const A = await authorize('r401a');
+    await setAttempts(A.b.id, 5);
+    const staleRow = await claimAs('old-worker', A.gid, A.b.id);            // attempts -> 6, generation 1
+    ok('R4-01 (1): the stale claim is at the cap on generation 1', staleRow && staleRow.attempts === 6 && staleRow.generation === 1, JSON.stringify(staleRow));
+    await capture(A.sess, A.pi, A.ch);                                     // re-issued: generation 2, pending, attempts 0, lease dropped
+    const realFetch = globalThis.fetch;
+    let staleClaimServed = 0;
+    globalThis.fetch = async (url, opts = {}) => {
+      // the drain's own claim RPC hands back the OLD claimed object (what a worker that was parked
+      // before the capture is still holding); everything else is real
+      if (staleClaimServed === 0 && String(url).includes('/rpc/claim_fulfillments')) { staleClaimServed++; return { ok: true, status: 200, text: async () => JSON.stringify([{ ...staleRow }]), json: async () => [{ ...staleRow }] }; }
+      return realFetch(url, opts);
+    };
+    spy.calls.resend.length = 0;
+    let staleDrain;
+    try { staleDrain = await ful.drainFulfillments({ limit: 10, group: A.gid, maxAttempts: 6 }); } finally { globalThis.fetch = realFetch; }
+    const rowA = await outbox(A.b.id);
+    ok('R4-01 (1): the stale worker\'s full drain pass changes NOTHING — generation 2 stays pending/claimable, no lease, no case, no hold notice', staleDrain.processed === 1 && staleDrain.completed === 0 && staleDrain.capped === 0 && rowA.status === 'pending' && rowA.generation === 2 && rowA.attempts === 0 && rowA.lease_owner === null && (await fulfilCase(A.b.id)).length === 0 && spy.calls.resend.length === 0, JSON.stringify({ staleDrain, rowA }));
+    const realDrain = await ful.drainFulfillments({ limit: 10, group: A.gid, maxAttempts: 6 });
+    const bA = await booking(A.b.id), dA = await demos(A.b.id);
+    ok('R4-01 (1): the replacement generation then finishes: booking confirmed with exactly one demo, row done', realDrain.completed === 1 && bA.status === 'confirmed' && dA.length === 1 && (await outbox(A.b.id)).status === 'done', JSON.stringify({ realDrain, bA: bA.status, dA }));
+    await setAutoConfirm(false);
+
+    // (2) the replacement worker already holds the new lease when the stale worker resumes
+    const B = await authorize('r401b');
+    const staleB = await claimAs('old-worker', B.gid, B.b.id);
+    await capture(B.sess, B.pi, B.ch);
+    const freshB = await claimAs('new-worker', B.gid, B.b.id);                // generation 2 lease
+    const staleRes = await ful.runFulfillment({ ...staleB }, 'old-worker', { maxAttempts: 1 });
+    const rowB = await outbox(B.b.id);
+    ok('R4-01 (2): with the new lease held elsewhere, the stale worker (even "exhausted" by its own counters) is a no-op: row still leased to the new worker, generation 2, no case', staleRes.recorded === false && staleRes.outcome === 'stale' && rowB.lease_owner === 'new-worker' && rowB.generation === 2 && rowB.status === 'pending' && (await fulfilCase(B.b.id)).length === 0, JSON.stringify({ staleRes, rowB }));
+    const newRes = await ful.runFulfillment({ ...freshB }, 'new-worker');
+    ok('R4-01 (2): the new worker completes its generation', newRes.done === true && newRes.recorded === true && newRes.outcome === 'done' && (await outbox(B.b.id)).status === 'done' && (await booking(B.b.id)).status === 'pending', JSON.stringify(newRes));
+
+    // (3) lease takeover within ONE generation: the first worker's late write is refused; the taker finishes
+    const C = await authorize('r401c');
+    const first = await claimAs('w-first', C.gid, C.b.id, 30);
+    await q(`UPDATE booking_fulfillments SET lease_expires_at = now() - interval '1 second' WHERE booking_id = $1`, [C.b.id]);
+    const taker = await claimAs('w-taker', C.gid, C.b.id);
+    const lateFirst = await ful.runFulfillment({ ...first }, 'w-first');
+    ok('R4-01 (3): after a lease takeover the first worker\'s completion is stale (no write), the taker holds the lease', lateFirst.recorded === false && lateFirst.outcome === 'stale' && /lease_w-taker/.test(lateFirst.error || '') && (await outbox(C.b.id)).lease_owner === 'w-taker', JSON.stringify(lateFirst));
+    spy.calls.resend.length = 0;
+    const takerRes = await ful.runFulfillment({ ...taker }, 'w-taker');
+    ok('R4-01 (3): the taker sends the ONE hold notice and completes generation 1', takerRes.done === true && takerRes.outcome === 'done' && spy.calls.resend.length === 1 && (await outbox(C.b.id)).status === 'done', JSON.stringify(takerRes));
+
+    // (4) capture lands between an incomplete progress record and the worker's next write
+    const D = await authorize('r401d');
+    const dRow = await claimAs('w-d', D.gid, D.b.id);
+    const prog = one((await rpc('record_fulfillment', { p_booking_id: D.b.id, p_owner: 'w-d', p_generation: 1, p_demo: false, p_emails: false, p_done: false, p_err: 'partial', p_max_attempts: 6 })).json);
+    await capture(D.sess, D.pi, D.ch);                                       // generation 2
+    const late = one((await rpc('record_fulfillment', { p_booking_id: D.b.id, p_owner: 'w-d', p_generation: 1, p_demo: true, p_emails: true, p_done: true, p_err: null, p_max_attempts: 6 })).json);
+    const rowD = await outbox(D.b.id);
+    ok('R4-01 (4): progress was recorded on generation 1; the capture re-issued the row; the worker\'s late "done" is stale and generation 2 is untouched', prog.outcome === 'progress' && late.outcome === 'stale' && /generation_2/.test(late.reason) && rowD.generation === 2 && rowD.status === 'pending' && rowD.demo_created === false && rowD.emails_sent === false, JSON.stringify({ prog, late, rowD }));
+    ok('R4-01 (4): the paid generation completes normally afterwards', (await ful.drainFulfillments({ limit: 10, group: D.gid })).completed === 1 && (await outbox(D.b.id)).status === 'done');
+
+    // (5) legitimate exhaustion of the CURRENT generation parks only that work and opens one case; replay adds nothing
+    const E = await paidUndrained('r401e');
+    await setAttempts(E.b.id, 5);
+    const eRow = await claimAs('w-e', E.gid, E.b.id);                        // attempts 6 = cap
+    spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_failure', once: true });
+    const exhausted = await ful.runFulfillment({ ...eRow }, 'w-e', { maxAttempts: 6 });
+    const rowE = await outbox(E.b.id), caseE = await fulfilCase(E.b.id);
+    ok('R4-01 (5): a live claim that hits the cap is parked atomically: row failed, lease cleared, ONE fulfillment_failed case naming the generation', exhausted.recorded === true && exhausted.outcome === 'exhausted' && exhausted.case_id && rowE.status === 'failed' && rowE.lease_owner === null && caseE.length === 1 && caseE[0].id === exhausted.case_id && Number(caseE[0].details && caseE[0].details.generation) === 1, JSON.stringify({ exhausted, rowE: [rowE.status, rowE.attempts], caseE: caseE.length }));
+    const replayE = await ful.runFulfillment({ ...eRow }, 'w-e', { maxAttempts: 6 });
+    ok('R4-01 (5): a replay by the same worker is a stale no-op — still one case, row still failed, booking untouched', replayE.recorded === false && replayE.outcome === 'stale' && (await fulfilCase(E.b.id)).length === 1 && (await outbox(E.b.id)).status === 'failed' && (await booking(E.b.id)).status === 'pending', JSON.stringify(replayE));
+    ok('R4-01: the unguarded open_fulfillment_case(uuid,text) no longer exists (no alternate parking path for any deployed code)', (await rpc('open_fulfillment_case', { p_booking_id: E.b.id, p_reason: 'x' })).status >= 400 && (await outbox(E.b.id)).status === 'failed');
+    created.caseKeys.push('fulfil:' + E.b.id);
   }
 
   // ===========================================================================================

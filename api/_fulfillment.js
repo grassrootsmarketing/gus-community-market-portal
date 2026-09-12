@@ -32,7 +32,7 @@ async function sbRpc(fn, args) {
 }
 
 // Perform fulfilment for one claimed outbox row. Returns {done, demo_created, emails_sent, error, recorded}.
-export async function runFulfillment(row, owner) {
+export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
   const bookingId = row.booking_id;
   // Codex C1 (0078): the claim carries the row's GENERATION. A capture re-issues a held row as a
   // new generation and drops the old lease, so a worker that claimed the held stage can no longer
@@ -103,21 +103,26 @@ export async function runFulfillment(row, owner) {
   }
 
   const done = demoOk && mailOk;
-  let recorded = false;
+  // Codex R4-01 (0081): ONE transactional record-or-park operation, fenced on lease owner AND
+  // generation AND a still-pending row. It completes, records progress, or — when THIS claim's row
+  // has reached the retry cap — parks it and opens its deduplicated case, atomically. A stale claim
+  // (row re-issued by a capture, or re-leased after expiry) is a no-op: nothing is written, nothing
+  // is parked, and the current owner finishes the work. There is no separate "park by booking id".
+  let recorded = false, outcome = 'unrecorded', caseId = null;
   try {
-    const r = await sbRpc('complete_fulfillment', {
-      p_booking_id: bookingId, p_owner: owner, p_demo: demoOk, p_emails: mailOk, p_done: done, p_err: err, p_generation: generation,
+    const r = await sbRpc('record_fulfillment', {
+      p_booking_id: bookingId, p_owner: owner, p_generation: generation, p_demo: demoOk, p_emails: mailOk,
+      p_done: done, p_err: err, p_max_attempts: maxAttempts,
     });
-    recorded = (r === true) || (Array.isArray(r) && r[0] === true);
-    if (!recorded) {
-      // A stale (owner, generation) pair: the row was re-issued (capture) or re-leased (expiry) under
-      // us. Nothing was written; the current generation's owner finishes the work. Say so.
-      err = (err ? err + '; ' : '') + 'record:stale_lease_or_generation:' + generation;
-    }
+    const j = Array.isArray(r) ? r[0] : r;
+    outcome = (j && j.outcome) || 'unrecorded';
+    caseId = (j && j.case_id) || null;
+    recorded = outcome === 'done' || outcome === 'progress' || outcome === 'exhausted';
+    if (outcome === 'stale') err = (err ? err + '; ' : '') + 'record:stale_claim:' + ((j && j.reason) || 'unknown') + ':' + generation;
   } catch (e) {
     err = (err ? err + '; ' : '') + 'record:' + String((e && e.message) || e).slice(0, 120);
   }
-  return { done, demo_created: demoOk, emails_sent: mailOk, error: err, recorded };
+  return { done, demo_created: demoOk, emails_sent: mailOk, error: err, recorded, outcome, case_id: caseId };
 }
 
 // Claim + drain pending fulfilments. Used by the cron (all groups) and the webhook (one group).
@@ -132,13 +137,12 @@ export async function drainFulfillments({ limit = 25, group = null, leaseSeconds
   } catch (e) { console.error('claim_fulfillments failed:', (e && e.message) || e); out.claim_failed = true; return out; }
   for (const row of rows) {
     out.processed++;
-    const r = await runFulfillment(row, owner);
+    const r = await runFulfillment(row, owner, { maxAttempts });
     if (r.done && r.recorded) { out.completed++; continue; }
     out.failed++;
-    if ((row.attempts || 0) >= maxAttempts) {
-      out.capped++;
-      try { await sbRpc('open_fulfillment_case', { p_booking_id: row.booking_id, p_reason: r.error || 'retry_cap_exhausted' }); } catch (_) {}
-    }
+    // Codex R4-01: exhaustion is decided INSIDE record_fulfillment on the CURRENT row's attempts and
+    // only for a live claim — never from the claimed object's counters, never by booking id.
+    if (r.outcome === 'exhausted') out.capped++;
   }
   return out;
 }
