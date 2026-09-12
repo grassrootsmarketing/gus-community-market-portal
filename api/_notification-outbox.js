@@ -91,7 +91,7 @@ async function sb(b, path, opts = {}) {
   try {
     r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
       ...opts,
-      signal: opts.signal || AbortSignal.timeout(DB_TIMEOUT_MS),
+      signal: opts.signal || globalThis.AbortSignal.timeout(DB_TIMEOUT_MS),
       headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation', ...(opts.headers || {}) },
     });
   } catch (e) {
