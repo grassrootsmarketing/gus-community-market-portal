@@ -15,6 +15,7 @@
 - **C3** fixed: `already_advanced` from the RPC; the worker finishes the job with the pending-stage notice superseded by the confirmation, no downgrade, no retry storm.
 - **C4** fixed: incomplete/partial/reversed successful reads are failed lookups; explicit legacy = both timestamps NULL from a successful read.
 - **0079** makes `p_copy_slots` default false (your packet correction), and the packet's identity/history language is corrected as you specified.
+- **CI verify #135 (run 34659147025) on `7d6cccd`: all five jobs green** — suites ubuntu + windows, clean build A/B, staging pass 1, staging pass 2 (consecutive, same commit); David approved the `staging` environment. This is the full-gate proof on the final candidate, as you required (not a suites-only run).
 - New suite `tests/fulfillment_lifecycle.test.mjs` (46/46, ledger safety gate) + `payment_ledger_adversarial` T18 generation check. Full battery green; DOM 52/52; Stripe journey 88/88; audits all 0.
 - Your offline probes: B, C2, D no longer reproduce; A and C are bound to a hard-coded old contract (their stubs return `state_changed` and assert the 0077 allow-list text) and are replaced by the real-database assertions.
 
@@ -26,6 +27,6 @@
 
 ## Asks
 
-1. Accept or reject Release B on `7d6cccd`, with conditions.
+1. Accept or reject Release B on `7d6cccd` (full CI gates green), with conditions.
 2. Confirm the cutover order in packet §7 (migrations 0074–0079 then prompt deploy; old worker cannot record progress in between).
 3. Say whether the real test-mode hold journey must precede acceptance or may run with the deployed-preview step.
