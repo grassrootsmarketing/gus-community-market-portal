@@ -495,7 +495,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em;">Demo &amp; cancellation policies</div>
         <button type="button" id="agreementJumpBtn" onclick="agreementJumpToEnd()" style="background:transparent; border:1px solid rgba(15,44,23,0.18); color:#2a5b32; border-radius:999px; padding:4px 12px; font-family:inherit; font-size:0.78rem; font-weight:700; cursor:pointer;">Scroll to the end &darr;</button>
       </div>
-      <div id="agreementPolicyBox" onscroll="agreementOnScroll()" style="background:#f9f7f2; border:1px solid rgba(15,44,23,0.10); border-radius:12px; padding:14px 16px; max-height:min(240px, 38vh); overflow-y:auto; -webkit-overflow-scrolling:touch; font-size:0.88rem; line-height:1.5; color:#3a3a36;">
+      <div id="agreementPolicyBox" onscroll="agreementOnScroll()" tabindex="0" role="region" aria-label="Demo and cancellation policies (scroll to the end to enable the agreement checkbox)" aria-describedby="agreementScrollHint" style="background:#f9f7f2; border:1px solid rgba(15,44,23,0.10); border-radius:12px; padding:14px 16px; max-height:min(240px, 38vh); overflow-y:auto; -webkit-overflow-scrolling:touch; font-size:0.88rem; line-height:1.5; color:#3a3a36;">
         <div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Demo policy</div>
         <div id="agreementDemoPolicy" style="white-space:pre-wrap; margin:0 0 14px;"></div>
         <div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Cancellation policy</div>
@@ -1728,8 +1728,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const jump = document.getElementById('agreementJumpBtn');
             window._agreementRead = false;
             if (cb) { cb.checked = false; cb.disabled = true; }
-            if (hint) hint.style.display = '';
-            if (jump) jump.style.display = '';
+            if (hint) { hint.style.display = ''; hint.textContent = 'Scroll through the policies to enable the checkbox.'; }
+            if (jump) { jump.style.display = ''; jump.disabled = false; jump.innerHTML = 'Scroll to the end &darr;'; }
             if (box) { box.scrollTop = 0; requestAnimationFrame(agreementOnScroll); }
         }
         function agreementOnScroll() {
@@ -1742,8 +1742,12 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const hint = document.getElementById('agreementScrollHint');
             const jump = document.getElementById('agreementJumpBtn');
             if (cb) cb.disabled = false;
-            if (hint) hint.style.display = 'none';
-            if (jump) jump.style.display = 'none';
+            // Codex H3: the jump control stays in the page (disabled, relabelled) rather than vanishing
+            // under the keyboard user; if it or the box had focus, focus moves to the checkbox.
+            const hadFocus = document.activeElement && (document.activeElement === jump || document.activeElement === document.getElementById('agreementPolicyBox'));
+            if (jump) { jump.disabled = true; jump.textContent = 'You reached the end'; }
+            if (hint) hint.textContent = 'Policies read. Type your name and tick the box to sign.';
+            if (hadFocus && cb) cb.focus();
         }
         function agreementJumpToEnd() {
             const box = document.getElementById('agreementPolicyBox');
