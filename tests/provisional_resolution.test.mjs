@@ -49,7 +49,9 @@ console.log('\n— provisional resolution (P0-1 capture/release race, P0-2 capac
 {
   const fn = slice(prov, 'export async function captureHeldBooking', 'function H(');
   check('captureHeldBooking applies only when the retrieved PI is succeeded',
-    /fullPi\.status !== 'succeeded'/.test(fn) && /applyCapturedPi\(/.test(fn), 'capture does not gate on succeeded');
+    /fullPi\.status === 'succeeded'/.test(fn) && /applyCapturedPi\(/.test(fn), 'capture does not gate on succeeded');
+  check('captureHeldBooking carries the R4-02 outcome contract (captured / not_captured / uncertain + deduplicated case)',
+    /outcome: 'captured'/.test(fn) && /outcome: 'not_captured'/.test(fn) && /outcome: 'uncertain'/.test(fn) && /capture-unknown:/.test(fn), 'missing outcome contract');
 }
 
 // ---- P0-2: capacity is verified BEFORE the Stripe capture ----

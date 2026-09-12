@@ -18,6 +18,7 @@
 //       already_advanced (done, no downgrade, one demo, no extra mail); after a cancel it is superseded.
 //   C4  the snapshot helper refuses incomplete / partial / reversed successful reads (pure unit).
 import pg from 'pg';
+import crypto from 'node:crypto';
 import { callRoute, req, installSpy, ENV, ok, summary } from './_route.mjs';
 import { _resetBindingCache } from '../api/_env.js';
 
@@ -380,6 +381,153 @@ try {
       const rr = await route({ booking_id: R.b.id, action: 'confirm' });
       ok('H1 (d): no post-capture status read-back exists (a poisoned read is never consulted); the confirm succeeds with its demo', rr.statusCode === 200 && rr.body.demo_id && readBacks === 0 && (await demos(R.b.id)).length === 1 && stripeCalls(/\/capture$/) === 1, `${rr.statusCode} readBacks=${readBacks}`);
     } finally { globalThis.fetch = realFetch; await setAutoConfirm(false); }
+  }
+
+  // ===========================================================================================
+  console.log('\n— R4-02: the WHOLE capture outcome is truthful — reads before money, captured / not captured / unknown —');
+  {
+    const OWNER_EMAIL = 'david@demohubhq.com';
+    const cases = (key) => q(`SELECT id, reason, details FROM reconciliation_cases WHERE dedupe_key = $1`, [key]);
+    const heldUntouched = async (id) => { const b = await booking(id); return b.status === 'held' && b.payment_status === 'authorized'; };
+    const resp = (status, body, text) => ({ ok: status < 400, status, text: async () => text != null ? text : JSON.stringify(body), json: async () => body });
+    // one wrapper the cases below configure: fail / empty / malform a required read, lose a Stripe
+    // response on the wire. Counted into the spy's Stripe call log so call-count assertions hold.
+    const wrap = { venue: null, retailer: null, captureThrow: false, piThrow: false };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url, opts = {}) => {
+      const u = String(url); const m = String(opts.method || 'GET').toUpperCase();
+      if (m === 'GET' && u.includes('/rest/v1/venues?id=eq.') && u.includes('select=name,demo_fee') && wrap.venue) { const w = wrap.venue; wrap.venue = null; return w(); }
+      if (m === 'GET' && u.includes('/rest/v1/retailers?id=eq.') && u.includes('cancellation_mode') && wrap.retailer) { const w = wrap.retailer; wrap.retailer = null; return w(); }
+      if (m === 'POST' && /\/payment_intents\/[^/]+\/capture$/.test(u) && wrap.captureThrow) { wrap.captureThrow = false; spy.calls.stripe.push({ url: u, method: 'POST', body: '' }); throw new Error('socket hang up (capture response lost)'); }
+      if (m === 'GET' && /\/payment_intents\/[^/?]+\?/.test(u) && wrap.piThrow && (wrap.piThrow === true || u.includes(encodeURIComponent(wrap.piThrow)))) { wrap.piThrow = false; spy.calls.stripe.push({ url: u, method: 'GET', body: '' }); throw new Error('ECONNRESET (verification unavailable)'); }
+      return realFetch(url, opts);
+    };
+    const fresh = async (tag) => { const X = await authorize(tag); spy.fixtures.paymentIntents[X.pi] = capturedPi(X.pi, X.ch); spy.calls.stripe.length = 0; return X; };
+    let coiVid = null, brandCoiRefBefore = null, coiCaseIds = [];
+    try {
+      // ---- required reads and inputs are settled BEFORE any money moves (rows 1–4 of Codex's table) ----
+      const A = await fresh('r402-venue-err');
+      wrap.venue = () => resp(503, { message: 'injected venue read failure' });
+      const ra = await route({ booking_id: A.b.id, action: 'confirm' });
+      ok('R4-02 (1): a failed venue read is refused BEFORE the capture — 503 booking_context_unavailable, zero capture calls, hold untouched, no case', ra.statusCode === 503 && ra.body.error === 'booking_context_unavailable' && /nothing was charged/i.test(ra.body.message) && stripeCalls(/\/capture$/) === 0 && await heldUntouched(A.b.id) && (await cases('capture-unknown:' + A.b.id)).length === 0 && (await cases('transition:' + A.b.id)).length === 0, JSON.stringify(ra.body));
+      const B = await fresh('r402-ret-err');
+      wrap.retailer = () => resp(503, { message: 'injected retailer read failure' });
+      const rb = await route({ booking_id: B.b.id, action: 'confirm' });
+      ok('R4-02 (2): a failed retailer read is refused before the capture — zero capture calls, hold untouched', rb.statusCode === 503 && rb.body.error === 'booking_context_unavailable' && stripeCalls(/\/capture$/) === 0 && await heldUntouched(B.b.id), JSON.stringify(rb.body));
+      const C = await fresh('r402-venue-empty');
+      wrap.venue = () => resp(200, []);
+      const rc = await route({ booking_id: C.b.id, action: 'confirm' });
+      ok('R4-02 (3): an EMPTY venue read is refused before the capture (no fee source) — zero capture calls', rc.statusCode === 503 && rc.body.error === 'booking_context_unavailable' && stripeCalls(/\/capture$/) === 0 && await heldUntouched(C.b.id), JSON.stringify(rc.body));
+      const C2 = await fresh('r402-venue-malformed');
+      wrap.venue = () => resp(200, null, '<html>upstream error</html>');
+      const rc2 = await route({ booking_id: C2.b.id, action: 'confirm' });
+      ok('R4-02 (3b): a MALFORMED venue read (non-JSON body) is refused before the capture — zero capture calls', rc2.statusCode === 503 && rc2.body.error === 'booking_context_unavailable' && stripeCalls(/\/capture$/) === 0 && await heldUntouched(C2.b.id), JSON.stringify(rc2.body));
+      const C3 = await fresh('r402-venue-nofee');
+      wrap.venue = () => resp(200, [{ name: 'No fee venue', demo_fee: null }]);
+      const rc3 = await route({ booking_id: C3.b.id, action: 'confirm' });
+      ok('R4-02 (3c): a venue WITHOUT a fee is refused before the capture — 400 venue_missing_fee, zero capture calls', rc3.statusCode === 400 && rc3.body.error === 'venue_missing_fee' && stripeCalls(/\/capture$/) === 0 && await heldUntouched(C3.b.id), JSON.stringify(rc3.body));
+      const D = await fresh('r402-bad-fee');
+      const rd1 = await route({ booking_id: D.b.id, action: 'confirm', demo_fee: 'not-a-number' });
+      const rd2 = await route({ booking_id: D.b.id, action: 'confirm', demo_fee: -5 });
+      const rd3 = await route({ booking_id: D.b.id, action: 'confirm', demo_fee: 'Infinity' });
+      ok('R4-02 (4): an invalid demo-fee override (NaN / negative / non-finite) is refused BEFORE the capture — 400 venue_missing_fee, zero capture calls', [rd1, rd2, rd3].every(r => r.statusCode === 400 && r.body.error === 'venue_missing_fee' && /nothing was charged/i.test(r.body.message)) && stripeCalls(/\/capture$/) === 0 && await heldUntouched(D.b.id), JSON.stringify([rd1.body, rd2.body, rd3.body]));
+      const rd4 = await route({ booking_id: D.b.id, action: 'confirm', demo_fee: 45 });
+      ok('R4-02 (4): the same booking then confirms normally with a valid override — one capture, one demo', rd4.statusCode === 200 && rd4.body.demo_id && stripeCalls(/\/capture$/) === 1 && (await demos(D.b.id)).length === 1, JSON.stringify(rd4.body));
+
+      // ---- row 5: the follow-up PaymentIntent retrieval is unavailable after the capture request ----
+      const E = await fresh('r402-verify-unavail');
+      wrap.piThrow = true;
+      const re = await route({ booking_id: E.b.id, action: 'confirm' });
+      const caseE = await cases('capture-unknown:' + E.b.id); created.caseKeys.push('capture-unknown:' + E.b.id);
+      ok('R4-02 (5): verification unavailable → 502 payment_outcome_unknown: NOT "nothing was charged", NOT captured:true, one recorded case with the PI, hold row untouched, no demo, no transition', re.statusCode === 502 && re.body.error === 'payment_outcome_unknown' && re.body.payment_uncertain === true && re.body.captured === undefined && !/nothing was charged/i.test(re.body.message) && /may have completed/.test(re.body.message) && /Do NOT charge/.test(re.body.message) && re.body.reconciliation_recorded === true && caseE.length === 1 && caseE[0].id === re.body.reconciliation_case_id && caseE[0].reason === 'capture_outcome_unknown' && caseE[0].details.payment_intent_id === E.pi && await heldUntouched(E.b.id) && (await demos(E.b.id)).length === 0 && stripeCalls(/\/capture$/) === 1, JSON.stringify({ body: re.body, caseE }));
+      const re2 = await route({ booking_id: E.b.id, action: 'confirm' });
+      ok('R4-02 (5): the retry converges once Stripe answers — 200 with the demo, exactly one demo, the same PI-scoped capture key (no new identity), still ONE case', re2.statusCode === 200 && re2.body.demo_id && (await demos(E.b.id)).length === 1 && (await booking(E.b.id)).status === 'confirmed' && spy.calls.stripe.filter(c => /\/capture$/.test(c.url)).length === 2 && (await cases('capture-unknown:' + E.b.id)).length === 1, JSON.stringify(re2.body));
+      // the same with auto-confirm ON: the recovery path is the capture-side drain, the route converges as already_applied
+      await setAutoConfirm(true);
+      const F = await fresh('r402-verify-unavail-auto');
+      wrap.piThrow = true;
+      const rf = await route({ booking_id: F.b.id, action: 'confirm' });
+      created.caseKeys.push('capture-unknown:' + F.b.id);
+      const rf2 = await route({ booking_id: F.b.id, action: 'confirm' });
+      ok('R4-02 (5, auto-confirm ON): unknown outcome reported and recorded; the retry converges to confirmed with exactly ONE demo and one case', rf.statusCode === 502 && rf.body.error === 'payment_outcome_unknown' && rf.body.reconciliation_recorded === true && rf2.statusCode === 200 && (await booking(F.b.id)).status === 'confirmed' && (await demos(F.b.id)).length === 1 && (await cases('capture-unknown:' + F.b.id)).length === 1, JSON.stringify({ rf: rf.body, rf2: rf2.body }));
+      await setAutoConfirm(false);
+
+      // ---- the capture RESPONSE is lost on the wire: Stripe's retrieved state decides, never the request ----
+      const G = await fresh('r402-lost-notcaptured');
+      spy.fixtures.paymentIntents[G.pi] = { ...capturedPi(G.pi, G.ch), status: 'requires_capture', amount_received: 0 };
+      wrap.captureThrow = true;
+      const rg = await route({ booking_id: G.b.id, action: 'confirm' });
+      ok('R4-02 (6a): capture response lost, Stripe says requires_capture → authoritatively NOT captured: 502 capture_failed, captured:false, "nothing was charged" is TRUE, no case, hold untouched', rg.statusCode === 502 && rg.body.error === 'capture_failed' && rg.body.captured === false && /nothing was charged/.test(rg.body.message) && (await cases('capture-unknown:' + G.b.id)).length === 0 && await heldUntouched(G.b.id) && (await demos(G.b.id)).length === 0, JSON.stringify(rg.body));
+      const Hh = await fresh('r402-lost-captured');
+      wrap.captureThrow = true;
+      const rh = await route({ booking_id: Hh.b.id, action: 'confirm' });
+      ok('R4-02 (6b): capture response lost, Stripe says succeeded → treated as CAPTURED: the confirm completes with its demo, one capture request, no case', rh.statusCode === 200 && rh.body.demo_id && (await demos(Hh.b.id)).length === 1 && (await booking(Hh.b.id)).payment_status === 'paid' && stripeCalls(/\/capture$/) === 1 && (await cases('capture-unknown:' + Hh.b.id)).length === 0, JSON.stringify(rh.body));
+      const I = await fresh('r402-lost-unknown');
+      wrap.captureThrow = true; wrap.piThrow = true;
+      const ri = await route({ booking_id: I.b.id, action: 'confirm' });
+      created.caseKeys.push('capture-unknown:' + I.b.id);
+      const ri2 = await route({ booking_id: I.b.id, action: 'confirm' });
+      ok('R4-02 (6c): capture response lost AND verification unavailable → payment_outcome_unknown with one case; the retry converges with one demo', ri.statusCode === 502 && ri.body.error === 'payment_outcome_unknown' && ri.body.reconciliation_recorded === true && ri2.statusCode === 200 && (await demos(I.b.id)).length === 1 && (await cases('capture-unknown:' + I.b.id)).length === 1, JSON.stringify({ ri: ri.body, ri2: ri2.body }));
+
+      // ---- Stripe answers: a 5xx is uncertain (verify decides); a 4xx refusal is definitive ----
+      const J = await fresh('r402-5xx');
+      spy.faults.push({ url: '/capture', method: 'POST', status: 503, message: 'injected stripe 503', once: true });
+      const rj = await route({ booking_id: J.b.id, action: 'confirm' });
+      ok('R4-02 (7a): Stripe 5xx on the capture, retrieved PI succeeded → captured: 200 with the demo, no case', rj.statusCode === 200 && rj.body.demo_id && (await demos(J.b.id)).length === 1 && (await cases('capture-unknown:' + J.b.id)).length === 0, JSON.stringify(rj.body));
+      const K = await fresh('r402-4xx');
+      spy.faults.push({ url: '/capture', method: 'POST', status: 402, message: 'injected: authorization expired', once: true });
+      const rk = await route({ booking_id: K.b.id, action: 'confirm' });
+      ok('R4-02 (7b): Stripe 4xx refusal → definitive: 502 capture_failed "nothing was charged", NO verification call needed, no case, hold untouched', rk.statusCode === 502 && rk.body.error === 'capture_failed' && rk.body.captured === false && /nothing was charged/.test(rk.body.message) && (await cases('capture-unknown:' + K.b.id)).length === 0 && await heldUntouched(K.b.id), JSON.stringify(rk.body));
+      const L = await fresh('r402-processing');
+      spy.fixtures.paymentIntents[L.pi] = { ...capturedPi(L.pi, L.ch), status: 'processing', amount_received: 0 };
+      const rl = await route({ booking_id: L.b.id, action: 'confirm' });
+      created.caseKeys.push('capture-unknown:' + L.b.id);
+      ok('R4-02 (7c): a non-terminal PI state (processing) after the capture request is UNKNOWN, not "not charged": payment_outcome_unknown + one case', rl.statusCode === 502 && rl.body.error === 'payment_outcome_unknown' && (await cases('capture-unknown:' + L.b.id)).length === 1 && await heldUntouched(L.b.id), JSON.stringify(rl.body));
+
+      // ---- the case cannot be recorded: say so ----
+      const M = await fresh('r402-case-unrecorded');
+      wrap.piThrow = true;
+      spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 500, message: 'injected case write failure', once: true });
+      const rm = await route({ booking_id: M.b.id, action: 'confirm' });
+      ok('R4-02 (8): when the reconciliation case cannot be recorded the response says so honestly (reconciliation_recorded:false, "could NOT be recorded"), still payment_outcome_unknown', rm.statusCode === 502 && rm.body.error === 'payment_outcome_unknown' && rm.body.reconciliation_recorded === false && rm.body.reconciliation_case_id === null && /could NOT be recorded/.test(rm.body.message) && (await cases('capture-unknown:' + M.b.id)).length === 0, JSON.stringify(rm.body));
+      const rm2 = await route({ booking_id: M.b.id, action: 'confirm' });
+      ok('R4-02 (8): the retry converges — one demo', rm2.statusCode === 200 && (await demos(M.b.id)).length === 1);
+
+      // ---- the OTHER caller: COI auto-confirm in admin-auth honours the shared contract ----
+      {
+        const ex = await rest('retailers?slug=eq.__owner__&select=id');
+        const ownerRetailerId = (one(ex.json) && one(ex.json).id) || one((await rest('retailers', { method: 'POST', body: JSON.stringify({ slug: '__owner__', name: 'Demohub Owner (system)', billing_email: OWNER_EMAIL }) })).json).id;
+        const tok = one((await rest('admin_tokens', { method: 'POST', body: JSON.stringify({ email: OWNER_EMAIL, retailer_id: ownerRetailerId }) })).json);
+        const verified = await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }));
+        const ownerCookie = verified.cookie('dh_owner_session');
+        ok('R4-02 (9): setup — owner session', !!ownerCookie, JSON.stringify(verified.body));
+        brandCoiRefBefore = await row1(`SELECT current_coi_verification_id FROM brands WHERE id = $1`, [BRAND1]);
+        await setAutoConfirm(true);
+        const N = await fresh('r402-coi-auto');
+        coiVid = crypto.randomUUID();
+        const up = await rpc('finalize_coi_upload', { p_brand_id: BRAND1, p_verification_id: coiVid, p_storage_path: `brands/${BRAND1}/${coiVid}.pdf`, p_content_sha256: 'sha-' + coiVid.slice(0, 8), p_expires: null, p_status: 'pending' });
+        ok('R4-02 (9): setup — pending COI version for the fixture brand', up.status < 300, JSON.stringify(up.json).slice(0, 200));
+        wrap.piThrow = N.pi;   // only THIS hold's verification is unavailable; the sweep also captures the block's other held fixtures
+        const rv = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-review', verification_id: coiVid, decision: 'approved', expiry: '2028-12-31' }, cookies: { dh_owner_session: ownerCookie } }));
+        created.caseKeys.push('capture-unknown:' + N.b.id);
+        coiCaseIds = Array.isArray(rv.body && rv.body.capture_cases) ? rv.body.capture_cases.filter(Boolean) : [];
+        const caseN = await cases('capture-unknown:' + N.b.id);
+        ok('R4-02 (9): COI approval with an UNKNOWN capture outcome counts it in uncertain_holds separately from the holds it did capture (the sweep also meets the other held fixtures of this block: unfixtured PIs are UNKNOWN, requires_capture is uncaptured), lists the case, warns the reviewer; the booking stays held/authorized; one case', rv.statusCode === 200 && rv.body.ok === true && rv.body.uncertain_holds >= 1 && Array.isArray(rv.body.capture_cases) && rv.body.capture_cases.includes(caseN[0]?.id) && /may have been charged/.test(rv.body.message) && caseN.length === 1 && await heldUntouched(N.b.id) && spy.calls.stripe.filter(c => c.url.includes(N.pi) && /\/capture$/.test(c.url)).length === 1, JSON.stringify({ body: rv.body, caseN }));
+        const rn2 = await route({ booking_id: N.b.id, action: 'confirm' });
+        ok('R4-02 (9): a later retailer confirm converges the same hold — confirmed, exactly one demo, still one case', rn2.statusCode === 200 && (await booking(N.b.id)).status === 'confirmed' && (await demos(N.b.id)).length === 1 && (await cases('capture-unknown:' + N.b.id)).length === 1, JSON.stringify(rn2.body));
+        await setAutoConfirm(false);
+      }
+      ok('R4-02: no duplicate captures anywhere in this block — every capture request in the log is a distinct PI or a same-key retry after an unknown outcome', (() => { const byPi = {}; for (const c of spy.calls.stripe) { const m = c.url.match(/payment_intents\/([^/]+)\/capture$/); if (m) byPi[m[1]] = (byPi[m[1]] || 0) + 1; } return Object.values(byPi).every(n => n <= 2); })());
+    } finally {
+      globalThis.fetch = realFetch; wrap.venue = wrap.retailer = null; wrap.captureThrow = wrap.piThrow = false;
+      await setAutoConfirm(false);
+      if (coiCaseIds.length) await q(`DELETE FROM reconciliation_cases WHERE id = ANY($1::uuid[])`, [coiCaseIds]).catch(() => {});
+      if (coiVid) {
+        await rest(`brands?id=eq.${BRAND1}`, { method: 'PATCH', body: JSON.stringify({ current_coi_verification_id: brandCoiRefBefore ? brandCoiRefBefore.current_coi_verification_id : null }) });
+        await q(`DELETE FROM notification_events WHERE transition_id LIKE $1`, [coiVid + '%']).catch(() => {});
+        await q(`DELETE FROM coi_verifications WHERE id = $1`, [coiVid]).catch(() => {});
+      }
+    }
   }
 
   console.log('\n— C2-B: a successful refund followed by a logical refusal is recorded and reported —');

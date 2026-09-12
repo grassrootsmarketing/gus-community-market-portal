@@ -2990,11 +2990,20 @@ END:VEVENT
                 await refreshAll();
                 DhModal.toast('Booking confirmed', 'success');
             } catch (e) {
-                DhModal.toast('Could not confirm: ' + e.message, 'error');
                 if (row) row.style.opacity = '';
-                // Codex H1: the capture happened and the booking is converging server-side — show the
-                // current status instead of leaving a stale "held" row that invites a decline.
-                if (e && e.code === 'capture_succeeded_confirmation_unverified') { try { await refreshAll(); } catch (_) {} }
+                if (e && e.code === 'capture_succeeded_confirmation_unverified') {
+                    // Codex H1: the capture happened and the booking is converging server-side — show the
+                    // current status instead of leaving a stale "held" row that invites a decline.
+                    await DhModal.alert({ title: 'Payment captured — confirmation not verified yet', message: e.message });
+                    try { await refreshAll(); } catch (_) {}
+                } else if (e && e.code === 'payment_outcome_unknown') {
+                    // Codex R4-02: the payment MAY have completed. No "nothing was charged", no "in
+                    // progress" claim — the honest message, then the current row state.
+                    await DhModal.alert({ title: 'Payment outcome unknown', message: e.message });
+                    try { await refreshAll(); } catch (_) {}
+                } else {
+                    DhModal.toast('Could not confirm: ' + e.message, 'error');
+                }
             }
         }
 

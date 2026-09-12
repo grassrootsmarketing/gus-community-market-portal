@@ -17,12 +17,23 @@ async function stripePost(path, params, idempotencyKey) {
   if (!STRIPE_SECRET_KEY) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
   const headers = { Authorization: 'Bearer ' + STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded' };
   if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 255);
+  // Codex R4-02: the caller must be able to tell a DEFINITIVE rejection (Stripe answered 4xx: the
+  // request was refused, nothing happened) from an UNCERTAIN outcome (no usable answer: transport
+  // failure, unreadable response, or a Stripe 5xx — the request may have been applied). A generic
+  // failure is never a synonym for "not charged".
+  let r;
   try {
-    const r = await fetch('https://api.stripe.com/v1/' + path, { method: 'POST', headers, body: params ? params.toString() : '' });
-    const j = await r.json();
-    if (!r.ok) return { ok: false, error: (j && j.error && j.error.message) || ('HTTP ' + r.status), code: j && j.error && j.error.code, detail: j };
-    return { ok: true, object: j };
-  } catch (e) { return { ok: false, error: String((e && e.message) || e) }; }
+    r = await fetch('https://api.stripe.com/v1/' + path, { method: 'POST', headers, body: params ? params.toString() : '' });
+  } catch (e) { return { ok: false, uncertain: true, transport: true, error: String((e && e.message) || e) }; }
+  let j = null;
+  try { j = await r.json(); } catch (e) { return { ok: false, uncertain: true, transport: true, status: r.status, error: 'unreadable_response: ' + String((e && e.message) || e) }; }
+  if (!r.ok) {
+    const msg = (j && j.error && j.error.message) || ('HTTP ' + r.status);
+    if (r.status >= 500) return { ok: false, uncertain: true, status: r.status, error: msg, code: j && j.error && j.error.code, detail: j };
+    return { ok: false, uncertain: false, status: r.status, error: msg, code: j && j.error && j.error.code, detail: j };
+  }
+  if (!j || typeof j !== 'object') return { ok: false, uncertain: true, status: r.status, error: 'malformed_response' };
+  return { ok: true, object: j };
 }
 
 // Capture the full authorized amount. Idempotency key is PI-scoped: a retry of the same capture
@@ -39,13 +50,18 @@ export function stripeCancelPaymentIntent(piId, reason) {
   return stripePost(`payment_intents/${encodeURIComponent(piId)}/cancel`, p, `pcx-${piId}`);
 }
 
+// null = the PaymentIntent could NOT be retrieved (transport failure, non-2xx, unreadable body).
+// Callers treat null as "state unknown", never as "not captured". Never throws.
 export async function stripeGetPaymentIntent(piId) {
   if (!STRIPE_SECRET_KEY || !piId) return null;
-  const r = await fetch(`https://api.stripe.com/v1/payment_intents/${encodeURIComponent(piId)}?expand[]=latest_charge`, {
-    headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY },
-  });
-  if (!r.ok) return null;
-  return r.json();
+  try {
+    const r = await fetch(`https://api.stripe.com/v1/payment_intents/${encodeURIComponent(piId)}?expand[]=latest_charge`, {
+      headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return (j && typeof j === 'object' && j.id) ? j : null;
+  } catch (_) { return null; }
 }
 
 // ---------------------------------------------------------------------------
@@ -170,22 +186,61 @@ async function applyCapturedPi(paymentIntentId, fullPi) {
   return { ok: true, payment_group_id: applied.payment_group_id, outcome };
 }
 
+// Codex R4-02 — the shared capture-outcome contract (both callers: booking-action confirm and the
+// COI auto-confirm loop in admin-auth). Every result carries an explicit `outcome`:
+//   'captured'     — Stripe's retrieved PaymentIntent is 'succeeded'. ok:true when the ledger was
+//                    applied; ok:false (stage 'apply') when it was not — the money HAS moved and the
+//                    webhook replay / sweep converge the ledger; callers must never say "not charged".
+//   'not_captured' — authoritatively nothing was charged: the precondition failed, Stripe REFUSED the
+//                    capture (4xx), or the retrieved PI is in a not-captured state (canceled /
+//                    requires_capture / requires_payment_method / requires_confirmation).
+//   'uncertain'    — the capture request may or may not have been applied and Stripe's authoritative
+//                    state could not be established (transport loss / 5xx / unreadable response on the
+//                    capture, and/or the follow-up retrieval unavailable or non-terminal). ONE
+//                    deduplicated reconciliation case ('capture-unknown:<booking>') is recorded; the
+//                    result says whether that succeeded. Nothing else is attempted: no fresh capture,
+//                    no refund, no new idempotency identity — the same PI-scoped key makes a later
+//                    retry converge, and payment_intent.succeeded / the 24h sweep converge the ledger.
 export async function captureHeldBooking(booking) {
   if (!booking || booking.status !== 'held' || booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
-    return { ok: false, stage: 'precondition', error: 'hold_not_authorized' };
+    return { ok: false, outcome: 'not_captured', stage: 'precondition', error: 'hold_not_authorized' };
   }
-  const cap = await stripeCapturePaymentIntent(booking.payment_intent_id);
+  const piId = booking.payment_intent_id;
+  const cap = await stripeCapturePaymentIntent(piId);
   // 'payment_intent_unexpected_state' usually means an earlier capture already succeeded — the
-  // verify step below settles it either way.
-  if (!cap.ok && cap.code !== 'payment_intent_unexpected_state') {
-    return { ok: false, stage: 'capture', error: cap.error };
+  // verify step below settles it either way. A definitive 4xx refusal is "nothing happened".
+  if (!cap.ok && !cap.uncertain && cap.code !== 'payment_intent_unexpected_state') {
+    return { ok: false, outcome: 'not_captured', stage: 'capture', error: cap.error, code: cap.code };
   }
-  const fullPi = await stripeGetPaymentIntent(booking.payment_intent_id);
-  if (!fullPi) return { ok: false, stage: 'verify', error: 'cannot_retrieve_pi' };
+  const fullPi = await stripeGetPaymentIntent(piId);
+  if (!fullPi) {
+    return uncertainCapture(booking, 'verify', cap.ok ? 'cannot_retrieve_pi' : 'capture_' + (cap.error || 'unknown') + '; cannot_retrieve_pi');
+  }
   // Branch on Stripe's authoritative state, never on the request we made. If a concurrent release
   // canceled the PI first, this is 'canceled' — do NOT mark paid.
-  if (fullPi.status !== 'succeeded') return { ok: false, stage: 'verify', error: 'pi_state_' + fullPi.status };
-  return applyCapturedPi(booking.payment_intent_id, fullPi);
+  if (fullPi.status === 'succeeded') {
+    const applied = await applyCapturedPi(piId, fullPi);
+    return { ...applied, outcome: 'captured' };
+  }
+  if (['canceled', 'requires_capture', 'requires_payment_method', 'requires_confirmation'].includes(fullPi.status)) {
+    return { ok: false, outcome: 'not_captured', stage: 'verify', error: 'pi_state_' + fullPi.status, pi_status: fullPi.status };
+  }
+  // 'processing' / 'requires_action' / anything else: not settled either way.
+  return uncertainCapture(booking, 'verify', 'pi_state_' + fullPi.status);
+}
+
+async function uncertainCapture(booking, stage, error) {
+  let caseId = null, caseError = null;
+  try {
+    const c = await sbRpc('_open_case', {
+      p_kind: 'settlement_exception', p_dedupe: 'capture-unknown:' + booking.id, p_reason: 'capture_outcome_unknown',
+      p_group: null, p_request: null, p_operation: null,
+      p_session: null, p_pi: booking.payment_intent_id, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+      p_details: { booking_id: booking.id, payment_intent_id: booking.payment_intent_id, stage, error: String(error || '').slice(0, 300) },
+    });
+    caseId = c || null;
+  } catch (e) { caseError = String((e && e.message) || e).slice(0, 200); }
+  return { ok: false, outcome: 'uncertain', stage, error, case_id: caseId, case_recorded: !!caseId, case_error: caseError };
 }
 
 // ---------------------------------------------------------------------------

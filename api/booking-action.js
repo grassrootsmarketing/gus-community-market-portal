@@ -357,6 +357,14 @@ export default async function handler(req, res) {
   // it depends on arrive at api/stripe-webhook.js, which is exempt on its own signature check.
   if (!requireSameOrigin(req, res, _b)) return;
 
+  // Codex R4-02: the payment-outcome context lives OUTSIDE the main try so that every exit — the
+  // named error paths below AND the outer catch — reports what happened to the brand's money:
+  //   capturedHeldNow  = this request's capture is VERIFIED (Stripe's PI is 'succeeded').
+  // An uncertain capture never reaches the code after the capture block (it returns at once), and a
+  // definitive "not captured" is the only case that may say "nothing was charged".
+  let capturedHeldNow = false;   // Codex C2 / H1 / R4-02
+  let ctxBookingId = null, ctxAction = null;
+
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
     // ===== Reschedule proposal (retailer proposes a new date for a CONFIRMED demo) =====
@@ -369,6 +377,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline|cancel required' });
     }
     if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
+    ctxBookingId = booking_id; ctxAction = action;
 
     // === Session check — cookie only, via the shared retailer guard ===
     const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
@@ -393,13 +402,37 @@ export default async function handler(req, res) {
     }
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
 
+    // Codex R4-02 (1): everything this action NEEDS beyond the booking row — the venue (name, fee),
+    // the retailer (cancellation mode, ...) and a valid demo fee for a confirm — is read and validated
+    // HERE, before any money moves. A failed, empty or malformed read is refused with nothing changed
+    // and nothing charged; there are no unguarded reads between a capture and its protections.
+    let venue = null, retailer = null;
+    try {
+      const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
+      venue = Array.isArray(venues) ? venues[0] : null;
+      const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
+      retailer = Array.isArray(retailers) ? retailers[0] : null;
+    } catch (e) {
+      return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer details could not be loaded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was charged — retry in a moment.' });
+    }
+    if (!venue || typeof venue !== 'object' || !retailer || typeof retailer !== 'object') {
+      return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer for this booking could not be found. Nothing was changed and nothing was charged.' });
+    }
+    let demoFee = null;
+    if (action === 'confirm') {
+      const fee = demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null);
+      if (fee == null || !Number.isFinite(fee) || fee < 0) {
+        return res.status(400).json({ error: 'venue_missing_fee', message: demo_fee != null ? 'The demo fee override is not a valid amount. Nothing was changed and nothing was charged.' : 'This venue has no demo fee configured. Set one in the admin before confirming this booking. Nothing was charged.' });
+      }
+      demoFee = fee;
+    }
+
     // ===== Confirming a HELD booking = capture the authorization first =====
     // Requires the auth to exist AND the brand's COI to be approved — capture is the moment the
     // brand is actually charged, and the whole point of the hold is "no charge until insured".
     // Capture -> apply_verified_payment (sync; the webhook replay is idempotent) -> outbox drain
     // promotes held -> 'pending' + sends the payment email; the normal confirm flow below then
     // finishes pending -> 'confirmed' with demo + confirmation email, exactly like a paid booking.
-    let capturedHeldNow = false;   // Codex C2: this request captured the hold (emails are due even if the transition converged)
     if (action === 'confirm' && booking.status === 'held') {
       if (booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
         return res.status(409).json({ error: 'hold_not_authorized', message: 'The brand has not completed checkout for this hold yet — there is nothing to charge. Ask them to finish payment, or decline to free the slot.' });
@@ -421,14 +454,29 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: 'slot_at_capacity', message: `Slot is at capacity (${preCap.taken}/${preCap.cap}). Nothing was charged — decline this booking and ask the brand to pick another slot.` });
       }
       const capd = await captureHeldBooking(booking);
+      if (capd.outcome === 'captured') capturedHeldNow = true;   // verified by Stripe's PI state — set BEFORE any later exit
       if (!capd.ok) {
-        console.error('held-capture failed:', capd.stage, capd.error, booking_id);
-        if (capd.stage === 'capture' || capd.stage === 'verify') {
-          return res.status(502).json({ error: 'capture_failed', message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
+        console.error('held-capture failed:', capd.outcome, capd.stage, capd.error, booking_id);
+        if (capd.outcome === 'uncertain') {
+          // Codex R4-02 (4): the capture may or may not have happened and Stripe's state could not be
+          // established. Say exactly that. NOT captured:true, NOT "nothing was charged". The PI-scoped
+          // idempotency key means a later retry of this confirm converges; payment_intent.succeeded /
+          // the 24h sweep converge the ledger; the case (if recorded) puts it in front of an operator.
+          return res.status(502).json({ ok: false, action, booking_id, error: 'payment_outcome_unknown', payment_uncertain: true,
+            payment_intent_id: booking.payment_intent_id,
+            message: 'The payment for this hold may have completed — Stripe did not confirm either way (' + String(capd.error || '').slice(0, 120) + '). Its status is being checked. Do NOT charge the brand again, cancel, decline or ask them to rebook on the assumption it failed — refresh in a minute and retry the confirm; it is safe to retry. '
+              + (capd.case_recorded ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
+            reconciliation_case_id: capd.case_id || null, reconciliation_recorded: !!capd.case_recorded });
         }
-        return res.status(500).json({ error: 'capture_apply_failed', detail: capd.error, case_id: capd.case_id });
+        if (capd.outcome === 'not_captured') {
+          // Authoritative: Stripe refused the capture or the PI is in an uncaptured state. Only here is
+          // "nothing was charged" a true statement.
+          return res.status(502).json({ ok: false, action, booking_id, error: 'capture_failed', captured: false, stage: capd.stage, message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
+        }
+        // outcome 'captured' but the ledger apply failed: the brand HAS been charged. Same truthful
+        // outcome + durable case as a post-capture transition failure (Codex H1 / R4-02 (3)).
+        return await capturedButUnverified(res, { booking_id, action, error: 'apply:' + String(capd.error || 'failed'), case_id: capd.case_id || null });
       }
-      capturedHeldNow = true;
       // Codex H1: NO read-back and NO guessed state after the capture. The transition below judges the
       // CURRENT row under lock — pending -> confirmed, or already_applied when the capture-side
       // auto-confirm got there first — and capacity was verified BEFORE the capture, so the post-capture
@@ -445,11 +493,6 @@ export default async function handler(req, res) {
         return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
       }
     }
-
-    const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
-    const venue = Array.isArray(venues) ? venues[0] : null;
-    const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
-    const retailer = Array.isArray(retailers) ? retailers[0] : null;
 
     let newStatus;
     if (action === 'confirm') newStatus = 'confirmed';
@@ -547,12 +590,6 @@ export default async function handler(req, res) {
     // created / reactivated (confirm) or retired (cancel, decline) from the booking's current
     // schedule and duration. No check-then-write gap, no separate demo INSERT/PATCH, no "core-only"
     // fallback that could produce an unlinked demo. Stripe (above) and mail (below) stay outside it.
-    let demoFee = null;
-    if (action === 'confirm') {
-      const fee = demo_fee != null ? Number(demo_fee) : (venue?.demo_fee != null ? Number(venue.demo_fee) : null);
-      if (fee == null || Number.isNaN(fee) || fee < 0) return res.status(400).json({ error: 'venue_missing_fee', message: 'This venue has no demo fee configured. Set one in the admin before confirming this booking.' });
-      demoFee = fee;
-    }
     let tr = null;
     try {
       const rows = await sbRpc('booking_transition', { p_booking_id: booking_id, p_retailer_id: session.retailer_id, p_action: action, p_fields: patch, p_demo_fee: demoFee });
@@ -582,10 +619,7 @@ export default async function handler(req, res) {
       if (capturedHeldNow) {
         // Codex H1: the brand HAS been charged and the booking is being confirmed; say exactly that.
         // Never "declined/rebook", never "nothing was charged".
-        return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true,
-          message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook — refresh the booking. '
-            + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
-          reconciliation_case_id: caseId, reconciliation_recorded: !!caseId });
+        return capturedUnverifiedResponse(res, { booking_id, action, caseId });
       }
       return res.status(500).json({ ok: false, action, booking_id, error: 'transition_failed', refund_status: refundStatus,
         message: 'The booking could not be updated. ' + (caseId ? 'A reconciliation case was opened.' : 'Retry; if a refund was submitted it is tracked by the refund ledger.'),
@@ -719,6 +753,40 @@ export default async function handler(req, res) {
       reconciliation_case_id: (action === 'cancel' && demoCancelConverged === false) ? (demoCancelCaseId || undefined) : undefined,
     });
   } catch (e) {
+    // Codex R4-02 (2)/(3): an unexpected exception AFTER a verified capture is still a captured
+    // booking — report it as such and record the deduplicated case; never a generic 500 that reads
+    // like "nothing happened".
+    if (capturedHeldNow && ctxBookingId) {
+      console.error('booking-action failed after a verified capture for', ctxBookingId, '-', (e && e.message) || e);
+      return await capturedButUnverified(res, { booking_id: ctxBookingId, action: ctxAction, error: String((e && e.message) || e) });
+    }
     return res.status(500).json({ error: String(e?.message || e) });
   }
+}
+
+// Codex H1 / R4-02: the ONE captured-but-unverified exit. Records the deduplicated reconciliation
+// case ('transition:<booking>') when the caller has not already, then answers with the truthful
+// outcome: captured:true, the booking is being confirmed, do not decline / rebook.
+async function capturedButUnverified(res, { booking_id, action, error, case_id = null }) {
+  let caseId = case_id;
+  if (!caseId) {
+    try {
+      const _c = await sbRpc('_open_case', {
+        p_kind: 'settlement_exception', p_dedupe: 'transition:' + booking_id, p_reason: 'capture_succeeded_confirmation_unverified',
+        p_group: null, p_request: null, p_operation: null,
+        p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+        p_details: { booking_id, action, error: String(error || '').slice(0, 300) },
+      });
+      caseId = Array.isArray(_c) ? _c[0] : _c;
+    } catch (caseErr) {
+      console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
+    }
+  }
+  return capturedUnverifiedResponse(res, { booking_id, action, caseId });
+}
+function capturedUnverifiedResponse(res, { booking_id, action, caseId }) {
+  return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true,
+    message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook — refresh the booking. '
+      + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
+    reconciliation_case_id: caseId || null, reconciliation_recorded: !!caseId });
 }
