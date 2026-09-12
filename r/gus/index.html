@@ -493,20 +493,27 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Before you book your first demo with this retailer, please review and agree to (1) their demo conduct &amp; cancellation policies below, and (2) <a href="/terms" target="_blank" rel="noopener" style="color:#2a5b32; font-weight:600;">Demohub's Terms of Service</a>. We log your acceptance so all sides have a record.</div>
     </div>
     <div style="padding:0 28px;">
-      <div style="background:#f9f7f2; border-radius:12px; padding:18px 20px; margin-bottom:14px;">
-        <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">Demo policy</div>
-        <div id="agreementDemoPolicy" style="font-size:0.9rem; line-height:1.55; color:#3a3a36; white-space:pre-wrap;"></div>
+      <!-- Policies in ONE bounded scroll box (David, 2026-09-12): the full text used to render inline and
+           made the modal several screens tall on a phone. Readers scroll (or jump) to the end; the
+           agree checkbox unlocks once the end has been reached, or at once when the text fits. -->
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px;">
+        <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em;">Demo &amp; cancellation policies</div>
+        <button type="button" id="agreementJumpBtn" onclick="agreementJumpToEnd()" style="background:transparent; border:1px solid rgba(15,44,23,0.18); color:#2a5b32; border-radius:999px; padding:4px 12px; font-family:inherit; font-size:0.78rem; font-weight:700; cursor:pointer;">Scroll to the end &darr;</button>
       </div>
-      <div style="background:#f9f7f2; border-radius:12px; padding:18px 20px; margin-bottom:18px;">
-        <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:8px;">Cancellation policy</div>
-        <div id="agreementCancelPolicy" style="font-size:0.9rem; line-height:1.55; color:#3a3a36; white-space:pre-wrap;"></div>
+      <div id="agreementPolicyBox" onscroll="agreementOnScroll()" style="background:#f9f7f2; border:1px solid rgba(15,44,23,0.10); border-radius:12px; padding:14px 16px; max-height:min(240px, 38vh); overflow-y:auto; -webkit-overflow-scrolling:touch; font-size:0.88rem; line-height:1.5; color:#3a3a36;">
+        <div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Demo policy</div>
+        <div id="agreementDemoPolicy" style="white-space:pre-wrap; margin:0 0 14px;"></div>
+        <div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Cancellation policy</div>
+        <div id="agreementCancelPolicy" style="white-space:pre-wrap;"></div>
+        <div id="agreementPolicyEnd" style="height:1px;"></div>
       </div>
+      <div id="agreementScrollHint" style="font-size:0.78rem; color:#6b6a64; margin:6px 0 14px;">Scroll through the policies to enable the checkbox.</div>
       <label style="display:block; margin-bottom:10px;">
         <span style="display:block; font-size:0.85rem; font-weight:600; color:#0f2c17; margin-bottom:6px;">Type your full name to sign</span>
         <input id="agreementSignedName" type="text" autocomplete="name" placeholder="e.g., Jordan Garcia" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; box-sizing:border-box;">
       </label>
       <label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:18px; cursor:pointer; font-size:0.9rem; line-height:1.45; color:#3a3a36;">
-        <input id="agreementCheckbox" type="checkbox" style="margin-top:3px; flex-shrink:0;">
+        <input id="agreementCheckbox" type="checkbox" disabled style="margin-top:3px; flex-shrink:0;">
         <span>I agree to follow this retailer&apos;s demo conduct &amp; cancellation policies on every demo I book at their stores, and to <a href="/terms" target="_blank" rel="noopener" style="color:#2a5b32; font-weight:600;">Demohub's Terms of Service</a>.</span>
       </label>
       <div id="agreementError" style="display:none; background:#fdebe5; border-left:3px solid #c93030; padding:10px 14px; border-radius:8px; font-size:0.85rem; color:#a01818; margin-bottom:14px;"></div>
@@ -1628,7 +1635,42 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 return { needsSigning: false };
             }
         }
-        function openAgreementModal() { document.getElementById('agreementModal').style.display = 'flex'; }
+        // Policy scroll box: the agree checkbox unlocks once the reader reaches the end of the text (or
+        // immediately when it all fits). Reset every time the modal opens.
+        window._agreementRead = false;
+        function agreementResetScroll() {
+            const box = document.getElementById('agreementPolicyBox');
+            const cb = document.getElementById('agreementCheckbox');
+            const hint = document.getElementById('agreementScrollHint');
+            const jump = document.getElementById('agreementJumpBtn');
+            window._agreementRead = false;
+            if (cb) { cb.checked = false; cb.disabled = true; }
+            if (hint) hint.style.display = '';
+            if (jump) jump.style.display = '';
+            if (box) { box.scrollTop = 0; requestAnimationFrame(agreementOnScroll); }
+        }
+        function agreementOnScroll() {
+            const box = document.getElementById('agreementPolicyBox');
+            if (!box || window._agreementRead) return;
+            const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight <= 8;
+            if (!atEnd) return;
+            window._agreementRead = true;
+            const cb = document.getElementById('agreementCheckbox');
+            const hint = document.getElementById('agreementScrollHint');
+            const jump = document.getElementById('agreementJumpBtn');
+            if (cb) cb.disabled = false;
+            if (hint) hint.style.display = 'none';
+            if (jump) jump.style.display = 'none';
+        }
+        function agreementJumpToEnd() {
+            const box = document.getElementById('agreementPolicyBox');
+            if (!box) return;
+            // Instant, not smooth: a smooth scroll never completes while the tab is hidden or when the
+            // browser has reduced motion on, and the unlock must not depend on the animation.
+            box.scrollTop = box.scrollHeight;
+            agreementOnScroll();
+        }
+        function openAgreementModal() { document.getElementById('agreementModal').style.display = 'flex'; agreementResetScroll(); }
         function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; }
         async function confirmAgreementAndBook() {
             const name = document.getElementById('agreementSignedName').value.trim();
@@ -1636,6 +1678,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const err = document.getElementById('agreementError');
             err.style.display = 'none';
             if (name.length < 2) { err.textContent = 'Please type your full name (used as your signature).'; err.style.display = 'block'; return; }
+            if (!window._agreementRead) { err.textContent = 'Please scroll through the policies first (use "Scroll to the end").'; err.style.display = 'block'; return; }
             if (!checked) { err.textContent = 'Please check the box to agree.'; err.style.display = 'block'; return; }
             window._pendingSignedName = name;
             closeAgreementModal();
