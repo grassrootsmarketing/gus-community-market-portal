@@ -566,15 +566,17 @@ jobs:
         run: |
           set -euo pipefail
           ./.github/scripts/capture-manifest.sh rehearsal/manifest-clean.raw.txt
-          # Documented normalization: the ledger ROW COUNT legitimately differs by one (0073 is
-          # absent on the upgrade path by design). Nothing else may differ.
-          grep -vE 'count migrations = [0-9]+' rehearsal/manifest-upgraded.txt > rehearsal/manifest-upgraded.cmp.txt
-          grep -vE 'count migrations = [0-9]+' rehearsal/manifest-clean.txt > rehearsal/manifest-clean.cmp.txt
+          # Documented normalization (two lines, both about the deliberately absent 0073): the ledger
+          # ROW COUNT differs by one, and the '13_migration | 0073' listing row exists only on the
+          # clean build. Run 34725811511 proved these are the ONLY differences in 3,467 lines. Nothing
+          # else may differ.
+          grep -vE 'count migrations = [0-9]+|^13_migration \| 0073 \|' rehearsal/manifest-upgraded.txt > rehearsal/manifest-upgraded.cmp.txt
+          grep -vE 'count migrations = [0-9]+|^13_migration \| 0073 \|' rehearsal/manifest-clean.txt > rehearsal/manifest-clean.cmp.txt
           sha256sum rehearsal/manifest-upgraded.cmp.txt rehearsal/manifest-clean.cmp.txt
           if ! diff -u rehearsal/manifest-upgraded.cmp.txt rehearsal/manifest-clean.cmp.txt > rehearsal/manifest-diff.txt; then
             echo "FAIL: the UPGRADED schema differs from a CLEAN build (beyond the ledger row count)"; head -120 rehearsal/manifest-diff.txt; exit 1
           fi
-          echo "upgraded == clean  ($(wc -l < rehearsal/manifest-clean.cmp.txt) manifest lines each, ledger count excluded by documented normalization)"
+          echo "upgraded == clean  ($(wc -l < rehearsal/manifest-clean.cmp.txt) manifest lines each; excluded by documented normalization: the ledger count line and the 0073 ledger listing row)"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
