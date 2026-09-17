@@ -46,12 +46,18 @@ const scenarios = {
       { booking_id: 'bk-unknown-0003', outcome: 'uncertain', case_id: null, case_recorded: false, error: 'cannot_retrieve_pi' },
     ],
     message: '1 held booking(s) WERE charged but the ledger could not be updated yet; 1 held booking(s) have an UNKNOWN payment outcome — the brand may have been charged. Do not charge again or ask them to rebook. A reconciliation case could NOT be recorded for at least one of them — contact support with the booking ids below.' },
+  errorOnly: { ok: true, verification_id: VID, decision: 'approved', reviewed_by: OWNER_EMAIL, reviewed_at: '2026-09-17T10:03:00Z', capture_errors: 1,
+    holds: [{ booking_id: 'bk-error-0004', outcome: 'error', case_id: null, case_recorded: false, error: 'boom' }],
+    message: '1 held booking(s) could not be processed by this approval. No reconciliation case exists for the 1 unprocessed booking(s): nothing was attempted for them by this approval, which says nothing about whether their payment was ever captured — check them in the retailer admin.' },
+  mixedError: { ok: true, verification_id: VID, decision: 'approved', reviewed_by: OWNER_EMAIL, reviewed_at: '2026-09-17T10:04:00Z', captured_unapplied_holds: 1, capture_errors: 1, capture_cases: ['case-recorded-0005'],
+    holds: [{ booking_id: 'bk-unapplied-0005', outcome: 'captured', applied: false, case_id: 'case-recorded-0005', case_recorded: true, error: 'apply_rpc_failed' }, { booking_id: 'bk-notattempted-0006', outcome: 'not_attempted', case_id: null, case_recorded: false, error: 'hold_not_authorized' }],
+    message: '1 held booking(s) WERE charged but the ledger could not be updated yet; 1 held booking(s) could not be processed by this approval. Do not charge again or ask them to rebook. A reconciliation case tracks it. No reconciliation case exists for the 1 unprocessed booking(s): nothing was attempted for them by this approval, which says nothing about whether their payment was ever captured — check them in the retailer admin.' },
   normal: { ok: true, verification_id: VID, decision: 'approved', reviewed_by: OWNER_EMAIL, reviewed_at: '2026-09-16T10:02:00Z', captured_holds: 1, holds: [{ booking_id: 'bk-applied-0009', outcome: 'captured', applied: true, case_id: null, case_recorded: false }] },
 };
 
 const browser = await chromium.launch();
 try {
-  for (const scenario of ['attention', 'normal']) {
+  for (const scenario of ['attention', 'errorOnly', 'mixedError', 'normal']) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     await ctx.addCookies([{ name: 'dh_owner_session', value: sessionId, url: BASE }]);
     const page = await ctx.newPage();
@@ -92,6 +98,13 @@ try {
       const stillVisible = await warnings.isVisible();
       const stillText = stillVisible ? (await warnings.textContent()) : '';
       ok('attention: after reloading the queue the warning is still on screen with both bookings', stillVisible && /bk-unapplied-0002/.test(stillText) && /bk-unknown-0003/.test(stillText), '');
+    } else if (scenario === 'errorOnly') {
+      ok('errorOnly (F-2): attention is shown and the unprocessed booking is listed by id', visible && /bk-error-0004/.test(text) && /could not process its hold/.test(text), text.slice(0, 200));
+      ok('errorOnly (F-2): NO case is promised anywhere — the item and the summary both say no reconciliation case exists', /no reconciliation case exists for it/.test(text) && /No reconciliation case exists for the 1 unprocessed/.test(text) && !/case tracks/.test(text) && !/case recorded \(/.test(text), text.slice(0, 300));
+    } else if (scenario === 'mixedError') {
+      ok('mixedError (F-2): the charged booking shows its RECORDED case id; the unprocessed booking says no case exists — per item, not one blanket sentence', /bk-unapplied-0005/.test(text) && /case-recorded-0005/.test(text) && /bk-notattempted-0006/.test(text) && /no reconciliation case exists for it/.test(text), text.slice(0, 300));
+      const n = await page.locator('#coiPaymentWarnings li').count();
+      ok('mixedError (F-2): exactly two flagged bookings rendered', n === 2, String(n));
     } else {
       ok('normal: a clean approval shows "Approved" with no payment attention', /^Last decision: Approved$/.test(msg.trim()), JSON.stringify(msg));
       ok('normal: no warning block is shown', !visible, text.slice(0, 120));

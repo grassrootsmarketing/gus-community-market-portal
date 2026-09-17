@@ -1066,7 +1066,8 @@ function renderCoiPaymentWarnings(j) {
     const caseTxt = h.case_recorded && h.case_id ? 'reconciliation case recorded (' + _esc(h.case_id) + ')' : '<strong>reconciliation case NOT recorded — contact support with this booking id</strong>';
     if (h.outcome === 'captured' && h.applied === false) return '<li data-booking="' + id + '" data-outcome="captured-unapplied"><strong>Booking ' + id + ':</strong> the card <strong>WAS charged</strong> but the booking ledger could not be updated yet — do not charge again or ask the brand to rebook; ' + caseTxt + '.</li>';
     if (h.outcome === 'uncertain') return '<li data-booking="' + id + '" data-outcome="uncertain"><strong>Booking ' + id + ':</strong> payment outcome <strong>UNKNOWN</strong> — the brand may have been charged; do not charge again, cancel or ask them to rebook; ' + caseTxt + '.</li>';
-    return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + ') — it says nothing about whether the payment was ever captured; check the booking in the retailer admin.</li>';
+    // Codex F-2: an unprocessed entry has NO reconciliation case by construction — say so, per item.
+    return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + ') — it says nothing about whether the payment was ever captured; <strong>no reconciliation case exists for it</strong>; check the booking in the retailer admin.</li>';
   };
   const block = '<div data-review="' + _esc(j.verification_id || '') + '"><div style="font-weight:700; margin-bottom:6px;">Payment attention needed after this COI decision</div>'
     + (j.message ? '<div style="margin-bottom:6px;">' + _esc(j.message) + '</div>' : '')

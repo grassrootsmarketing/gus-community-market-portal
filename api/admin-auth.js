@@ -1065,15 +1065,9 @@ export default async function handler(req, res) {
           capture_errors: captureErrors || undefined,
           capture_cases: captureCases.length ? captureCases : undefined,
           holds: holdResults.length ? holdResults : undefined,
-          message: (capturedUnappliedHolds || uncertainHolds || captureErrors)
-            ? [capturedUnappliedHolds ? `${capturedUnappliedHolds} held booking(s) WERE charged but the ledger could not be updated yet` : null,
-               uncertainHolds ? `${uncertainHolds} held booking(s) have an UNKNOWN payment outcome — the brand may have been charged` : null,
-               captureErrors ? `${captureErrors} held booking(s) could not be processed by this approval` : null].filter(Boolean).join('; ')
-              + '. Do not charge again or ask them to rebook. '
-              + (holdResults.some(h => (h.outcome === 'captured' && h.applied === false) || h.outcome === 'uncertain') && holdResults.filter(h => ((h.outcome === 'captured' && h.applied === false) || h.outcome === 'uncertain') && !h.case_recorded).length
-                  ? 'A reconciliation case could NOT be recorded for at least one of them — contact support with the booking ids below.'
-                  : 'A reconciliation case tracks each one.')
-            : undefined });
+          // Codex F-2: every sentence is derived from the actual per-booking results (a case is never
+          // promised for an entry that has none) — see api/_coi-capture-summary.js and its unit test.
+          message: (await import('./_coi-capture-summary.js')).coiCaptureSummary(holdResults).message });
       } catch (e) {
         return res.status(500).json({ error: 'review_failed' });
       }
