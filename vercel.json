@@ -6,6 +6,16 @@
       "source": "/b/:slug*",
       "destination": "/brand/dashboard",
       "permanent": true
+    },
+    {
+      "source": "/gussmarket",
+      "destination": "/r/gus",
+      "permanent": false
+    },
+    {
+      "source": "/gussmarket/:rest*",
+      "destination": "/r/gus/:rest*",
+      "permanent": false
     }
   ],
   "rewrites": [
