@@ -1,0 +1,214 @@
+# Demohub MVP — Completion Note for Codex (2026-09-17)
+
+One document: Part A is the completion note your return review asked for; Part B is the corrected operator runbook (v4, verbatim copy of `release-b-cutover-runbook.md`). Responds to "Demohub MVP — return review and remaining launch gates" (2026-09-17). Status words are used strictly: **verified** (I ran it and saw the result), **reported** (read-only observation, to be re-run by the operator at the gate), **pending** (operator-owned, not done), **deferred** (explicitly accepted limitation).
+
+---
+
+# Part A — Completion note
+
+## 1. Final integration candidate and its relationship to the reviewed tree — verified
+
+| Item | Value |
+|---|---|
+| Reviewed and accepted by you | `32a6d9d` (run 35175919223: six jobs, conclusion success) |
+| **Integration head (the commit to deploy)** | **`66fcc2b`** on `feature/release-b-slots-blackouts`, pushed |
+| What it adds | `960aae4` F-2 (COI summary wording derived from actual results) ← `66fcc2b` merge of `main` `32e1418` (the production `/gussmarket` redirects) |
+| Exact diff `32a6d9d..66fcc2b` | 8 files, +124 −13: `api/_coi-capture-summary.js` (new, pure), `api/admin-auth.js` (−10 +2: calls the helper), `owner/index.html` (one sentence in the generic branch), `package.json` (one test added to `npm test`), `tests/coi_capture_summary.test.mjs` (new), `tests/fulfillment_lifecycle.test.mjs` (one regex), `tests/owner_coi_review_dom.e2e.mjs` (two scenarios), `vercel.json` (+10: the two `/gussmarket` redirects from `main`). No migration, no payment-path, ledger, worker or schema file. |
+| Merge | clean, no conflicts; `vercel.json` now carries `/b/:slug*`, `/gussmarket`, `/gussmarket/:rest*` redirects and all six crons |
+
+**Proportionate verification on `66fcc2b`** (your C-5: no full battery for a label change; regression in proportion to the source change):
+
+- `npm run check` ✓ (83 migrations, imports, no-undef, html-undef, binding) · `npm test` ✓ (23 offline suites, including the new `coi_capture_summary` **11/11**) — verified.
+- `owner_coi_review_dom.e2e` **18/18** in a real browser (adds error-only and mixed-error scenarios) — verified.
+- `fulfillment_lifecycle` on the F-2 tree (the COI sweep assertions read the new message): **102/102** — verified — real database.
+- CI run **35209522545** on `66fcc2b` (suites only, no gated jobs requested): conclusion **success** — ✓ ubuntu (19 s), ✓ windows (37 s) — verified. https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/35209522545.
+- Everything else stands on `32a6d9d`'s evidence (run 35175919223, battery, DOM, Stripe journey); the application files those proofs exercised are unchanged except `api/admin-auth.js`'s message line.
+
+## 2. Part C corrections C-1 … C-5 — done (runbook v4, Part B)
+
+| | Correction | Where |
+|---|---|---|
+| **C-1** | Expired is not cleared. An orphaned claim is a stop condition resolved by leaving containment, letting the OLD build's normal recovery reclaim and finish or park the row, resolving any parked case, then re-entering containment and repeating the whole gate; if normal recovery cannot resolve it, stop for an explicit plan. No instruction to wait for a field nothing updates; never null a lease or delete a record. | §3 table, claims row |
+| **C-2** | T0 (cron disabled) and **T1 (drain complete / quiet baseline)** are separate records. A heartbeat after T0 is legitimate; §3 is judged against T1. The **actual effective maximum function duration** is read from Vercel and written down (not assumed five minutes; `vercel.json` sets none). Invocation completion is confirmed in Vercel's logs; `pg_stat_activity` is supporting evidence only. Heartbeat success is `outcome = 'succeeded'`. If it cannot be established that no old invocation crosses the switch: do not migrate. | §2 step 4, §3 section B, §6.2 |
+| **C-3** | The three unsupported guarantees are removed and named as not relied on (replays can enter the old drain; the old drain wrapper may not propagate a failure into a 5xx; unhandled types are acknowledged by the default branch). The fresh baseline now inspects local non-completed event records (section B2) **and** the Stripe dashboard's failed/pending deliveries for payment event types; anything able to produce work is reconciled on the old build first. Late idempotent replays are explained as harmless *because the verified queues are empty*. Unexpected payment work during the window is stop-and-escalate. | §3 B2 + table, §5 |
+| **C-4** | The SQL-editor failure rehearsal starts from **0072** (the rehearsal job's hide-and-reset method or a disposable local database), under David's reset authorization and exclusive use of demohub-rebuild-check, then restores the full chain, the deployment identity and the pinned fixtures, verifies the clean state, and happens before the final preview journey. "Never paste 0074 plus a failure onto a database at 0082" is stated with the reason. On a production migration failure containment stays on; a green read-only health check is explicitly not accepted as proof of write-path compatibility. | §5 |
+| **C-5** | The merge preserves production's redirects (§1 above). The runbook deploys the integration head, records the final SHA and its diff from `32a6d9d`, verifies `/api/version` against that SHA, and smoke-tests `/gussmarket` → `/r/gus` and the real booking route with containment still on. | §4.2, §8 |
+
+## 3. Follow-ups F-1 / F-2
+
+- **F-2 — resolved (verified).** `api/_coi-capture-summary.js` derives every sentence from the per-booking results: a case is mentioned only for charged-but-unapplied / unknown entries and only as recorded (exact counts when partial; `case_recorded:true` without an id is not a recorded case); unprocessed entries (`error`, `not_attempted`) get their own sentence — no case exists for them. The owner screen's generic branch says so per item. Offline unit test 11/11 (error-only, not-attempted-only, all recorded, partial, none, mixed ×2, bogus flag); browser scenarios error-only and mixed-error.
+- **F-1 — deferred, explicitly.** The hold notice is rebuilt per attempt and the amount lookup is optional, so a retry after a lost acceptance response can carry a different body under the same provider key and hit Resend's payload-conflict behaviour until the held-notice work is exhausted. Accepted for the closed MVP on your terms: it is a notification/recovery limitation — no extra charge, no paid-generation corruption, no data exposure; capture is not gated on this notice and a capture re-issues the work as a new paid generation. **N-2 is therefore described as closed only for its original stale-worker reproduction**, and the notice as at-least-once with provider-side dedupe whose retry payload is not yet frozen. Watch: the named operator (§5) reviews `booking_fulfillments.status = 'failed'` and open `fulfil:<booking>` cases daily during the pilot; a parked hold notice is resent by hand. The fix you specified (persist recipient/body/options before the first attempt and replay that payload under the same key; never a new key after a conflict) needs a payload column, i.e. a migration, and is scheduled with Release C — not slipped into this candidate.
+
+## 4. Fresh production baseline — reported (read-only REST, 2026-09-17 10:16Z; the operator re-runs the full §3 gate in the SQL editor at cutover)
+
+Deployed build `32e1418` (`/api/version`). `brands` 0 · `bookings` 0 (active 0, held 0, authorized 0, pending_payment 0) · `payment_attempts` open 0 · `payment_groups` 0 (unsettled 0) · `booking_fulfillments` pending 0 / claimed 0 / failed 0 · `refund_requests` in progress 0 · `refund_operations` in progress 0 · `processed_stripe_events` not completed 0 · open `reconciliation_cases` 0 · future `demos` 10 (demo-tenant samples) · `venues` 10 (5 Gus, 5 demo tenant) · `internal_contacts` 33 (Gus's 30 real store contacts + 3 demo tenant). **This is real operator data now** (renamed venues, real contacts): nothing in the runbook wipes or resets anything, and your note that historical permission to discard sample data does not extend to current production is reflected in the runbook's ground rules. Not covered by a REST read and left to the operator at the gate: `cron_heartbeat` timing, Vercel invocation state, Stripe's outstanding deliveries, the exact ledger versions.
+
+## 5. Operator-owned gates — pending (none is claimed)
+
+| Gate | Status |
+|---|---|
+| Credential rotation (test-DB password → `SB_DB_URL` + GitHub `STAGING_DB_URL`; rebuild-check service key → `SB_KEY` + `STAGING_SB_KEY`; Stripe test key) and environment-binding check | **pending — David**; afterwards the new credentials are revalidated by one staging CI pass and the preview checks |
+| SQL-editor failure rehearsal from 0072 with staging restored (C-4) | **pending — David's reset authorization**, then Claude can drive it; before the preview journey |
+| Deployed-preview Stripe test-mode hold journey on the final application tree (authorization, manual/automatic capture, release, expiry, overlap, replay, repaired error reporting) + brand-profile, agreements, COI smoke | **pending — needs David's authorized preview deployment**; an in-process run is not this evidence and is not relabelled as such |
+| Fresh production preflight in the SQL editor incl. provider queues; approval of runbook v4 | **pending — David** |
+| Intended launch flags | **pending — David's decision.** Proposed: `CHECKOUT_ENABLED=true`, `PROVISIONAL_HOLDS_ENABLED=true` (his standing choice), `NOTIFICATION_WORKER_ENABLED=true`, `SLOT_EDITING_ENABLED` unset until Gus asks to edit slots |
+| Named operator for alerts and reconciliation | **pending — David to name** (default: David) |
+| Contained migration/deploy, verification with intake off, then intake | **pending — David**, per Part B |
+
+Any production payment/refund smoke test remains a separate explicit approval with identified test data and an agreed amount.
+
+---
+
+# Part B — Operator cutover runbook (v4)
+
+_Verbatim copy of `release-b-cutover-runbook.md` v4 (demohub-docs, branch `docs/closure-round2`)._
+
+**Applies to:** the Release B candidate named in the closure packet (branch `feature/release-b-slots-blackouts`). Production today: code `32e1418` (`53961d7` plus the `/gussmarket` redirect), migration ledger `0060`–`0072` (0073 never applied), holds ON, no customer bookings recorded as of the last read — **to be re-read at cutover, never assumed**.
+**v4 (2026-09-17) applies Codex's return-review corrections C-1 … C-5** (expired claims need recovery, not waiting; a post-drain quiet baseline instead of "heartbeat older than the disable time"; no unsupported webhook/retry guarantees; the SQL-editor failure rehearsal starts from 0072 and restores staging; the merge preserves production's `/gussmarket` redirects and the deployed SHA is recorded). **v3, for Codex's launch-groundwork decision (2026-09-16), section 4.** The v2 "quiet cutover" is withdrawn on four points: pending unleased fulfilment was allowed into the window although old code can claim it later; waiting for a lease to expire was treated as proof that an invocation had ended; the abort path could leave old code running against the changed contract; and the claim that a failed post-condition rolls back its whole file is false for 0074 (its `COMMIT` precedes its post-condition block). This version is an **empty-work, contained switch**: nothing old may run against the new contract at any point, intake is restored last, and every failure path stays contained.
+**Ground rules:** every step that touches production is David's (or a named operator he authorizes). Nothing here deletes or resets data. Migrations are forward-only; an applied file is never edited. No `db push` against production. No production payment, refund or email is exercised by this runbook. Every Vercel directive says **Production** and whether a redeploy is needed. Any nonzero count in a gate is explained and resolved on its own terms; it is never emptied by approving, declining, cancelling or deleting anything to reach zero.
+
+---
+
+## 0. What the old build does, and why "quiet" has to be established rather than assumed
+
+1. **The removed completion RPC is not an effects fence.** A `32e1418` worker (the fulfilment drain inside `refund-worker` and inside the webhook, the confirm route, the COI auto-confirm) creates the calendar demo and sends the emails **before** it calls the six-argument `complete_fulfillment`. After 0078 that call fails, but the demo and the emails have already happened, and on the next claim the work is repeated. A failed completion cannot undo effects.
+2. **Neither holds-OFF nor checkout-OFF is a worker fence.** `PROVISIONAL_HOLDS_ENABLED=false` stops new held bookings; `CHECKOUT_ENABLED=false` stops new Checkout Sessions. Neither stops `refund-worker` (which drains fulfilment every tick regardless), `provisional-sweep`, the webhook, the confirm route or the COI approval. A Checkout Session created before the flag flipped can still be paid within 24 h and its webhook still runs the old handler and its inline fulfilment drain.
+3. **A lease is not an invocation.** Fulfilment leases are 180 s and refund/case leases 120 s; an expired lease says nothing about whether the function that held it has finished — and a Vercel function can outlive the lease. "No unexpired lease" is therefore not evidence that old work has ended; §3 checks expired claims and recent activity too.
+4. **Scheduling can be stopped; running code and incoming webhooks cannot.** Vercel's project setting **Disable Cron Jobs** stops the scheduler ([Vercel: manage cron jobs](https://vercel.com/docs/cron-jobs/manage-cron-jobs)). It does not end an invocation already running and it does not stop Stripe from delivering events. Those two are covered by §3's activity checks and by §5's event-safety rule.
+
+## 1. Authorization (David) — before anything is touched
+
+Record, in the deploy note, the exact: production target (`dkgjvsstbgnhcfboqqnd`, identity confirmed via `get_deployment_identity` = production), candidate SHA, migration list (**nine new versions, 0074–0082; 0073 stays absent by design**), maintenance window (start/end, Pacific and UTC), named operator for alerts and reconciliation during and after the switch, and the final flag values for launch (`CHECKOUT_ENABLED`, `PROVISIONAL_HOLDS_ENABLED`, `NOTIFICATION_WORKER_ENABLED`, `SLOT_EDITING_ENABLED`).
+
+Prerequisites that must be **done** before the window opens: credential rotation (test-DB password, rebuild-check service key, Stripe test key) and the deployed-preview hold journey on the candidate (packet §9). A fresh production baseline (§3's query set, run once now, kept as "before") — not the 12 September zero-booking snapshot.
+
+## 2. Containment — enter the window
+
+All five, in this order, each recorded with a timestamp in the deploy note.
+
+1. **Stop new intake.** Vercel **Production** env: `CHECKOUT_ENABLED=false`, `PROVISIONAL_HOLDS_ENABLED=false`; `NOTIFICATION_WORKER_ENABLED` and `SLOT_EDITING_ENABLED` stay unset. Redeploy `main` (the same old build, flags only). Confirm `/api/checkout` answers 503 and the booking page reports checkout unavailable.
+2. **Freeze operators.** Nobody uses the Gus admin or the owner console for the window: no confirm/decline/cancel, no COI decisions, no venue, schedule or team edits. Tell Gus in writing; pick a time the stores are closed (early morning Pacific). The `/owner` and `/r/gus/admin` sessions stay logged out for the duration.
+3. **Stop scheduling.** In the Vercel project settings, turn on **Disable Cron Jobs** (Production). Record the time as **T0 (cron disabled)**. This stops future ticks of `refund-worker`, `provisional-sweep`, `notification-worker`, `coi-enforcement`, `brand-account`, `seed-demo`. It does not end a tick that is already running, and such a tick may legitimately finish and write its heartbeat **after** T0.
+4. **Drain, then set the quiet baseline (Codex C-2).** Record the project's **actual effective maximum function duration** from the Vercel project/function settings (it is configurable — [Vercel: configuring function duration](https://vercel.com/docs/functions/configuring-functions/duration); `vercel.json` sets none, so it is the plan/project default — write the number down, do not assume five minutes). In Vercel → Logs/Observability filter the cron paths and the webhook and confirm no invocation is still running. When the last old invocation has completed, record **T1 (drain complete / quiet baseline)** — no earlier than T0 plus the effective maximum duration. Everything in §3 is judged against T1, not T0.
+5. **Account for what exists.** Open Checkout Sessions (brand mid-checkout), live holds, provider operations in flight, webhook events mid-handler, running worker invocations. §3 lists each with a query; none is cleared by operator action.
+
+## 3. The empty-work gate (read-only; run after §2, and **again immediately before §4.1**; both outputs into the deploy note)
+
+Run in the SQL editor for **demohub-prod**. Every row is a **stop condition** unless the table says otherwise.
+
+```sql
+-- A. work that old code could claim or continue
+select 'open_checkout_attempts' k, count(*) n from payment_attempts where status = 'open'
+union all select 'unsettled_groups', count(*) from payment_groups where status in ('pending','session_created')
+union all select 'authorized_holds', count(*) from bookings where payment_status = 'authorized'
+union all select 'held_bookings', count(*) from bookings where status = 'held'
+union all select 'pending_payment_bookings', count(*) from bookings where status = 'pending_payment'
+union all select 'fulfillments_pending', count(*) from booking_fulfillments where status = 'pending'
+union all select 'fulfillments_failed_unresolved', count(*) from booking_fulfillments f where f.status = 'failed' and exists (select 1 from reconciliation_cases c where c.dedupe_key = 'fulfil:' || f.booking_id::text and c.resolved_at is null)
+union all select 'fulfillment_claims_any', count(*) from booking_fulfillments where lease_owner is not null            -- live OR expired: an expired claim is not proof its holder stopped
+union all select 'refund_requests_in_progress', count(*) from refund_requests where status in ('requires_review','reserved','submitted','pending','requires_action')
+union all select 'refund_operations_in_progress', count(*) from refund_operations where status in ('open','requires_review')
+union all select 'webhook_events_processing_any', count(*) from processed_stripe_events where status = 'processing'   -- live OR expired lease, same reason
+union all select 'payment_uncertainty_open', count(*) from reconciliation_cases where resolved_at is null and (dedupe_key like 'capture-unknown:%' or dedupe_key like 'capture-unapplied:%' or dedupe_key like 'transition:%')
+union all select 'open_reconciliation_cases', count(*) from reconciliation_cases where resolved_at is null;
+
+-- B. has everything old FINISHED? (judged against T1, the quiet baseline — a heartbeat may legitimately land after T0)
+select cron_name, max(ran_at) last_ran_at, extract(epoch from now() - max(ran_at))::int age_s,
+       (array_agg(outcome order by ran_at desc))[1] last_outcome            -- success is outcome = 'succeeded'
+from cron_heartbeat group by 1 order by 1;                                        -- no heartbeat newer than T1
+select 'recent_fulfillment_touch' k, max(updated_at) t from booking_fulfillments
+union all select 'recent_event_touch', max(processed_at) from processed_stripe_events
+union all select 'recent_booking_touch', max(greatest(coalesce(paid_at, 'epoch'), coalesce(cancelled_at, 'epoch'))) from bookings;
+select count(*) as db_activity_from_app from pg_stat_activity                     -- SUPPORTING evidence only: a function waiting on Stripe/Resend holds no active query
+ where datname = current_database() and application_name not in ('psql', 'Supabase Studio') and state <> 'idle' and pid <> pg_backend_pid();
+
+-- B2. payment events that are not completed (Codex C-3): failed or abandoned local event records from the last 3 days
+select status, count(*) from processed_stripe_events where processed_at > now() - interval '3 days' group by 1 order by 1;
+select event_id, event_type, status, processed_at, lease_owner, lease_expires_at from processed_stripe_events where status <> 'completed' order by processed_at desc limit 50;
+
+-- C. the ledger, by exact version
+select string_agg(version, ',' order by version) applied_since_0060 from supabase_migrations.schema_migrations where version >= '0060';
+```
+
+| Row | Meaning | Stop / allowed |
+|---|---|---|
+| `open_checkout_attempts`, `unsettled_groups` | a brand is mid-checkout; its session can still be paid and its webhook would run the OLD handler and inline drain | **stop** — wait for the session to complete or expire (≤ 24 h from creation). If it completes, the resulting work shows up in the rows below and is finished by the OLD build **before** the switch (re-enable cron, let it drain, re-disable, re-run this gate). |
+| `authorized_holds`, `held_bookings`, `pending_payment_bookings` | a hold or a paid-but-unpromoted booking whose next transition is old-code work | **stop** — a hold resolves through Gus's decision or the 24 h sweep on the OLD build; a `pending_payment` row is promoted by the OLD worker. Let the old build finish them (cron re-enabled briefly, operators may act normally), then re-enter §2. Never decline/cancel to clear the count. |
+| `fulfillments_pending`, `fulfillments_failed_unresolved` | queued or parked work old code could claim after the contract change | **stop** — same: drain with the OLD build; resolve a parked row's case by hand before the window |
+| `fulfillment_claims_any`, `webhook_events_processing_any` | a claim exists, live or expired | **stop.** *Expired is not cleared* (Codex C-1): expiry only makes a claim eligible for reclamation; nothing resets `lease_owner` or a `processing` status while cron is disabled, so waiting never zeroes an orphaned row. **Live claim whose holder is still running:** wait for it to finish (§2 step 4, T1), re-run. **Expired / orphaned claim (crashed holder):** leave containment deliberately — re-enable cron on the OLD build, let its normal recovery reclaim the row and finish or park it (`refund-worker` drains fulfilment; a `processing` event is reclaimed when Stripe retries it, or resend it from the Stripe dashboard), resolve any parked row's case by hand, then re-enter §2 from step 1 and repeat the whole gate. **If normal recovery cannot resolve a row:** stop for an explicit recovery plan approved by David. Never null a lease, flip a status or delete a payment/event record to reach zero. |
+| `refund_requests_in_progress`, `refund_operations_in_progress` | unfinished money work | **stop** — let `refund-worker` reach a terminal state on the OLD build first |
+| `payment_uncertainty_open` | an unresolved capture-unknown / capture-unapplied / transition case | **stop** — an operator resolves it (verify in Stripe, converge the ledger) before the window |
+| `open_reconciliation_cases` (other kinds) | steady-state operator queue | allowed; list them in the note |
+| section B | no old invocation still running (Vercel logs), T1 recorded, no heartbeat and no fulfilment/event/booking touch newer than T1, last outcomes `succeeded`; `pg_stat_activity` quiet as supporting evidence | **stop** until true. A heartbeat after T0 is fine; one after T1 means something is still running — wait for it, set a new T1, re-run section A. If it cannot be established that no old invocation can cross the switch, do not migrate. |
+| section B2 + the Stripe dashboard (Developers → Webhooks → the production endpoint): failed or pending deliveries of `checkout.session.*`, `payment_intent.*`, `charge.*`, `refund.*` in the last 3 days | an outstanding delivery or a local failed event that could still produce work | **stop** — reconcile it on the OLD build before the window (let Stripe's retry land or resend it, confirm the local record reaches `completed` and its work drains), then repeat the gate. List every non-payment outstanding delivery in the note. |
+| section C | must read exactly `0060,…,0072` — no `0073`, nothing beyond | **stop** on any difference: reconcile the history first; never insert a version row that was not applied |
+
+**If the gate cannot reach empty** (a real customer mid-flow that will not clear inside the window), **stop this simple cutover.** Restore §2's flags, re-enable cron, tell Gus, and schedule a compatible handover for that workload (a separately rehearsed procedure that keeps the old build fully functional while the new contract lands). Do not proceed because the cron interval or the window "looks large enough".
+
+## 4. The switch — migrations, then the matching build, while contained
+
+### 4.1 Migrations — exact versions, one file per run, verify, then record
+
+Apply in the SQL editor for **demohub-prod**, each file pasted **whole as one run**. Transaction facts you must not get wrong: 0075–0077 wrap themselves in `BEGIN/COMMIT`; 0078–0082 have no explicit transaction and run as one implicit transaction when executed as a single batch; **0074's `COMMIT` comes before its post-condition block**, so a 0074 post-condition failure means the file's DDL **has already committed** — on any error, inspect what committed (the verify column below) before deciding anything. **`0073_demo_notifications` is omitted on purpose** — production never applied it and 0074 drops its table `IF EXISTS`; never insert a ledger row for it. The CI rehearsal replays exactly this sequence with 0073 absent (§7).
+
+| # | Version · file | Verify before recording | Ledger row |
+|---|---|---|---|
+| 1 | `0074_release_a_schedule_and_outbox.sql` (`COMMIT` precedes its post-condition) | `select count(*) from information_schema.columns where table_name='bookings' and column_name in ('start_at','end_at','timezone')` → **3**; `select count(*) from notification_events` runs; `select to_regclass('public.demo_notifications')` → **null** | `insert into supabase_migrations.schema_migrations (version, name) values ('0074','release_a_schedule_and_outbox') on conflict do nothing;` |
+| 2 | `0075_release_b_slots_blackouts.sql` | `select count(*) from venues where availability_version is null` → **0** | `… ('0075','release_b_slots_blackouts') …` |
+| 3 | `0076_release_b_corrections.sql` | `select count(*) from offering_anomalies(null) where class='invariant'` → **0** | `… ('0076','release_b_corrections') …` |
+| 4 | `0077_release_b_projection_and_transitions.sql` | `select to_regprocedure('public.booking_transition(uuid,uuid,text,jsonb,numeric)')` → not null; `select count(*) from projection_anomalies(null)` → **0** | `… ('0077','release_b_projection_and_transitions') …` |
+| 5 | `0078_release_b_fulfillment_generations_and_outcomes.sql` | `select to_regprocedure('public.complete_fulfillment(uuid,text,boolean,boolean,boolean,text)')` → **null**; `select count(*) from booking_fulfillments where generation is null` → **0** | `… ('0078','release_b_fulfillment_generations_and_outcomes') …` |
+| 6 | `0079_apply_all_copy_slots_default_false.sql` | `select pg_get_function_arguments(oid) from pg_proc where proname='venue_availability_apply_all'` contains `p_copy_slots boolean DEFAULT false` | `… ('0079','apply_all_copy_slots_default_false') …` |
+| 7 | `0080_owner_booking_events.sql` | `select tgname from pg_trigger where tgname='trg_owner_booking_events'` → 1 row | `… ('0080','owner_booking_events') …` |
+| 8 | `0081_fulfillment_terminalization_fence.sql` | `select to_regprocedure('public.open_fulfillment_case(uuid,text)')` → **null**; `select record_fulfillment('00000000-0000-4000-8000-000000000000','nobody',1,true,true,false,'x',1)->>'outcome'` → **stale** | `… ('0081','fulfillment_terminalization_fence') …` |
+| 9 | `0082_backfill_active_booking_snapshots.sql` | `select count(*) from bookings where status in ('pending','confirmed','held','pending_payment') and demo_date is not null and start_at is null` → **0**; read its NOTICE: if the gate was empty every count is 0; any "left NULL (trigger default)" count means a row was stamped with the 3 h default rather than its agreed length — list those rows for the operator | `… ('0082','backfill_active_booking_snapshots') …` |
+
+Final check: `select string_agg(version, ',' order by version) from supabase_migrations.schema_migrations where version >= '0073';` must read exactly `0074,0075,0076,0077,0078,0079,0080,0081,0082` — nine rows.
+
+### 4.2 Deploy the matching build (still contained)
+
+The deployed commit is the **integration head**, not the pre-merge SHA Codex reviewed (Codex C-5): `main` carries the production `/gussmarket` redirects, and the Release B branch has `main` merged into it so they are preserved. Before the window, record the final deployment SHA and its exact diff from the reviewed candidate (`git diff 32a6d9d..<final> --stat`; expected: `vercel.json` redirects plus the F-2 wording files and their tests — anything else needs proportionate regression evidence first). Fast-forward `main` to that head and push (push = deploy). Confirm `/api/version` reports **that final SHA**. Smoke-test the shareable link: `/gussmarket` → 307 → `/r/gus` (200) and `/gussmarket/admin` → `/r/gus/admin`; open `/r/gus` and confirm the real booking page renders (checkout still reports unavailable — containment is on). Containment stays in force: intake off, operators frozen, cron disabled.
+
+## 5. Failure walkthrough — stay contained, inspect, fix forward
+
+- **A file fails before 0078** (0074–0077): inspect what committed (the verify column; for 0074 the DDL is committed even when the post-condition raised). These files remove no old-build contract, but **containment stays on** (Codex C-4): a green read-only health check does not prove every old *write* path compatible with a partially changed schema (new triggers on `bookings`, new constraints). Do **not** continue; repair forward with a new migration under David's approval. If the repair cannot land in the window, intake stays off until it does, unless David explicitly decides otherwise after a write-path review of exactly what committed.
+- **0078 or later fails, or the deploy fails after 0078 landed**: the old build is now **incompatible** (its worker cannot complete rows, and repeats effects on retry). Containment must not be lifted and cron must not be re-enabled with the old build running. Repair forward (a new migration and/or a new candidate commit) and deploy the candidate; the emergency build is the corrected candidate itself with the optional switches off. Never redeploy `32e1418`/`53961d7` onto a schema at or past 0078, never apply a compatibility wrapper, never reset generation counters, never wipe.
+- **Rollback semantics of the execution method (Codex C-4):** the CLI rehearsal (§7) runs each file as a transaction and proved the sequence; the SQL editor runs the pasted batch as one implicit transaction **except** where a file carries its own `COMMIT` (0074–0077). Rehearse the SQL-editor failure behaviour once **before the final preview journey**, and only like this: (1) obtain David's reset authorization and take exclusive use of demohub-rebuild-check — no CI run, no local suite, no preview session while it lasts; (2) bring it to the **0072 starting point** exactly as the rehearsal job does (hide every migration ≥ 0073, `supabase db reset --linked`, `verify-pre.sql`) — **never paste 0074 plus a deliberate failure onto a database already at 0082**: that would reinstall old function bodies and commit them under a ledger that still claims the latest schema; (3) in the SQL editor paste 0074 with a deliberately failing statement appended after its `COMMIT`, record exactly which objects remain; optionally repeat with a failing statement inside the transaction of 0075 to record the rolled-back case; (4) restore: un-hide all files, `supabase db reset --linked` to the full chain, re-provision the deployment identity (`.github/scripts/provision-identity.sh preview <ref>`), re-seed the pinned fixtures (`tests/_seed_ledger_fixtures.mjs`) and whatever the preview journey needs; (5) verify the clean state — ledger tail `0073`–`0082`, `npm run check:columns`, the manifest capture — and record it. A disposable local database is an acceptable alternative for steps 2–3; no additional hosted project is needed. Do not rely on the CLI rehearsal for this.
+- **Webhooks during the window (Codex C-3 — no guarantee is claimed that the old code does not provide):** the Stripe endpoint stays enabled; `claim_stripe_event` records each signed event before a handler runs. What this runbook does **not** rely on: (a) that no payment event can reach the old fulfilment drain — an idempotent replay of an already-paid Checkout can still enter it; (b) that an incompatible old handler answers 5xx — the old drain wrapper can return its processed count without propagating a fulfilment failure, so a missing completion RPC does not guarantee a retry; (c) that every event type fails and replays — unhandled types (disputes among them) are acknowledged by the default branch. What it relies on instead: the §3 gate is **empty and reconciled** (no pending/claimed fulfilment, no open attempts, no unsettled groups, no outstanding relevant deliveries — section B2), so a late idempotent replay finds the ledger already applied (`apply_verified_payment` answers idempotent) and **nothing pending for the drain to claim**: it is harmless because there is no work, not because the old code defers it. **Any unexpected payment work appearing during the window** (a new `payment_attempts`/`payment_groups`/`booking_fulfillments` row, a new non-completed event) **is a stop-and-escalate condition**: keep containment, do not restore intake, and resolve it with David before continuing. If the simple empty-work condition cannot be established, use a separately authorized compatible handover.
+
+## 6. Verify with intake still off, then restore in order
+
+### 6.1 Verify (read-only)
+
+```sql
+select * from projection_anomalies(null);                          -- 0 rows
+select * from offering_anomalies(null) where class = 'invariant';  -- 0 rows
+select * from snapshot_drift(null);                                -- 0 rows
+select * from schedule_mismatches();                               -- 0 rows
+select * from capacity_invariant_violations(null, true);           -- 0 rows
+select status, generation, count(*) from booking_fulfillments group by 1,2;   -- nothing pending/claimed that predates the window
+select dedupe_key, reason, created_at from reconciliation_cases where resolved_at is null order by created_at desc;  -- nothing new from the switch
+select string_agg(version, ',' order by version) from supabase_migrations.schema_migrations where version >= '0073';   -- the nine rows
+```
+
+`/api/version` = candidate SHA; `/api/find-retailer {action:'status'}` → db ok; environment binding = production (identity RPC); flags as set in §2. If 0082's NOTICE reported any default-duration rows, review them now with the operator.
+
+### 6.2 Restore workers, then intake — in this order, each recorded
+
+1. Vercel **Production** env: `NOTIFICATION_WORKER_ENABLED=true`, `SLOT_EDITING_ENABLED` per David's launch configuration; redeploy.
+2. Turn **Disable Cron Jobs** off. Wait for one full tick of `refund-worker`, `provisional-sweep` and `notification-worker` on the **new** build: `cron_heartbeat` rows newer than the redeploy with `outcome = 'succeeded'`, and `notification_deliveries` / `booking_fulfillments` in the expected (empty or draining) state. Public status: `operational`, `notification-worker` required and ok.
+3. Only then, Vercel **Production** env: `CHECKOUT_ENABLED=true`, `PROVISIONAL_HOLDS_ENABLED` per David's decision; redeploy. Confirm the booking page offers checkout. Lift the operator freeze; tell Gus.
+4. Record completion: SHA, ledger rows with timestamps, both gate outputs, §6.1 outputs, flag values, cron re-enable time, and the named operator for alerts and reconciliation.
+
+Any production payment or refund smoke test after launch is a separate, explicitly approved step with identified operator-owned test data and an agreed amount; it is not part of this runbook.
+
+## 7. Rehearsal (staging, CI) — what it proves and its limits
+
+The `verify.yml` job **`upgrade rehearsal 0072 -> head (staging)`** (dispatch input `upgrade_rehearsal=true`, `staging` approval) replays §4.1 on demohub-rebuild-check: reset with every migration ≥ 0073 hidden (ledger max 0072, 0073 absent, six-argument RPC present — `supabase/rehearsal/verify-pre.sql`), seed production-shaped rows through the product's own ledger RPCs (`seed-pre-0074.sql`), apply 0074–0082 with `supabase migration up --linked` while 0073 stays hidden, assert the exact ledger tail (`verify-ledger.sql`), then on the upgraded rows assert preserved state and snapshots (0082: every active row stamped from its slot, 1 h where the slot is 1 h), generation 1 on pre-existing outbox rows, all five audits clean, the contracts, and the runtime (claimless record → stale; claim returns generation 1; `promote_paid` then `confirm` project exactly one 1 h demo; wrong-generation record → stale) (`verify-post.sql`). It then captures the upgraded schema manifest, restores every file, resets staging to the full chain, captures the clean manifest and requires the two to match (documented normalization: the ledger count line and the 0073 listing row). Its first run found the 0074/0075 snapshot gap that became 0082. Artifact: `upgrade-rehearsal-evidence`.
+
+What it does **not** prove: that production's activity is contained (that is §2–§3, operator work), the SQL-editor failure semantics (§5, rehearsed separately), or deployed-Vercel behaviour (the preview hold journey, packet §9).
+
+## 8. Evidence to file with the deploy
+
+Authorization record (§1); the fresh baseline; §2 timestamps (flags, freeze, **T0** cron disable, the recorded effective function duration, **T1** quiet baseline); the Stripe outstanding-deliveries check (§3 B2); the final deployment SHA and its diff from the reviewed candidate; the `/gussmarket` smoke result; both §3 outputs with every nonzero row explained; the nine ledger rows with timestamps and the final tail query; 0082's NOTICE; `/api/version`; §6.1 outputs; the first new-build heartbeats; the §6.2 restore timestamps and final flags; the named operator; the CI run ids for the suites, clean build, both staging passes and the rehearsal; the SQL-editor failure rehearsal result.
+
