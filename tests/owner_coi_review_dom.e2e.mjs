@@ -9,6 +9,7 @@
 // P-1 (d) and R4-02 (9)); every other call reaches the real server.
 //
 // Run: PLAYWRIGHT_ROOT=<dir with node_modules/playwright> SB_DB_URL=<session pooler> node tests/owner_coi_review_dom.e2e.mjs
+/* global document */
 import { createRequire } from 'node:module';
 import pg from 'pg';
 const BASE = process.env.DOM_BASE || 'http://localhost:4174';
