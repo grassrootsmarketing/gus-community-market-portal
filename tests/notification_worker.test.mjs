@@ -261,6 +261,18 @@ try {
     const late = await run(await seed('lateclock', { attemptedAt: iso(at(now, -(W - MIN))) }), 'ok', { clock: () => at(now, 2 * MIN) });
     ok('per-attempt clock: claimed 1 minute inside the window, attempted 1 minute past it -> ZERO calls, final unknown (the run clock alone would have sent)', late.calls === 0 && late.r.outcome === 'unknown' && late.r.final === true, JSON.stringify([late.r, late.calls]));
 
+    // Codex N-1: the clock crosses the cutoff DURING the pre-send stamp (a slow database await): the
+    // attempt is re-judged after the stamp and refused with zero provider calls.
+    {
+      const crossing = await seed('crossing', { attemptedAt: iso(at(now, -(W - 30000))) });   // 30 s of window left; the send budget is 10 s
+      let ticks = 0; const clock = () => { ticks++; return ticks <= 1 ? now : at(now, 25000); };   // 1st read: 20 s of safe time; after the stamp: 5 s < budget
+      const cr = await run(crossing, 'ok', { clock });
+      ok('N-1: the cutoff crossed during the pre-send stamp → ZERO provider calls, final unknown (idempotency_window_expired), the refusal names the stamp', cr.calls === 0 && cr.r.outcome === 'unknown' && cr.r.final === true && cr.after.status === 'unknown' && cr.after.skip_reason === 'idempotency_window_expired' && /during the pre-send stamp/.test(cr.after.last_error) && !!cr.after.frozen_payload.settled_at, JSON.stringify([cr.r, cr.calls, cr.after.last_error]));
+      const margin = await seed('margin', { attemptedAt: iso(at(now, -(W - 5000))) });   // 5 s left < the 10 s budget: refused before any stamp
+      const mr = await run(margin, 'ok');
+      ok('N-1: less safe time than the send budget → refused up front with zero calls', mr.calls === 0 && mr.r.outcome === 'unknown' && mr.r.final === true, JSON.stringify([mr.r, mr.calls]));
+    }
+
     // uncertainty is independent of claim status and survives a later definite rejection
     const sticky = await seed('sticky', { attemptedAt: iso(at(now, -HOUR)) });
     const rej = await run(sticky, 'reject');
@@ -289,7 +301,7 @@ try {
     const hangAfter = await delivery(hang.id);
     ok('a hanging provider settles within the bound as UNKNOWN (one call), attempting_at recorded before the send and settled_at after', Date.now() - t0 < 5000 && hangCalls.length === 1 && hr.outcome === 'unknown' && hangAfter.status === 'unknown' && !!hangAfter.frozen_payload.attempting_at && !!hangAfter.frozen_payload.settled_at && hangAfter.frozen_payload.uncertain === true && /mail_provider_unreachable/.test(hangAfter.last_error), JSON.stringify([hr, hangAfter.frozen_payload, hangAfter.last_error]));
     for (const r of [inside, atB, after, badTs, noTs, defOld, late]) void r;
-    for (const tag of ['inside', 'at', 'after', 'badts', 'nots', 'defold', 'lateclock', 'sticky', 'crash', 'legacy', 'hang']) await db(`notification_deliveries?dedupe_key=eq.r403-${tag}:${slug}`, { method: 'DELETE' });
+    for (const tag of ['inside', 'at', 'after', 'badts', 'nots', 'defold', 'lateclock', 'crossing', 'margin', 'sticky', 'crash', 'legacy', 'hang']) await db(`notification_deliveries?dedupe_key=eq.r403-${tag}:${slug}`, { method: 'DELETE' });
   }
 
   // =========================================================================

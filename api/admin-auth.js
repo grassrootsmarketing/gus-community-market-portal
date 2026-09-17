@@ -1003,7 +1003,7 @@ export default async function handler(req, res) {
         // pipeline). Manual-confirm retailers keep the hold until they confirm in their inbox
         // (confirm is what captures there). Best-effort: a capture hiccup never fails the review —
         // the booking simply stays held and the retailer/sweep path picks it up.
-        let capturedHolds = 0, uncertainHolds = 0, uncapturedHolds = 0; const captureCases = [];
+        let capturedHolds = 0, capturedUnappliedHolds = 0, uncertainHolds = 0, uncapturedHolds = 0, captureErrors = 0; const captureCases = []; const holdResults = [];
         if (decision === 'approved') {
           try {
             const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
@@ -1032,14 +1032,24 @@ export default async function handler(req, res) {
                 for (const b of held) {
                   if (!autoById.get(b.retailer_id)) continue;
                   if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered — don't charge
-                  const r2 = await captureHeldBooking(b);
-                  // Codex R4-02 (6): the shared outcome contract. 'captured' = charged (ok, or the ledger
-                  // apply is converging via the webhook replay); 'uncertain' = the payment MAY have
-                  // completed and a case was recorded — reported, never treated as "still held, retry";
-                  // 'not_captured' = authoritatively nothing charged; the booking simply stays held.
-                  if (r2.outcome === 'captured') { capturedHolds++; if (!r2.ok) { captureCases.push(r2.case_id || null); console.warn('post-approval capture applied late for', b.id, r2.error); } }
-                  else if (r2.outcome === 'uncertain') { uncertainHolds++; captureCases.push(r2.case_id || null); console.error('post-approval hold capture outcome UNKNOWN for', b.id, r2.stage, r2.error, 'case:', r2.case_id || 'NOT RECORDED'); }
-                  else { uncapturedHolds++; console.warn('post-approval hold capture refused for', b.id, r2.stage, r2.error); }
+                  // Codex R4-02 (6) + P-1: the shared outcome contract, reported PER BOOKING. One booking's
+                  // failure never stops the sweep or erases the others' results.
+                  //   captured + applied      -> charged and ledgered
+                  //   captured + not applied  -> charged; ledger converging via the webhook replay; case recorded or honestly not
+                  //   uncertain               -> the payment MAY have completed; case recorded or honestly not
+                  //   not_captured            -> Stripe's PI says nothing was charged; the booking stays held
+                  //   not_attempted / error   -> no capture request was made by this sweep (says nothing about history)
+                  let r2;
+                  try { r2 = await captureHeldBooking(b); }
+                  catch (e) { r2 = { ok: false, outcome: 'error', error: String((e && e.message) || e).slice(0, 200) }; }
+                  const entry = { booking_id: b.id, outcome: r2.outcome, applied: r2.outcome === 'captured' ? r2.ok === true : undefined,
+                    case_id: r2.case_id || null, case_recorded: r2.case_recorded === true, error: r2.ok ? undefined : (r2.error || null) };
+                  holdResults.push(entry);
+                  if (r2.outcome === 'captured' && r2.ok) capturedHolds++;
+                  else if (r2.outcome === 'captured') { capturedUnappliedHolds++; if (r2.case_id) captureCases.push(r2.case_id); console.warn('post-approval capture NOT applied for', b.id, r2.error, 'case:', r2.case_id || 'NOT RECORDED'); }
+                  else if (r2.outcome === 'uncertain') { uncertainHolds++; if (r2.case_id) captureCases.push(r2.case_id); console.error('post-approval hold capture outcome UNKNOWN for', b.id, r2.stage, r2.error, 'case:', r2.case_id || 'NOT RECORDED'); }
+                  else if (r2.outcome === 'not_captured') { uncapturedHolds++; console.warn('post-approval hold capture refused for', b.id, r2.stage, r2.error); }
+                  else { captureErrors++; console.error('post-approval hold capture did not complete for', b.id, r2.error); }
                 }
               }
             }
@@ -1048,10 +1058,22 @@ export default async function handler(req, res) {
         return res.status(200).json({ ok: true, verification_id, decision,
           reviewed_by: owner.email, reviewed_at: row && row.reviewed_at ? row.reviewed_at : null,
           captured_holds: capturedHolds || undefined,
-          // R4-02: an uncertain capture is surfaced to the reviewer, never silently counted as "not captured"
+          // R4-02 / P-1: every non-clean outcome is surfaced to the reviewer per booking; capture_cases
+          // lists ONLY cases that were actually recorded (a missing case is reported, never promised).
+          captured_unapplied_holds: capturedUnappliedHolds || undefined,
           uncertain_holds: uncertainHolds || undefined, uncaptured_holds: uncapturedHolds || undefined,
+          capture_errors: captureErrors || undefined,
           capture_cases: captureCases.length ? captureCases : undefined,
-          message: uncertainHolds ? `${uncertainHolds} held booking(s) have an UNKNOWN payment outcome — the brand may have been charged. Do not charge again or ask them to rebook; a reconciliation case tracks each one.` : undefined });
+          holds: holdResults.length ? holdResults : undefined,
+          message: (capturedUnappliedHolds || uncertainHolds || captureErrors)
+            ? [capturedUnappliedHolds ? `${capturedUnappliedHolds} held booking(s) WERE charged but the ledger could not be updated yet` : null,
+               uncertainHolds ? `${uncertainHolds} held booking(s) have an UNKNOWN payment outcome — the brand may have been charged` : null,
+               captureErrors ? `${captureErrors} held booking(s) could not be processed by this approval` : null].filter(Boolean).join('; ')
+              + '. Do not charge again or ask them to rebook. '
+              + (holdResults.some(h => (h.outcome === 'captured' && h.applied === false) || h.outcome === 'uncertain') && holdResults.filter(h => ((h.outcome === 'captured' && h.applied === false) || h.outcome === 'uncertain') && !h.case_recorded).length
+                  ? 'A reconciliation case could NOT be recorded for at least one of them — contact support with the booking ids below.'
+                  : 'A reconciliation case tracks each one.')
+            : undefined });
       } catch (e) {
         return res.status(500).json({ error: 'review_failed' });
       }

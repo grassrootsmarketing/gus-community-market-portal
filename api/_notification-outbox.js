@@ -102,9 +102,16 @@ async function sb(b, path, opts = {}) {
   return j;
 }
 async function countRows(b, path) {
-  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
-    headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
-  });
+  // Codex N-3: bounded like every other outbox database call.
+  let r;
+  try {
+    r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, {
+      signal: globalThis.AbortSignal.timeout(DB_TIMEOUT_MS),
+      headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
+    });
+  } catch (e) {
+    throw new OutboxError((e && (e.name === 'TimeoutError' || e.name === 'AbortError')) ? 'db_timeout' : 'db_unreachable', { path: path.split('?')[0], message: String((e && e.message) || e).slice(0, 200) });
+  }
   if (!r.ok && r.status !== 416) throw new OutboxError('db_count_failed', { status: r.status, path: path.split('?')[0] });
   const cr = r.headers.get('content-range') || '';
   const m = cr.match(/\/(\d+)$/);
@@ -538,8 +545,12 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
       // measure it from) could be a duplicate. Such work is terminal — surfaced for an operator — with
       // ZERO provider calls, and it keeps its uncertainty ('unknown' when a send may have gone out).
       const firstAttemptMs = Date.parse(String(frozen.attempted_at || ''));
+      // Codex N-1: the send must COMPLETE inside the provider's dedupe window, so the request budget
+      // (the send timeout) is the margin: with less than that left, the attempt is refused.
+      const budgetMs = Number.isFinite(sendTimeoutMs) && sendTimeoutMs > 0 ? sendTimeoutMs : 0;
+      const pastWindow = (t) => t + budgetMs >= firstAttemptMs + RESEND_IDEMPOTENCY_WINDOW_MS;
       const terminal = !Number.isFinite(firstAttemptMs) ? 'review_required'
-        : (attemptAt.getTime() - firstAttemptMs >= RESEND_IDEMPOTENCY_WINDOW_MS) ? 'idempotency_window_expired' : null;
+        : pastWindow(attemptAt.getTime()) ? 'idempotency_window_expired' : null;
       if (terminal) {
         const status = history.uncertain ? 'unknown' : 'failed';
         await cas(b, row, token, release({ status, attempts: attemptsSoFar, next_attempt_at: null, skip_reason: terminal,
@@ -551,6 +562,18 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
       // leaves attempting_at newer than settled_at — which the next claim reads as uncertain.
       frozen = { ...frozen, uncertain: history.uncertain, attempting_at: attemptIso };
       await cas(b, row, token, { frozen_payload: frozen, updated_at: attemptIso });
+      // Codex N-1: the stamp itself took time (a slow database await can cross the cutoff). Re-read the
+      // clock AFTER it and BEFORE the provider call; if the window closed meanwhile, this attempt is
+      // refused with zero provider calls and the row is terminal like any other expired attempt.
+      const afterStamp = typeof clock === 'function' ? clock() : attemptAt;
+      if (pastWindow(afterStamp.getTime())) {
+        const status = history.uncertain ? 'unknown' : 'failed';
+        const settledIso = afterStamp.toISOString();
+        await cas(b, row, token, release({ status, attempts: attemptsSoFar, next_attempt_at: null, skip_reason: 'idempotency_window_expired',
+          last_error: 'idempotency_window_expired: window closed during the pre-send stamp', updated_at: settledIso,
+          frozen_payload: { ...frozen, uncertain: history.uncertain, settled_at: settledIso } }));
+        return { outcome: status, final: true, reason: 'idempotency_window_expired', calls: 0 };
+      }
     } else {
       frozen = { to: check.to, subject: check.message.subject, html: check.message.html, attempted_at: attemptIso, attempting_at: attemptIso, uncertain: false };
       await cas(b, row, token, { frozen_payload: frozen, idempotency_key: row.id, recipient_email: check.to, updated_at: attemptIso });

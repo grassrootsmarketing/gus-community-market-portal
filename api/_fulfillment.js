@@ -90,8 +90,18 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
       if (!mailOk) {
         if (!ctx.contact_email) { mailOk = true; }
         else if (row.target_status === 'held') {
+          // Codex N-2: the completion fence (0081) cannot un-send a notice. A worker whose lease was taken
+          // over while it was working re-checks the lease RIGHT BEFORE the send and steps aside; and the
+          // notice carries a stable logical identity (booking + generation) so the provider deduplicates a
+          // second send within its window. This makes the notice at-least-once with provider-side dedupe,
+          // not exactly-once: a window-crossing duplicate is still possible and is documented as such.
+          let lease = null;
+          try { const l = await sb(`booking_fulfillments?booking_id=eq.${encodeURIComponent(bookingId)}&select=lease_owner,generation,status`); lease = Array.isArray(l) ? l[0] : null; } catch (_) { lease = null; }
+          if (!lease || lease.lease_owner !== owner || lease.generation !== generation || lease.status !== 'pending') {
+            throw new Error('lease_lost_before_send:' + (lease ? (lease.lease_owner || 'none') + ':' + lease.generation + ':' + lease.status : 'unreadable'));
+          }
           const { sendHoldPlacedEmail } = await import('./_provisional.js');
-          await sendHoldPlacedEmail(ctx);   // throws on failure -> outbox retries
+          await sendHoldPlacedEmail(ctx, { idempotencyKey: 'hold-placed:' + bookingId + ':' + generation });   // throws on failure -> outbox retries
           mailOk = true;
         } else {
           await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;

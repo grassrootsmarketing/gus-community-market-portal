@@ -644,6 +644,8 @@ function renderDashboard(d) {
         Certificates awaiting a decision. One item per brand &mdash; the brand&rsquo;s current document.
         Approving lets that brand book; rejecting does not.
       </p>
+      <div id="coiLastDecision" aria-live="polite" style="margin:0 0 8px; font-size:13px; font-weight:600;"></div>
+      <div id="coiPaymentWarnings" role="alert" aria-live="polite" hidden style="margin:0 0 12px; padding:12px 14px; border:1px solid #c25a1c; border-left:5px solid #c25a1c; border-radius:8px; background:#fff3ed; color:#1c1c1a; font-size:13px;"></div>
       <div id="coiQueueBody">Loading&hellip;</div>
     </div>
   `;
@@ -1051,6 +1053,29 @@ function renderCoiQueue() {
   }).join('');
 }
 
+// Codex P-3: per-booking payment outcomes from owner-coi-review that need a human. Appends (never
+// replaces) so earlier warnings survive later decisions and queue reloads. Returns true when shown.
+function renderCoiPaymentWarnings(j) {
+  const box = document.getElementById('coiPaymentWarnings');
+  if (!box) return false;
+  const holds = Array.isArray(j && j.holds) ? j.holds : [];
+  const bad = holds.filter(h => h && ((h.outcome === 'captured' && h.applied === false) || h.outcome === 'uncertain' || h.outcome === 'error' || h.outcome === 'not_attempted'));
+  if (!bad.length) return false;
+  const line = (h) => {
+    const id = _esc(h.booking_id || '?');
+    const caseTxt = h.case_recorded && h.case_id ? 'reconciliation case recorded (' + _esc(h.case_id) + ')' : '<strong>reconciliation case NOT recorded — contact support with this booking id</strong>';
+    if (h.outcome === 'captured' && h.applied === false) return '<li data-booking="' + id + '" data-outcome="captured-unapplied"><strong>Booking ' + id + ':</strong> the card <strong>WAS charged</strong> but the booking ledger could not be updated yet — do not charge again or ask the brand to rebook; ' + caseTxt + '.</li>';
+    if (h.outcome === 'uncertain') return '<li data-booking="' + id + '" data-outcome="uncertain"><strong>Booking ' + id + ':</strong> payment outcome <strong>UNKNOWN</strong> — the brand may have been charged; do not charge again, cancel or ask them to rebook; ' + caseTxt + '.</li>';
+    return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + ') — it says nothing about whether the payment was ever captured; check the booking in the retailer admin.</li>';
+  };
+  const block = '<div data-review="' + _esc(j.verification_id || '') + '"><div style="font-weight:700; margin-bottom:6px;">Payment attention needed after this COI decision</div>'
+    + (j.message ? '<div style="margin-bottom:6px;">' + _esc(j.message) + '</div>' : '')
+    + '<ul style="margin:0; padding-left:18px;">' + bad.map(line).join('') + '</ul></div>';
+  box.insertAdjacentHTML('beforeend', block);
+  box.hidden = false;
+  return true;
+}
+
 async function viewCoiDoc(id) {
   const msg = document.getElementById('coiMsg-' + id);
   if (msg) { msg.style.color = 'var(--forest-700)'; msg.textContent = 'Opening…'; }
@@ -1118,7 +1143,17 @@ async function decideCoi(id, decision) {
       if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = j.message || j.error || ('Failed (' + r.status + ')'); }
       return;
     }
-    if (msg) { msg.style.color = '#0f2c17'; msg.textContent = decision === 'approved' ? 'Approved' : 'Rejected'; }
+    // Codex P-3: a successful COI decision is NOT proof that every payment it triggered completed.
+    // Any hold that was charged-but-not-ledgered, has an unknown payment outcome, or could not be
+    // processed is shown here, per booking, with whether its reconciliation case was actually
+    // recorded — and it stays on screen when the queue reloads.
+    const attention = renderCoiPaymentWarnings(j);
+    const decisionText = (decision === 'approved' ? 'Approved' : 'Rejected') + (attention ? ' — payment attention needed (see above)' : '');
+    if (msg) { msg.style.color = attention ? '#c25a1c' : '#0f2c17'; msg.textContent = decisionText; }
+    // The queue reload below re-renders the rows (a decided item leaves the queue), which would take the
+    // row's own message with it — so the last decision is also written OUTSIDE the queue body.
+    const last = document.getElementById('coiLastDecision');
+    if (last) { last.style.color = attention ? '#c25a1c' : '#0f2c17'; last.textContent = 'Last decision: ' + decisionText; }
     loadCoiQueue();
   } catch (_) {
     if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Could not save that decision.'; }

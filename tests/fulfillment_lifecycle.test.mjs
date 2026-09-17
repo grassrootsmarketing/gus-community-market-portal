@@ -244,11 +244,12 @@ try {
     const first = await claimAs('w-first', C.gid, C.b.id, 30);
     await q(`UPDATE booking_fulfillments SET lease_expires_at = now() - interval '1 second' WHERE booking_id = $1`, [C.b.id]);
     const taker = await claimAs('w-taker', C.gid, C.b.id);
+    const sendsBefore3 = spy.calls.resend.length;   // Codex N-2: the COMPLETE send history is kept — nothing is cleared
     const lateFirst = await ful.runFulfillment({ ...first }, 'w-first');
-    ok('R4-01 (3): after a lease takeover the first worker\'s completion is stale (no write), the taker holds the lease', lateFirst.recorded === false && lateFirst.outcome === 'stale' && /lease_w-taker/.test(lateFirst.error || '') && (await outbox(C.b.id)).lease_owner === 'w-taker', JSON.stringify(lateFirst));
-    spy.calls.resend.length = 0;
+    ok('R4-01 (3): after a lease takeover the first worker re-checks its lease right before the send, sends NOTHING, and its completion is stale (no write); the taker holds the lease', lateFirst.recorded === false && lateFirst.outcome === 'stale' && /lease_lost_before_send:w-taker/.test(lateFirst.error || '') && /lease_w-taker/.test(lateFirst.error || '') && spy.calls.resend.length === sendsBefore3 && (await outbox(C.b.id)).lease_owner === 'w-taker', JSON.stringify(lateFirst));
     const takerRes = await ful.runFulfillment({ ...taker }, 'w-taker');
-    ok('R4-01 (3): the taker sends the ONE hold notice and completes generation 1', takerRes.done === true && takerRes.outcome === 'done' && spy.calls.resend.length === 1 && (await outbox(C.b.id)).status === 'done', JSON.stringify(takerRes));
+    const sends3 = spy.calls.resend.slice(sendsBefore3);
+    ok('R4-01 (3): across BOTH workers exactly ONE hold notice went out, carrying the stable identity hold-placed:<booking>:<generation> (provider-side dedupe; at-least-once, documented)', takerRes.done === true && takerRes.outcome === 'done' && sends3.length === 1 && sends3[0].idempotency_key === 'hold-placed:' + C.b.id + ':1' && (await outbox(C.b.id)).status === 'done', JSON.stringify({ takerRes, sends: sends3.map(x => x.idempotency_key) }));
 
     // (4) capture lands between an incomplete progress record and the worker's next write
     const D = await authorize('r401d');
@@ -475,9 +476,22 @@ try {
       const rj = await route({ booking_id: J.b.id, action: 'confirm' });
       ok('R4-02 (7a): Stripe 5xx on the capture, retrieved PI succeeded → captured: 200 with the demo, no case', rj.statusCode === 200 && rj.body.demo_id && (await demos(J.b.id)).length === 1 && (await cases('capture-unknown:' + J.b.id)).length === 0, JSON.stringify(rj.body));
       const K = await fresh('r402-4xx');
+      spy.fixtures.paymentIntents[K.pi] = { ...capturedPi(K.pi, K.ch), status: 'requires_capture', amount_received: 0 };
       spy.faults.push({ url: '/capture', method: 'POST', status: 402, message: 'injected: authorization expired', once: true });
+      const piReadsBeforeK = spy.calls.stripe.filter(c => c.method === 'GET' && c.url.includes(K.pi)).length;
       const rk = await route({ booking_id: K.b.id, action: 'confirm' });
-      ok('R4-02 (7b): Stripe 4xx refusal → definitive: 502 capture_failed "nothing was charged", NO verification call needed, no case, hold untouched', rk.statusCode === 502 && rk.body.error === 'capture_failed' && rk.body.captured === false && /nothing was charged/.test(rk.body.message) && (await cases('capture-unknown:' + K.b.id)).length === 0 && await heldUntouched(K.b.id), JSON.stringify(rk.body));
+      ok('R4-02 (7b, Codex P-2): a Stripe 4xx refusal is NOT taken at its word — the PI is retrieved; only because it says requires_capture is this capture_failed / "nothing was charged" (no case, hold untouched)', rk.statusCode === 502 && rk.body.error === 'capture_failed' && rk.body.captured === false && rk.body.pi_status === 'requires_capture' && /nothing was charged/.test(rk.body.message) && spy.calls.stripe.filter(c => c.method === 'GET' && c.url.includes(K.pi)).length === piReadsBeforeK + 1 && (await cases('capture-unknown:' + K.b.id)).length === 0 && await heldUntouched(K.b.id), JSON.stringify(rk.body));
+      // P-2: a 429 on the RETRY of a capture that already went through must come back as captured
+      const K2 = await fresh('r402-429-after-capture');
+      spy.faults.push({ url: '/capture', method: 'POST', status: 429, message: 'injected: rate limited before the idempotency layer', once: true });
+      const rk2 = await route({ booking_id: K2.b.id, action: 'confirm' });
+      ok('R4-02 (7b-2, Codex P-2): 429 on the capture request while Stripe\'s PI is already succeeded → CAPTURED: 200 with the demo, no "nothing was charged", no new payment identity', rk2.statusCode === 200 && rk2.body.demo_id && (await demos(K2.b.id)).length === 1 && (await booking(K2.b.id)).payment_status === 'paid' && stripeCalls(new RegExp(K2.pi + '/capture$')) === 1, JSON.stringify(rk2.body));
+      const K3 = await fresh('r402-429-unavailable');
+      spy.faults.push({ url: '/capture', method: 'POST', status: 429, message: 'injected: rate limited', once: true });
+      wrap.piThrow = K3.pi;
+      const rk3 = await route({ booking_id: K3.b.id, action: 'confirm' });
+      created.caseKeys.push('capture-unknown:' + K3.b.id);
+      ok('R4-02 (7b-3, Codex P-2): 429 on the request AND retrieval unavailable → payment_outcome_unknown + one case, never "nothing was charged"', rk3.statusCode === 502 && rk3.body.error === 'payment_outcome_unknown' && !/nothing was charged/i.test(rk3.body.message) && (await cases('capture-unknown:' + K3.b.id)).length === 1 && await heldUntouched(K3.b.id), JSON.stringify(rk3.body));
       const L = await fresh('r402-processing');
       spy.fixtures.paymentIntents[L.pi] = { ...capturedPi(L.pi, L.ch), status: 'processing', amount_received: 0 };
       const rl = await route({ booking_id: L.b.id, action: 'confirm' });
@@ -521,6 +535,80 @@ try {
     } finally {
       globalThis.fetch = realFetch; wrap.venue = wrap.retailer = null; wrap.captureThrow = wrap.piThrow = false;
       await setAutoConfirm(false);
+      if (coiCaseIds.length) await q(`DELETE FROM reconciliation_cases WHERE id = ANY($1::uuid[])`, [coiCaseIds]).catch(() => {});
+      if (coiVid) {
+        await rest(`brands?id=eq.${BRAND1}`, { method: 'PATCH', body: JSON.stringify({ current_coi_verification_id: brandCoiRefBefore ? brandCoiRefBefore.current_coi_verification_id : null }) });
+        await q(`DELETE FROM notification_events WHERE transition_id LIKE $1`, [coiVid + '%']).catch(() => {});
+        await q(`DELETE FROM coi_verifications WHERE id = $1`, [coiVid]).catch(() => {});
+      }
+    }
+  }
+
+  // ===========================================================================================
+  console.log('\n— P-1 (Codex 2026-09-16): a VERIFIED capture never escapes as an ordinary failure —');
+  {
+    const OWNER_EMAIL = 'david@demohubhq.com';
+    const cases = (key) => q(`SELECT id, reason, details FROM reconciliation_cases WHERE dedupe_key = $1`, [key]);
+    const heldUntouched = async (id) => { const b = await booking(id); return b.status === 'held' && b.payment_status === 'authorized'; };
+    const fresh = async (tag) => { const X = await authorize(tag); spy.fixtures.paymentIntents[X.pi] = capturedPi(X.pi, X.ch); spy.calls.stripe.length = 0; return X; };
+    const unappliedOk = (r, id) => r.statusCode === 500 && r.body.error === 'capture_succeeded_confirmation_unverified' && r.body.captured === true && r.body.application_unverified === true && !/nothing was charged/i.test(r.body.message) && /WAS captured/.test(r.body.message);
+    let coiVid = null, brandCoiRefBefore = null, coiCaseIds = [];
+    try {
+      // (a) the payment-attempt lookup fails AFTER Stripe reported succeeded
+      const A = await fresh('p1-lookup');
+      spy.faults.push({ url: 'payment_attempts?stripe_payment_intent_id=eq.' + encodeURIComponent(A.pi), method: 'GET', status: 503, message: 'injected attempt lookup outage', once: true });
+      const ra = await route({ booking_id: A.b.id, action: 'confirm' });
+      const caseA = await cases('capture-unapplied:' + A.b.id); created.caseKeys.push('capture-unapplied:' + A.b.id);
+      ok('P-1 (a): attempt-lookup outage after a verified capture → capture_succeeded_confirmation_unverified, captured:true, application_unverified:true, ONE recorded capture-unapplied case carrying the PI; ledger NOT applied (row still held/authorized), no demo', unappliedOk(ra, A.b.id) && ra.body.reconciliation_recorded === true && caseA.length === 1 && caseA[0].id === ra.body.reconciliation_case_id && caseA[0].reason === 'capture_succeeded_application_unverified' && caseA[0].details.payment_intent_id === A.pi && await heldUntouched(A.b.id) && (await demos(A.b.id)).length === 0 && stripeCalls(/\/capture$/) === 1, JSON.stringify({ body: ra.body, caseA }));
+      const ra2 = await route({ booking_id: A.b.id, action: 'confirm' });
+      ok('P-1 (a): the retry applies the ledger ONCE (same PI, same key) and confirms with exactly one demo; still one case; no refund, no second charge', ra2.statusCode === 200 && ra2.body.demo_id && (await booking(A.b.id)).status === 'confirmed' && (await booking(A.b.id)).payment_status === 'paid' && (await demos(A.b.id)).length === 1 && (await cases('capture-unapplied:' + A.b.id)).length === 1 && stripeCalls(/\/refunds/) === 0, JSON.stringify(ra2.body));
+
+      // (b) the ledger RPC fails after Stripe reported succeeded
+      const B = await fresh('p1-rpc');
+      spy.faults.push({ url: '/rpc/apply_verified_payment', method: 'POST', status: 500, message: 'injected ledger apply outage', once: true });
+      const rb = await route({ booking_id: B.b.id, action: 'confirm' });
+      created.caseKeys.push('capture-unapplied:' + B.b.id);
+      ok('P-1 (b): ledger-RPC outage after a verified capture → the same captured-but-unverified outcome with its recorded case; ledger not applied', unappliedOk(rb, B.b.id) && rb.body.reconciliation_recorded === true && (await cases('capture-unapplied:' + B.b.id)).length === 1 && await heldUntouched(B.b.id), JSON.stringify(rb.body));
+      const rb2 = await route({ booking_id: B.b.id, action: 'confirm' });
+      ok('P-1 (b): the retry converges — confirmed, one demo, one case', rb2.statusCode === 200 && (await demos(B.b.id)).length === 1 && (await cases('capture-unapplied:' + B.b.id)).length === 1, JSON.stringify(rb2.body));
+
+      // (c) the database is down for the case write as well: captured is preserved, the missing case is reported
+      const C = await fresh('p1-nocase');
+      spy.faults.push({ url: 'payment_attempts?stripe_payment_intent_id=eq.' + encodeURIComponent(C.pi), method: 'GET', status: 503, message: 'injected attempt lookup outage', once: true });
+      spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 503, message: 'injected case write outage', once: true });
+      spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 503, message: 'injected case write outage', once: true });
+      const rc = await route({ booking_id: C.b.id, action: 'confirm' });
+      ok('P-1 (c): with the case write down too, the response still says captured:true and honestly reports the case was NOT recorded (no invented id)', unappliedOk(rc, C.b.id) && rc.body.reconciliation_recorded === false && rc.body.reconciliation_case_id === null && /could NOT be recorded/.test(rc.body.message) && (await cases('capture-unapplied:' + C.b.id)).length === 0 && (await cases('transition:' + C.b.id)).length === 0 && await heldUntouched(C.b.id), JSON.stringify(rc.body));
+      const rc2 = await route({ booking_id: C.b.id, action: 'confirm' });
+      ok('P-1 (c): the retry converges with one demo', rc2.statusCode === 200 && (await demos(C.b.id)).length === 1, JSON.stringify(rc2.body));
+
+      // (d) the COI auto-capture loop: several held bookings, one of them charged-but-unapplied — the sweep continues and reports each
+      {
+        const ex = await rest('retailers?slug=eq.__owner__&select=id');
+        const ownerRetailerId = (one(ex.json) && one(ex.json).id) || one((await rest('retailers', { method: 'POST', body: JSON.stringify({ slug: '__owner__', name: 'Demohub Owner (system)', billing_email: OWNER_EMAIL }) })).json).id;
+        const tok = one((await rest('admin_tokens', { method: 'POST', body: JSON.stringify({ email: OWNER_EMAIL, retailer_id: ownerRetailerId }) })).json);
+        const verified = await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }));
+        const ownerCookie = verified.cookie('dh_owner_session');
+        brandCoiRefBefore = await row1(`SELECT current_coi_verification_id FROM brands WHERE id = $1`, [BRAND1]);
+        await setAutoConfirm(true);
+        const X = await fresh('p1-coi-x'), Y = await fresh('p1-coi-y');
+        coiVid = crypto.randomUUID();
+        const up = await rpc('finalize_coi_upload', { p_brand_id: BRAND1, p_verification_id: coiVid, p_storage_path: `brands/${BRAND1}/${coiVid}.pdf`, p_content_sha256: 'sha-' + coiVid.slice(0, 8), p_expires: null, p_status: 'pending' });
+        ok('P-1 (d): setup — owner session + pending COI version', !!ownerCookie && up.status < 300, JSON.stringify(up.json).slice(0, 160));
+        spy.faults.push({ url: 'payment_attempts?stripe_payment_intent_id=eq.' + encodeURIComponent(X.pi), method: 'GET', status: 503, message: 'injected attempt lookup outage', once: true });
+        const rv = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-review', verification_id: coiVid, decision: 'approved', expiry: '2028-12-31' }, cookies: { dh_owner_session: ownerCookie } }));
+        created.caseKeys.push('capture-unapplied:' + X.b.id);
+        coiCaseIds = Array.isArray(rv.body && rv.body.capture_cases) ? rv.body.capture_cases.filter(Boolean) : [];
+        const hx = (rv.body.holds || []).find(h => h.booking_id === X.b.id), hy = (rv.body.holds || []).find(h => h.booking_id === Y.b.id);
+        const caseX = await cases('capture-unapplied:' + X.b.id);
+        ok('P-1 (d): the approval succeeds, X is reported captured+unapplied with its recorded case, Y is reported captured+applied (the sweep did not stop at X), counts and message agree', rv.statusCode === 200 && rv.body.ok === true && hx && hx.outcome === 'captured' && hx.applied === false && hx.case_recorded === true && hx.case_id === caseX[0]?.id && hy && hy.outcome === 'captured' && hy.applied === true && rv.body.captured_unapplied_holds >= 1 && rv.body.captured_holds >= 1 && rv.body.capture_cases.includes(caseX[0]?.id) && /WERE charged/.test(rv.body.message) && /case tracks each one/.test(rv.body.message), JSON.stringify({ hx, hy, counts: [rv.body.captured_holds, rv.body.captured_unapplied_holds, rv.body.uncertain_holds, rv.body.uncaptured_holds, rv.body.capture_errors], message: rv.body.message }));
+        ok('P-1 (d): X is charged but not ledgered (still held/authorized, no demo); Y is confirmed with one demo', await heldUntouched(X.b.id) && (await demos(X.b.id)).length === 0 && (await booking(Y.b.id)).status === 'confirmed' && (await demos(Y.b.id)).length === 1, JSON.stringify([await booking(X.b.id), await booking(Y.b.id)]));
+        const rx = await route({ booking_id: X.b.id, action: 'confirm' });
+        ok('P-1 (d): a later retailer confirm converges X — one demo, still one case, no second charge', rx.statusCode === 200 && (await demos(X.b.id)).length === 1 && (await cases('capture-unapplied:' + X.b.id)).length === 1 && stripeCalls(new RegExp(X.pi + '/capture$')) === 2 && stripeCalls(/\/refunds/) === 0, JSON.stringify(rx.body));
+        await setAutoConfirm(false);
+      }
+    } finally {
+      spy.faults.length = 0; await setAutoConfirm(false);
       if (coiCaseIds.length) await q(`DELETE FROM reconciliation_cases WHERE id = ANY($1::uuid[])`, [coiCaseIds]).catch(() => {});
       if (coiVid) {
         await rest(`brands?id=eq.${BRAND1}`, { method: 'PATCH', body: JSON.stringify({ current_coi_verification_id: brandCoiRefBefore ? brandCoiRefBefore.current_coi_verification_id : null }) });

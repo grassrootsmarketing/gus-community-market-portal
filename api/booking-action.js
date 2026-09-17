@@ -469,13 +469,19 @@ export default async function handler(req, res) {
             reconciliation_case_id: capd.case_id || null, reconciliation_recorded: !!capd.case_recorded });
         }
         if (capd.outcome === 'not_captured') {
-          // Authoritative: Stripe refused the capture or the PI is in an uncaptured state. Only here is
-          // "nothing was charged" a true statement.
-          return res.status(502).json({ ok: false, action, booking_id, error: 'capture_failed', captured: false, stage: capd.stage, message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
+          // Authoritative: Stripe's retrieved PaymentIntent is in an uncaptured state (Codex P-2: this is
+          // decided by the PI, never by a refused request). Only here is "nothing was charged" true.
+          return res.status(502).json({ ok: false, action, booking_id, error: 'capture_failed', captured: false, stage: capd.stage, pi_status: capd.pi_status, message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
         }
-        // outcome 'captured' but the ledger apply failed: the brand HAS been charged. Same truthful
-        // outcome + durable case as a post-capture transition failure (Codex H1 / R4-02 (3)).
-        return await capturedButUnverified(res, { booking_id, action, error: 'apply:' + String(capd.error || 'failed'), case_id: capd.case_id || null });
+        if (capd.outcome === 'not_attempted') {
+          // Codex P-2: no capture request was made because the row is no longer a held, authorized
+          // booking. That says nothing about the payment's history — never "nothing was charged".
+          return res.status(409).json({ ok: false, action, booking_id, error: 'capture_not_attempted', message: 'No capture was attempted: this booking is no longer a held, authorized reservation (' + capd.error + '). Refresh — another action may already have captured or released it.' });
+        }
+        // outcome 'captured' but the ledger apply failed (Codex P-1): the brand HAS been charged. The
+        // helper recorded (or honestly failed to record) the 'capture-unapplied' case; report it as the
+        // same truthful outcome as a post-capture transition failure (Codex H1 / R4-02 (3)).
+        return await capturedButUnverified(res, { booking_id, action, error: 'apply:' + String(capd.error || 'failed'), case_id: capd.case_id || null, case_recorded: capd.case_recorded === true, application_unverified: true });
       }
       // Codex H1: NO read-back and NO guessed state after the capture. The transition below judges the
       // CURRENT row under lock — pending -> confirmed, or already_applied when the capture-side
@@ -767,8 +773,11 @@ export default async function handler(req, res) {
 // Codex H1 / R4-02: the ONE captured-but-unverified exit. Records the deduplicated reconciliation
 // case ('transition:<booking>') when the caller has not already, then answers with the truthful
 // outcome: captured:true, the booking is being confirmed, do not decline / rebook.
-async function capturedButUnverified(res, { booking_id, action, error, case_id = null }) {
+async function capturedButUnverified(res, { booking_id, action, error, case_id = null, case_recorded = undefined, application_unverified = false }) {
   let caseId = case_id;
+  // Codex P-1: when the helper already attempted its own deduplicated case and could not record it
+  // (database unavailable), a second attempt here would most likely fail the same way — try once more,
+  // but never claim a case exists unless an id came back.
   if (!caseId) {
     try {
       const _c = await sbRpc('_open_case', {
@@ -782,10 +791,10 @@ async function capturedButUnverified(res, { booking_id, action, error, case_id =
       console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
     }
   }
-  return capturedUnverifiedResponse(res, { booking_id, action, caseId });
+  return capturedUnverifiedResponse(res, { booking_id, action, caseId, application_unverified });
 }
-function capturedUnverifiedResponse(res, { booking_id, action, caseId }) {
-  return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true,
+function capturedUnverifiedResponse(res, { booking_id, action, caseId, application_unverified = false }) {
+  return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true, application_unverified: application_unverified || undefined,
     message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook — refresh the booking. '
       + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
     reconciliation_case_id: caseId || null, reconciliation_recorded: !!caseId });

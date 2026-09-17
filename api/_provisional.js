@@ -163,18 +163,32 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
 // deliberate capture) and releaseHeldBooking (the P0-1 case where a release discovers the hold was
 // captured out from under it and must converge to paid, not release). apply_verified_payment is
 // idempotent, so a webhook replay after this is a no-op.
+// Codex P-1 (2026-09-16): this helper NEVER throws. Once the caller holds a freshly retrieved
+// 'succeeded' PaymentIntent the money has moved, and a database failure while applying the ledger
+// must not erase that fact on the way out. Every failure is returned as { ok:false, stage:'apply',
+// error } so the caller preserves 'captured' and records the deduplicated case.
 async function applyCapturedPi(paymentIntentId, fullPi) {
-  const attRows = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(paymentIntentId)}&select=stripe_checkout_session_id,payment_group_id&order=created_at.desc&limit=1`);
-  const att = Array.isArray(attRows) ? attRows[0] : null;
+  let att;
+  try {
+    const attRows = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(paymentIntentId)}&select=stripe_checkout_session_id,payment_group_id&order=created_at.desc&limit=1`);
+    att = Array.isArray(attRows) ? attRows[0] : null;
+  } catch (e) {
+    return { ok: false, stage: 'apply', error: 'attempt_lookup_failed: ' + String((e && e.message) || e).slice(0, 160), thrown: true };
+  }
   if (!att || !att.stripe_checkout_session_id) return { ok: false, stage: 'apply', error: 'attempt_not_found' };
   const charge = (fullPi.latest_charge && typeof fullPi.latest_charge === 'object') ? fullPi.latest_charge : null;
-  const applied = await sbRpc('apply_verified_payment', {
-    p_session_id: att.stripe_checkout_session_id, p_payment_intent: fullPi.id,
-    p_charge: charge ? charge.id : (typeof fullPi.latest_charge === 'string' ? fullPi.latest_charge : null),
-    p_amount: fullPi.amount_received != null ? fullPi.amount_received : fullPi.amount,
-    p_currency: fullPi.currency,
-    p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null,
-  });
+  let applied;
+  try {
+    applied = await sbRpc('apply_verified_payment', {
+      p_session_id: att.stripe_checkout_session_id, p_payment_intent: fullPi.id,
+      p_charge: charge ? charge.id : (typeof fullPi.latest_charge === 'string' ? fullPi.latest_charge : null),
+      p_amount: fullPi.amount_received != null ? fullPi.amount_received : fullPi.amount,
+      p_currency: fullPi.currency,
+      p_connect_dest: null, p_on_behalf_of: null, p_application_fee: null, p_transfer_id: null, p_fee_id: null,
+    });
+  } catch (e) {
+    return { ok: false, stage: 'apply', error: 'apply_rpc_failed: ' + String((e && e.message) || e).slice(0, 160), thrown: true };
+  }
   const outcome = applied && applied.outcome;
   if (outcome !== 'applied' && outcome !== 'idempotent') {
     return { ok: false, stage: 'apply', error: 'apply_' + (outcome || 'failed'), outcome, case_id: applied && applied.case_id };
@@ -188,12 +202,19 @@ async function applyCapturedPi(paymentIntentId, fullPi) {
 
 // Codex R4-02 — the shared capture-outcome contract (both callers: booking-action confirm and the
 // COI auto-confirm loop in admin-auth). Every result carries an explicit `outcome`:
-//   'captured'     — Stripe's retrieved PaymentIntent is 'succeeded'. ok:true when the ledger was
-//                    applied; ok:false (stage 'apply') when it was not — the money HAS moved and the
-//                    webhook replay / sweep converge the ledger; callers must never say "not charged".
-//   'not_captured' — authoritatively nothing was charged: the precondition failed, Stripe REFUSED the
-//                    capture (4xx), or the retrieved PI is in a not-captured state (canceled /
-//                    requires_capture / requires_payment_method / requires_confirmation).
+//   'captured'     — Stripe's retrieved PaymentIntent is 'succeeded'. ok:true (applied:true) when the
+//                    ledger was applied; ok:false (applied:false, stage 'apply') when it was not — the
+//                    money HAS moved, a deduplicated case ('capture-unapplied:<booking>') is recorded
+//                    (case_recorded says whether that succeeded) and the webhook replay / sweep converge
+//                    the ledger; callers must never say "not charged" (Codex P-1).
+//   'not_captured' — authoritatively nothing was charged for THIS hold: Stripe's retrieved PI is in a
+//                    not-captured state (canceled / requires_capture / requires_payment_method /
+//                    requires_confirmation). A refused capture request alone is NOT enough — Stripe may
+//                    refuse a retry (429, rate limit before its idempotency layer) of a capture that
+//                    already happened, so the PI is always retrieved first (Codex P-2).
+//   'not_attempted'— this request made no capture request because the local row is not a held,
+//                    authorized booking. It says nothing about whether an existing payment was ever
+//                    captured (Codex P-2); the caller must not translate it into "never charged".
 //   'uncertain'    — the capture request may or may not have been applied and Stripe's authoritative
 //                    state could not be established (transport loss / 5xx / unreadable response on the
 //                    capture, and/or the follow-up retrieval unavailable or non-terminal). ONE
@@ -203,30 +224,52 @@ async function applyCapturedPi(paymentIntentId, fullPi) {
 //                    retry converge, and payment_intent.succeeded / the 24h sweep converge the ledger.
 export async function captureHeldBooking(booking) {
   if (!booking || booking.status !== 'held' || booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
-    return { ok: false, outcome: 'not_captured', stage: 'precondition', error: 'hold_not_authorized' };
+    return { ok: false, outcome: 'not_attempted', stage: 'precondition', error: 'hold_not_authorized' };
   }
   const piId = booking.payment_intent_id;
   const cap = await stripeCapturePaymentIntent(piId);
-  // 'payment_intent_unexpected_state' usually means an earlier capture already succeeded — the
-  // verify step below settles it either way. A definitive 4xx refusal is "nothing happened".
-  if (!cap.ok && !cap.uncertain && cap.code !== 'payment_intent_unexpected_state') {
-    return { ok: false, outcome: 'not_captured', stage: 'capture', error: cap.error, code: cap.code };
-  }
+  // Codex P-2: whatever Stripe answered to the capture REQUEST — accepted, 'payment_intent_unexpected_state'
+  // (an earlier capture already succeeded), an uncertain answer, or a definitive refusal such as a 429
+  // on a retry of a capture that already went through — the PaymentIntent's retrieved state is the
+  // only thing that decides. No request outcome is ever translated into "nothing was charged".
+  const refused = !cap.ok && !cap.uncertain && cap.code !== 'payment_intent_unexpected_state';
   const fullPi = await stripeGetPaymentIntent(piId);
   if (!fullPi) {
-    return uncertainCapture(booking, 'verify', cap.ok ? 'cannot_retrieve_pi' : 'capture_' + (cap.error || 'unknown') + '; cannot_retrieve_pi');
+    return uncertainCapture(booking, 'verify', (cap.ok ? '' : 'capture_' + (cap.error || 'unknown') + '; ') + 'cannot_retrieve_pi');
   }
   // Branch on Stripe's authoritative state, never on the request we made. If a concurrent release
   // canceled the PI first, this is 'canceled' — do NOT mark paid.
   if (fullPi.status === 'succeeded') {
     const applied = await applyCapturedPi(piId, fullPi);
-    return { ...applied, outcome: 'captured' };
+    if (applied.ok) return { ...applied, outcome: 'captured', applied: true };
+    // Codex P-1: the money moved and the ledger did not follow. Preserve 'captured', record the case.
+    return capturedUnapplied(booking, applied);
   }
   if (['canceled', 'requires_capture', 'requires_payment_method', 'requires_confirmation'].includes(fullPi.status)) {
-    return { ok: false, outcome: 'not_captured', stage: 'verify', error: 'pi_state_' + fullPi.status, pi_status: fullPi.status };
+    return { ok: false, outcome: 'not_captured', stage: refused ? 'capture' : 'verify',
+      error: refused ? cap.error : 'pi_state_' + fullPi.status, code: refused ? cap.code : undefined, pi_status: fullPi.status };
   }
   // 'processing' / 'requires_action' / anything else: not settled either way.
-  return uncertainCapture(booking, 'verify', 'pi_state_' + fullPi.status);
+  return uncertainCapture(booking, 'verify', (refused ? 'capture_' + (cap.error || 'refused') + '; ' : '') + 'pi_state_' + fullPi.status);
+}
+
+// Codex P-1: Stripe says 'succeeded' but the ledger could not be applied (lookup/RPC failure, or the
+// RPC refused). The captured fact is preserved; ONE deduplicated case is attempted and its recording
+// reported honestly. The idempotent webhook replay / sweep / a retried confirm apply the ledger later.
+async function capturedUnapplied(booking, applied) {
+  let caseId = applied && applied.case_id ? applied.case_id : null, caseError = null;
+  if (!caseId) {
+    try {
+      const c = await sbRpc('_open_case', {
+        p_kind: 'settlement_exception', p_dedupe: 'capture-unapplied:' + booking.id, p_reason: 'capture_succeeded_application_unverified',
+        p_group: null, p_request: null, p_operation: null,
+        p_session: null, p_pi: booking.payment_intent_id, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+        p_details: { booking_id: booking.id, payment_intent_id: booking.payment_intent_id, stage: 'apply', error: String((applied && applied.error) || '').slice(0, 300) },
+      });
+      caseId = c || null;
+    } catch (e) { caseError = String((e && e.message) || e).slice(0, 200); }
+  }
+  return { ok: false, outcome: 'captured', applied: false, stage: 'apply', error: (applied && applied.error) || 'apply_failed', case_id: caseId, case_recorded: !!caseId, case_error: caseError };
 }
 
 async function uncertainCapture(booking, stage, error) {
@@ -332,7 +375,7 @@ async function bookingCtx(bookingId) {
 }
 
 // THROWS on send failure so the fulfilment outbox records emails_sent=false and retries.
-export async function sendHoldPlacedEmail(ctxOrId) {
+export async function sendHoldPlacedEmail(ctxOrId, { idempotencyKey = null } = {}) {
   const b = await getBinding();
   const ctx = typeof ctxOrId === 'string' ? await bookingCtx(ctxOrId) : ctxOrId;
   if (!ctx || !ctx.contact_email) return { ok: false, reason: 'no_recipient' };
@@ -345,7 +388,7 @@ export async function sendHoldPlacedEmail(ctxOrId) {
     from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
     subject: `Your slot is held — upload your COI within 24 hours`,
     html: holdPlacedEmailHtml(ctx, b, amountCents),
-  }, { binding: b });
+  }, { binding: b, ...(idempotencyKey ? { idempotencyKey } : {}) });
   if (!r.ok) throw new Error('email_failed:hold_placed:' + (r.code || 'unknown'));
   return { ok: true };
 }

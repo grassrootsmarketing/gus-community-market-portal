@@ -121,7 +121,7 @@ export function installSpy() {
     }
     if (u.includes('api.resend.com')) {
       let parsed = null; try { parsed = JSON.parse(opts.body); } catch (_) {}
-      calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '' });
+      calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '', idempotency_key: (opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key'])) || null });
       // Faults apply to the mail provider too, so a test can prove a failed send is retried rather
       // than recorded as delivered (the notification outbox keeps the row as failed with a backoff).
       const fault = matchFault(u, opts);
