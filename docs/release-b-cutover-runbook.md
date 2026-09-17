@@ -21,7 +21,7 @@ Prerequisites that must be **done** before the window opens: credential rotation
 
 ## 2. Containment — enter the window
 
-All four, in this order, each recorded with a timestamp in the deploy note.
+All five, in this order, each recorded with a timestamp in the deploy note.
 
 1. **Stop new intake.** Vercel **Production** env: `CHECKOUT_ENABLED=false`, `PROVISIONAL_HOLDS_ENABLED=false`; `NOTIFICATION_WORKER_ENABLED` and `SLOT_EDITING_ENABLED` stay unset. Redeploy `main` (the same old build, flags only). Confirm `/api/checkout` answers 503 and the booking page reports checkout unavailable.
 2. **Freeze operators.** Nobody uses the Gus admin or the owner console for the window: no confirm/decline/cancel, no COI decisions, no venue, schedule or team edits. Tell Gus in writing; pick a time the stores are closed (early morning Pacific). The `/owner` and `/r/gus/admin` sessions stay logged out for the duration.
