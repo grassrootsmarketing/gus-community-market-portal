@@ -1,7 +1,7 @@
 -- supabase/rehearsal/verify-post.sql — Codex Release B round 4, R4-04 (7): the UPGRADE REHEARSAL, step 4.
 -- Runs on the disposable staging project after: reset to 0072 → seed-pre-0074.sql → `supabase migration up`
 -- with 0073 still hidden (verify-ledger.sql proved the ledger tail). This file proves the UPGRADE PATH
--- itself, which a clean build cannot: pre-existing production-shaped rows survive 0074..0082 with their
+-- itself, which a clean build cannot: pre-existing production-shaped rows survive 0074..0083 with their
 -- snapshots, the outbox rows carry generation 1 and stay claimable, every audit is clean, and the
 -- runtime contracts (claim/record fence, transition projection) behave on the upgraded data.
 -- The DO block RAISEs on the first broken expectation; the SELECTs after it are the evidence listing.
@@ -62,10 +62,15 @@ BEGIN
   SELECT pg_get_function_arguments(oid) INTO t FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname = 'venue_availability_apply_all';
   IF t IS NULL OR t NOT LIKE '%p_copy_slots boolean DEFAULT false%' THEN RAISE EXCEPTION 'rehearsal: venue_availability_apply_all must default p_copy_slots to false (0079): %', coalesce(t, '<missing>'); END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_owner_booking_events') THEN RAISE EXCEPTION 'rehearsal: trg_owner_booking_events is missing (0080)'; END IF;
+  IF to_regprocedure('public.freeze_fulfillment_outbound(uuid,text,integer,text,jsonb)') IS NULL THEN RAISE EXCEPTION 'rehearsal: freeze_fulfillment_outbound is missing (0083)'; END IF;
+  SELECT count(*) INTO n FROM booking_fulfillments f JOIN bookings b ON b.id = f.booking_id WHERE b.retailer_id = r AND f.outbound IS DISTINCT FROM '{}'::jsonb;
+  IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: pre-existing outbox rows must start with an empty outbound map (0083), % do not', n; END IF;
 
   -- ---- runtime contracts on the UPGRADED rows --------------------------------------------------
   c := record_fulfillment(bk_paid, 'nobody', 1, true, true, true, NULL, 6);
   IF c->>'outcome' <> 'stale' THEN RAISE EXCEPTION 'rehearsal: a claimless record must be a stale no-op, got %', c; END IF;
+  c := freeze_fulfillment_outbound(bk_held, 'nobody', 1, 'hold-placed:rehearsal:1', '{"to":"x@fixture.test","subject":"s","html":"h"}'::jsonb);
+  IF c->>'outcome' <> 'stale' THEN RAISE EXCEPTION 'rehearsal: a claimless freeze must be a stale no-op, got %', c; END IF;
   c := claim_fulfillments('rehearsal-worker', 300, 10, NULL);
   IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(c, '[]'::jsonb)) e WHERE e->>'booking_id' = bk_paid::text AND (e->>'generation')::int = 1) THEN
     RAISE EXCEPTION 'rehearsal: claim_fulfillments must hand out the pre-upgrade row with generation 1, got %', c;
@@ -83,6 +88,11 @@ BEGIN
   SELECT count(*) INTO n FROM demos WHERE booking_id = bk_paid AND duration_hours = 1;
   IF n <> 1 THEN RAISE EXCEPTION 'rehearsal: the projected demo must carry the booking''s 1 h slot length, not the 3 h default (0082)'; END IF;
   SELECT count(*) INTO n FROM projection_anomalies(r); IF n <> 0 THEN RAISE EXCEPTION 'rehearsal: projection_anomalies after the transition: %', n; END IF;
+  -- 0083 on the upgraded held row: the live claim freezes once, a second freeze returns the FIRST payload unchanged
+  c := freeze_fulfillment_outbound(bk_held, 'rehearsal-worker', 1, 'hold-placed:rehearsal:1', '{"to":"x@fixture.test","subject":"first","html":"first body"}'::jsonb);
+  IF c->>'outcome' <> 'frozen' THEN RAISE EXCEPTION 'rehearsal: the live claim must freeze its outbound message, got %', c; END IF;
+  c := freeze_fulfillment_outbound(bk_held, 'rehearsal-worker', 1, 'hold-placed:rehearsal:1', '{"to":"x@fixture.test","subject":"second","html":"DIFFERENT body"}'::jsonb);
+  IF c->>'outcome' <> 'existing' OR c->'payload'->>'html' <> 'first body' THEN RAISE EXCEPTION 'rehearsal: a second freeze must return the first payload unchanged, got %', c; END IF;
   -- the held row's fence: an obsolete generation is refused even by the current lease holder
   c := record_fulfillment(bk_held, 'rehearsal-worker', 2, true, true, true, NULL, 6);
   IF c->>'outcome' <> 'stale' THEN RAISE EXCEPTION 'rehearsal: a wrong-generation record must be stale, got %', c; END IF;

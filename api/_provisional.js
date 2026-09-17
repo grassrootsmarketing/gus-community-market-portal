@@ -375,19 +375,34 @@ async function bookingCtx(bookingId) {
 }
 
 // THROWS on send failure so the fulfilment outbox records emails_sent=false and retries.
-export async function sendHoldPlacedEmail(ctxOrId, { idempotencyKey = null } = {}) {
+// Codex F-1 (0083): the message is BUILT once and then frozen by the worker before the first provider
+// attempt; every retry replays the frozen payload under the same idempotency key. Building is
+// therefore separate from sending. Returns null when there is no recipient.
+export async function buildHoldPlacedMessage(ctxOrId) {
   const b = await getBinding();
   const ctx = typeof ctxOrId === 'string' ? await bookingCtx(ctxOrId) : ctxOrId;
-  if (!ctx || !ctx.contact_email) return { ok: false, reason: 'no_recipient' };
+  if (!ctx || !ctx.contact_email) return null;
   let amountCents = null;
   try {
     const allocs = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(ctx.id || ctx.booking_id)}&select=customer_amount&limit=1`);
     amountCents = Array.isArray(allocs) && allocs[0] ? allocs[0].customer_amount : null;
-  } catch (_) { /* amount is decorative — the email still reads correctly without it */ }
-  const r = await sendMailQuietly({
+  } catch (_) { /* amount is decorative — the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
+  return {
     from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
     subject: `Your slot is held — upload your COI within 24 hours`,
     html: holdPlacedEmailHtml(ctx, b, amountCents),
+  };
+}
+
+// `frozen` (from freeze_fulfillment_outbound) wins over a fresh build: recipient, subject and body are
+// exactly what the first attempt carried. Throws on a failed send so the outbox retries.
+export async function sendHoldPlacedEmail(ctxOrId, { idempotencyKey = null, frozen = null } = {}) {
+  const b = await getBinding();
+  const msg = (frozen && frozen.to && frozen.subject && frozen.html) ? frozen : await buildHoldPlacedMessage(ctxOrId);
+  if (!msg) return { ok: false, reason: 'no_recipient' };
+  const r = await sendMailQuietly({
+    from: msg.from || FROM_ADDRESS, to: msg.to, replyTo: msg.replyTo || 'david@demohubhq.com',
+    subject: msg.subject, html: msg.html,
   }, { binding: b, ...(idempotencyKey ? { idempotencyKey } : {}) });
   if (!r.ok) throw new Error('email_failed:hold_placed:' + (r.code || 'unknown'));
   return { ok: true };

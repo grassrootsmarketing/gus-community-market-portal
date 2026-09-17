@@ -127,6 +127,8 @@ try {
   const pre = await row1(`SELECT to_regprocedure('public.complete_fulfillment(uuid,text,boolean,boolean,boolean,text,integer)') AS c7, to_regprocedure('public.complete_fulfillment(uuid,text,boolean,boolean,boolean,text)') AS c6,
                                  (SELECT count(*) FROM information_schema.columns WHERE table_name = 'booking_fulfillments' AND column_name = 'generation')::int AS gen`);
   ok('preflight: 0078 applied (7-arg complete_fulfillment, 6-arg gone, generation column)', pre.c7 && !pre.c6 && pre.gen === 1, JSON.stringify(pre));
+  const pre83 = await row1(`SELECT to_regprocedure('public.freeze_fulfillment_outbound(uuid,text,integer,text,jsonb)') AS fz, (SELECT count(*) FROM information_schema.columns WHERE table_name = 'booking_fulfillments' AND column_name = 'outbound')::int AS col`);
+  ok('preflight: 0083 applied (freeze_fulfillment_outbound + booking_fulfillments.outbound)', !!pre83.fz && pre83.col === 1, JSON.stringify(pre83));
   await setAutoConfirm(false);
 
   // retailer session for the shipped route
@@ -616,6 +618,57 @@ try {
         await q(`DELETE FROM coi_verifications WHERE id = $1`, [coiVid]).catch(() => {});
       }
     }
+  }
+
+  // ===========================================================================================
+  console.log('\n— F-1 (Codex 2026-09-17, 0083): the hold notice is FROZEN before the first attempt; every retry replays it —');
+  {
+    const claimAs = async (owner, gid, bid, secs = 300) => { const c = one((await rpc('claim_fulfillments', { p_owner: owner, p_lease_seconds: secs, p_limit: 50, p_group: gid })).json); return (Array.isArray(c) ? c : [c]).find(r => r && r.booking_id === bid) || null; };
+    const holdMails = (id) => spy.calls.resend.filter(m => m.idempotency_key === 'hold-placed:' + id + ':1');
+    const outboundOf = async (id) => (await row1(`SELECT outbound FROM booking_fulfillments WHERE booking_id = $1`, [id])).outbound;
+    try {
+      const A = await authorize('f1-frozen');
+      const key = 'hold-placed:' + A.b.id + ':1';
+      // attempt 1: the (optional) amount lookup is down, so the body is built WITHOUT the amount — and the
+      // provider call then fails. The message must already be frozen in the database at that point.
+      const c1 = await claimAs('f1-w1', A.gid, A.b.id);
+      spy.faults.push({ url: 'payment_allocations?booking_id=eq.' + A.b.id, method: 'GET', status: 503, message: 'injected allocation outage', once: true });
+      spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected provider failure after the message was built', once: true });
+      const r1 = await ful.runFulfillment({ ...c1 }, 'f1-w1');
+      const ob1 = await outboundOf(A.b.id);
+      ok('F-1: attempt 1 fails at the provider, but the exact outbound message is already FROZEN under its key (recipient, subject, body without the amount, frozen_at)', r1.done === false && r1.outcome === 'progress' && ob1 && ob1[key] && !!ob1[key].to && /slot is held/i.test(ob1[key].subject) && !/\$30\.00/.test(ob1[key].html) && !!ob1[key].frozen_at && holdMails(A.b.id).length === 1, JSON.stringify({ r1, keys: Object.keys(ob1 || {}) }));
+      // between the attempts everything that feeds the builder changes: the amount becomes readable, the contact is renamed
+      await q(`UPDATE bookings SET contact_name = 'Renamed After Freeze' WHERE id = $1`, [A.b.id]);
+      const c2 = await claimAs('f1-w2', A.gid, A.b.id);
+      const r2 = await ful.runFulfillment({ ...c2 }, 'f1-w2');
+      const mails = holdMails(A.b.id), ob2 = await outboundOf(A.b.id);
+      ok('F-1: the retry (a different worker, recovered lookup, renamed contact) sends the IDENTICAL recipient, subject and body under the SAME key — no amount, no new name — and completes', r2.done === true && r2.outcome === 'done' && mails.length === 2 && mails[0].html === mails[1].html && mails[0].subject === mails[1].subject && JSON.stringify(mails[0].to) === JSON.stringify(mails[1].to) && !/Renamed After Freeze/.test(mails[1].html) && !/\$30\.00/.test(mails[1].html), JSON.stringify({ r2, n: mails.length, same: mails.length === 2 && mails[0].html === mails[1].html }));
+      ok('F-1: the frozen payload in the database was not rewritten by the retry', JSON.stringify(ob1[key]) === JSON.stringify(ob2[key]), JSON.stringify([ob1[key] && ob1[key].frozen_at, ob2[key] && ob2[key].frozen_at]));
+      // a freshly built message for the same booking WOULD differ now — that difference is exactly what the freeze prevents
+      const prov = await import('../api/_provisional.js');
+      const wh = await import('../api/stripe-webhook.js');
+      const rebuilt = await prov.buildHoldPlacedMessage(await wh.fetchBookingContext(A.b.id));
+      ok('F-1 (control): a fresh build of the same notice now carries the amount and the new name — the body the provider would have rejected under the old code', rebuilt && /\$30\.00/.test(rebuilt.html) && /Renamed After Freeze/.test(rebuilt.html) && rebuilt.html !== ob2[key].html, rebuilt ? String(rebuilt.html.length) : 'null');
+
+      // the freeze is fenced like record_fulfillment, and first writer wins
+      const B = await authorize('f1-fence');
+      const keyB = 'hold-placed:' + B.b.id + ':1';
+      const oldClaim = await claimAs('f1-old', B.gid, B.b.id, 30);
+      await q(`UPDATE booking_fulfillments SET lease_expires_at = now() - interval '1 second' WHERE booking_id = $1`, [B.b.id]);
+      const newClaim = await claimAs('f1-new', B.gid, B.b.id);
+      const staleFz = one((await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-old', p_generation: 1, p_key: keyB, p_payload: { to: 'x@fixture.test', subject: 'stale', html: 'stale body' } })).json);
+      ok('F-1: a worker whose lease was taken over cannot freeze (stale: lease_f1-new) and nothing is written', !!oldClaim && !!newClaim && staleFz.outcome === 'stale' && staleFz.reason === 'lease_f1-new' && Object.keys(await outboundOf(B.b.id)).length === 0, JSON.stringify(staleFz));
+      const fz1 = one((await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-new', p_generation: 1, p_key: keyB, p_payload: { to: 'x@fixture.test', subject: 'first', html: 'first body' } })).json);
+      const fz2 = one((await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-new', p_generation: 1, p_key: keyB, p_payload: { to: 'y@fixture.test', subject: 'second', html: 'DIFFERENT body' } })).json);
+      const wrongGen = one((await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-new', p_generation: 2, p_key: keyB, p_payload: { to: 'x@fixture.test', subject: 's', html: 'h' } })).json);
+      const badPayload = await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-new', p_generation: 1, p_key: keyB + ':other', p_payload: { to: 'x@fixture.test' } });
+      ok('F-1: first writer wins — the second freeze returns the FIRST payload (existing), a wrong generation is stale, a payload without subject/html is refused', fz1.outcome === 'frozen' && fz2.outcome === 'existing' && fz2.payload.html === 'first body' && fz2.payload.to === 'x@fixture.test' && wrongGen.outcome === 'stale' && badPayload.status >= 400, JSON.stringify({ fz1: fz1.outcome, fz2, wrongGen, bad: badPayload.status }));
+      // a capture re-issues the work as generation 2: the held key stays, the paid stage is untouched by it
+      await capture(B.sess, B.pi, B.ch);
+      const afterCap = await row1(`SELECT generation, status, lease_owner, outbound FROM booking_fulfillments WHERE booking_id = $1`, [B.b.id]);
+      const lateFz = one((await rpc('freeze_fulfillment_outbound', { p_booking_id: B.b.id, p_owner: 'f1-new', p_generation: 1, p_key: keyB, p_payload: { to: 'x@fixture.test', subject: 's', html: 'h' } })).json);
+      ok('F-1: after a capture (generation 2) the held-stage worker can no longer freeze or send; the frozen held entry is kept as history and the paid work completes normally', afterCap.generation === 2 && afterCap.outbound[keyB].html === 'first body' && lateFz.outcome === 'stale' && (await ful.drainFulfillments({ limit: 10, group: B.gid })).completed === 1 && (await outbox(B.b.id)).status === 'done', JSON.stringify({ gen: afterCap.generation, lateFz }));
+    } finally { spy.faults.length = 0; }
   }
 
   console.log('\n— C2-B: a successful refund followed by a logical refusal is recorded and reported —');

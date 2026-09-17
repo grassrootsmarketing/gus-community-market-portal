@@ -95,14 +95,25 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
           // notice carries a stable logical identity (booking + generation) so the provider deduplicates a
           // second send within its window. This makes the notice at-least-once with provider-side dedupe,
           // not exactly-once: a window-crossing duplicate is still possible and is documented as such.
-          let lease = null;
-          try { const l = await sb(`booking_fulfillments?booking_id=eq.${encodeURIComponent(bookingId)}&select=lease_owner,generation,status`); lease = Array.isArray(l) ? l[0] : null; } catch (_) { lease = null; }
-          if (!lease || lease.lease_owner !== owner || lease.generation !== generation || lease.status !== 'pending') {
-            throw new Error('lease_lost_before_send:' + (lease ? (lease.lease_owner || 'none') + ':' + lease.generation + ':' + lease.status : 'unreadable'));
+          // Codex F-1 (0083): the exact outbound message is FROZEN before the first provider attempt and
+          // every retry replays it. freeze_fulfillment_outbound is fenced like record_fulfillment (live
+          // lease owner AND generation AND pending), so it is also the pre-send lease check: a worker
+          // whose lease was taken over gets 'stale' and sends nothing. First writer wins — a retry
+          // receives the payload the first attempt froze, whatever the booking or the amount lookup
+          // look like now, so the provider sees the SAME body under the SAME key (dedupe, not conflict).
+          const prov = await import('./_provisional.js');
+          const mailKey = 'hold-placed:' + bookingId + ':' + generation;
+          const built = await prov.buildHoldPlacedMessage(ctx);
+          if (!built) { mailOk = true; }
+          else {
+            const fzRaw = await sbRpc('freeze_fulfillment_outbound', { p_booking_id: bookingId, p_owner: owner, p_generation: generation, p_key: mailKey, p_payload: built });
+            const fz = Array.isArray(fzRaw) ? fzRaw[0] : fzRaw;
+            if (!fz || fz.outcome === 'stale' || !fz.payload) {
+              throw new Error('lease_lost_before_send:' + String((fz && fz.reason) || 'unreadable').replace(/^lease_/, ''));
+            }
+            await prov.sendHoldPlacedEmail(ctx, { idempotencyKey: mailKey, frozen: fz.payload });   // throws on failure -> outbox retries
+            mailOk = true;
           }
-          const { sendHoldPlacedEmail } = await import('./_provisional.js');
-          await sendHoldPlacedEmail(ctx, { idempotencyKey: 'hold-placed:' + bookingId + ':' + generation });   // throws on failure -> outbox retries
-          mailOk = true;
         } else {
           await wh.sendPromotionEmails(ctx, bookingId); mailOk = true;
         }
