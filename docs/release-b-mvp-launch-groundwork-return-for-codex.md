@@ -18,7 +18,7 @@ One document: Part A is the cover note, Part B the final evidence packet, Part C
 - **N-1, N-2, N-3 closed** (window re-checked after the pre-send stamp with the send budget as margin; the held-stage worker re-checks its lease right before the hold notice and sends it under a stable idempotency key — documented as at-least-once with provider-side dedupe, not exactly-once; metrics counts bounded).
 - **Cutover (§4) replaced** by an empty-work contained switch (Part C): authorization record, containment including Vercel's Disable Cron Jobs, an empty-work gate that counts expired claims and checks for running invocations, nine exact versions with 0074's `COMMIT`-before-post-condition stated, a failure walkthrough that stays contained after 0078, workers restored before intake, and the SQL-editor failure semantics rehearsed separately from the CLI rehearsal.
 - Your three probes reproduce at `5bafed9` and do not reproduce on this tree (working-tree variants in the same harness shape; labelled memory-only). Real-database evidence: `fulfillment_lifecycle` **102/102**, `notification_worker` **86/86**, `owner_coi_review_dom.e2e` **12/12**.
-- Gates: §8 — run 35175919223 on `32a6d9d` with all four gates requested; suites green on both OS, the three `staging` gates await David's approval and are marked pending below — not closed.
+- **Gates (§8): all green on `32a6d9d`.** Run 35175919223 completed with conclusion `success`: suites on ubuntu and windows, clean build A/B, staging pass 1 and pass 2 (consecutive, same commit) and the upgrade rehearsal 0072 → head, each approved by David on the `staging` environment.
 
 ## Not done / needs David
 
@@ -27,7 +27,7 @@ One document: Part A is the cover note, Part B the final evidence packet, Part C
 
 ## Asks
 
-1. Accept the candidate for the bounded MVP once §8 is complete.
+1. Accept the candidate `32a6d9d` for the bounded MVP; §8 is complete. The operator-owned items in §9 remain open and are not claimed.
 2. Confirm Part C (§2 containment, §3 empty-work gate, §5 failure walkthrough) as the approved production procedure.
 
 ---
@@ -99,15 +99,15 @@ Code `32e1418`; ledger `0060`–`0072`; holds ON; venues and contacts as in §1.
 
 | Gate | Status |
 |---|---|
-| CI run on `32a6d9d` (`clean_build=true`, `staging_gate=true`, `upgrade_rehearsal=true`) | **35175919223** — https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/35175919223 — suites ✓ ubuntu (14 s) ✓ windows (31 s); clean build, both staging passes and the rehearsal await David's `staging` approvals |
-| suites (ubuntu, windows) | ✓ ubuntu (14 s), ✓ windows (31 s) on `32a6d9d` |
-| clean build A/B | awaits David's `staging` approval (was ✓ on `ad4f1ed`, whose migration chain this candidate shares) |
-| staging pass 1, pass 2 (consecutive, same commit) | await David's `staging` approval (were ✓ ✓ on `ad4f1ed`; re-run because the payment source changed) |
-| upgrade rehearsal 0072 → head | awaits David's `staging` approval (was ✓ on `5bafed9`; no migration changed since) |
+| CI run on `32a6d9d` (`clean_build=true`, `staging_gate=true`, `upgrade_rehearsal=true`) | **35175919223** — https://github.com/grassrootsmarketing/gus-community-market-portal/actions/runs/35175919223 — overall conclusion **success** (every job below ran and passed; nothing skipped or cancelled) |
+| suites (ubuntu, windows) | ✓ ubuntu (14 s), ✓ windows (31 s) |
+| clean build A/B | ✓ (3 m 0 s) — two resets, manifests byte-identical after documented normalization |
+| staging pass 1, pass 2 (consecutive, same commit) | ✓ pass 1 (7 m 50 s), ✓ pass 2 (7 m 57 s) — `npm run test:staging` incl. `fulfillment_lifecycle` with the P-1/P-2 blocks and `notification_worker` with N-1 |
+| upgrade rehearsal 0072 → head | ✓ (4 m 10 s) — reset to 0072, seed, 0074–0082, exact ledger tail, data/snapshots/audits/contracts/runtime, upgraded == clean; artifact `upgrade-rehearsal-evidence` |
 
 ## 9. Operator-owned, in order (David)
 
-1. Approve the `staging` gates on the run above; results appended here.
+1. ~~Approve the `staging` gates~~ — done 2026-09-17; all four green (§8).
 2. Credential rotation (test-DB password → `SB_DB_URL` + GitHub `STAGING_DB_URL`; rebuild-check service key → `SB_KEY` + `STAGING_SB_KEY`; Stripe test key) and environment-binding confirmation.
 3. Authorized deployed preview → the Stripe test-mode hold journey on this candidate: authorization, manual and automatic capture, release, expiry, worker overlap and replay, and the repaired error reporting (P-1/P-2 outcomes on the deployed handlers). Brand-profile access/editing, agreements and COI enforcement re-checked as smoke tests.
 4. Approve Part C and the intended launch flags; execute the contained cutover; verify the deployment before enabling intake. Any production payment/refund smoke test is a separate explicit approval with identified test data and an agreed amount.
