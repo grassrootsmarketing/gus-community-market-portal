@@ -66,7 +66,11 @@ on:
         type: boolean
         default: false
       upgrade_rehearsal:
-        description: 'Codex R4-04: rehearse the PRODUCTION upgrade path on STAGING (reset to 0072 -> seed -> migration up 0074..0081 without 0073 -> verify -> reset)'
+        description: 'Codex R4-04: rehearse the PRODUCTION upgrade path on STAGING (reset to 0072 -> seed -> migration up 0074..head without 0073 -> verify -> reset)'
+        type: boolean
+        default: false
+      sql_editor_rehearsal_start:
+        description: 'Runbook 5 (Codex C-4): LEAVE STAGING AT 0072 for the manual SQL-editor failure rehearsal. Run ALONE. Restore afterwards with clean_build=true.'
         type: boolean
         default: false
 
@@ -590,3 +594,81 @@ jobs:
           name: failed-upgrade-rehearsal-diagnostics
           path: rehearsal/
           if-no-files-found: warn
+
+  # --------------------------------------------------------------------------
+  # Runbook §5 (Codex C-4 + completion-review safeguard 1): the manual SQL-editor failure rehearsal
+  # needs staging at production's starting point (0000..0072). A local CLI may be linked to ANY
+  # project — the <ref> argument of reset/provision does not select the connection — so the reset is
+  # done here, behind the same staging refusals as every other job. This job deliberately LEAVES
+  # staging at 0072; it must be dispatched alone, and staging is restored afterwards by dispatching
+  # clean_build=true (full chain + deployment identity) and re-seeding the pinned fixtures.
+  # --------------------------------------------------------------------------
+  sql-editor-rehearsal-start:
+    name: SQL-editor rehearsal start - leave staging at 0072
+    if: github.event_name == 'workflow_dispatch' && inputs.sql_editor_rehearsal_start
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09   # v5.1.0
+
+      - name: must be dispatched alone
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.clean_build }}" = "true" ] || [ "${{ inputs.staging_gate }}" = "true" ] || [ "${{ inputs.upgrade_rehearsal }}" = "true" ] || [ "${{ inputs.negative_control }}" = "true" ]; then
+            echo "REFUSING: sql_editor_rehearsal_start leaves staging at 0072 and must not share a run with any other staging job"; exit 1
+          fi
+
+      - name: refuse any target that is not staging
+        env:
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          ./.github/scripts/assert-staging.sh
+          if [ "$TARGET_REF" = "${PRODUCTION_REF_DENIED}" ]; then echo "REFUSING: $TARGET_REF is PRODUCTION"; exit 1; fi
+          if [ "$TARGET_REF" != "${STAGING_REF_EXPECTED}" ]; then echo "REFUSING: $TARGET_REF is not the approved staging project"; exit 1; fi
+
+      - uses: supabase/setup-cli@ab058987d8d6c725971f6cf9d0b5c98467e30bd1  # v1.7.1
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: link, and prove the LINKED target is staging
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          TARGET_REF: ${{ vars.STAGING_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          _link() { supabase link --project-ref "$TARGET_REF" -p "$DB_PASSWORD"; }
+          retry_transient "supabase link" _link
+          linked="$(cat supabase/.temp/project-ref)"
+          echo "linked project: $linked"
+          test "$linked" = "${STAGING_REF_EXPECTED}" || { echo "REFUSING: the CLI is linked to $linked, not the approved staging project"; exit 1; }
+
+      - name: hide every migration >= 0073
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/hidden" rehearsal
+          for f in supabase/migrations/*.sql; do
+            n=$(basename "$f" | cut -c1-4)
+            if [ "$((10#$n))" -ge 73 ]; then mv "$f" "$RUNNER_TEMP/hidden/"; fi
+          done
+          test "$(ls supabase/migrations/*.sql | wc -l)" -eq 73 || { echo "FAIL: expected 73 visible files (0000..0072)"; exit 1; }
+
+      - name: reset staging to 0072 and verify the starting point
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          source ./.github/scripts/retry-transient.sh
+          supabase db reset --linked --yes | tee rehearsal/00-reset-to-0072.txt
+          _q() { supabase db query -f supabase/rehearsal/verify-pre.sql --linked > rehearsal/01-verify-pre.txt 2> rehearsal/01-verify-pre.err; }
+          retry_transient "verify-pre" _q || { cat rehearsal/01-verify-pre.err; exit 1; }
+          cat rehearsal/01-verify-pre.txt
+          echo "STAGING IS NOW AT 0072 ON PURPOSE. Restore with a clean_build=true dispatch when the manual rehearsal is recorded."
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sql-editor-rehearsal-start-evidence
+          path: rehearsal/
+          if-no-files-found: error
