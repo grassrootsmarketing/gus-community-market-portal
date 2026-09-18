@@ -1,0 +1,107 @@
+{
+ "identity": [
+  {
+   "environment": "production",
+   "project_ref": "dkgjvsstbgnhcfboqqnd",
+   "updated_at": "2026-08-04T00:28:55.847621+00:00"
+  }
+ ],
+ "A": {
+  "open_checkout_attempts": 0,
+  "unsettled_groups": 0,
+  "authorized_holds": 0,
+  "held_bookings": 0,
+  "pending_payment_bookings": 0,
+  "fulfillments_pending": 0,
+  "fulfillments_failed": 0,
+  "fulfillment_claims_any": 0,
+  "refund_requests_in_progress": 0,
+  "refund_operations_in_progress": 0,
+  "webhook_events_processing_any": 0,
+  "open_reconciliation_cases": 0
+ },
+ "open_cases": [],
+ "totals": {
+  "retailers": 3,
+  "venues": 10,
+  "brands": 0,
+  "bookings": 0,
+  "demos": 10,
+  "internal_contacts": 33,
+  "payment_groups": 0,
+  "booking_fulfillments": 0
+ },
+ "bookings_by_status": {
+  "pending_payment": 0,
+  "held": 0,
+  "pending": 0,
+  "confirmed": 0,
+  "declined": 0,
+  "cancelled": 0,
+  "expired": 0,
+  "completed": 0
+ },
+ "B_heartbeats": {
+  "provisional-sweep": {
+   "last_ran_at": "2026-09-18T10:45:23.014956+00:00",
+   "last_outcome": "succeeded",
+   "age_min": 14
+  },
+  "refund-worker": {
+   "last_ran_at": "2026-09-18T10:45:08.288197+00:00",
+   "last_outcome": "succeeded",
+   "age_min": 14
+  }
+ },
+ "B_recent": {
+  "fulfillment_touch": null,
+  "event_touch": {
+   "processed_at": "2026-09-05T09:50:26.021517+00:00",
+   "event_type": "refund.updated",
+   "status": "completed"
+  }
+ },
+ "B2_events_3d": {
+  "completed": 0,
+  "processing": 0,
+  "failed": 0
+ },
+ "B2_not_completed": [],
+ "site_version": {
+  "ok": true,
+  "build": "32e1418",
+  "now": "2026-09-18T10:59:17.578Z"
+ },
+ "site_status": {
+  "ok": true,
+  "status": "operational",
+  "checks": {
+   "db": {
+    "ok": true
+   },
+   "cron": {
+    "ok": true,
+    "jobs": {
+     "refund-worker": {
+      "ok": true,
+      "required": true
+     },
+     "provisional-sweep": {
+      "ok": true,
+      "required": true
+     },
+     "daily": {
+      "ok": true,
+      "required": true
+     }
+    }
+   },
+   "errors": {
+    "ok": true
+   }
+  },
+  "incidents": [],
+  "checked_at": "2026-09-18T10:59:18.837Z"
+ },
+ "taken_at": "2026-09-18T10:59:18.937Z"
+}

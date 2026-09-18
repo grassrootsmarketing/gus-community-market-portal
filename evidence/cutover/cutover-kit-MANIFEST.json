@@ -1,0 +1,96 @@
+{
+ "built_at": "2026-09-18T11:00:32.099Z",
+ "candidate": "67613b5",
+ "pastes": [
+  {
+   "paste": 1,
+   "file": "01-0074.sql",
+   "version": "0074",
+   "name": "release_a_schedule_and_outbox",
+   "predecessor": "0072",
+   "migration_sha256": "5b5da29884cd64a3ef7da3e36211015e5985f96a8a435a4ac029b507a2399830",
+   "chars": 55920
+  },
+  {
+   "paste": 2,
+   "file": "02-0075.sql",
+   "version": "0075",
+   "name": "release_b_slots_blackouts",
+   "predecessor": "0074",
+   "migration_sha256": "261df5a856bb16f8dc2b89003f3f44328d94a57572abfd73bb004fd989f9fb33",
+   "chars": 60409
+  },
+  {
+   "paste": 3,
+   "file": "03-0076.sql",
+   "version": "0076",
+   "name": "release_b_corrections",
+   "predecessor": "0075",
+   "migration_sha256": "9d15b20a4667b8b449f85a53b72535c6bc8be88466a667dd1bce8753c7fdc326",
+   "chars": 50974
+  },
+  {
+   "paste": 4,
+   "file": "04-0077.sql",
+   "version": "0077",
+   "name": "release_b_projection_and_transitions",
+   "predecessor": "0076",
+   "migration_sha256": "c81507ea80345dbb64f0247f688f4414c56b443b2106c2a23af678ff79b9d1b9",
+   "chars": 29424
+  },
+  {
+   "paste": 5,
+   "file": "05-0078.sql",
+   "version": "0078",
+   "name": "release_b_fulfillment_generations_and_outcomes",
+   "predecessor": "0077",
+   "migration_sha256": "fe6ebe4096f2d984f974929bc3a82cbde69b6514fa0befef7edb3d74f1e11104",
+   "chars": 30333
+  },
+  {
+   "paste": 6,
+   "file": "06-0079.sql",
+   "version": "0079",
+   "name": "apply_all_copy_slots_default_false",
+   "predecessor": "0078",
+   "migration_sha256": "6a37ed52d98a771d405987afb084d3b966011566bc74b6fa5e30ee7647d824e9",
+   "chars": 8911
+  },
+  {
+   "paste": 7,
+   "file": "07-0080.sql",
+   "version": "0080",
+   "name": "owner_booking_events",
+   "predecessor": "0079",
+   "migration_sha256": "4376097d00818fac3d04b31f54efa84c2cfc797465519eb348a9529d12ea4d4c",
+   "chars": 5848
+  },
+  {
+   "paste": 8,
+   "file": "08-0081.sql",
+   "version": "0081",
+   "name": "fulfillment_terminalization_fence",
+   "predecessor": "0080",
+   "migration_sha256": "57e454c5fcc0b7cd75764c63b1c42d1c8e92bf8f9a185ceb721c28674c5804df",
+   "chars": 7294
+  },
+  {
+   "paste": 9,
+   "file": "09-0082.sql",
+   "version": "0082",
+   "name": "backfill_active_booking_snapshots",
+   "predecessor": "0081",
+   "migration_sha256": "0fb84863b3cd05547016884ebcf2d025afb0ec7b3e28f39a25d65a452edd4067",
+   "chars": 7383
+  },
+  {
+   "paste": 10,
+   "file": "10-0083.sql",
+   "version": "0083",
+   "name": "fulfillment_frozen_outbound",
+   "predecessor": "0082",
+   "migration_sha256": "ca7666dc2e20a088567815709e1703e27ec28755e3bfd88d3abe7f0e28ca4228",
+   "chars": 6764
+  }
+ ]
+}
