@@ -1,0 +1,50 @@
+# Deployed-preview REAL-BROWSER journey — 2026-09-18T21:16:44.062Z
+preview: https://demohub-git-feature-release-b-slo-8760f9-grms-projects-0d18c653.vercel.app
+fixtures: retailer /r/pvb-mu7gl5en-bdxl, brand without name/phone/COI, one sign-in token (what the emailed link carries)
+  ok   the protected preview opens in the browser after the bypass cookie is set
+
+— 1: sign in through /brand/verify (the emailed link) —
+  ok   the link signs the brand in and lands on the PREVIEW dashboard
+  ok   dashboard loaded the brand (nav shows the company name)
+
+— 2: update the brand profile in the UI —
+  ok   profile saved — the UI shows "Saved"
+  ok   …and the backend agrees (contact name + phone stored)
+
+— 3: upload a COI in the UI —
+  ok   COI upload accepted — the widget shows the stored certificate
+  ok   UI status and backend agree: certificate on file, NOT approved (pending review, no expiry yet)
+
+— 4: book a demo on /r/<slug> with UI clicks —
+  ok   the booking page recognises the signed-in brand from the session cookie
+  ok   an available day was selected in the calendar
+  ok   one slot is in the cart and the pay button is armed
+  ok   the booking form is prefilled from the profile saved in step 2
+  ok   the page tells the brand this is a TEMPORARY HOLD, not a charge (provisional path, COI not approved)
+  ok   the agreement modal appears before the first booking at this retailer
+
+— 5: Stripe hosted checkout (test card) and the ACTUAL return —
+  ok   the site redirected the browser to Stripe Checkout
+  ok   the agreement signature was recorded by the deployment
+  ok   Stripe returned the browser to the PREVIEW (not production) and it landed on the preview dashboard
+  navigation after payment: https://demohub-git-feature-release-b-slo-8760f9-grms-projects-0d18c653.vercel.app/r/pvb-mu7gl5en-bdxl?paid=1&held=1&bookings=…  ->  https://demohub-git-feature-release-b-slo-8760f9-grms-projects-0d18c653.vercel.app/brand/dashboard?booked=1&held=1  ->  https://demohub-git-feature-release-b-slo-8760f9-grms-projects-0d18c653.vercel.app/brand/dashboard
+  ok   the dashboard greets the return with the HELD wording ("not been charged")
+
+— 6: what the dashboard shows vs what the backend and Stripe hold —
+  ok   backend: booking held + authorized via the webhook Stripe delivered to the preview
+  ok   Stripe: manual-capture PaymentIntent, requires_capture, $5.00 capturable, $0 received
+  ok   dashboard row shows "Slot held" for PVB Browser Market, and the hold banner says the card has NOT been charged — matching the backend
+  booked: day 3, slot 6:00 AM – 7:00 AM
+
+— 7: the browser's own request headers to the deployment —
+  ok   every API mutation came from the page itself: Origin = the preview origin and Sec-Fetch-Site = same-origin (nothing forged)
+  /api/brand-account?action=verify [same-origin], /api/brand-account?action=profile-update [same-origin], /api/brand-account?action=upload-coi [same-origin], /api/brand-account?action=data [same-origin], /api/booking [same-origin], /api/booking [same-origin], /api/book [same-origin], /api/checkout [same-origin]
+  ok   no uncaught page errors during the journey
+  ok   the hold notice for this journey was sent (outbox done); INTENDED recipient is the operator-owned plus-address
+  correlate in the provider dashboard: subject "[SINK] Your slot is held — upload your COI within 24 hours", intended davidmichaelheiser+pvb-mu7gl5re-w9op@gmail.com, sent ~2026-09-18T21:17:12.854Z
+
+cleanup: test authorization released at Stripe (canceled)
+teardown: fixtures removed
+
+preview browser journey: 23 passed, 0 failed
+exit 0
