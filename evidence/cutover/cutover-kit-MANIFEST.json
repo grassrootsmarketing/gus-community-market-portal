@@ -1,96 +1,134 @@
 {
- "built_at": "2026-09-18T11:00:32.099Z",
- "candidate": "67613b5",
+ "built_at": "2026-09-18T11:34:03.578Z",
+ "builder": "demohub-docs/evidence/cutover/make-cutover-kit.mjs (v2)",
+ "candidate": "67613b5b1f7bb4ca1d69c94fb6eb26f8e367180d",
+ "candidate_tree": "a17c8054b14564fba009ab151bc3b66566ce1d68",
+ "bodies_read_from": "git show <candidate>:supabase/migrations/<file>",
+ "production_ref": "dkgjvsstbgnhcfboqqnd",
  "pastes": [
   {
    "paste": 1,
    "file": "01-0074.sql",
    "version": "0074",
    "name": "release_a_schedule_and_outbox",
-   "predecessor": "0072",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072",
+   "marker_refused": "public.bookings.start_at (or a 0074 notification table)",
+   "explicit_commit_in_body": true,
    "migration_sha256": "5b5da29884cd64a3ef7da3e36211015e5985f96a8a435a4ac029b507a2399830",
-   "chars": 55920
+   "generated_file_sha256": "e7e892909848ee30a24d1a27fbba2ae5f1125bc8bb8f5a005f15155e1f29b664",
+   "chars": 58055
   },
   {
    "paste": 2,
    "file": "02-0075.sql",
    "version": "0075",
    "name": "release_b_slots_blackouts",
-   "predecessor": "0074",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074",
+   "marker_refused": "public.venues.availability_version",
+   "explicit_commit_in_body": true,
    "migration_sha256": "261df5a856bb16f8dc2b89003f3f44328d94a57572abfd73bb004fd989f9fb33",
-   "chars": 60409
+   "generated_file_sha256": "a334b5bae9bd2582c798d249c9fbbfc6e18fccdae0f4ea0ef947e17b8687701d",
+   "chars": 62425
   },
   {
    "paste": 3,
    "file": "03-0076.sql",
    "version": "0076",
    "name": "release_b_corrections",
-   "predecessor": "0075",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075",
+   "marker_refused": "public.booking_slot_start_strict(date,text,text)",
+   "explicit_commit_in_body": true,
    "migration_sha256": "9d15b20a4667b8b449f85a53b72535c6bc8be88466a667dd1bce8753c7fdc326",
-   "chars": 50974
+   "generated_file_sha256": "5aac79698ccd9db2abbeea79b3e2f283c8ae6874c37ab0779026f046533dc53c",
+   "chars": 52947
   },
   {
    "paste": 4,
    "file": "04-0077.sql",
    "version": "0077",
    "name": "release_b_projection_and_transitions",
-   "predecessor": "0076",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076",
+   "marker_refused": "public.booking_interval_ok(date,text,integer,text)",
+   "explicit_commit_in_body": true,
    "migration_sha256": "c81507ea80345dbb64f0247f688f4414c56b443b2106c2a23af678ff79b9d1b9",
-   "chars": 29424
+   "generated_file_sha256": "7800e57bfed77b516c11603ce3e97678db5ea244b509d90337875178667840dc",
+   "chars": 31411
   },
   {
    "paste": 5,
    "file": "05-0078.sql",
    "version": "0078",
    "name": "release_b_fulfillment_generations_and_outcomes",
-   "predecessor": "0077",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "fe6ebe4096f2d984f974929bc3a82cbde69b6514fa0befef7edb3d74f1e11104",
-   "chars": 30333
+   "generated_file_sha256": "e5fec32f6e1e2dbfc39bef9642d70c664222d66ebc02c4d4117b09048719f109",
+   "chars": 31686
   },
   {
    "paste": 6,
    "file": "06-0079.sql",
    "version": "0079",
    "name": "apply_all_copy_slots_default_false",
-   "predecessor": "0078",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077,0078",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "6a37ed52d98a771d405987afb084d3b966011566bc74b6fa5e30ee7647d824e9",
-   "chars": 8911
+   "generated_file_sha256": "0529e0b486d3b30218a3db36d3067dabae4ccdbddff632fdc2a173de5f82b4a6",
+   "chars": 10274
   },
   {
    "paste": 7,
    "file": "07-0080.sql",
    "version": "0080",
    "name": "owner_booking_events",
-   "predecessor": "0079",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077,0078,0079",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "4376097d00818fac3d04b31f54efa84c2cfc797465519eb348a9529d12ea4d4c",
-   "chars": 5848
+   "generated_file_sha256": "bf862bf7c39adf63f59eaf8dfb98d126b264a8f5bf0a87cb6c081e3d40f00653",
+   "chars": 7221
   },
   {
    "paste": 8,
    "file": "08-0081.sql",
    "version": "0081",
    "name": "fulfillment_terminalization_fence",
-   "predecessor": "0080",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077,0078,0079,0080",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "57e454c5fcc0b7cd75764c63b1c42d1c8e92bf8f9a185ceb721c28674c5804df",
-   "chars": 7294
+   "generated_file_sha256": "2cf38482bd09135f19d2e9ecc70c6d83df67482bbffb7bda5b812bb7bfb73320",
+   "chars": 8677
   },
   {
    "paste": 9,
    "file": "09-0082.sql",
    "version": "0082",
    "name": "backfill_active_booking_snapshots",
-   "predecessor": "0081",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077,0078,0079,0080,0081",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "0fb84863b3cd05547016884ebcf2d025afb0ec7b3e28f39a25d65a452edd4067",
-   "chars": 7383
+   "generated_file_sha256": "6d6ae76dc834a972e8da74774be68e650b4d12ba2b1eba7666cd3c34324c071b",
+   "chars": 8776
   },
   {
    "paste": 10,
    "file": "10-0083.sql",
    "version": "0083",
    "name": "fulfillment_frozen_outbound",
-   "predecessor": "0082",
+   "expected_ledger_before": "0060,0061,0062,0063,0064,0065,0066,0067,0068,0069,0070,0071,0072,0074,0075,0076,0077,0078,0079,0080,0081,0082",
+   "marker_refused": null,
+   "explicit_commit_in_body": false,
    "migration_sha256": "ca7666dc2e20a088567815709e1703e27ec28755e3bfd88d3abe7f0e28ca4228",
-   "chars": 6764
+   "generated_file_sha256": "b2a67a940150f73e0163fee146d84b28874fb7987fb945cd81f95e91ab2ef0ff",
+   "chars": 8193
   }
- ]
+ ],
+ "other_files": {
+  "00-preflight.sql": "f7b2d839ac4cac072c9aec5a87ce05270279079b86d3cd0100e13afc28bb18ad",
+  "11-final-verify.sql": "4e7e9ae16430c339ac2db2ee60575b43d21dad58e15fa75cfd37cb5d14218db9"
+ }
 }

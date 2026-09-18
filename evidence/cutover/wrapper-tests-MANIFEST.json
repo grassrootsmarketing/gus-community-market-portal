@@ -1,0 +1,25 @@
+{
+ "built_at": "2026-09-18T11:34:03.604Z",
+ "scratch_schema": "cutover_kit_wrapper_test_20260918",
+ "note": "same wrap() generator as the production kit; only identity function, ledger table and marker reference are substituted",
+ "files": {
+  "00-setup.sql": "7bb76e0fc9f6515fcbacf1cf671146e0516611a418e411aa748ae0dee4196d45",
+  "01-wrong-environment.sql": "00892caa2bcb651e9767864cf7642bc0a920e5b011192bc7705aa11b4ea32370",
+  "02-wrong-project.sql": "24e81909927947aa62c548b0725b6c006042759ad31950394bc0cbeb0e434e0c",
+  "03-two-identity-rows.sql": "cc87692986585117d47c5baebef196ae786131c3f7664f76d8757a4f949a7960",
+  "04-missing-historical-version.sql": "6ca5ccd341195df591f7777e94d63643f105a82460d996627dd092028bfddede",
+  "05-unexpected-0073.sql": "6bc3f70ee58533276be66b8df0e2b49cf6608692fdc0d1d6f993f7e71c5d50a6",
+  "06-duplicate-version.sql": "5812a4d0e8eaf50945144d5d8d1f6a0980675f5383d013ed6b142dd26f71d49c",
+  "07-wrong-predecessor.sql": "70d1a38b8bd7049ac2699f1aec1ba6eed04be2e7330e6aac774c30ddaab4ffb6",
+  "08-explicit-fail-BEFORE-commit.sql": "5e0b54d4807796861106e9ae65a2251ddf619155ea464cc2e000831fda0c867b",
+  "09-explicit-fail-AFTER-commit.sql": "6b120c3e89c87fff3215f955d42a3133bd36fb943e9a84e218597cd19b39fda7",
+  "10-repaste-after-09-marker-refused.sql": "f7f8fa087467392a24a4d25c7f046f7b823853a4f326c31bbfba29f216f508f9",
+  "11-reset-fixtures.sql": "d5b56055021a1f1f30e0c8292dda410ee0667f84ef009772909e1d4cac39d3fd",
+  "12-success-explicit.sql": "f7f8fa087467392a24a4d25c7f046f7b823853a4f326c31bbfba29f216f508f9",
+  "13-repeat-12-refused.sql": "f7f8fa087467392a24a4d25c7f046f7b823853a4f326c31bbfba29f216f508f9",
+  "14-implicit-fail-rolls-back-everything.sql": "446d35f781c6038c90814ba0a18ea44e45fa40136a16ac1686e7c66f8544bf4a",
+  "15-success-implicit.sql": "dcb844f119c701871a14c47d1eaa5e1088058bc071432c2a7bf6b0393de3a13a",
+  "16-repeat-15-refused.sql": "dcb844f119c701871a14c47d1eaa5e1088058bc071432c2a7bf6b0393de3a13a",
+  "99-cleanup.sql": "526c5ebc6560126d94da71046aaae80bead682c7ff3c5aaa8ec9e5341310b12e"
+ }
+}
