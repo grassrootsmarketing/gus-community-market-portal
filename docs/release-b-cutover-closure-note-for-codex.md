@@ -67,7 +67,7 @@ Evidence labels corrected as you required (deployed error case = authorization c
 3. Paste 2's result row was not captured verbatim (see table).
 4. ~~Two other pre-rotation test-project secret keys not confirmed deleted~~ — **resolved 2026-09-19T00:50Z:** David deleted `github_actions` and `vercel_preview`; only `rotated_2026_09` remains; rotated key 200, Preview binding healthy, production unaffected.
 5. The Grassroots Demos Stripe **test** key remains David's accepted-risk exception; absent from every Demohub binding.
-6. Housekeeping still open: Vercel **Ignored Build Step** is `Automatic` (restore `Only build production`); ~~the operator workstation's Supabase CLI is still linked to production~~ **resolved 2026-09-19:** the local link folder was set aside, so `--linked` commands no longer resolve to production; Supabase backups exclude Storage objects (COI files).
+6. Housekeeping still open: ~~Vercel Ignored Build Step is Automatic~~ **resolved 2026-09-19T00:51Z:** restored to production-only by David and verified (a branch push answered "Canceled by Ignored Build Step"; production unchanged on `67613b5`); ~~the operator workstation's Supabase CLI is still linked to production~~ **resolved 2026-09-19:** the local link folder was set aside, so `--linked` commands no longer resolve to production; Supabase backups exclude Storage objects (COI files).
 7. Observations carried forward, no change made: overlapping `provisional-sweep` loser answers 500 while state converges; brand dashboard tile reads "No COI on file" while a certificate is pending review.
 
 ## 5. Where everything is
