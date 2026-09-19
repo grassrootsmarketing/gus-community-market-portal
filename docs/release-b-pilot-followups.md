@@ -27,5 +27,6 @@ David owns alerts, COI review (manual — AI auto-check is off) and reconciliati
 |---|---|---|
 | 2026-09-19 01:42 | `29a5362` | Brand dashboard "COI status" tile (follow-up B) |
 | 2026-09-19 01:57 | `4afb253` | Booking page "Contact support" bar + in-form link → `david@demohubhq.com` (store + page prefilled, no tokens); stray `hello@` / `bookings@` contact addresses → `david@`. `tests/booking_support_link_dom.e2e.mjs` 10/0, agreement modal 18/0. After deploy: button + form link present on the live `/r/gus`, status operational, checkout reachable, Gus lists 5 venues |
+| 2026-09-19 09:29Z | `841877f` | New store contacts default to two reminders (1 week + 3 days) instead of three (3 days, 1 day, morning of). Defaults only: contacts can still pick any set; existing contacts' saved choices unchanged. Also a test-only lint fix. Verified live: `/api/version` build `841877f`, admin form default, booking page 200 |
 
 Welcome email for the first brands (plain text, ~150 words): `docs/pilot/brand-welcome-email-gus.txt`.
