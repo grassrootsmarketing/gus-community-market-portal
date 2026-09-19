@@ -983,6 +983,21 @@ function getBrandStatus(profile) {
 
 // Colour-coded strip: green when everything is done, amber when the COI is running out,
 // red when it has lapsed. Shown on Compliance and reused on Overview.
+// Overview "COI status" tile. Reads the SAME state as the Compliance strip (getBrandStatus().coi) so the
+// two can never disagree: a certificate that is uploaded but not yet reviewed is "Pending review", not
+// "No" (Codex pilot follow-up B, 2026-09-19). Display only — approval, capture and expiry are server-side.
+function coiTileInfo(st) {
+  const map = {
+    current:  ['Current', 'Your Certificate of Insurance is on file and current. Retailers require this for every booking.'],
+    expiring: ['Expiring soon', 'Your certificate is current but expires' + (st && st.expiryLabel ? ' ' + st.expiryLabel : ' soon') + '. Upload the renewal so your demos are not affected.'],
+    expired:  ['Expired', 'Your certificate has expired. Retailers cannot confirm demos until you upload a current one.'],
+    no_date:  ['Pending review', 'Your certificate is uploaded and waiting for a Demohub reviewer. Retailers can confirm your demos once it is approved.'],
+    none:     ['None on file', 'No Certificate of Insurance uploaded yet. Required before retailers will confirm your bookings — upload it in Compliance.'],
+  };
+  const hit = map[(st && st.coi)] || map.none;
+  return { label: hit[0], title: hit[1] };
+}
+
 function coiStatusStripHtml(st) {
   const map = {
     current:  ['#eef7f0', '#2a5b32', 'Covered', 'Your certificate is current through ' + (st.expiryLabel || 'its expiry date') + '.'],
@@ -1292,7 +1307,7 @@ function renderOverview() {
       <div class="stat" title="Demos you have confirmed but not yet completed. Includes confirmed bookings from today onward."><div class="stat-num">${upcoming}</div><div class="stat-lbl">Upcoming demos</div></div>
       <div class="stat" title="Demos you've completed through Demohub. Builds your verified-brand history with retailers."><div class="stat-num">${completed}</div><div class="stat-lbl">Demos completed</div></div>
       <div class="stat" title="Distinct retailers you've worked with on Demohub. Add new ones by booking through their public link."><div class="stat-num">${totalRetailers}</div><div class="stat-lbl">Retailers</div></div>
-      <div class="stat" title="${_st.coiOk ? 'Your Certificate of Insurance is on file and current. Retailers require this for every booking.' : (profile.default_coi_url ? 'Your certificate is on file but not currently valid (expired or pending review). Retailers cannot confirm demos until it is current.' : 'No Certificate of Insurance uploaded yet. Required before retailers will accept your bookings — upload in Profile.')}"><div class="stat-num">${_st.coiOk ? 'Yes' : 'No'}</div><div class="stat-lbl">COI on file</div></div>
+      <div class="stat" id="coiStatTile" data-coi="${_st.coi}" title="${coiTileInfo(_st).title}"><div class="stat-num" style="font-size:1.5rem;line-height:1.33;">${coiTileInfo(_st).label}</div><div class="stat-lbl">COI status</div></div>
     </div>
     ${perfHtml}
     ${retailersHtml}
