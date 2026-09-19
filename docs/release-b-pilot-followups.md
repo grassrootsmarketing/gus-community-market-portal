@@ -20,3 +20,12 @@ David owns alerts, COI review (manual — AI auto-check is off) and reconciliati
 1. Take a content snapshot **before the first paste**, not after it.
 2. Run the **complete** SQL gate at the actual execution point; repeat it after any delay or intervening activity.
 3. Capture every paste's result row verbatim before loading the next one.
+
+## Pilot changes shipped after the follow-ups (display only)
+
+| Date (UTC) | Production build | Change |
+|---|---|---|
+| 2026-09-19 01:42 | `29a5362` | Brand dashboard "COI status" tile (follow-up B) |
+| 2026-09-19 01:57 | `4afb253` | Booking page "Contact support" bar + in-form link → `david@demohubhq.com` (store + page prefilled, no tokens); stray `hello@` / `bookings@` contact addresses → `david@`. `tests/booking_support_link_dom.e2e.mjs` 10/0, agreement modal 18/0. After deploy: button + form link present on the live `/r/gus`, status operational, checkout reachable, Gus lists 5 venues |
+
+Welcome email for the first brands (plain text, ~150 words): `docs/pilot/brand-welcome-email-gus.txt`.
