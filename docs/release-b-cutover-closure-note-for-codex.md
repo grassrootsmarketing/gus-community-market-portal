@@ -65,9 +65,9 @@ Evidence labels corrected as you required (deployed error case = authorization c
 1. **No production payment, refund or email test.** The first real booking will be the first real payment on the new code. A small live charge-and-refund smoke needs David's separate authorization (amount, operator-owned card).
 2. **Production operator probe not run.** `/api/version`'s operator view needs the production cron secret, which I do not hold. Production binding validity is inferred from behaviour: every route answers normally (a binding failure returns `503 binding_invalid` on all of them), status `db.ok`, live Stripe endpoint active, flags observable through the status page's required-job list and the checkout 503→401 transition.
 3. Paste 2's result row was not captured verbatim (see table).
-4. Two other pre-rotation **test-project** secret keys (`github_actions`, `vercel_preview`) — never exposed, consumers already moved — deletion not confirmed by David.
+4. ~~Two other pre-rotation test-project secret keys not confirmed deleted~~ — **resolved 2026-09-19T00:50Z:** David deleted `github_actions` and `vercel_preview`; only `rotated_2026_09` remains; rotated key 200, Preview binding healthy, production unaffected.
 5. The Grassroots Demos Stripe **test** key remains David's accepted-risk exception; absent from every Demohub binding.
-6. Housekeeping still open: Vercel **Ignored Build Step** is `Automatic` (restore `Only build production`); the operator workstation's Supabase CLI is still linked to production (no local reset was or will be run); Supabase backups exclude Storage objects (COI files).
+6. Housekeeping still open: Vercel **Ignored Build Step** is `Automatic` (restore `Only build production`); ~~the operator workstation's Supabase CLI is still linked to production~~ **resolved 2026-09-19:** the local link folder was set aside, so `--linked` commands no longer resolve to production; Supabase backups exclude Storage objects (COI files).
 7. Observations carried forward, no change made: overlapping `provisional-sweep` loser answers 500 while state converges; brand dashboard tile reads "No COI on file" while a certificate is pending review.
 
 ## 5. Where everything is
