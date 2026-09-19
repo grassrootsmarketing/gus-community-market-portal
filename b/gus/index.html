@@ -196,7 +196,7 @@ async function loadDashboard() {
     // Compliance
     const comp = data.compliance || [];
     if (comp.length === 0) {
-      els.complianceCard.innerHTML = '<div class="empty">No compliance docs on file yet. Email <a href="mailto:bookings@demohubhq.com" style="color:var(--forest-700);">bookings@demohubhq.com</a> with your COI to upload.</div>';
+      els.complianceCard.innerHTML = '<div class="empty">No compliance docs on file yet. Email <a href="mailto:david@demohubhq.com" style="color:var(--forest-700);">bookings@demohubhq.com</a> with your COI to upload.</div>';
     } else {
       els.complianceCard.innerHTML = '<table><thead><tr><th>Document</th><th>Type</th><th>Doc #</th><th>Expires</th><th>Status</th></tr></thead><tbody>' + comp.map(r => {
         const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';

@@ -480,6 +480,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
 
     
 
+    <!-- Pilot support: one place to ask for help, at the bottom of the booking page (David, 2026-09-19) -->
+    <div id="supportBar" style="max-width:720px; margin:36px auto 44px; padding:22px 20px; text-align:center; border-top:1px solid rgba(15,44,23,0.10);">
+        <div style="font-weight:700; color:var(--forest-900, #0f2c17); font-size:1rem; margin-bottom:4px;">Having trouble booking?</div>
+        <div style="font-size:0.88rem; color:var(--ink-500, #6b7280); margin-bottom:14px;">Tell us what happened and we'll get you sorted — usually the same day.</div>
+        <a id="supportBtn" class="btn btn-secondary" href="mailto:david@demohubhq.com?subject=Help%20booking%20a%20demo" onclick="return supportMailto(this)" style="display:inline-flex; justify-content:center; text-decoration:none;">Contact support</a>
+        <div style="font-size:0.8rem; color:var(--ink-500, #6b7280); margin-top:10px;">or email <a href="mailto:david@demohubhq.com" style="color:var(--forest-700, #2a5b32); font-weight:600;">david@demohubhq.com</a></div>
+    </div>
+
     <div class="modal-overlay" id="agreementModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.55); z-index:10010; align-items:center; justify-content:center; padding:20px;">
   <div class="modal" style="background:white; border-radius:16px; max-width:560px; width:100%; max-height:calc(100vh - 40px); overflow-y:auto; box-shadow:0 24px 60px rgba(15,44,23,0.32);">
     <div style="padding:26px 28px 18px;">
@@ -589,6 +597,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group"><label class="form-label">Notes (optional)</label><input type="text" class="form-input" id="bookNotes" placeholder="Any special requirements"></div>
                 <div id="bookCoiNotice" style="background:#fff3ed; border:1px solid #ed682f44; border-left:3px solid #ed682f; border-radius:8px; padding:11px 14px; margin-top:14px; font-size:0.82rem; line-height:1.5; color:#a14e2a;"><strong>Certificate of Insurance required.</strong> You can book now — your card is only <strong>held, not charged</strong>, while we verify your COI. Upload it in your brand dashboard and get it approved within <strong>24 hours</strong> to lock in your demo; otherwise the hold is released automatically and you pay nothing. This protects the store, which orders product ahead of time.</div>
                 <div id="bookErrorMsg" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:8px;"></div>
+                <div id="bookSupportHint" style="font-size:0.8rem; color:var(--ink-500, #6b7280); margin-top:10px;">Stuck? <a id="bookSupportLink" href="mailto:david@demohubhq.com?subject=Help%20booking%20a%20demo" onclick="return supportMailto(this)" style="color:var(--forest-700, #2a5b32); font-weight:600;">Contact support</a> — david@demohubhq.com</div>
                 <div style="display: flex; gap: 8px; margin-top: 24px;">
                     <button class="btn btn-secondary" onclick="closeContactInfoModal()" style="flex:1; justify-content: center;">Cancel</button>
                     <button class="btn btn-primary" id="bookSubmitBtn" onclick="submitContactInfo()" style="flex:1; justify-content: center;">Create account &amp; book</button>
@@ -2186,6 +2195,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // R2 cutover: dead constants removed. This page never queried Supabase directly
         // (see the `if (false)` guard below); they were the last browser-exposed copies.
         const RETAILER_SLUG = (location.pathname.match(/^\/r\/([^/]+)/) || [])[1] || '';
+// "Contact support" links: add the store name and page to the email so David sees the context.
+function supportMailto(a) {
+    try {
+        var st = (window.state && window.state.retailer) || {};
+        var store = st.name || RETAILER_SLUG || 'a store';
+        var who = (window._brandProfile && (window._brandProfile.company_name || window._brandProfile.email)) || '';
+        var subject = 'Help booking a demo at ' + store;
+        var body = 'Hi David,\n\nI need help with: \n\n\n— — —\nStore: ' + store + '\nPage: ' + location.href.split('?')[0] + (who ? '\nBrand: ' + who : '');
+        a.href = 'mailto:david@demohubhq.com?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+    } catch (_) { /* keep the static mailto */ }
+    return true;
+}
         // Hard-fail (privacy): silently falling back to 'gus' leaked data across retailers.
         // If the URL has no slug, redirect to /signin instead of guessing.
         if (!RETAILER_SLUG) { window.location.href = '/signin'; }
