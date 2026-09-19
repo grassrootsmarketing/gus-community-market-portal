@@ -118,6 +118,19 @@ console.log('\n— heartbeat (dead-man\'s-switch ping) —');
   ok('a monitor outage is reported, never thrown', (await heartbeat({ fetch: async () => new Response('', { status: 500 }) }, 'https://hc.example/p', true)) === 'failed: HTTP 500' && (await heartbeat({ fetch: async () => { throw new Error('ENOTFOUND'); } }, 'https://hc.example/p', true)) === 'failed: network');
 }
 
+console.log('\n— restricted source identity (reader sign-in) —');
+{
+  const T = B.resolveTarget('test', { url: B.PROJECTS.test.origin, key: 'sb_publishable_synthetic', ref: B.PROJECTS.test.ref }); const calls = [];
+  const mk = (status, body) => ({ fetch: async (url, o) => { calls.push({ url, ...o }); return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status }); }, timeoutMs: 1000 });
+  const good = await B.signInReader(mk(200, { access_token: 'tok.en.value', user: { id: 'u-1' } }), T, { email: 'r@example.test', password: 'pw-synthetic', expectId: 'u-1' });
+  ok('sign-in: one POST to the exact origin\'s token endpoint, publishable key as apikey, redirects refused; token becomes the bearer', good.bearer === 'tok.en.value' && good.key === 'sb_publishable_synthetic' && calls.length === 1 && calls[0].url === B.PROJECTS.test.origin + '/auth/v1/token?grant_type=password' && calls[0].method === 'POST' && calls[0].redirect === 'error' && calls[0].headers.apikey === 'sb_publishable_synthetic' && !calls[0].headers.Authorization);
+  const tries = [[mk(400, { error: 'invalid_grant', msg: 'pw-synthetic echoed' }), {}], [mk(200, { user: { id: 'u-1' } }), {}], [mk(200, 'not json'), {}], [mk(200, { access_token: 't', user: { id: 'someone-else' } }), { expectId: 'u-1' }], [{ fetch: async () => { throw new Error('ENOTFOUND'); }, timeoutMs: 1000 }, {}]]; const errs = [];
+  for (const [io, extra] of tries) { try { await B.signInReader(io, T, { email: 'r@example.test', password: 'pw-synthetic', ...extra }); errs.push(null); } catch (e) { errs.push(e); } }
+  ok('sign-in: a refusal, a missing token, a malformed body, an unexpected principal and a network error all fail as signin_failed', errs.every(e => e && e.code === 'signin_failed'), errs.map(e => e && e.code).join());
+  ok('sign-in: never retried, and no error text contains the password or the provider\'s response', calls.length === 5 && errs.every(e => !String(e.message).includes('pw-synthetic')));
+  let noPw = null; try { await B.signInReader(mk(200, {}), T, { email: 'r@example.test' }); } catch (e) { noPw = e; } ok('sign-in: missing credentials fail before any request', noPw && noPw.code === 'env_incomplete' && calls.length === 5);
+}
+
 for (const r of roots) { try { rmSync(r, { recursive: true, force: true }); } catch {} }
 console.log(`\noffsite destination tests: ${pass} passed, ${fail} failed`);
 if (fail) { console.log('FAILURES:\n' + fails.map(f => '  x ' + f).join('\n')); process.exit(1); }

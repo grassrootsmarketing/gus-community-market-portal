@@ -8,10 +8,13 @@ This is version 2, built to Codex's work order of 2026-09-19 (BAK-1 … BAK-4). 
 
 | | |
 |---|---|
-| Tool, regression tests, restore drill | **Done.** 60 + 22 tests pass; real drill passed on demohub-rebuild-check. |
+| Tool, regression tests, restore drill | **Done.** 64 + 26 tests pass; real drill passed on demohub-rebuild-check. |
 | Encrypted production snapshots on David's desktop workstation | **Running.** First snapshot 2026-09-19, 12 objects; restored once and matched the v1 copy 12/12. |
-| Off-machine copy | **NOT SET UP — waiting for David's decision.** Until it exists every run ends `local_only` (exit 10) and the freshness check is stale (exit 2). That is deliberate: a copy that only exists on one machine is not reported as a successful backup. |
-| Daily unattended schedule, missed-run alert, restricted read-only source identity, retention/purge | **Prepared, not installed — each needs David's approval** (see "Decisions still open"). |
+| Off-machine copy | **Chosen 2026-09-19: Amazon S3** (David). Bucket not created yet — template `tools/backup/aws/demohub-backup-bucket.yaml`. Until it exists every run ends `local_only` (exit 10) and the freshness check is stale (exit 2). That is deliberate: a copy that only exists on one machine is not reported as a successful backup. |
+| Retention | **Approved 2026-09-19: 30 days**, never the last good snapshot. Local pruning runs only after a complete run; the S3 bucket expires snapshots itself (the uploader cannot delete). 7-day governance Object Lock on the bucket. |
+| Restricted read-only source identity | **Proven on demohub-rebuild-check 2026-09-19** (`evidence/backup/2026-09-19-reader-identity-test-project.md`). Production: not applied, separate approval. |
+| Daily Windows task | Prepared; David chose **not yet**. The Claude desktop task runs the `daily` command at 09:00 meanwhile. |
+| Missed-run alert independent of the workstation | Code ready (heartbeat); monitor account not chosen yet. |
 
 ## How it works
 
@@ -79,7 +82,7 @@ Runs entirely against **demohub-rebuild-check** with synthetic canaries (a valid
 - The backup folders and the cutover snapshots in `Documents\Codex\prod-snapshots\` stay on David's workstation, out of every git repository, and are never attached to reviews. Only encrypted snapshots may leave the machine.
 - The v1 folder `Documents\Codex\prod-storage-backup\` is **plain-text certificates**. It is kept until v2 has a verified off-machine copy; after that David decides whether to delete it.
 - Disk encryption on the workstation (Windows 11 Home "Device encryption") is recommended and not yet confirmed.
-- **Retention: nothing is deleted automatically.** Proposal awaiting David's approval: keep 30 days of daily snapshots, never delete the last known-good one. This is an engineering recovery window, not a legal, contractual, insurance or financial-records retention decision.
+- **Retention (approved by David 2026-09-19): 30 days of daily snapshots.** Never the last known-good one, never while backups are failing, never a snapshot without a confirmed off-machine copy. In S3 a 30-day lifecycle rule does the expiry; that rule is a plain timer, so if backups failed for 30 days straight and every alert were ignored, the S3 copies would age out while the local last-good snapshot stays. This is an engineering recovery window, not a legal, contractual, insurance or financial-records retention decision.
 - Live financial records are not disposable: never reset production or delete payment/refund rows.
 
 ## Decisions still open (David)

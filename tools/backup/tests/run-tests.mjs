@@ -185,6 +185,20 @@ console.log('\n— BAK-3: restore restores, and every failure fails —');
   const f5 = await rejects(() => B.uploadRestoredCanary(tio, tt, job), 'cleanup_unconfirmed');
   ok('[review case 4] a final read answering 500 is NOT proof of absence — the drill fails', f5.match, f5.code);
 }
+console.log('\n— retention (approved: 30 days, never the last good snapshot) —');
+{
+  const s = setup(); s.srv.put('coi-docs', 'a/coi.pdf', makePdf('retention')); const DAY = 864e5;
+  const a = await B.runBackup(s.io, { root: s.root, env: envProd, mode: 'production' }); s.advance(20 * DAY);
+  const b = await B.runBackup(s.io, { root: s.root, env: envProd, mode: 'production' }); s.advance(15 * DAY);
+  ok('no approved number of days -> nothing is deleted', B.pruneLocal(s.io, s.root, undefined).pruned.length === 0 && B.pruneLocal(s.io, s.root, 3).pruned.length === 0 && snaps(s.root).length === 2);
+  rmSync(s.off, { recursive: true, force: true }); const f = await rejects(() => B.runBackup(s.io, { root: s.root, env: envProd, mode: 'production' }), 'offsite_failed');
+  const whileFailing = B.pruneLocal(s.io, s.root, 30);
+  ok('while backups are failing nothing is deleted, even a 35-day-old snapshot', f.match && whileFailing.pruned.length === 0 && /not complete/.test(whileFailing.skipped) && snaps(s.root).includes(a.snapshot), JSON.stringify(whileFailing));
+  mkdirSync(s.off, { recursive: true }); const c = await B.runBackup(s.io, { root: s.root, env: envProd, mode: 'production' }); const p = B.pruneLocal(s.io, s.root, 30); const left = snaps(s.root);
+  ok('after a complete run: only the >30-day snapshot with a confirmed off-machine copy is removed; newer ones, the unconfirmed one and the last good one stay', JSON.stringify(p.pruned) === JSON.stringify([a.snapshot]) && left.includes(b.snapshot) && left.includes(c.snapshot) && left.length === 3 && p.kept_last_successful === c.snapshot && B.verifyLocal(s.io, s.root).problems.length === 0, JSON.stringify({ p, left }));
+  s.advance(400 * DAY); const late = B.pruneLocal(s.io, s.root, 30);
+  ok('a year with no new run: the last good snapshot and the never-confirmed one are still kept', snaps(s.root).includes(c.snapshot) && snaps(s.root).length === 2 && !late.pruned.includes(c.snapshot), JSON.stringify(late));
+}
 console.log('\n— primitives —');
 { const k = generateIdentity(); const big = Buffer.alloc(200000, 7); ok('age: multi-chunk round trip; wrong key and tampering refused', decrypt(encrypt(big, k.recipient), k.identity).equals(big) && (() => { try { decrypt(encrypt(big, k.recipient), generateIdentity().identity); return false; } catch { return true; } })());
   const t = tarPack([{ name: 'manifest.json', data: Buffer.from('{}') }, { name: 'objects/' + 'a'.repeat(64), data: Buffer.alloc(700, 1) }]); const u = tarUnpack(t); ok('tar: round trip', u.length === 2 && u[1].data.length === 700);

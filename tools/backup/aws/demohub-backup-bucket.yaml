@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Demohub off-machine backup destination (Codex work order BAK-4, approved by David 2026-09-19).
+  One private, versioned S3 bucket that only ever receives ENCRYPTED snapshots, with a 7-day governance-mode
+  Object Lock and 30-day expiry, plus one uploader user that can add and read snapshots but cannot delete them,
+  cannot touch versions, and cannot change any bucket setting. Object Lock cannot be switched off later.
+
+Resources:
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub 'demohub-storage-backup-${AWS::AccountId}'
+      ObjectLockEnabled: true
+      ObjectLockConfiguration:
+        ObjectLockEnabled: Enabled
+        Rule:
+          DefaultRetention:
+            Mode: GOVERNANCE
+            Days: 7
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-daily-snapshots-after-30-days
+            Status: Enabled
+            Prefix: storage/
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 7
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+          - Id: remove-expired-delete-markers
+            Status: Enabled
+            Prefix: storage/
+            ExpiredObjectDeleteMarker: true
+
+  BackupBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BackupBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyAnythingNotOverTLS
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource:
+              - !GetAtt BackupBucket.Arn
+              - !Sub '${BackupBucket.Arn}/*'
+            Condition:
+              Bool:
+                'aws:SecureTransport': 'false'
+
+  UploaderUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: demohub-backup-uploader
+      Policies:
+        - PolicyName: add-and-read-snapshots-only
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: AddAndReadSnapshots
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub '${BackupBucket.Arn}/storage/*'
+              - Sid: ListSnapshots
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt BackupBucket.Arn
+                Condition:
+                  StringLike:
+                    's3:prefix': 'storage/*'
+              - Sid: NeverDeleteOrReconfigure
+                Effect: Deny
+                Action:
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:PutObjectRetention
+                  - s3:PutObjectLegalHold
+                  - s3:BypassGovernanceRetention
+                  - s3:PutBucketVersioning
+                  - s3:PutBucketObjectLockConfiguration
+                  - s3:PutLifecycleConfiguration
+                  - s3:PutBucketPolicy
+                  - s3:DeleteBucket
+                  - s3:DeleteBucketPolicy
+                  - s3:PutBucketPublicAccessBlock
+                  - s3:PutBucketAcl
+                  - s3:PutObjectAcl
+                Resource: '*'
+
+Outputs:
+  BucketName:
+    Description: Tell Claude this value (it is not a secret)
+    Value: !Ref BackupBucket
+  Region:
+    Description: Tell Claude this value (it is not a secret)
+    Value: !Ref AWS::Region
+  UploaderUser:
+    Value: !Ref UploaderUser

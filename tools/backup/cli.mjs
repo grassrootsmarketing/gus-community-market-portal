@@ -21,7 +21,11 @@ const args = process.argv.slice(2), cmd = args[0];
 const opt = (k, d) => { const i = args.indexOf(k); return i >= 0 ? args[i + 1] : d; };
 const ROOT = opt('--root', 'C:/Users/David/Documents/Codex/prod-storage-backup-v2');
 const readEnv = (p) => Object.fromEntries(readFileSync(p, 'utf8').split(/\r?\n/).filter(l => /^[A-Z_]+=/.test(l)).map(l => { const i = l.indexOf('='); return [l.slice(0, i), l.slice(i + 1).trim()]; }));
-const prodEnv = () => { const e = readEnv(opt('--env', 'C:/Users/David/prod.env')); return { url: e.PROD_URL, key: e.PROD_KEY, ref: e.PROD_REF }; };
+const cfgOf = () => { try { return JSON.parse(readFileSync(join(ROOT, 'backup-config.json'), 'utf8')); } catch { return {}; } };
+// Source credentials: the restricted read-only login when `source_reader_env_file` is configured (PROD_URL, PROD_REF,
+// PUBLISHABLE_KEY, READER_EMAIL, READER_PASSWORD, READER_ID); otherwise the bridge, the service key in prod.env.
+const prodEnv = () => { const rf = cfgOf().source_reader_env_file; if (rf && !args.includes('--env')) { const e = readEnv(rf); return { url: e.PROD_URL, key: e.PUBLISHABLE_KEY, ref: e.PROD_REF, reader: { email: e.READER_EMAIL, password: e.READER_PASSWORD, expectId: e.READER_ID } }; }
+  const e = readEnv(opt('--env', 'C:/Users/David/prod.env')); return { url: e.PROD_URL, key: e.PROD_KEY, ref: e.PROD_REF }; };
 const testEnv = () => { const e = readEnv(opt('--env', 'C:/Users/David/demohub.env')); return { url: e.SB_URL, key: e.SB_KEY, ref: e.SB_REF }; };
 const out = (o) => console.log(JSON.stringify(o));
 const log = (line) => { try { appendFileSync(join(ROOT, 'BACKUP-LOG.md'), `- ${new Date().toISOString()} — ${line}\n`); } catch {} };
@@ -49,6 +53,8 @@ try {
     try { const r = await B.runBackup(io, { root: ROOT, env: prodEnv(), mode: 'production' }); run.backup = r; log(`COMPLETE ${r.snapshot} objects ${r.objects} offsite ${r.offsite_confirmed}`); }
     catch (e) { code = e.code === 'local_only' ? 10 : e.code === 'offsite_failed' ? 11 : 1; run.backup = { ...(e.detail && e.detail.snapshot ? e.detail : {}), result: 'NOT_COMPLETE', code: e.code || 'error', message: String(e.message).slice(0, 300) }; log(`${code === 10 ? 'LOCAL ONLY' : code === 11 ? 'OFFSITE FAILED' : 'FAILED'} ${e.code || 'error'}`); }
       if (code === 0 || code === 10 || run.attempts >= maxAttempts) break; await io.sleep(waitMs); }
+    run.source_identity = cfgOf().source_reader_env_file ? 'restricted reader login' : 'service key (bridge)';
+    if (code === 0) { try { run.prune = B.pruneLocal(io, ROOT, cfgOf().retention_days); if (run.prune.pruned.length) log(`PRUNED ${run.prune.pruned.length} local snapshot(s) older than ${cfgOf().retention_days} days`); } catch (e) { run.prune = { error: String(e.message).slice(0, 200) }; } }
     try { run.verify = B.verifyLocal(io, ROOT); if (run.verify.problems.length && !code) code = 1; } catch (e) { run.verify = { error: String(e.message).slice(0, 200) }; if (!code) code = 1; }
     run.check = B.checkFresh(io, ROOT, 26); if (!run.check.fresh && !code) code = 2;
     let hb = null; try { const cfg = JSON.parse(readFileSync(join(ROOT, 'backup-config.json'), 'utf8')); if (cfg.heartbeat_url_file) hb = readFileSync(cfg.heartbeat_url_file, 'utf8').trim(); } catch {}

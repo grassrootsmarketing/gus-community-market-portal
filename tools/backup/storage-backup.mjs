@@ -40,6 +40,22 @@ export function resolveTarget(mode, env) {
   return { mode, ref: p.ref, origin: p.origin, key };
 }
 
+// ---- BAK-4 restricted source identity ----------------------------------------------------------------
+// Sign in as the ONE dedicated backup user (password grant) and use its short-lived token for Storage. `t.key` is
+// then the project's PUBLISHABLE key: on its own it grants nothing, so no service key is needed for a backup.
+// The only non-Storage request this tool ever makes; same exact origin, redirects refused, bounded, never retried
+// (a wrong password must not hammer the sign-in endpoint), and the response text is never echoed.
+export async function signInReader(io, t, { email, password, expectId }) {
+  if (!email || !password) throw new BackupError('env_incomplete', 'reader sign-in needs an email and a password');
+  let r; try { r = await io.fetch(t.origin + '/auth/v1/token?grant_type=password', { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(io.timeoutMs), headers: { apikey: t.key, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) }); }
+  catch (e) { throw new BackupError('signin_failed', 'the sign-in request failed: ' + (e && e.name === 'TimeoutError' ? 'timed out' : 'network')); }
+  if (r.status !== 200) throw new BackupError('signin_failed', 'sign-in answered ' + r.status);
+  let j = null; try { j = await r.json(); } catch {}
+  if (!j || typeof j.access_token !== 'string' || !j.user || typeof j.user.id !== 'string') throw new BackupError('signin_failed', 'sign-in response is malformed');
+  if (expectId && j.user.id !== expectId) throw new BackupError('signin_failed', 'signed in as an unexpected principal');
+  return { ...t, bearer: j.access_token, principal: j.user.id };
+}
+
 // ---- bounded, redirect-refusing HTTP ---------------------------------------------------------------
 async function http(io, t, method, path, { json, body, headers = {}, okStatuses = [200] } = {}) {
   if (!path.startsWith('/storage/v1/')) throw new BackupError('bad_path', 'only Storage API paths are requested');
@@ -49,7 +65,7 @@ async function http(io, t, method, path, { json, body, headers = {}, okStatuses 
   for (let attempt = 1; attempt <= io.retries; attempt++) {
     try {
       const r = await io.fetch(url, { method, redirect: 'error', signal: AbortSignal.timeout(io.timeoutMs),
-        headers: { apikey: t.key, Authorization: 'Bearer ' + t.key, ...(json ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: json ? JSON.stringify(json) : body });
+        headers: { apikey: t.key, Authorization: 'Bearer ' + (t.bearer || t.key), ...(json ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: json ? JSON.stringify(json) : body });
       if (okStatuses.includes(r.status)) return r;
       const text = (await r.text().catch(() => '')).slice(0, 200);
       last = new BackupError('http_' + r.status, `${method} ${path.replace(/\?.*/, '')} answered ${r.status}`, { status: r.status, text });
@@ -135,7 +151,8 @@ export async function runBackup(io, { root, env, mode = 'production', buckets, p
   const state = readJson(io, statePath, { schema: 2 }); state.last_attempt_at = nowIso(io); state.last_attempt_result = 'started'; writeJsonAtomic(io, statePath, state);
   const runId = nowIso(io).replace(/[-:]/g, '').replace(/\..*/, 'Z') + '-' + randomBytes(3).toString('hex'); const work = P(root, 'tmp', 'run-' + runId);
   try {
-    const cfg = loadConfig(io, root); const t = resolveTarget(mode, env);               // BAK-2: before any request
+    const cfg = loadConfig(io, root); let t = resolveTarget(mode, env);                 // BAK-2: before any request
+    if (env.reader) t = await signInReader(io, t, env.reader);                          // BAK-4: restricted read-only identity instead of a service key
     if (state.project_ref && state.project_ref !== t.ref) throw new BackupError('state_project_mismatch', `this backup folder belongs to ${state.project_ref}, not ${t.ref}`);
     const cap = await capture(io, t, { buckets, prefix });
     // tombstones: ids seen in the previous COMPLETE snapshot and absent from this complete inventory
@@ -186,6 +203,24 @@ export function verifyLocal(io, root) {
   for (const f of files.filter(x => x.endsWith('.partial'))) problems.push(f + ': leftover partial file');
   return { snapshots_ok: ok, problems };
 }
+// ---- retention (David approved 2026-09-19: 30 days of daily snapshots, never the last good one) ------------
+// Local folder only; the off-machine bucket expires objects with its own lifecycle rule because the uploader
+// identity cannot delete. Rules: runs only when the state says the LAST attempt was complete (a failing backup
+// never triggers deletion); never removes `last_successful_snapshot`; never removes a snapshot whose sidecar lacks
+// a confirmed off-machine copy; ignores anything it does not recognise.
+export function pruneLocal(io, root, retentionDays) {
+  const days = Number(retentionDays); if (!Number.isFinite(days) || days < 7) return { pruned: [], skipped: 'no approved retention (needs a number of days >= 7)' };
+  const s = readJson(io, P(root, 'state.json'), {}); if (s.last_attempt_result !== 'complete' || !s.last_successful_snapshot) return { pruned: [], skipped: 'the last run was not complete — nothing is deleted while backups are failing' };
+  const dir = P(root, 'snapshots'); const cutoff = io.now() - days * 864e5; const pruned = [];
+  for (const f of (io.fs.existsSync(dir) ? io.fs.readdirSync(dir) : []).filter(x => x.endsWith('.tar.age'))) {
+    if (f === s.last_successful_snapshot) continue; const sc = readJson(io, P(dir, f + '.json'), null);
+    if (!sc || sc.name !== f || !sc.complete || !Date.parse(sc.created_at) || Date.parse(sc.created_at) >= cutoff) continue;
+    if (!(sc.offsite || []).some(o => o.confirmed)) continue;
+    io.fs.rmSync(P(dir, f)); io.fs.rmSync(P(dir, f + '.json')); pruned.push(f);
+  }
+  return { pruned, kept_last_successful: s.last_successful_snapshot };
+}
+
 export function checkFresh(io, root, maxAgeHours = 26) {
   const s = readJson(io, P(root, 'state.json'), {}); const last = s.last_successful_backup_at ? Date.parse(s.last_successful_backup_at) : 0; const ageH = last ? (io.now() - last) / 36e5 : Infinity;
   return { fresh: ageH <= maxAgeHours, age_hours: Number.isFinite(ageH) ? Math.round(ageH * 10) / 10 : null, last_successful_backup_at: s.last_successful_backup_at || null, last_attempt_at: s.last_attempt_at || null, last_attempt_result: s.last_attempt_result || null };
@@ -233,7 +268,7 @@ export async function uploadRestoredCanary(io, t, { bucket, path, data, mimetype
   return result;
 }
 export async function confirmAbsent(io, t, bucket, path) {          // documented not-found + authenticated listing; a generic error proves nothing
-  const r = await io.fetch(t.origin + `/storage/v1/object/${encodeURIComponent(bucket)}/${encPath(path)}`, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(io.timeoutMs), headers: { apikey: t.key, Authorization: 'Bearer ' + t.key } });
+  const r = await io.fetch(t.origin + `/storage/v1/object/${encodeURIComponent(bucket)}/${encPath(path)}`, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(io.timeoutMs), headers: { apikey: t.key, Authorization: 'Bearer ' + (t.bearer || t.key) } });
   let body = null; try { body = await r.json(); } catch {}
   const notFound = (r.status === 404 || r.status === 400) && body && (String(body.statusCode) === '404' || body.error === 'not_found' || body.code === 'NoSuchKey');
   if (!notFound) return false;
