@@ -1,71 +1,22 @@
-SUBJECT: Booking your demos at Gus's Community Market — how it works
+SUBJECT: Book your demos at Gus's Community Market
 
 Hi [First name],
 
-Gus's Community Market now books in-store demos online. Here's the link, plus everything you need to know before your first one:
+Gus's now books in-store demos online. Here's your link:
 
-    https://www.demohubhq.com/gussmarket
+https://www.demohubhq.com/gussmarket
 
-It takes about five minutes the first time. After that, your profile and insurance are saved, so booking again is a couple of clicks.
+How it works:
+1. Sign up with your email and pick a store, date and time (at least 14 days out).
+2. Pay the $30 demo fee by card.
+3. Upload your Certificate of Insurance. The store confirms, and you're booked.
 
+Insurance: general liability of at least $1M per occurrence / $2M aggregate, current through your demo date. No certificate yet? You can still book — your card is only held, not charged, and you have 24 hours to upload it. If you don't, the hold drops and you pay nothing.
 
-HOW IT WORKS
+One heads-up: alcohol, open flame or cooking, raw/unpasteurized foods, and CBD need the store's approval first — email me before booking those.
 
-1. Create your brand account. Open the link, pick a store, and sign up with your email (you'll get a 6-digit code to confirm it). Add your name and phone number — the store needs a contact for demo day.
+Questions or anything not working? Email me: david@demohubhq.com. I usually reply same day.
 
-2. Pick a store, a date and a time. All five Gus's locations are listed: Mission Bay, Mission (Harrison St), Haight St, Noriega and Canyon. Demos need to be booked at least 14 days ahead.
-
-3. Read and accept the store's Demo & Sampling Guidelines. You do this once; they cover setup, conduct, food safety and what's restricted (see below).
-
-4. Pay the demo fee — $30 per demo — by card through Stripe's secure checkout.
-
-5. Upload your Certificate of Insurance (details below). If you already have one on file and approved, your card is charged and you're set. If you don't have one on file yet, you can still book:
-     - your card gets a temporary HOLD, not a charge, and your slot is reserved;
-     - you have 24 hours to upload your certificate from your dashboard (Compliance tab);
-     - once it's reviewed and the store confirms, the hold becomes the charge;
-     - if no certificate is approved within 24 hours, the hold is released automatically and you pay nothing.
-
-6. The store confirms your demo. A demo is official once the store confirms it — you'll get a confirmation email, and it appears on your dashboard with a calendar link. Payment or a held slot on its own isn't the confirmation.
-
-Your dashboard — https://www.demohubhq.com/brand/dashboard — shows your upcoming demos, your certificate status and your signed agreements any time.
-
-
-INSURANCE REQUIREMENTS
-
-Before any demo, the store needs a current Certificate of Insurance (COI) on file showing:
-
-  - Commercial General Liability of at least $1,000,000 per occurrence and $2,000,000 aggregate
-  - A policy that is current through your demo date (if it expires first, upload the renewal)
-
-Umbrella coverage is optional unless the store asks for it in writing for a specific event. Liquor liability is only needed for an approved alcohol demo.
-
-Upload it as a PDF, JPG or PNG (up to 10 MB). A person reviews every certificate — usually the same day — so please upload it as soon as you book. One upload covers all your bookings until it expires. If you don't have a certificate handy, your insurance broker can usually issue one the same day; just ask for "a COI for an in-store product demo."
-
-
-NEEDS THE STORE'S WRITTEN APPROVAL FIRST
-
-These aren't allowed without the store's specific approval in advance: alcohol; open flame, on-site cooking or heating; raw, undercooked or unpasteurized foods; and CBD or hemp-derived products. If your demo involves any of these, email me before you book and I'll get you an answer from the store.
-
-
-DEMO DAY BASICS
-
-  - Arrive 30 minutes early and check in with the store before you set up.
-  - Bring trained staff, pre-prepared samples and all your own supplies; use a table no larger than four feet unless the store approved something else.
-  - Wear your own brand identification and have your product, ingredient and allergen information with you.
-  - The full guidelines are the ones you accept when you book, and they're saved in your dashboard under Agreements.
-
-
-CHANGES AND CANCELLATIONS
-
-Gus's cancellation policy is shown when you book: cancellations are accepted up to 48 hours before the demo; after that the fee is non-refundable. Reschedules are welcome any time. To cancel or reschedule, just email me and I'll take care of it with the store.
-
-
-IF ANYTHING GOES WRONG
-
-Email me directly: david@demohubhq.com. There's also a "Contact support" button at the bottom of the booking page that does the same thing. You're one of the first brands on this, so if something is confusing or doesn't work, I genuinely want to hear about it — I'll usually reply the same day.
-
-Thanks, and looking forward to seeing you in the stores.
-
+Thanks,
 David Heiser
 Demohub
-david@demohubhq.com
