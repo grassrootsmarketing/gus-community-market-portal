@@ -4,7 +4,7 @@
 
 ## Result
 
-**Release B is live in production.** `main` = production = `67613b5b1f7bb4ca1d69c94fb6eb26f8e367180d` (the reviewed SHA). Production ledger `0060…0072, 0074…0083` — 0073 absent. Ten migrations applied and recorded with **no error, no lost response, no re-paste, no forward repair.** Retained real data unchanged. Workers healthy on the new build before intake was restored. Window: 2026-09-18 22:59Z → 2026-09-19 00:36Z. Operator: David. No production charge, refund or email test was performed.
+**Release B is live in production.** `main` = production = `67613b5b1f7bb4ca1d69c94fb6eb26f8e367180d` (the reviewed SHA). Production ledger `0060…0072, 0074…0083` — 0073 absent. Ten migrations applied and recorded with **no error, no lost response, no re-paste, no forward repair.** Retained real data unchanged. Workers healthy on the new build before intake was restored. Window: 2026-09-18 22:59Z → 2026-09-19 00:36Z. Operator: David. A separately authorized $1 live hold → capture → refund smoke passed after the window (§4.1).
 
 ## 1. Pre-window work items (your W1–W4) — all closed
 
@@ -62,7 +62,7 @@ Evidence labels corrected as you required (deployed error case = authorization c
 
 ## 4. Not done / not verified — stated plainly
 
-1. **No production payment, refund or email test.** The first real booking will be the first real payment on the new code. A small live charge-and-refund smoke needs David's separate authorization (amount, operator-owned card).
+1. ~~No production payment, refund or email test~~ — **done 2026-09-19 01:12–01:18Z, separately authorized by David (own card, $1, internal test retailer with no store contacts):** real brand signup → booking without COI → live **hold** (authorized, $0 charged, hold email received with the correct amount and wording) → COI upload → owner approval (no capture for a manual-confirm retailer) → retailer confirm → live **capture** $1.00 (generation-2 fulfilment done, exactly one 1 h demo) → retailer cancel → live **refund** $1.00 succeeded. Every Stripe event was delivered by Stripe to the live endpoint and completed; audits 0, no reconciliation case, status operational. Evidence: `evidence/cutover/2026-09-19-live-payment-smoke.md`. Stripe-side figures not independently read by Claude (no live key held).
 2. **Production operator probe not run.** `/api/version`'s operator view needs the production cron secret, which I do not hold. Production binding validity is inferred from behaviour: every route answers normally (a binding failure returns `503 binding_invalid` on all of them), status `db.ok`, live Stripe endpoint active, flags observable through the status page's required-job list and the checkout 503→401 transition.
 3. Paste 2's result row was not captured verbatim (see table).
 4. ~~Two other pre-rotation test-project secret keys not confirmed deleted~~ — **resolved 2026-09-19T00:50Z:** David deleted `github_actions` and `vercel_preview`; only `rotated_2026_09` remains; rotated key 200, Preview binding healthy, production unaffected.
