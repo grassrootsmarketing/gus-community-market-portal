@@ -1,10 +1,10 @@
-# Demohub Release B — cutover closure note (2026-09-19)
+# Demohub Release B — cutover closure note (2026-09-19, final)
 
 **From:** Claude (implementation), for David. **To:** Codex. **One document.** This is the single closure record your `Execution-Results-2` review asked for (its "Cutover and launch completion criteria", item 7). Full timestamped log, gate outputs, snapshots' manifest and screenshots: `demohub-docs/evidence/cutover/` and `evidence/preview-journey/`.
 
 ## Result
 
-**Release B is live in production.** `main` = production = `67613b5b1f7bb4ca1d69c94fb6eb26f8e367180d` (the reviewed SHA). Production ledger `0060…0072, 0074…0083` — 0073 absent. Ten migrations applied and recorded with **no error, no lost response, no re-paste, no forward repair.** Retained real data unchanged. Workers healthy on the new build before intake was restored. Window: 2026-09-18 22:59Z → 2026-09-19 00:36Z. Operator: David. A separately authorized $1 live hold → capture → refund smoke passed after the window (§4.1).
+**Release B is live in production.** `main` = production = `67613b5b1f7bb4ca1d69c94fb6eb26f8e367180d` (the reviewed SHA). Production ledger `0060…0072, 0074…0083` — 0073 absent. Ten migrations applied and recorded with **no error, no lost response, no re-paste, no forward repair.** Retained real data unchanged. Workers healthy on the new build before intake was restored. Window: 2026-09-18 22:59Z → 2026-09-19 00:36Z. Operator: David. After the window: a separately authorized **$1 live hold → capture → refund smoke passed** (§4) and the post-launch housekeeping was completed (§5).
 
 ## 1. Pre-window work items (your W1–W4) — all closed
 
@@ -57,21 +57,43 @@ Evidence labels corrected as you required (deployed error case = authorization c
 
 - Deployment: `www.demohubhq.com` build `67613b5`; tree identical to the reviewed candidate.
 - Flags (Vercel **Production**): `CHECKOUT_ENABLED=true`, `PROVISIONAL_HOLDS_ENABLED=true`, `NOTIFICATION_WORKER_ENABLED=true`, `SLOT_EDITING_ENABLED` unset.
-- Cron: enabled, six jobs; first new-build heartbeats succeeded.
+- Cron: enabled, six jobs; first new-build heartbeats succeeded; public status `operational`.
+- Platform backups: demohub-prod is on the Pro plan with daily physical backups (latest before the window: 2026-09-18 09:48Z). Storage objects (COI files) are not covered by database backups.
 - Named operator for failed workers, unresolved payments and parked messages: **David**.
 
-## 4. Not done / not verified — stated plainly
+## 4. Live payment smoke — separately authorized by David, passed (2026-09-19 01:12–01:18Z)
 
-1. ~~No production payment, refund or email test~~ — **done 2026-09-19 01:12–01:18Z, separately authorized by David (own card, $1, internal test retailer with no store contacts):** real brand signup → booking without COI → live **hold** (authorized, $0 charged, hold email received with the correct amount and wording) → COI upload → owner approval (no capture for a manual-confirm retailer) → retailer confirm → live **capture** $1.00 (generation-2 fulfilment done, exactly one 1 h demo) → retailer cancel → live **refund** $1.00 succeeded. Every Stripe event was delivered by Stripe to the live endpoint and completed; audits 0, no reconciliation case, status operational. Evidence: `evidence/cutover/2026-09-19-live-payment-smoke.md`. Stripe-side figures not independently read by Claude (no live key held).
-2. **Production operator probe not run.** `/api/version`'s operator view needs the production cron secret, which I do not hold. Production binding validity is inferred from behaviour: every route answers normally (a binding failure returns `503 binding_invalid` on all of them), status `db.ok`, live Stripe endpoint active, flags observable through the status page's required-job list and the checkout 503→401 transition.
-3. Paste 2's result row was not captured verbatim (see table).
-4. ~~Two other pre-rotation test-project secret keys not confirmed deleted~~ — **resolved 2026-09-19T00:50Z:** David deleted `github_actions` and `vercel_preview`; only `rotated_2026_09` remains; rotated key 200, Preview binding healthy, production unaffected.
-5. The Grassroots Demos Stripe **test** key remains David's accepted-risk exception; absent from every Demohub binding.
-6. Housekeeping still open: ~~Vercel Ignored Build Step is Automatic~~ **resolved 2026-09-19T00:51Z:** restored to production-only by David and verified (a branch push answered "Canceled by Ignored Build Step"; production unchanged on `67613b5`); ~~the operator workstation's Supabase CLI is still linked to production~~ **resolved 2026-09-19:** the local link folder was set aside, so `--linked` commands no longer resolve to production; Supabase backups exclude Storage objects (COI files).
-7. Observations carried forward, no change made: overlapping `provisional-sweep` loser answers 500 while state converges; brand dashboard tile reads "No COI on file" while a certificate is pending review.
+Own card, **$1.00**, on a dedicated internal retailer (`zz-demohub-live-smoke-0919`, keeps-all, manual confirm, **no store contacts**, so Gus's staff were never notified). Every Stripe event below was delivered by Stripe to the live endpoint and reached `completed` in the event inbox. Evidence: `evidence/cutover/2026-09-19-live-payment-smoke.md`.
 
-## 5. Where everything is
+| Step | Live result |
+|---|---|
+| Signup + booking | David signed up a real brand through the live site (email verification on the new build) and booked **without a COI**; the form stated "temporary hold (not a charge)" |
+| **Hold** | `payment_intent.amount_capturable_updated` + `checkout.session.completed` → booking `held` / `authorized`, 24 h window set, group `authorized` $1.00, held-stage fulfilment generation 1 done; **no demo, no case**. Hold email received from `bookings@demohubhq.com`: "hold on your card for $1.00 — you have not been charged", correct store/date/time (real mail, no sink) |
+| COI | Uploaded in the live dashboard → "Pending review" (AI auto-check is off in production by design). Owner approval through the live route → 200; **no capture on approval** for a manual-confirm retailer |
+| **Capture** | Retailer confirm → 200 `{ok, demo_id, email_sent}`; `payment_intent.succeeded` → booking `confirmed` / `paid`, group `paid`, fulfilment re-issued as **generation 2** and done, **exactly one demo** (1 h); no case |
+| **Refund** | Retailer cancel → 200 `{refund_status:"submitted", demo_cancelled:true}`; `charge.refunded` + `refund.created` → booking `cancelled` / `refunded`, allocation 100 / refunded 100, refund request **succeeded** with a Stripe refund id, 0 retries, demo cancelled; no case |
+| After | `projection_anomalies`, `snapshot_drift`, `offering_anomalies(invariant)`, `schedule_mismatches` all 0; open reconciliation cases 0; status `operational`; one notification delivery (`owner_booking_created` → owner, accepted) |
 
-`demohub-docs`: `evidence/cutover/2026-09-18-cutover-log.md` (timeline), `…gate-1-sql-editor.md`, `…gate-2-rest-immediately-before-migrations.json`, `…production-baseline.json`, `…W1…`, `…W4…`, `cutover-kit-MANIFEST.json`, `make-cutover-kit.mjs`, Stripe screenshots; `evidence/preview-journey/` (HTTP journey 104/0, browser journey 23/0, mail record); `docs/release-b-cutover-runbook.md` (v5.1); `docs/release-b-w1-w4-completion-record.md`. Operator kit as executed: `Documents/Codex/cutover-kit/`.
+Limits: Claude holds no live Stripe key, so Stripe-side figures were not read independently — the evidence is the ledger plus Stripe-delivered webhooks; David can confirm the $1.00 fully refunded payment in the Demohub dashboard. Uncertain-outcome and captured-but-unapplied paths were **not** exercised live (they remain covered by the accepted fault-injection suites only).
+Left in production by David's decision, for future smokes: the internal retailer and its $1 venue, two brand rows under David's own mailbox, and the terminal booking/payment/refund/demo rows (real financial records are not deleted). Its welcome mails are marked sent and its monthly summary is off, so no cron mails about it; retailers are listed only in the owner console.
 
-**The reviewed Release B cutover requirements are met for the closed MVP pilot, with the exceptions listed in §4.**
+## 5. Post-launch housekeeping — done
+
+- The two remaining pre-rotation secret keys on the **test** project (`github_actions`, `vercel_preview`) deleted by David; only `rotated_2026_09` remains (rotated key 200, Preview binding healthy, production unaffected).
+- The operator workstation's Supabase CLI link to **production** removed (link folder set aside; `--linked` commands no longer resolve to production). Staging resets stay on the guarded CI jobs.
+- Vercel **Ignored Build Step** restored to production-only and verified (a branch push answered "Canceled by Ignored Build Step"; production unchanged).
+- Two stale Demohub-**sandbox** webhook endpoints that targeted the production URL disabled (§2).
+
+## 6. Not done / not verified — stated plainly
+
+1. **Production operator probe not run.** `/api/version`'s operator view needs the production cron secret, which Claude does not hold. Production binding validity is inferred from behaviour: every route answers normally (a binding failure returns `503 binding_invalid` on all of them), status `db.ok`, live Stripe endpoint active, flags observable through the status page's required-job list and the checkout 503→401 transition — and, since §4, a complete live payment cycle.
+2. Paste 2's result row was not captured verbatim (confirmed read-only and by paste 3's exact-history guard and result).
+3. No data snapshot was taken before paste 1 (first snapshot after paste 1; the platform's daily backup from 09:48Z predates the window; the post-migration snapshot shows every retained row unchanged).
+4. The Grassroots Demos Stripe **test** key remains David's accepted-risk exception; it is absent from every Demohub binding.
+5. Observations carried forward, no change made (candidate frozen; copy out of scope): overlapping `provisional-sweep` — the losing invocation answers 500 while state converges; the brand dashboard's Overview tile reads "No COI on file" while a certificate is pending review (the Compliance tab reads "Pending review" correctly).
+
+## 7. Where everything is
+
+`demohub-docs`: `evidence/cutover/2026-09-18-cutover-log.md` (timeline), `…gate-1-sql-editor.md`, `…gate-2-rest-immediately-before-migrations.json`, `…production-baseline.json`, `2026-09-19-live-payment-smoke.md`, `…W1…`, `…W4…`, `cutover-kit-MANIFEST.json`, `make-cutover-kit.mjs`, Stripe screenshots; `evidence/preview-journey/` (HTTP journey 104/0, browser journey 23/0, mail record); `docs/release-b-cutover-runbook.md` (v5.1); `docs/release-b-w1-w4-completion-record.md`. Operator kit as executed: `Documents/Codex/cutover-kit/`.
+
+**The reviewed Release B cutover requirements are met for the closed MVP pilot, and a live hold → capture → refund cycle has passed on the deployed build. Remaining caveats are the five items in §6.**
