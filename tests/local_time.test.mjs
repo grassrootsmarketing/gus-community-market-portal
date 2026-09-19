@@ -170,7 +170,7 @@ check('new shape: reminders deduped, aliases folded, junk dropped, sorted', eq(n
 check('new shape: on_cancelled false is honoured', nNew.on_cancelled === false && nNew.on_confirmed === true);
 check('on_confirmed wins over a stale legacy on_scheduled', normalizePrefs({ on_confirmed: false, on_scheduled: true }).on_confirmed === false);
 check('selectedReminders returns the normalized list', eq(selectedReminders({ reminders: ['d1'], custom_days: 5 }), ['d5', 'd1']));
-check('DEFAULT_NEW_CONTACT_PREFS = lifecycle ON + d3, d1, morning_of', DEFAULT_NEW_CONTACT_PREFS.on_confirmed && DEFAULT_NEW_CONTACT_PREFS.on_cancelled && DEFAULT_NEW_CONTACT_PREFS.on_rescheduled && eq(DEFAULT_NEW_CONTACT_PREFS.reminders, ['d3', 'd1', 'morning_of']));
+check('DEFAULT_NEW_CONTACT_PREFS = lifecycle ON + w1, d3 (two reminders, not three)', DEFAULT_NEW_CONTACT_PREFS.on_confirmed && DEFAULT_NEW_CONTACT_PREFS.on_cancelled && DEFAULT_NEW_CONTACT_PREFS.on_rescheduled && eq(DEFAULT_NEW_CONTACT_PREFS.reminders, ['w1', 'd3']));
 check('lifecyclePrefKey maps event kinds', lifecyclePrefKey('demo_confirmed') === 'on_confirmed' && lifecyclePrefKey('demo_cancelled') === 'on_cancelled' && lifecyclePrefKey('demo_rescheduled') === 'on_rescheduled' && lifecyclePrefKey('reminder') === null);
 
 check('validate: the stored shape is accepted', validateNotificationPrefs({ on_confirmed: true, on_cancelled: true, on_rescheduled: false, reminders: ['w1', 'h1', 'd14'] }).ok === true);

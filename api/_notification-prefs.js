@@ -12,7 +12,7 @@
 //     contact added before reminders existed is told about confirmed/cancelled/rescheduled demos
 //     but never receives a reminder burst the day this ships;
 //   * new contacts created in the form are saved with the VISIBLE defaults: lifecycle ON and
-//     reminders ['d3','d1','morning_of'] (DEFAULT_NEW_CONTACT_PREFS) — written explicitly, never
+//     reminders ['w1','d3'] (DEFAULT_NEW_CONTACT_PREFS) — written explicitly, never
 //     implied;
 //   * an explicitly empty reminders list means no reminders;
 //   * legacy `days_before: [3, 1]` -> ['d3','d1']; legacy `custom_days: N` -> 'd<N>';
@@ -34,7 +34,7 @@ const LEGACY_OFFSET_ALIAS = { '1w': 'w1', '3d': 'd3', '1d': 'd1', '1h': 'h1' };
 
 export const DEFAULT_NEW_CONTACT_PREFS = Object.freeze({
   on_confirmed: true, on_cancelled: true, on_rescheduled: true,
-  reminders: Object.freeze(['d3', 'd1', 'morning_of']),
+  reminders: Object.freeze(['w1', 'd3']),
 });
 
 function isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v); }

@@ -4825,7 +4825,7 @@ END:VEVENT
         // silently enrolled in reminders); a NEW contact is saved with the visible defaults below.
         const NOTIF_OFFSET_RE = /^(w1|d3|d1|d(?:[1-9]|[12][0-9]|30)|morning_of|h1)$/;
         const NOTIF_LEGACY_ALIAS = { '1w': 'w1', '3d': 'd3', '1d': 'd1', '1h': 'h1' };
-        const NOTIF_PREFS_DEFAULTS = { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['d3', 'd1', 'morning_of'] };
+        const NOTIF_PREFS_DEFAULTS = { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['w1', 'd3'] };
         function notifCanonical(k) {
             k = typeof k === 'string' ? k.trim() : '';
             if (NOTIF_LEGACY_ALIAS[k]) k = NOTIF_LEGACY_ALIAS[k];
