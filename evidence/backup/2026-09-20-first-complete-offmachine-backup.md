@@ -29,3 +29,11 @@ Independent monitor: a healthchecks.io check owned by David (david@demohubhq.com
 | Good `daily` run again | exit 0, heartbeat `sent`; email **"UP — the downtime lasted 56 seconds"** |
 
 The success ping is sent only for exit 0 (snapshot complete AND confirmed off-machine), so a local-only or failed run can never keep the monitor green. The "no ping for 26 hours" path is healthchecks.io's standard behaviour and was not waited out.
+
+## Restricted reader login on demohub-prod (2026-09-20)
+
+David approved. One Auth user created (0 before), then migration 0084 applied by David through a guarded single-transaction paste that had been rehearsed on demohub-rebuild-check. Result row: `demohub-prod 0084 APPLIED` · ledger `0082,0083,0084` · `buckets:demohub_backup_reader_buckets:SELECT:{authenticated} | objects:demohub_backup_reader_objects:SELECT:{authenticated}` · Auth users 1 · `coi-docs` private · 12 objects.
+
+Read-only checks (no write probes against production): before the policy the reader saw 0 buckets / 0 objects; after, exactly `avatars, coi-docs, policy-docs`; REST `bookings`/`internal_contacts`/`brands` 403, `payments`/`refunds` 404, `retailers` 403 (anon: 4 rows, unchanged); anon storage listing still empty; token role `authenticated`.
+
+`cli.mjs daily` afterwards: `source: restricted reader login`, complete, 12 objects, off-machine confirmed 1, verify 0 problems, heartbeat sent, exit 0.

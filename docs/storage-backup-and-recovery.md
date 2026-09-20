@@ -12,9 +12,9 @@ This is version 2, built to Codex's work order of 2026-09-19 (BAK-1 … BAK-4). 
 | Encrypted production snapshots on David's desktop workstation | **Running.** First snapshot 2026-09-19, 12 objects; restored once and matched the v1 copy 12/12. |
 | Off-machine copy | **LIVE since 2026-09-20.** Amazon S3 (account Demohub, us-east-2, bucket `demohub-storage-backup-242065760920`): versioned, 7-day governance Object Lock, 30-day expiry, uploader key cannot delete or reconfigure (all probes 403). First complete run exit 0; snapshot pulled back from S3 alone and restored 12/12 identical (`evidence/backup/2026-09-20-first-complete-offmachine-backup.md`). |
 | Retention | **Approved 2026-09-19: 30 days**, never the last good snapshot. Local pruning runs only after a complete run; the S3 bucket expires snapshots itself (the uploader cannot delete). 7-day governance Object Lock on the bucket. |
-| Restricted read-only source identity | **Proven on demohub-rebuild-check 2026-09-19** (`evidence/backup/2026-09-19-reader-identity-test-project.md`). Production: not applied, separate approval. |
+| Restricted read-only source identity | **LIVE on demohub-prod since 2026-09-20** (migration 0084, two SELECT-only policies for one fixed backup login; login file `C:UsersDaviddemohub-backup-reader.prod.env`). The daily job no longer reads the service key. Proven first on demohub-rebuild-check. |
 | Daily Windows task | Prepared; David chose **not yet**. The Claude desktop task runs the `daily` command at 09:00 meanwhile. |
-| Missed-run alert independent of the workstation | Code ready (heartbeat); monitor account not chosen yet. |
+| Missed-run alert independent of the workstation | **LIVE since 2026-09-20**: healthchecks.io check (David's account), period 1 day + grace 2 h, email alerts. Failure alert proven (DOWN then UP emails received). |
 
 ## How it works
 
