@@ -35,6 +35,8 @@ Resources:
               SSEAlgorithm: AES256
       LifecycleConfiguration:
         Rules:
+          # David, 2026-09-20 (Codex closure item 5, option B): a FINITE 30-day recovery window, by design. This timer does
+          # not know whether newer backups exist; the control for "backups stopped" is the independent 26-hour alert.
           - Id: expire-daily-snapshots-after-30-days
             Status: Enabled
             Prefix: storage/

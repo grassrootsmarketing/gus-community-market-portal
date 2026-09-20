@@ -216,9 +216,10 @@ export function verifyLocal(io, root) {
   for (const f of files.filter(x => x.endsWith('.partial'))) problems.push(f + ': leftover partial file');
   return { snapshots_ok: ok, problems };
 }
-// ---- retention (David approved 2026-09-19: 30 days of daily snapshots, never the last good one) ------------
-// Local folder only; the off-machine bucket expires objects with its own lifecycle rule because the uploader
-// identity cannot delete. Rules: runs only when the state says the LAST attempt was complete (a failing backup
+// ---- retention: LOCAL folder only (30 days; the last good LOCAL snapshot is never pruned) ------------------
+// The off-machine copy is a FINITE 30-day recovery window (David, 2026-09-20): the bucket expires objects on its own
+// lifecycle timer — the uploader identity cannot delete — and nothing promises a never-expiring off-machine copy;
+// the 26-hour alert is the control for "backups stopped". Rules here: runs only when the state says the LAST attempt was complete (a failing backup
 // never triggers deletion); never removes `last_successful_snapshot`; never removes a snapshot whose sidecar lacks
 // a confirmed off-machine copy; ignores anything it does not recognise.
 export function pruneLocal(io, root, retentionDays) {
