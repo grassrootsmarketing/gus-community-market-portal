@@ -88,6 +88,18 @@ Resources:
                 Condition:
                   StringLike:
                     's3:prefix': 'storage/*'
+              # Codex closure review 2026-09-20, item 4: create-only must be enforced by AWS, not by a cooperative
+              # client. Any PutObject that does not carry `If-None-Match` is denied, so this credential cannot add a
+              # new current version on top of an existing snapshot name. (The tool always sends `If-None-Match: *`;
+              # S3 accepts no other value for that header on writes.) This also blocks multipart uploads, which the
+              # tool does not use.
+              - Sid: WritesMustBeCreateOnly
+                Effect: Deny
+                Action: s3:PutObject
+                Resource: !Sub '${BackupBucket.Arn}/*'
+                Condition:
+                  'Null':
+                    's3:if-none-match': 'true'
               - Sid: NeverDeleteOrReconfigure
                 Effect: Deny
                 Action:

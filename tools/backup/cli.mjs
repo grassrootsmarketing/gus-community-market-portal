@@ -24,8 +24,12 @@ const readEnv = (p) => Object.fromEntries(readFileSync(p, 'utf8').split(/\r?\n/)
 const cfgOf = () => { try { return JSON.parse(readFileSync(join(ROOT, 'backup-config.json'), 'utf8')); } catch { return {}; } };
 // Source credentials: the restricted read-only login when `source_reader_env_file` is configured (PROD_URL, PROD_REF,
 // PUBLISHABLE_KEY, READER_EMAIL, READER_PASSWORD, READER_ID); otherwise the bridge, the service key in prod.env.
-const prodEnv = () => { const rf = cfgOf().source_reader_env_file; if (rf && !args.includes('--env')) { const e = readEnv(rf); return { url: e.PROD_URL, key: e.PUBLISHABLE_KEY, ref: e.PROD_REF, reader: { email: e.READER_EMAIL, password: e.READER_PASSWORD, expectId: e.READER_ID } }; }
-  const e = readEnv(opt('--env', 'C:/Users/David/prod.env')); return { url: e.PROD_URL, key: e.PROD_KEY, ref: e.PROD_REF }; };
+// The restricted reader login is the ONLY source the unattended job accepts. There is no silent fallback: a missing
+// reader setting fails without the service-key file ever being opened. The service key is reachable only through the
+// manual `backup --emergency-service-key` bridge, which David must authorize each time and which is labelled as such.
+const READER_ID = '49245ab8-bc78-484e-b8ac-51b301a05553';
+const readerEnv = () => { const rf = cfgOf().source_reader_env_file; if (!rf) throw new B.BackupError('reader_required', 'backup-config.json has no source_reader_env_file; refusing to fall back to any other credential'); const e = readEnv(rf); if (e.READER_ID !== READER_ID) throw new B.BackupError('reader_required', 'the reader file names an unexpected principal'); return { url: e.PROD_URL, key: e.PUBLISHABLE_KEY, ref: e.PROD_REF, reader: { email: e.READER_EMAIL, password: e.READER_PASSWORD, expectId: READER_ID } }; };
+const bridgeEnv = () => { const e = readEnv(opt('--env', 'C:/Users/David/prod.env')); return { url: e.PROD_URL, key: e.PROD_KEY, ref: e.PROD_REF }; };
 const testEnv = () => { const e = readEnv(opt('--env', 'C:/Users/David/demohub.env')); return { url: e.SB_URL, key: e.SB_KEY, ref: e.SB_REF }; };
 const out = (o) => console.log(JSON.stringify(o));
 const log = (line) => { try { appendFileSync(join(ROOT, 'BACKUP-LOG.md'), `- ${new Date().toISOString()} — ${line}\n`); } catch {} };
@@ -41,19 +45,21 @@ try {
     writeFileSync(cfgFile, JSON.stringify({ recipient: k.recipient, offsite: [], require_offsite: true, retention_days_proposed: 30, note: 'offsite: [{"type":"dir","path":"E:/demohub-backup"}] for an external drive. No snapshot is ever deleted automatically until David approves a retention rule.' }, null, 1));
     out({ initialised: ROOT, recipient: k.recipient, recovery_identity_written_to: idFile, next: 'move that file into a vault + one offline copy, then delete it' });
   } else if (cmd === 'backup') {
-    try { const r = await B.runBackup(io, { root: ROOT, env: prodEnv(), mode: 'production' }); log(`COMPLETE ${r.snapshot} objects ${r.objects} offsite ${r.offsite_confirmed}`); out(r); }
+    const bridge = args.includes('--emergency-service-key'); if (args.includes('--env') && !bridge) throw new Error('--env is only accepted together with --emergency-service-key');
+    try { const r = await B.runBackup(io, { root: ROOT, env: bridge ? bridgeEnv() : readerEnv(), mode: 'production', requireReader: !bridge }); log(`COMPLETE ${r.snapshot} objects ${r.objects} offsite ${r.offsite_confirmed} source ${r.source_identity}`); out(r); }
     catch (e) { const code = e.code === 'local_only' ? 10 : e.code === 'offsite_failed' ? 11 : 1; log(`${code === 10 ? 'LOCAL ONLY' : code === 11 ? 'OFFSITE FAILED' : 'FAILED'} ${e.code || 'error'}${e.detail && e.detail.snapshot ? ' ' + e.detail.snapshot : ''}`); out({ ...(e.detail && e.detail.snapshot ? e.detail : {}), result: 'NOT_COMPLETE', code: e.code || 'error', message: String(e.message).slice(0, 300) }); process.exitCode = code; }
   } else if (cmd === 'daily') {
     // The unattended job: backup -> verify -> missed-success check -> heartbeat. Any problem = non-zero exit and a
     // "/fail" ping; the success ping is sent ONLY for a complete, off-machine-confirmed backup.
     // Bounded whole-run retries (the scheduler's own restart-on-failure does not reliably react to exit codes):
     // at most 3 attempts, 5 minutes apart, and never for a configuration problem such as `local_only`.
+    if (args.includes('--env') || args.includes('--emergency-service-key')) throw new Error('the unattended daily job accepts no credential override');
     const run = { started_at: new Date().toISOString(), attempts: 0 }; let code = 0; const maxAttempts = Number(opt('--attempts', 3)), waitMs = Number(opt('--retry-wait-ms', 300000));
     for (;;) { run.attempts++; code = 0;
-    try { const r = await B.runBackup(io, { root: ROOT, env: prodEnv(), mode: 'production' }); run.backup = r; log(`COMPLETE ${r.snapshot} objects ${r.objects} offsite ${r.offsite_confirmed}`); }
+    try { const r = await B.runBackup(io, { root: ROOT, env: readerEnv(), mode: 'production', requireReader: true }); run.backup = r; log(`COMPLETE ${r.snapshot} objects ${r.objects} offsite ${r.offsite_confirmed}`); }
     catch (e) { code = e.code === 'local_only' ? 10 : e.code === 'offsite_failed' ? 11 : 1; run.backup = { ...(e.detail && e.detail.snapshot ? e.detail : {}), result: 'NOT_COMPLETE', code: e.code || 'error', message: String(e.message).slice(0, 300) }; log(`${code === 10 ? 'LOCAL ONLY' : code === 11 ? 'OFFSITE FAILED' : 'FAILED'} ${e.code || 'error'}`); }
-      if (code === 0 || code === 10 || run.attempts >= maxAttempts) break; await io.sleep(waitMs); }
-    run.source_identity = cfgOf().source_reader_env_file ? 'restricted reader login' : 'service key (bridge)';
+      if (code === 0 || code === 10 || ['reader_required', 'config_invalid', 'signin_failed'].includes(run.backup.code) || run.attempts >= maxAttempts) break; await io.sleep(waitMs); }
+    run.source_identity = (run.backup && run.backup.source_identity) || 'none (the run did not authenticate)';   // from the identity actually used
     if (code === 0) { try { run.prune = B.pruneLocal(io, ROOT, cfgOf().retention_days); if (run.prune.pruned.length) log(`PRUNED ${run.prune.pruned.length} local snapshot(s) older than ${cfgOf().retention_days} days`); } catch (e) { run.prune = { error: String(e.message).slice(0, 200) }; } }
     try { run.verify = B.verifyLocal(io, ROOT); if (run.verify.problems.length && !code) code = 1; } catch (e) { run.verify = { error: String(e.message).slice(0, 200) }; if (!code) code = 1; }
     run.check = B.checkFresh(io, ROOT, 26); if (!run.check.fresh && !code) code = 2;

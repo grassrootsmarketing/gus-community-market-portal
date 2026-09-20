@@ -145,14 +145,22 @@ function acquireLock(io, root) {
 }
 
 // ---- the backup run --------------------------------------------------------------------------------
-export async function runBackup(io, { root, env, mode = 'production', buckets, prefix } = {}) {
+export async function runBackup(io, { root, env, mode = 'production', buckets, prefix, requireReader = false } = {}) {
   io.fs.mkdirSync(P(root, 'snapshots'), { recursive: true }); io.fs.mkdirSync(P(root, 'tmp'), { recursive: true });
   const statePath = P(root, 'state.json'); const release = acquireLock(io, root);
   const state = readJson(io, statePath, { schema: 2 }); state.last_attempt_at = nowIso(io); state.last_attempt_result = 'started'; writeJsonAtomic(io, statePath, state);
   const runId = nowIso(io).replace(/[-:]/g, '').replace(/\..*/, 'Z') + '-' + randomBytes(3).toString('hex'); const work = P(root, 'tmp', 'run-' + runId);
   try {
     const cfg = loadConfig(io, root); let t = resolveTarget(mode, env);                 // BAK-2: before any request
+    // Codex closure review 2026-09-20, item 3: in PRODUCTION the off-machine requirement is not configurable, and only a
+    // physically independent destination type counts (a local folder named "off-machine" does not). Checked before any request.
+    const independent = (d) => (io.independentTypes || ['s3']).includes(d && d.type);
+    if (mode === 'production') {
+      if (cfg.require_offsite === false) throw new BackupError('config_invalid', 'production backups always require an off-machine copy; require_offsite:false is not accepted');
+      if (requireReader && !env.reader) throw new BackupError('reader_required', 'this run must use the restricted backup reader login; no other source credential is accepted');
+    }
     if (env.reader) t = await signInReader(io, t, env.reader);                          // BAK-4: restricted read-only identity instead of a service key
+    if (requireReader && mode === 'production' && (!t.principal || t.principal !== env.reader.expectId)) throw new BackupError('reader_required', 'the authenticated principal is not the expected backup reader');
     if (state.project_ref && state.project_ref !== t.ref) throw new BackupError('state_project_mismatch', `this backup folder belongs to ${state.project_ref}, not ${t.ref}`);
     const cap = await capture(io, t, { buckets, prefix });
     // tombstones: ids seen in the previous COMPLETE snapshot and absent from this complete inventory
@@ -178,13 +186,15 @@ export async function runBackup(io, { root, env, mode = 'production', buckets, p
     // off-machine copies, each confirmed by reading back and hashing
     for (const d of cfg.offsite) { const res = await io.offsite(d, name, cipher, csha); sidecar.offsite.push(res); }
     const confirmed = sidecar.offsite.filter(o => o.confirmed).length; const failedOffsite = sidecar.offsite.filter(o => !o.confirmed);
+    const confirmedIndependent = cfg.offsite.filter((d, i) => sidecar.offsite[i] && sidecar.offsite[i].confirmed && independent(d)).length;
     io.fs.writeFileSync(P(root, 'snapshots', name + '.json'), JSON.stringify(sidecar, null, 1));
     state.project_ref = t.ref; state.index = index; state.tombstones = tomb; state.last_local_complete_at = sidecar.created_at; state.last_local_snapshot = name;
     let result = 'complete';
-    if (failedOffsite.length) result = 'offsite_failed'; else if (!confirmed && cfg.require_offsite) result = 'local_only_no_offsite_configured';
+    if (failedOffsite.length) result = 'offsite_failed';
+    else if (mode === 'production' ? !confirmedIndependent : (!confirmed && cfg.require_offsite)) result = 'local_only_no_offsite_configured';
     if (result === 'complete') { state.last_successful_backup_at = sidecar.created_at; state.last_successful_snapshot = name; }
     state.last_attempt_result = result; writeJsonAtomic(io, statePath, state);
-    const report = { result, snapshot: name, objects: manifest.object_count, bytes: manifest.total_bytes, per_bucket: countBy(cap.objects), removed_since_previous: manifest.tombstones.length, offsite_confirmed: confirmed, last_successful_backup_at: state.last_successful_backup_at || null };
+    const report = { result, snapshot: name, objects: manifest.object_count, bytes: manifest.total_bytes, per_bucket: countBy(cap.objects), removed_since_previous: manifest.tombstones.length, offsite_confirmed: confirmed, offsite_confirmed_independent: confirmedIndependent, source_identity: t.principal ? 'restricted reader login ' + t.principal : 'service key', last_successful_backup_at: state.last_successful_backup_at || null };
     if (result === 'offsite_failed') throw new BackupError('offsite_failed', `the local snapshot is complete but ${failedOffsite.length} off-machine copy/copies could not be confirmed`, report);
     if (result !== 'complete') throw new BackupError('local_only', 'the snapshot is complete LOCALLY, but no off-machine destination is configured, so this does not count as a successful backup', report);
     return report;

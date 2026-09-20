@@ -131,6 +131,37 @@ console.log('\n— restricted source identity (reader sign-in) —');
   let noPw = null; try { await B.signInReader(mk(200, {}), T, { email: 'r@example.test' }); } catch (e) { noPw = e; } ok('sign-in: missing credentials fail before any request', noPw && noPw.code === 'env_incomplete' && calls.length === 5);
 }
 
+console.log('\n— Codex closure review 2026-09-20, item 3: production cannot be weakened by configuration —');
+{
+  const PROD = B.PROJECTS.production; const env = { url: PROD.origin, key: 'synthetic-key', ref: PROD.ref }; const J = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const mk = (config) => { const base = tmp(), root = join(base, 'backup'); mkdirSync(root); const keys = generateIdentity(); writeFileSync(join(root, 'backup-config.json'), JSON.stringify({ recipient: keys.recipient, ...config(base) })); const calls = []; let t = Date.parse('2026-09-21T09:00:00Z');
+    const fetch = async (url, o = {}) => { calls.push(url); const p = new URL(url).pathname; if (p === '/auth/v1/token') return J(200, { access_token: 'a.b.c', user: { id: JSON.parse(o.body).email === 'imposter@example.test' ? 'someone-else' : 'reader-1' } }); if (p === '/storage/v1/bucket') return J(200, B.REQUIRED_BUCKETS.map(id => ({ id }))); if (p.startsWith('/storage/v1/object/list/')) return J(200, []); return J(404, {}); };
+    return { root, calls, io: { ...B.defaultIo(), fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 99 } }; };   // NOTE: default independentTypes (['s3'])
+  const stateOf = (root) => { try { return JSON.parse(nodeFs.readFileSync(join(root, 'state.json'), 'utf8')); } catch { return {}; } };
+  const run = async (S, extra) => { try { return { r: await B.runBackup(S.io, { root: S.root, env, mode: 'production', ...extra }) }; } catch (e) { return { e }; } };
+
+  const A = mk(() => ({ offsite: [], require_offsite: false })); const a = await run(A);
+  ok('[closure probe] production + offsite:[] + require_offsite:false is REFUSED as invalid configuration, before any request, and the success clock does not move', a.e && a.e.code === 'config_invalid' && A.calls.length === 0 && !stateOf(A.root).last_successful_backup_at, a.e ? a.e.code : JSON.stringify(a.r));
+  const Bc = mk(() => ({ offsite: [] })); const b = await run(Bc);
+  ok('production with no destination at all is local_only, never complete', b.e && b.e.code === 'local_only' && !stateOf(Bc.root).last_successful_backup_at, b.e ? b.e.code : JSON.stringify(b.r));
+  const C = mk((base) => { mkdirSync(join(base, 'off-machine')); return { offsite: [{ type: 'dir', path: join(base, 'off-machine') }] }; }); const c = await run(C);
+  ok('a local folder called "off-machine" does NOT count in production: copy confirmed, run still local_only, success clock not advanced', c.e && c.e.code === 'local_only' && c.e.detail.offsite_confirmed === 1 && c.e.detail.offsite_confirmed_independent === 0 && !stateOf(C.root).last_successful_backup_at, c.e ? JSON.stringify(c.e.detail) : JSON.stringify(c.r));
+  const D = mk(() => ({ offsite: [] })); const d = await run(D, { requireReader: true });
+  ok('requireReader + a service-key environment is refused before any request', d.e && d.e.code === 'reader_required' && D.calls.length === 0, d.e && d.e.code);
+  const E = mk(() => ({ offsite: [] })); let e1 = null; try { await B.runBackup(E.io, { root: E.root, env: { ...env, reader: { email: 'imposter@example.test', password: 'x', expectId: 'reader-1' } }, mode: 'production', requireReader: true }); } catch (x) { e1 = x; }
+  ok('a login that authenticates as a different principal is refused; nothing is listed or downloaded', e1 && e1.code === 'signin_failed' && E.calls.length === 1, e1 && e1.code);
+  const F = mk(() => ({ offsite: [] })); const f1 = await run(F), f2 = await (async () => { try { await B.runBackup(F.io, { root: F.root, env: { ...env, reader: { email: 'r@example.test', password: 'x', expectId: 'reader-1' } }, mode: 'production', requireReader: true }); } catch (x) { return x; } })();
+  ok('the source label comes from the identity actually used (service key vs the signed-in reader), not from configuration', f1.e.detail.source_identity === 'service key' && f2.detail.source_identity === 'restricted reader login reader-1', JSON.stringify([f1.e.detail.source_identity, f2.detail.source_identity]));
+
+  // the unattended CLI job: no reader setting -> fails as reader_required, never reaches the service-key file; no override accepted
+  const { spawnSync } = await import('node:child_process'); const cli = new URL('../cli.mjs', import.meta.url); const G = mk(() => ({ offsite: [] }));
+  const sp = (args) => { const r = spawnSync(process.execPath, [cli.pathname.replace(/^\/([A-Za-z]:)/, '$1'), ...args, '--root', G.root], { encoding: 'utf8', env: { ...process.env, NODE_OPTIONS: '' } }); let j = null; try { j = JSON.parse(r.stdout.trim().split('\n').pop()); } catch {} return { status: r.status, j }; };
+  const g1 = sp(['daily', '--attempts', '1']);
+  ok('cli daily without a reader setting: reader_required, exit 1, one attempt, no success heartbeat, label says it never authenticated', g1.status === 1 && g1.j && g1.j.backup.code === 'reader_required' && g1.j.attempts === 1 && g1.j.source_identity === 'none (the run did not authenticate)' && g1.j.heartbeat === 'not configured', JSON.stringify(g1).slice(0, 300));
+  const g2 = sp(['daily', '--env', 'C:/anything.env']), g3 = sp(['daily', '--emergency-service-key']), g4 = sp(['backup', '--env', 'C:/anything.env']);
+  ok('cli daily refuses --env and --emergency-service-key; cli backup refuses --env without the explicit emergency flag', [g2, g3, g4].every(x => x.status === 1 && x.j && x.j.result === 'ERROR'), JSON.stringify([g2.j, g3.j, g4.j]).slice(0, 300));
+}
+
 for (const r of roots) { try { rmSync(r, { recursive: true, force: true }); } catch {} }
 console.log(`\noffsite destination tests: ${pass} passed, ${fail} failed`);
 if (fail) { console.log('FAILURES:\n' + fails.map(f => '  x ' + f).join('\n')); process.exit(1); }
