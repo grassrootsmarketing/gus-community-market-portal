@@ -58,7 +58,16 @@ for (const f of files) {
   if (/alter\s+table\s+storage\.objects/i.test(sql)) {
     problems.push(`${f} alters storage.objects — owned by supabase_storage_admin, fails with 42501`);
   }
-  if (/create\s+policy/i.test(sql) && /storage\.objects/i.test(sql)) {
+  // The ONE reviewed exception (Codex storage-backup work order BAK-4, David approved 2026-09-20): 0084 gives a single,
+  // immutable backup principal SELECT-only access to the three Demohub buckets. Anything else — another file, another
+  // policy name, a write command, "all", a missing principal check — still fails.
+  const readerOnly = (() => {
+    if (f !== '0084_backup_reader_storage_select.sql') return false;
+    const stmts = sql.replace(/--[^\n]*/g, '').split(';').filter(s => /create\s+policy/i.test(s));
+    return stmts.length === 2 && stmts.every(s => /create\s+policy\s+demohub_backup_reader_(objects|buckets)\s+on\s+storage\.(objects|buckets)\s+for\s+select\s+to\s+authenticated\s+using\s*\(/i.test(s)
+      && s.includes("(select auth.uid()) = '49245ab8-bc78-484e-b8ac-51b301a05553'::uuid") && /in\s*\('coi-docs',\s*'policy-docs',\s*'avatars'\)/i.test(s) && !/with\s+check|for\s+(all|insert|update|delete)/i.test(s));
+  })();
+  if (/create\s+policy/i.test(sql) && /storage\.objects/i.test(sql) && !readerOnly) {
     problems.push(`${f} creates a storage.objects policy — Demohub's design is zero custom object policies (service-key writes, signed reads)`);
   }
 }
