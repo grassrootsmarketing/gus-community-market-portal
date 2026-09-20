@@ -91,7 +91,7 @@ console.log('\n— listing + recovery from the off-machine copy alone —');
     m = p.match(/^\/storage\/v1\/object\/([^/]+)\/(.+)$/); if (m && method === 'GET') { const d = files.get(m[1]).get(m[2]); return d ? new Response(d, { status: 200 }) : J(400, { statusCode: '404', error: 'not_found' }); }
     return J(404, {}); };
   const base = tmp(), root = join(base, 'backup'); mkdirSync(root); const keys = generateIdentity(); writeFileSync(join(root, 'backup-config.json'), JSON.stringify({ recipient: keys.recipient, offsite: [DEST], require_offsite: true }));
-  let t = Date.parse('2026-09-20T09:00:00Z'); const io = { ...B.defaultIo(), fetch: (url, o) => (new URL(url).origin === ORIGIN ? s3.fetch(url, o) : supa(url, o)), fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 77 };
+  let t = Date.parse('2026-09-20T09:00:00Z'); const io = { ...B.defaultIo(), fetch: (url, o) => (new URL(url).origin === ORIGIN ? s3.fetch(url, o) : supa(url, o)), fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 77, encrypt: B.jsEncrypt };
   const env = { url: PROD.origin, key: 'synthetic-key', ref: PROD.ref };
   const a = await B.runBackup(io, { root, env, mode: 'production' });
   ok('a backup with an S3 destination completes only with the off-machine copy confirmed', a.result === 'complete' && a.offsite_confirmed === 1 && !!a.last_successful_backup_at, JSON.stringify(a));
@@ -136,7 +136,7 @@ console.log('\n— Codex closure review 2026-09-20, item 3: production cannot be
   const PROD = B.PROJECTS.production; const env = { url: PROD.origin, key: 'synthetic-key', ref: PROD.ref }; const J = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const mk = (config) => { const base = tmp(), root = join(base, 'backup'); mkdirSync(root); const keys = generateIdentity(); writeFileSync(join(root, 'backup-config.json'), JSON.stringify({ recipient: keys.recipient, ...config(base) })); const calls = []; let t = Date.parse('2026-09-21T09:00:00Z');
     const fetch = async (url, o = {}) => { calls.push(url); const p = new URL(url).pathname; if (p === '/auth/v1/token') return J(200, { access_token: 'a.b.c', user: { id: JSON.parse(o.body).email === 'imposter@example.test' ? 'someone-else' : 'reader-1' } }); if (p === '/storage/v1/bucket') return J(200, B.REQUIRED_BUCKETS.map(id => ({ id }))); if (p.startsWith('/storage/v1/object/list/')) return J(200, []); return J(404, {}); };
-    return { root, calls, io: { ...B.defaultIo(), fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 99 } }; };   // NOTE: default independentTypes (['s3'])
+    return { root, calls, io: { ...B.defaultIo(), fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 99, encrypt: B.jsEncrypt } }; };   // NOTE: default independentTypes (['s3'])
   const stateOf = (root) => { try { return JSON.parse(nodeFs.readFileSync(join(root, 'state.json'), 'utf8')); } catch { return {}; } };
   const run = async (S, extra) => { try { return { r: await B.runBackup(S.io, { root: S.root, env, mode: 'production', ...extra }) }; } catch (e) { return { e }; } };
 
@@ -160,6 +160,29 @@ console.log('\n— Codex closure review 2026-09-20, item 3: production cannot be
   ok('cli daily without a reader setting: reader_required, exit 1, one attempt, no success heartbeat, label says it never authenticated', g1.status === 1 && g1.j && g1.j.backup.code === 'reader_required' && g1.j.attempts === 1 && g1.j.source_identity === 'none (the run did not authenticate)' && g1.j.heartbeat === 'not configured', JSON.stringify(g1).slice(0, 300));
   const g2 = sp(['daily', '--env', 'C:/anything.env']), g3 = sp(['daily', '--emergency-service-key']), g4 = sp(['backup', '--env', 'C:/anything.env']);
   ok('cli daily refuses --env and --emergency-service-key; cli backup refuses --env without the explicit emergency flag', [g2, g3, g4].every(x => x.status === 1 && x.j && x.j.result === 'ERROR'), JSON.stringify([g2.j, g3.j, g4.j]).slice(0, 300));
+}
+
+console.log('\n— Codex closure review item 2: the maintained age tool is the encryption engine —');
+{
+  const { encryptWithAge, ageVersion, findAge, PINNED_AGE_VERSION } = await import('../age-bin.mjs'); const { decrypt } = await import('../age.mjs');
+  const PROD = B.PROJECTS.production; const env = { url: PROD.origin, key: 'synthetic-key', ref: PROD.ref }; const J = (status, body) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const pdf = makePdf('engine test'); const fetch = async (url, o = {}) => { const p = decodeURIComponent(new URL(url).pathname); if (p === '/storage/v1/bucket') return J(200, B.REQUIRED_BUCKETS.map(id => ({ id }))); if (p === '/storage/v1/object/list/coi-docs') return J(200, JSON.parse(o.body).prefix ? [] : [{ name: 'coi.pdf', id: 'i1', updated_at: '2026-09-20T00:00:00Z', metadata: { size: pdf.length, mimetype: 'application/pdf' } }]); if (p.startsWith('/storage/v1/object/list/')) return J(200, []); if (p === '/storage/v1/object/coi-docs/coi.pdf') return new Response(pdf, { status: 200 }); return J(404, {}); };
+  const mk = (encrypt) => { const base = tmp(), root = join(base, 'backup'), off = join(base, 'second-copy'); mkdirSync(root); mkdirSync(off); const keys = generateIdentity(); writeFileSync(join(root, 'backup-config.json'), JSON.stringify({ recipient: keys.recipient, offsite: [{ type: 'dir', path: off }] })); let t = Date.parse('2026-09-22T09:00:00Z');
+    return { base, root, keys, io: { ...B.defaultIo(), fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pid: 5, independentTypes: ['s3', 'dir'], ...(encrypt ? { encrypt } : {}) } }; };
+  const published = (root) => { try { return readdirSync(join(root, 'snapshots')).filter(f => f.endsWith('.tar.age')).length; } catch { return 0; } };
+  const M = mk((p, r) => encryptWithAge(p, r, { bin: join(tmpdir(), 'no-such-age-binary.exe') })); let e1 = null; try { await B.runBackup(M.io, { root: M.root, env, mode: 'production' }); } catch (x) { e1 = x; }
+  ok('a MISSING age tool fails the backup (age_tool_missing); nothing is published, no success recorded', e1 && e1.code === 'age_tool_missing' && published(M.root) === 0 && !JSON.parse(nodeFs.readFileSync(join(M.root, 'state.json'), 'utf8')).last_successful_backup_at, e1 && e1.code);
+  let e0 = null; try { encryptWithAge(Buffer.from('x'), 'not-a-recipient'); } catch (x) { e0 = x; } ok('a malformed recipient is refused before the tool is started', !!e0 && !e0.code);
+  const have = ageVersion(findAge());
+  if (have === null) console.log('  note the reference age binary is not installed here — the three live-engine cases are skipped');
+  else {
+    const V = mk((p, r) => encryptWithAge(p, r, { expectVersion: '0.0.0-not-the-pinned-one' })); let e2 = null; try { await B.runBackup(V.io, { root: V.root, env, mode: 'production' }); } catch (x) { e2 = x; }
+    ok('a tool of a DIFFERENT version than the pinned one fails the backup (age_tool_version); nothing is published', e2 && e2.code === 'age_tool_version' && published(V.root) === 0, e2 && e2.code);
+    const G = mk(null); const r = await B.runBackup(G.io, { root: G.root, env, mode: 'production' }); const sc = JSON.parse(nodeFs.readFileSync(join(G.root, 'snapshots', r.snapshot + '.json'), 'utf8'));
+    const rs = B.restoreSnapshot(G.io, { snapshotFile: join(G.root, 'snapshots', r.snapshot), identity: G.keys.identity, outDir: join(G.base, 'restored'), expectRef: PROD.ref });
+    ok(`default engine = the pinned reference tool (${PINNED_AGE_VERSION}): run completes, the sidecar names the engine, and the archive restores byte-identical`, have === PINNED_AGE_VERSION && r.result === 'complete' && /FiloSottile/.test(sc.encryption_engine) && nodeFs.readFileSync(rs.files[0].local).equals(pdf), JSON.stringify({ have, engine: sc.encryption_engine }));
+    const c = encryptWithAge(Buffer.alloc(140000, 9), G.keys.recipient); ok('the engine never sees the private identity: only the public recipient is passed, and our reader opens its output', decrypt(c, G.keys.identity).equals(Buffer.alloc(140000, 9)) && c.subarray(0, 21).toString() === 'age-encryption.org/v1');
+  }
 }
 
 for (const r of roots) { try { rmSync(r, { recursive: true, force: true }); } catch {} }

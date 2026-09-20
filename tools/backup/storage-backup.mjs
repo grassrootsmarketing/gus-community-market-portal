@@ -15,7 +15,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import * as nodeFs from 'node:fs';
-import { encrypt, decrypt, parseRecipient, generateIdentity } from './age.mjs';
+import { encrypt as jsEncrypt, decrypt, parseRecipient, generateIdentity } from './age.mjs';
+import { encryptWithAge, ageVersion, PINNED_AGE_VERSION } from './age-bin.mjs';
 import { tarPack, tarUnpack } from './tar.mjs';
 
 export const TOOL_VERSION = '2.0.0';
@@ -165,7 +166,7 @@ export async function runBackup(io, { root, env, mode = 'production', buckets, p
     const cap = await capture(io, t, { buckets, prefix });
     // tombstones: ids seen in the previous COMPLETE snapshot and absent from this complete inventory
     const prevIndex = state.index || {}; const index = {}; const idOf = (o) => sha256(`${o.bucket}/${o.path}`);
-    for (const o of cap.objects) index[idOf(o)] = prevIndex[idOf(o)]?.p ? { p: prevIndex[idOf(o)].p } : { p: encrypt(Buffer.from(`${o.bucket}/${o.path}`), cfg.recipient).toString('base64') };
+    for (const o of cap.objects) index[idOf(o)] = prevIndex[idOf(o)]?.p ? { p: prevIndex[idOf(o)].p } : { p: io.encrypt(Buffer.from(`${o.bucket}/${o.path}`), cfg.recipient).toString('base64') };
     const tomb = { ...(state.tombstones || {}) }; for (const id of Object.keys(prevIndex)) if (!index[id] && !tomb[id]) tomb[id] = { p: prevIndex[id].p, first_absent_at: cap.capture_finished_at };
     for (const id of Object.keys(tomb)) if (index[id]) delete tomb[id];                     // it came back
     const manifest = { schema: 2, tool_version: TOOL_VERSION, project_ref: t.ref, origin: t.origin, mode, buckets: buckets || REQUIRED_BUCKETS, prefix: prefix || '',
@@ -177,12 +178,14 @@ export async function runBackup(io, { root, env, mode = 'production', buckets, p
     // local validation of exactly what will be encrypted
     const back = tarUnpack(tar); const m2 = JSON.parse(back.find(e => e.name === 'manifest.json').data.toString());
     for (const o of m2.objects) { const e = back.find(x => x.name === 'objects/' + o.sha256); if (!e || sha256(e.data) !== o.sha256 || e.data.length !== o.size) throw new BackupError('local_validation_failed', 'an archived object does not match its manifest entry'); }
-    const cipher = encrypt(tar, cfg.recipient); const name = `demohub-storage-${t.ref}-${runId}.tar.age`; const csha = sha256(cipher);
+    const cipher = io.encrypt(tar, cfg.recipient);                                       // the maintained age tool (pinned); a missing/failed tool fails the run
+    if (!decryptableHeader(cipher)) throw new BackupError('encryption_failed', 'the encryption step did not return an age v1 archive');
+    const name = `demohub-storage-${t.ref}-${runId}.tar.age`; const csha = sha256(cipher);
     io.fs.mkdirSync(work, { recursive: true }); const tmpFile = P(work, name + '.partial'); io.fs.writeFileSync(tmpFile, cipher);
     if (sha256(io.fs.readFileSync(tmpFile)) !== csha) throw new BackupError('local_write_failed', 'the written archive does not hash to what was produced');
     const finalFile = P(root, 'snapshots', name); if (io.fs.existsSync(finalFile)) throw new BackupError('name_collision', 'a snapshot with this name already exists');
     io.fs.renameSync(tmpFile, finalFile);                                                  // publish: immutable from here
-    const sidecar = { name, created_at: nowIso(io), project_ref: t.ref, tool_version: TOOL_VERSION, complete: true, object_count: manifest.object_count, total_bytes: manifest.total_bytes, ciphertext_bytes: cipher.length, ciphertext_sha256: csha, tombstones: manifest.tombstones.length, offsite: [] };
+    const sidecar = { name, created_at: nowIso(io), project_ref: t.ref, tool_version: TOOL_VERSION, complete: true, object_count: manifest.object_count, total_bytes: manifest.total_bytes, ciphertext_bytes: cipher.length, ciphertext_sha256: csha, encryption_engine: io.encryption_engine || 'unspecified', tombstones: manifest.tombstones.length, offsite: [] };
     // off-machine copies, each confirmed by reading back and hashing
     for (const d of cfg.offsite) { const res = await io.offsite(d, name, cipher, csha); sidecar.offsite.push(res); }
     const confirmed = sidecar.offsite.filter(o => o.confirmed).length; const failedOffsite = sidecar.offsite.filter(o => !o.confirmed);
@@ -285,9 +288,12 @@ export async function confirmAbsent(io, t, bucket, path) {          // documente
   const dir = path.split('/').slice(0, -1).join('/'), leaf = path.split('/').pop(); const out = []; await listPrefix(io, t, bucket, dir, out); return !out.some(o => o.path === (dir ? dir + '/' : '') + leaf);
 }
 
+const decryptableHeader = (c) => Buffer.isBuffer(c) && c.subarray(0, 22).toString('latin1') === 'age-encryption.org/v1\n';
+export { jsEncrypt };
 // ---- default io --------------------------------------------------------------------------------------
 export function defaultIo() {
   return { fetch: globalThis.fetch, fs: nodeFs, now: () => Date.now(), sleep: (ms) => new Promise(r => setTimeout(r, ms)), pid: process.pid,
+    encrypt: (plain, recipient) => encryptWithAge(plain, recipient), encryption_engine: 'age ' + PINNED_AGE_VERSION + ' (FiloSottile/age, reference implementation)',
     timeoutMs: 30000, retries: 3, retryDelayMs: 1500, pageSize: 1000, capturePasses: 3, lockStaleMs: 2 * 36e5,
     offsite: async function (dest, name, cipher, csha) {
       if (dest.type === 's3') return s3Put(this, dest, name, cipher, csha);

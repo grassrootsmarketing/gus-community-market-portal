@@ -47,7 +47,7 @@ function setup({ offsite = true, pageSize = 1000 } = {}) {
   const srv = new FakeStorage(PROD.origin); let t = Date.parse('2026-09-20T09:00:00Z');
   // TEST-ONLY: these simulated suites stand a temp folder in for the off-machine store. The real default is ['s3'] only
   // (a local folder never counts as off-machine in production) - see the closure-review cases, which use the default.
-  const io = { ...B.defaultIo(), fetch: srv.fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pageSize, pid: 4242, independentTypes: ['s3', 'dir'] };
+  const io = { ...B.defaultIo(), fetch: srv.fetch, fs: nodeFs, now: () => (t += 1000), sleep: async () => {}, retryDelayMs: 0, pageSize, pid: 4242, independentTypes: ['s3', 'dir'], encrypt: B.jsEncrypt, encryption_engine: 'in-repo writer (tests only)' };
   return { base, root, off, keys, srv, io, advance: (ms) => { t += ms; } };
 }
 const snaps = (root) => readdirSync(join(root, 'snapshots')).filter(f => f.endsWith('.tar.age')).sort();
