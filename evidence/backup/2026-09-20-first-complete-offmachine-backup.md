@@ -16,3 +16,16 @@ Destination approved by David 2026-09-19: Amazon S3, account "Demohub" (24206576
 Source identity for this run: the service key on the workstation (bridge). The restricted reader login is proven on demohub-rebuild-check only (`2026-09-19-reader-identity-test-project.md`); production needs David's separate approval.
 
 Still open: independent missed-run monitor (heartbeat not configured), recovery identity still to be moved into David's vault, Windows daily task not installed (David: not yet), device encryption unconfirmed.
+
+## Missed-run / failed-run alert (2026-09-20 ~01:37Z)
+
+Independent monitor: a healthchecks.io check owned by David (david@demohubhq.com), email alerts, period 1 day + grace 2 hours (= 26 h). The ping URL lives in a local file named by `heartbeat_url_file`; a ping carries no data. The monitor runs outside the workstation, so a powered-off or lost PC still produces an alert.
+
+| Step | Result |
+|---|---|
+| Good `daily` run | exit 0, heartbeat `sent` (success) |
+| Deliberately failed `daily` run (non-existent credentials file, 1 attempt) | exit 1, heartbeat `sent` to `/fail`; nothing touched in production or S3 |
+| Email received by David | **"DOWN — received a failure signal"** |
+| Good `daily` run again | exit 0, heartbeat `sent`; email **"UP — the downtime lasted 56 seconds"** |
+
+The success ping is sent only for exit 0 (snapshot complete AND confirmed off-machine), so a local-only or failed run can never keep the monitor green. The "no ping for 26 hours" path is healthchecks.io's standard behaviour and was not waited out.
