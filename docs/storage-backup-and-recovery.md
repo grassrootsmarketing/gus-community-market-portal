@@ -10,7 +10,7 @@ This is version 2, built to Codex's work order of 2026-09-19 (BAK-1 … BAK-4). 
 |---|---|
 | Tool, regression tests, restore drill | **Done.** 64 + 26 tests pass; real drill passed on demohub-rebuild-check. |
 | Encrypted production snapshots on David's desktop workstation | **Running.** First snapshot 2026-09-19, 12 objects; restored once and matched the v1 copy 12/12. |
-| Off-machine copy | **Chosen 2026-09-19: Amazon S3** (David). Bucket not created yet — template `tools/backup/aws/demohub-backup-bucket.yaml`. Until it exists every run ends `local_only` (exit 10) and the freshness check is stale (exit 2). That is deliberate: a copy that only exists on one machine is not reported as a successful backup. |
+| Off-machine copy | **LIVE since 2026-09-20.** Amazon S3 (account Demohub, us-east-2, bucket `demohub-storage-backup-242065760920`): versioned, 7-day governance Object Lock, 30-day expiry, uploader key cannot delete or reconfigure (all probes 403). First complete run exit 0; snapshot pulled back from S3 alone and restored 12/12 identical (`evidence/backup/2026-09-20-first-complete-offmachine-backup.md`). |
 | Retention | **Approved 2026-09-19: 30 days**, never the last good snapshot. Local pruning runs only after a complete run; the S3 bucket expires snapshots itself (the uploader cannot delete). 7-day governance Object Lock on the bucket. |
 | Restricted read-only source identity | **Proven on demohub-rebuild-check 2026-09-19** (`evidence/backup/2026-09-19-reader-identity-test-project.md`). Production: not applied, separate approval. |
 | Daily Windows task | Prepared; David chose **not yet**. The Claude desktop task runs the `daily` command at 09:00 meanwhile. |
