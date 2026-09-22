@@ -104,7 +104,8 @@ env:
   # 2026-09-12 (Codex round 4, R4-04 rehearsal finding): 0082_backfill_active_booking_snapshots.sql -> 83.
   # 2026-09-17 (Codex F-1, fixed before launch by David's decision): 0083_fulfillment_frozen_outbound.sql -> 84.
   # 2026-09-20 (Codex storage-backup work order BAK-4): 0084_backup_reader_storage_select.sql -> 85.
-  EXPECTED_MIGRATIONS: '85'
+  # 2026-09-22 (booking codes): 0085_booking_codes.sql -> 86.
+  EXPECTED_MIGRATIONS: '86'
 
 jobs:
   # --------------------------------------------------------------------------

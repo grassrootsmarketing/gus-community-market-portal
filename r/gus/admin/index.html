@@ -1078,6 +1078,25 @@
                             <div id="bookingPrefsStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
                         </div>
                     </div>
+                    <div class="settings-card" id="bookingCodesCard">
+                        <div class="settings-card-header"><h3>Booking codes</h3></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px; line-height:1.55;">Give a brand a code to type at checkout. A code can waive your demo fee, let them book inside your advance-notice minimum, or both. Codes are single-use unless you set a limit.</div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeKind">What it does</label>
+                                    <select id="codeKind" class="form-input"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeUses">Uses</label>
+                                    <select id="codeUses" class="form-input"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="">Unlimited until expiry</option></select></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires (optional)</label><input type="date" id="codeExpires" class="form-input"></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeNote">Note (optional)</label><input type="text" id="codeNote" class="form-input" maxlength="200" placeholder="e.g. First demo for Acme Snacks"></div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <button class="btn btn-primary" style="padding:9px 16px; font-size:0.85rem;" id="codeGenerateBtn" onclick="generateBookingCode()">Generate code</button>
+                                <span id="bookingCodesStatus" style="font-size:0.78rem; color:var(--ink-500);"></span>
+                            </div>
+                            <div id="bookingCodesList" style="margin-top:16px;"></div>
+                        </div>
+                    </div>
 <div class="settings-card">
                         <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
@@ -5396,7 +5415,55 @@ END:VEVENT
         }
 
         // ===== Settings edit toggle =====
-        function loadSettings() { applySettingsToInputs();
+        // ===== Booking codes (0085) =====
+        const CODE_KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
+        function fmtCodeDate(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+        function renderBookingCodes(codes) {
+            const el = document.getElementById('bookingCodesList'); if (!el) return;
+            if (!codes || !codes.length) { el.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500);">No codes yet.</div>'; return; }
+            el.innerHTML = codes.map(c => {
+                const used = c.use_count || 0, limit = c.max_uses == null ? '∞' : c.max_uses;
+                const expired = c.expires_at && new Date(c.expires_at) <= new Date();
+                const state = !c.active ? 'Turned off' : expired ? 'Expired' : (c.max_uses != null && used >= c.max_uses) ? 'Used up' : 'Active';
+                const stateColor = state === 'Active' ? '#1f6b3a' : '#8a8a84';
+                const reds = (c.redemptions || []).map(r => '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(r.brand_name || 'Brand') + ' · ' + fmtCodeDate(r.redeemed_at) + (r.waived_fee ? ' · fee waived' : '') + (r.waived_lead_time ? ' · short notice' : '') + '</div>').join('');
+                return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:10px 12px; background:#f9f7f2; border-radius:10px; margin-bottom:8px;">'
+                    + '<div style="min-width:0;"><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><code style="font-size:0.95rem; font-weight:700; letter-spacing:0.04em; color:var(--forest-900);">' + escapeHtml(c.code) + '</code>'
+                    + '<button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:0.72rem;" onclick="copyBookingCode(' + JSON.stringify(c.code) + ', this)">Copy</button>'
+                    + '<span style="font-size:0.72rem; font-weight:700; color:' + stateColor + ';">' + state + '</span></div>'
+                    + '<div style="font-size:0.8rem; color:var(--ink-700, #3a3a36); margin-top:3px;">' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + ' · ' + used + '/' + limit + ' used' + (c.expires_at ? ' · expires ' + fmtCodeDate(c.expires_at) : '') + (c.created_by === 'owner' ? ' · added by Demohub' : '') + '</div>'
+                    + (c.note ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">' + escapeHtml(c.note) + '</div>' : '') + reds + '</div>'
+                    + (c.active ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; flex-shrink:0;" onclick="deactivateBookingCode(' + JSON.stringify(c.id) + ')">Turn off</button>' : '')
+                    + '</div>';
+            }).join('');
+        }
+        async function loadBookingCodes() {
+            const st = document.getElementById('bookingCodesStatus'); if (!document.getElementById('bookingCodesList')) return;
+            try { const r = await fetch('/api/admin?action=codes-list', { credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); renderBookingCodes(j.codes); }
+            catch (e) { if (st) st.textContent = 'Could not load codes.'; }
+        }
+        async function generateBookingCode() {
+            const st = document.getElementById('bookingCodesStatus'), btn = document.getElementById('codeGenerateBtn');
+            const kind = document.getElementById('codeKind').value, uses = document.getElementById('codeUses').value, exp = document.getElementById('codeExpires').value, note = document.getElementById('codeNote').value;
+            btn.disabled = true; st.textContent = 'Generating…';
+            try {
+                const body = { kind, max_uses: uses === '' ? null : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: note || null };
+                const r = await fetch('/api/admin?action=codes-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
+                const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
+                st.textContent = 'Created ' + j.code.code + ' — copy it to the brand.'; document.getElementById('codeNote').value = '';
+                await loadBookingCodes();
+            } catch (e) { st.textContent = 'Could not create the code: ' + (e.message || e); }
+            finally { btn.disabled = false; }
+        }
+        async function deactivateBookingCode(id) {
+            if (!confirm('Turn this code off? Brands can no longer use it. Past bookings are not affected.')) return;
+            const st = document.getElementById('bookingCodesStatus');
+            try { const r = await fetch('/api/admin?action=codes-deactivate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ code_id: id }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); st.textContent = 'Code turned off.'; await loadBookingCodes(); }
+            catch (e) { st.textContent = 'Could not turn the code off: ' + (e.message || e); }
+        }
+        function copyBookingCode(code, btn) { navigator.clipboard.writeText(code).then(() => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); }).catch(() => {}); }
+
+        function loadSettings() { applySettingsToInputs(); loadBookingCodes();
             try { _renderPerLocationFeeds(); } catch(_){} }
 
 

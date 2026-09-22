@@ -399,6 +399,24 @@ export default async function handler(req, res) {
   //   * keys are MERGED under a version check, so a stale tab cannot replace the whole blob;
   //   * a slot change that would orphan an upcoming reservation is refused with the affected list;
   //   * "all current locations" is one atomic call; each venue keeps its own blackouts.
+  // Booking codes (0085): list / generate / deactivate for the session's retailer. The write-role gate above
+  // applies to the two writes; viewers may list. Codes are generated server-side, never chosen by the client.
+  if (['codes-list', 'codes-create', 'codes-deactivate'].includes(String(req.query?.action || ''))) {
+    const action = String(req.query.action); const rid = session.retailer_id;
+    const { listCodes, createCode, deactivateCode } = await import('./_booking-codes.js');
+    try {
+      if (action === 'codes-list') return send(res, 200, { ok: true, codes: await listCodes(sb, rid) });
+      if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
+      let body; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+      if (action === 'codes-create') {
+        const rr = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=slug`); const r = await createCode(sb, { retailerId: rid, retailerSlug: rr && rr[0] && rr[0].slug, body, createdBy: 'retailer', createdByEmail: session.email });
+        return send(res, r.status, r.ok ? { ok: true, code: r.code } : { error: r.error });
+      }
+      const r = await deactivateCode(sb, { retailerId: rid, codeId: String(body.code_id || '') });
+      return send(res, r.status, r.ok ? { ok: true, code: r.code } : { error: r.error });
+    } catch (e) { console.error('booking codes action failed:', e?.message || e); return send(res, 503, { error: 'codes_unavailable' }); }
+  }
+
   // The write-role gate above (owner/admin/manager) already applies. Bodies are validated here so a
   // malformed request never reaches Postgres as a type error.
   if (req.method === 'POST' && ['availability-set', 'availability-blackouts', 'availability-apply-all'].includes(String(req.query?.action || ''))) {

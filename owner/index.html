@@ -359,15 +359,24 @@ function renderGrowthChart(retailerSeries, brandSeries, widthPx) {
 // Mount (and on resize, re-mount) every growth chart at its container's true pixel width.
 // Series are stashed in window._ghSeries by the render paths; hover re-wires after each mount.
 window._ghSeries = window._ghSeries || {};
+// The viewBox is sized to the mount's REAL width, so the text is never stretched. A width of 0 means the
+// mount has not been laid out yet (first paint, hidden tab): render nothing and let the ResizeObserver
+// below re-render the moment it gets a size — and again on every later size change.
 function remountGrowthCharts() {
   document.querySelectorAll('[data-gh-mount]').forEach(function (el) {
     const s = window._ghSeries[el.dataset.ghMount];
     if (!s) return;
-    const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 700;
+    const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 0;
+    if (!w) { el.innerHTML = ''; observeGhMount(el); return; }
+    if (el.dataset.ghW === String(w) && el.firstElementChild) return;   // already rendered at this width
+    el.dataset.ghW = String(w);
     el.innerHTML = renderGrowthChart(s.rs, s.bs, w);
+    observeGhMount(el);
   });
   try { wireGhHover(); } catch (_) {}
 }
+const _ghRO = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(function () { remountGrowthCharts(); }) : null;
+function observeGhMount(el) { if (_ghRO && !el.dataset.ghObserved) { el.dataset.ghObserved = '1'; _ghRO.observe(el); } }
 let _ghResizeT = null;
 window.addEventListener('resize', function () {
   clearTimeout(_ghResizeT); _ghResizeT = setTimeout(remountGrowthCharts, 150);
@@ -617,6 +626,7 @@ function renderDashboard(d) {
     </div>
     <div class="owner-tabs">
       <button class="owner-tab active" data-tab="overview">Overview</button>
+      <button class="owner-tab" data-tab="retailers">Retailers</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
       <button class="owner-tab" data-tab="billing">Billing</button>
       <button class="owner-tab" data-tab="coi">COI Review</button>
@@ -630,6 +640,7 @@ function renderDashboard(d) {
       ${tablesHtml}
       ${watchlistHtml}
     </div>
+    <div class="tab-pane" data-pane="retailers" id="retailersPane"></div>
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
     <div class="tab-pane" data-pane="status" id="statusPane"></div>
@@ -658,6 +669,83 @@ function renderDashboard(d) {
   wireTabs();
 }
 
+// ---- Retailers tab (2026-09-22): a read-only mirror of each retailer's account, plus booking codes ----
+const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
+const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+const money = (n) => n == null ? '—' : '$' + Number(n).toFixed(2);
+const CODE_KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
+let _retailersCache = null;
+async function renderRetailersTab(selectedId) {
+  const pane = document.getElementById('retailersPane'); if (!pane) return;
+  if (!_retailersCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading retailers…</div></div>'; try { _retailersCache = (await ownerPost('owner-list-retailers')).retailers || []; } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load retailers</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
+  const list = _retailersCache.filter(r => r.slug !== '__owner__');
+  pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Click one to see its account as the retailer sees it.</div>'
+    + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody>'
+    + list.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong></td><td><a href="https://www.demohubhq.com/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" onclick="openRetailerProfile(' + JSON.stringify(r.id) + ')">Open</button></td></tr>').join('')
+    + '</tbody></table></div></div><div id="retailerProfile"></div>';
+  if (selectedId) openRetailerProfile(selectedId);
+}
+async function openRetailerProfile(id) {
+  const box = document.getElementById('retailerProfile'); if (!box) return;
+  box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let p; try { p = await ownerPost('owner-retailer-profile', { retailer_id: id }); } catch (e) { box.innerHTML = '<div class="card"><h2>Couldn\'t load this retailer</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
+  const r = p.retailer, st = p.settings || {};
+  const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
+  const yesno = (b) => b ? 'Yes' : 'No';
+  const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
+  const kv = [
+    row('Booking page', link(p.booking_url, p.booking_url.replace('https://www.', ''))), row('Admin page', link(p.admin_url, p.admin_url.replace('https://www.', ''))),
+    row('Billing email', escapeHtml(r.billing_email || '—')), row('Phone', escapeHtml(r.phone || '—')), row('Plan · status', escapeHtml((r.billing_tier || '—') + ' · ' + (r.billing_status || '—'))),
+    row('Joined', fmtD(r.created_at)), row('Verification', escapeHtml(r.verification_status || '—') + (r.verified_at ? ' · ' + fmtD(r.verified_at) : '')), row('Time zone', escapeHtml(r.timezone || '—')),
+    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', escapeHtml(st.demo_duration || '—')), row('Advance notice minimum', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
+    row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || '—')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
+    row('Monthly summary email', yesno(r.monthly_summary_enabled)), row('Support access allowed', yesno(r.allow_support_access)), row('Demo account', yesno(r.is_demo)),
+  ].join('');
+  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span style="color:var(--ink-500); font-size:0.78rem;">(inactive)</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td></tr>').join('');
+  const people = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.role || '') + '</td><td>Login</td></tr>').join('') + (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.email || c.name || '') + '</td><td>' + escapeHtml(c.role || '') + '</td><td>Store contact</td></tr>').join('');
+  const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + (b.fee_waived ? 'free (code)' : escapeHtml(b.payment_status || '')) + '</td></tr>').join('');
+  const brands = Object.entries(p.brands || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => '<tr><td>' + escapeHtml(n) + '</td><td class="num">' + c + '</td></tr>').join('');
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only, except booking codes.</div></div>'
+    + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
+    + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px;">'
+    + '<div><h3 style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px;">Account &amp; settings</h3><table class="simple"><tbody>' + kv + '</tbody></table>'
+    + (r.cancellation_policy ? '<div style="margin-top:12px; font-size:0.8rem; color:var(--ink-500);"><strong>Cancellation policy:</strong> ' + escapeHtml(String(r.cancellation_policy).slice(0, 400)) + '</div>' : '')
+    + (r.demo_policy ? '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500);"><strong>Demo policy:</strong> ' + escapeHtml(String(r.demo_policy).slice(0, 400)) + '</div>' : '') + '</div>'
+    + '<div><h3 style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px;">Locations (' + (p.venues || []).length + ')</h3><table class="simple"><thead><tr><th>Name</th><th>Address</th><th class="num">Fee</th><th class="num">Per slot</th></tr></thead><tbody>' + (venues || '<tr><td colspan="4">None</td></tr>') + '</tbody></table>'
+    + '<h3 style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:16px 0 6px;">People</h3><table class="simple"><tbody>' + (people || '<tr><td>None</td></tr>') + '</tbody></table></div>'
+    + '<div><h3 style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px;">Upcoming bookings</h3><table class="simple"><tbody>' + (up || '<tr><td>None</td></tr>') + '</tbody></table>'
+    + '<h3 style="font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:16px 0 6px;">Brands (recent bookings)</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
+    + '</div></div>'
+    + '<div class="card" id="ownerCodesCard"><h2>Booking codes</h2><div class="sub">Codes this retailer (or you) issued. A code waives the demo fee, lifts the advance-notice minimum, or both. Ones you add here show as "added by Demohub" in the retailer\'s admin.</div>'
+    + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">'
+    + '<select id="oCodeKind"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select>'
+    + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="">Unlimited until expiry</option></select>'
+    + '<input type="date" id="oCodeExpires" title="Expires (optional)"><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
+    + '<button class="btn-sm" onclick="ownerGenerateCode(' + JSON.stringify(r.id) + ')">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
+  renderOwnerCodes(r.id, p.codes || []);
+}
+function renderOwnerCodes(rid, codes) {
+  const el = document.getElementById('oCodesList'); if (!el) return;
+  if (!codes.length) { el.innerHTML = '<div class="sub">No codes yet.</div>'; return; }
+  el.innerHTML = '<div class="tablewrap"><table class="simple"><thead><tr><th>Code</th><th>Does</th><th class="num">Used</th><th>Expires</th><th>State</th><th>By</th><th>Redeemed by</th><th></th></tr></thead><tbody>' + codes.map(c => {
+    const used = c.use_count || 0, expired = c.expires_at && new Date(c.expires_at) <= new Date();
+    const state = !c.active ? 'off' : expired ? 'expired' : (c.max_uses != null && used >= c.max_uses) ? 'used up' : 'active';
+    return '<tr><td><code>' + escapeHtml(c.code) + '</code>' + (c.note ? '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(c.note) + '</div>' : '') + '</td><td>' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + '</td><td class="num">' + used + '/' + (c.max_uses == null ? '∞' : c.max_uses) + '</td><td>' + fmtD(c.expires_at) + '</td><td>' + state + '</td><td>' + (c.created_by === 'owner' ? 'Demohub' : 'Retailer') + '</td><td>' + (c.redemptions || []).map(x => escapeHtml(x.brand_name || 'Brand') + ' · ' + fmtD(x.redeemed_at)).join('<br>') + '</td><td class="num">' + (c.active ? '<button class="btn-sm" onclick="ownerDeactivateCode(' + JSON.stringify(rid) + ',' + JSON.stringify(c.id) + ')">Turn off</button>' : '') + '</td></tr>';
+  }).join('') + '</tbody></table></div>';
+}
+async function ownerGenerateCode(rid) {
+  const st = document.getElementById('oCodesStatus'); st.textContent = 'Generating…';
+  const uses = document.getElementById('oCodeUses').value, exp = document.getElementById('oCodeExpires').value;
+  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === '' ? null : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: document.getElementById('oCodeNote').value || null });
+    st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
+  catch (e) { st.textContent = 'Could not create the code: ' + e.message; }
+}
+async function ownerDeactivateCode(rid, id) {
+  if (!confirm('Turn this code off?')) return; const st = document.getElementById('oCodesStatus');
+  try { await ownerPost('owner-codes-deactivate', { retailer_id: rid, code_id: id }); st.textContent = 'Code turned off.'; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
+  catch (e) { st.textContent = 'Could not turn the code off: ' + e.message; }
+}
+
 // Tab switching + lazy-render analytics/billing
 function wireTabs() {
   document.querySelectorAll('.owner-tab').forEach(btn => {
@@ -666,6 +754,7 @@ function wireTabs() {
       document.querySelectorAll('.owner-tab').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
       if (tab === 'analytics') renderAnalytics('30d');
+      if (tab === 'retailers') renderRetailersTab();
       if (tab === 'billing') renderBilling();
       if (tab === 'status') renderStatusManager();
       if (tab === 'coi') loadCoiQueue();
