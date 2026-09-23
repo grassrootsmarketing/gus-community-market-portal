@@ -8,10 +8,14 @@ export function normalizeCode(s) { const c = String(s || '').trim().toUpperCase(
 
 // Unambiguous alphabet (no 0/O/1/I) for the random part.
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Codex BC-5: eight uniformly drawn symbols (40 bits) — rejection sampling, no modulo bias. Codex BC-4: a prefix
+// shorter than two characters is padded so every generated code satisfies CODE_RE and the database constraint.
+export const RANDOM_LEN = 8;
 export function generateCode(retailerSlug, kind) {
-  const prefix = String(retailerSlug || 'DH').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'DH';
+  let prefix = String(retailerSlug || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  if (prefix.length < 2) prefix = ('DH' + prefix).slice(0, 4);
   const mid = kind === 'both' ? 'VIP' : kind === 'fee' ? 'FREE' : 'SOON';
-  const b = randomBytes(4); let rnd = ''; for (let i = 0; i < 4; i++) rnd += ALPHABET[b[i] % ALPHABET.length];
+  let rnd = ''; while (rnd.length < RANDOM_LEN) { const b = randomBytes(16); for (const x of b) { if (x < 224 && rnd.length < RANDOM_LEN) rnd += ALPHABET[x % 32]; } }
   return `${prefix}-${mid}-${rnd}`;
 }
 export function kindOf({ waives_fee, waives_lead_time }) { return waives_fee && waives_lead_time ? 'both' : waives_fee ? 'fee' : waives_lead_time ? 'lead_time' : null; }
@@ -23,6 +27,8 @@ export function kindFlags(kind) {
 }
 export const KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
 export const CODE_MESSAGES = {
+  too_many_attempts: 'Too many code attempts. Wait a few minutes and try again.',
+  code_unavailable: 'Codes cannot be checked right now. You can still book at the normal price.',
   code_not_found: 'That code is not valid for this store.',
   code_inactive: 'That code has been turned off.',
   code_expired: 'That code has expired.',
@@ -36,9 +42,12 @@ export const CODE_MESSAGES = {
 // Validates the retailer/owner "create code" request body. Returns { ok, error } or { ok, row }.
 export function validateCreate(body) {
   const flags = kindFlags(body.kind); if (!flags) return { ok: false, error: 'invalid_kind' };
-  let max_uses = null;
-  if (body.max_uses !== undefined && body.max_uses !== null && body.max_uses !== '') {
-    const n = Number(body.max_uses); if (!Number.isInteger(n) || n < 1 || n > 1000) return { ok: false, error: 'invalid_max_uses' }; max_uses = n;
+  // Codex BC-4: single use is the default. Unlimited is only the explicit string 'unlimited'; an omitted value is 1;
+  // an empty string, null, a boolean or anything non-integer is refused rather than read as "no limit".
+  let max_uses = 1;
+  if (body.max_uses !== undefined) {
+    if (body.max_uses === 'unlimited') max_uses = null;
+    else { const n = (typeof body.max_uses === 'number' || (typeof body.max_uses === 'string' && /^\d+$/.test(body.max_uses))) ? Number(body.max_uses) : NaN; if (!Number.isInteger(n) || n < 1 || n > 1000) return { ok: false, error: 'invalid_max_uses' }; max_uses = n; }
   }
   let expires_at = null;
   if (body.expires_at) { const d = new Date(body.expires_at); if (Number.isNaN(d.getTime()) || d.getTime() <= Date.now()) return { ok: false, error: 'invalid_expiry' }; expires_at = d.toISOString(); }
@@ -69,4 +78,19 @@ export async function createCode(sb, { retailerId, retailerSlug, body, createdBy
 export async function deactivateCode(sb, { retailerId, codeId }) {
   const rows = await sb(`booking_codes?id=eq.${encodeURIComponent(codeId)}&retailer_id=eq.${encodeURIComponent(retailerId)}&active=eq.true`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ active: false, deactivated_at: new Date().toISOString() }) });
   return Array.isArray(rows) && rows[0] ? { ok: true, status: 200, code: { ...rows[0], kind: kindOf(rows[0]) } } : { ok: false, status: 404, error: 'code_not_found' };
+}
+
+// Codex BC-5: shared, atomic attempt limiter (database-backed, so it holds across serverless instances). Covers
+// the preview route AND code-bearing booking. Fails CLOSED for code application: if the limiter cannot be reached
+// the code is refused (ordinary no-code checkout is unaffected). Returns null when allowed, else a response spec.
+import { createHash } from 'node:crypto';
+export function netHash(req) {
+  const ip = String((req.headers && (req.headers['x-forwarded-for'] || req.headers['x-real-ip'])) || '').split(',')[0].trim();
+  return ip ? createHash('sha256').update('dh-code-limiter:' + ip).digest('hex').slice(0, 32) : null;   // never the raw address
+}
+export async function checkAttemptLimit(rpc, { brandId, retailerId, netHash: nh }) {
+  let r; try { r = await rpc('booking_code_attempt', { p_brand_id: brandId, p_retailer_id: retailerId, p_net_hash: nh }); } catch (_) { return { status: 503, body: { error: 'code_unavailable', message: CODE_MESSAGES.code_unavailable } }; }
+  if (!r || typeof r.allowed !== 'boolean') return { status: 503, body: { error: 'code_unavailable', message: CODE_MESSAGES.code_unavailable } };
+  if (!r.allowed) return { status: 429, body: { error: 'too_many_attempts', message: CODE_MESSAGES.too_many_attempts, retry_after_seconds: r.retry_after_seconds } };
+  return null;
 }

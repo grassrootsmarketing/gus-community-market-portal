@@ -6,9 +6,10 @@ import { coiCovered } from './_coi-coverage.js';
 import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
-import { parseYmd, parseDemoTime, localDateOf, shiftYmd, ymdString, safeZone } from './_local-time.js';
+import { parseYmd, parseDemoTime, localDateOf, shiftYmd, ymdString, safeZone, demoStartUtc } from './_local-time.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } from './_slots.js';
-import { normalizeCode, CODE_MESSAGES } from './_booking-codes.js';
+import { normalizeCode, CODE_MESSAGES, checkAttemptLimit, netHash } from './_booking-codes.js';
+import { createHash } from 'node:crypto';
 let _b = null;
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
@@ -62,24 +63,47 @@ export default async function handler(req, res) {
 
   // 2b) Booking code (0085): previewed here so a bad code is refused before anything is written, and so a
   // short-notice code can lift the lead-time rule below. Redeemed (counted) only after the booking row exists.
-  let codeInfo = null;
+  let codeInfo = null, prior = null;
   if (body.booking_code !== undefined && body.booking_code !== null && String(body.booking_code).trim() !== '') {
     const norm = normalizeCode(body.booking_code);
     if (!norm) return res.status(400).json({ error: 'code_invalid_format', message: CODE_MESSAGES.code_invalid_format });
+    // Codex BC-3: a code-bearing request carries a durable operation key the client re-sends on retry.
+    if (!/^[A-Za-z0-9_-]{16,80}$/.test(String(body.op_key || ''))) return res.status(400).json({ error: 'op_key_required', message: 'Please reload the page and try again.' });
+    // A completed operation under this key is replayed BEFORE the code is re-checked (it may be exhausted by this
+    // very booking) and before the limiter (a retry is not a new attempt).
+    prior = await one(`booking_operations?op_key=eq.${encodeURIComponent(String(body.op_key))}&brand_id=eq.${encodeURIComponent(auth.brandId)}&select=result,fingerprint`);
+    if (prior && prior.result && prior.result.booking_id) { codeInfo = { code: norm, waives_fee: !!prior.result.fee_waived, waives_lead_time: !!prior.result.waived_lead_time, replayOf: prior }; }
+    else {
+    // Codex BC-5: shared attempt limiter (fails closed for code application only).
+    const limited = await checkAttemptLimit(rpc, { brandId: auth.brandId, retailerId: retailer.id, netHash: netHash(req) });
+    if (limited) { if (limited.status === 429) res.setHeader('Retry-After', String(limited.body.retry_after_seconds || 60)); return res.status(limited.status).json(limited.body); }
     const chk = await rpc('booking_code_check', { p_code: norm, p_retailer_id: retailer.id });
     if (!chk || !chk.ok) return res.status(400).json({ error: (chk && chk.reason) || 'code_not_found', message: CODE_MESSAGES[(chk && chk.reason) || 'code_not_found'] });
     codeInfo = { code: norm, waives_fee: !!chk.waives_fee, waives_lead_time: !!chk.waives_lead_time };
+    }
   }
 
   // 2c) Advance-booking minimum (0085): settings.advance_booking_days, counted in retailer-local calendar days.
   // Before today is never allowed; inside the minimum is allowed only with a short-notice code.
-  const settings = await one(`settings?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=advance_booking_days`);
+  // Codex BC-6, one policy, retailer-local, one captured clock: the store's minimum applies; a short-notice code
+  // RELAXES a positive minimum to tomorrow and never tightens a store that already allows sooner; nothing before
+  // today; a same-day slot that has already started is refused by its canonical start instant. A settings read
+  // failure is "unavailable", never silently a different policy.
+  const sr = await rest(`settings?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=advance_booking_days`);
+  if (!sr.ok) return res.status(503).json({ error: 'settings_unavailable', message: 'Could not read this store\'s booking rules. Try again in a moment.' });
+  const settings = (await sr.json())[0];
   const advanceDays = settings && Number.isInteger(settings.advance_booking_days) ? settings.advance_booking_days : 14;
-  const todayYmd = earliestBookableYmd(new Date(), retailer.timezone, 0);
-  const earliestYmd = earliestBookableYmd(new Date(), retailer.timezone, advanceDays);
+  const nowClock = new Date();
+  const todayYmd = earliestBookableYmd(nowClock, retailer.timezone, 0);
+  const effectiveDays = (codeInfo && codeInfo.waives_lead_time) ? Math.min(advanceDays, 1) : advanceDays;
+  const earliestYmd = earliestBookableYmd(nowClock, retailer.timezone, effectiveDays);
   if (String(body.demo_date) < todayYmd) return res.status(400).json({ error: 'date_in_past', message: 'That date has already passed.' });
-  if (String(body.demo_date) < earliestYmd && !(codeInfo && codeInfo.waives_lead_time)) {
-    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice — the earliest date is ${earliestYmd}. A short-notice code from the store lifts this.`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
+  if (String(body.demo_date) < earliestYmd) {
+    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice — the earliest date is ${earliestYmd}.${(codeInfo && codeInfo.waives_lead_time) ? '' : ' A short-notice code from the store lifts this.'}`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
+  }
+  if (String(body.demo_date) === todayYmd) {
+    const startAt = demoStartUtc(String(body.demo_date), slot.time, retailer.timezone);
+    if (!startAt || startAt.getTime() <= nowClock.getTime()) return res.status(400).json({ error: 'slot_started', message: 'That time has already started today. Pick a later slot.' });
   }
 
   // 3) COI must be VERIFIED for the authenticated brand
@@ -109,6 +133,27 @@ export default async function handler(req, res) {
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
     payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
+  // Codex BC-3: with a code, creation + redemption are ONE database transaction keyed by op_key: a lost response is
+  // recovered by replaying the same key; a refused code leaves no booking; nothing is ever deleted to "recover".
+  if (codeInfo) {
+    const fingerprint0 = createHash('sha256').update(JSON.stringify({ v: payload.venue_id, d: payload.demo_date, t: payload.demo_time, c: codeInfo.code, p: payload.product || null, s: payload.product_skus || null, n: payload.notes || null, e: payload.needs_electricity })).digest('hex').slice(0, 40);
+    const fingerprint = fingerprint0;
+    // Codex BC-3: a completed operation replays ONLY for the identical payload; the same key with a different
+    // payload is refused. (Checked here, once the payload exists; the code was not re-checked or counted above.)
+    if (codeInfo.replayOf) { const j = codeInfo.replayOf.result; if (codeInfo.replayOf.fingerprint !== fingerprint) return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' }); return res.status(200).json({ ok: true, booking_id: j.booking_id, next: j.fee_waived ? 'awaiting_confirmation' : 'checkout', fee_waived: !!j.fee_waived, target_status: j.target_status || null, code_applied: codeInfo.code, replay: true }); }
+    const rr = await rest('rpc/booking_create_with_code', { method: 'POST', body: JSON.stringify({ p_op_key: String(body.op_key), p_fingerprint: fingerprint, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_payload: payload, p_code: codeInfo.code }) });
+    const text = await rr.text(); let j = null; try { j = JSON.parse(text); } catch (_) {}
+    if (!rr.ok) {
+      const m = /code_rejected:([a-z_]+)/.exec(text); if (m) return res.status(m[1] === 'code_used_up' ? 409 : 400).json({ error: m[1], message: CODE_MESSAGES[m[1]] || 'That code could not be applied.' });
+      if (/op_key_reused/.test(text)) return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' });
+      if (text.includes('slot_full')) return res.status(409).json({ error: 'slot_full' });
+      const dbRefusal = slotRefusalFromDbError(text); if (dbRefusal) return res.status(409).json({ error: dbRefusal, message: SLOT_REFUSAL_MESSAGES[dbRefusal] });
+      // Unknown outcome (timeout, 5xx): the transaction either committed or rolled back as a whole; the client
+      // retries with the SAME op_key and gets the truthful answer. Say so instead of guessing.
+      return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry — your request will not be duplicated.', retry_with_same_key: true });
+    }
+    return res.status(200).json({ ok: true, booking_id: j.booking_id, next: j.fee_waived ? 'awaiting_confirmation' : 'checkout', fee_waived: !!j.fee_waived, target_status: j.target_status || null, code_applied: codeInfo.code, replay: !!j.replay });
+  }
   let r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
   if (!r.ok) {
     let t = await r.text();
@@ -145,21 +190,5 @@ export default async function handler(req, res) {
   }
   const booking = (await r.json())[0];
 
-  // 5) Redeem the code against the row that now exists (one transaction under the code's lock). A race for the
-  // last use is refused here; the just-created, unpaid booking is then withdrawn so nothing dangles.
-  if (codeInfo) {
-    let red = null;
-    try { red = await rpc('booking_code_redeem', { p_code: codeInfo.code, p_retailer_id: retailer.id, p_booking_id: booking.id, p_brand_id: auth.brandId }); } catch (e) { console.error('booking_code_redeem failed', e.message); }
-    if (!red || !red.ok) {
-      await rest(`bookings?id=eq.${encodeURIComponent(booking.id)}&status=eq.${provisional ? 'held' : 'pending_payment'}&payment_status=eq.unpaid`, { method: 'DELETE' });
-      const reason = (red && red.reason) || 'code_not_found';
-      return res.status(409).json({ error: reason, message: CODE_MESSAGES[reason] || 'That code could not be applied.' });
-    }
-    // A fee waiver is only meaningful for a pending_payment booking; a provisional (held) booking has no fee to
-    // waive yet, and the redeem RPC refuses it as booking_not_redeemable. That path is closed at 2b: a code with
-    // waives_fee is not accepted for a brand without a verified COI.
-    if (red.waived_fee) return res.status(200).json({ ok: true, booking_id: booking.id, next: 'confirmed', fee_waived: true, target_status: red.target_status, code_applied: codeInfo.code });
-    return res.status(200).json({ ok: true, booking_id: booking.id, next: 'checkout', fee_waived: false, code_applied: codeInfo.code });
-  }
   return res.status(200).json({ ok: true, booking_id: booking.id, next: 'checkout' });
 }

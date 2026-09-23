@@ -681,8 +681,11 @@ async function renderRetailersTab(selectedId) {
   const list = _retailersCache.filter(r => r.slug !== '__owner__');
   pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Click one to see its account as the retailer sees it.</div>'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody>'
-    + list.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong></td><td><a href="https://www.demohubhq.com/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" onclick="openRetailerProfile(' + JSON.stringify(r.id) + ')">Open</button></td></tr>').join('')
+    + list.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong></td><td><a href="https://www.demohubhq.com/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button></td></tr>').join('')
     + '</tbody></table></div></div><div id="retailerProfile"></div>';
+  // Codex BC-1: delegated listeners with data attributes — never handlers built by string interpolation.
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; const rid = b.dataset.rid;
+    if (b.dataset.act === 'open') openRetailerProfile(rid); else if (b.dataset.act === 'gen') ownerGenerateCode(rid); else if (b.dataset.act === 'off') ownerDeactivateCode(rid, b.dataset.cid); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
 async function openRetailerProfile(id) {
@@ -719,9 +722,9 @@ async function openRetailerProfile(id) {
     + '<div class="card" id="ownerCodesCard"><h2>Booking codes</h2><div class="sub">Codes this retailer (or you) issued. A code waives the demo fee, lifts the advance-notice minimum, or both. Ones you add here show as "added by Demohub" in the retailer\'s admin.</div>'
     + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">'
     + '<select id="oCodeKind"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select>'
-    + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="">Unlimited until expiry</option></select>'
+    + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select>'
     + '<input type="date" id="oCodeExpires" title="Expires (optional)"><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
-    + '<button class="btn-sm" onclick="ownerGenerateCode(' + JSON.stringify(r.id) + ')">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
+    + '<button class="btn-sm" data-act="gen" data-rid="' + escapeHtml(r.id) + '">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
   renderOwnerCodes(r.id, p.codes || []);
 }
 function renderOwnerCodes(rid, codes) {
@@ -730,13 +733,13 @@ function renderOwnerCodes(rid, codes) {
   el.innerHTML = '<div class="tablewrap"><table class="simple"><thead><tr><th>Code</th><th>Does</th><th class="num">Used</th><th>Expires</th><th>State</th><th>By</th><th>Redeemed by</th><th></th></tr></thead><tbody>' + codes.map(c => {
     const used = c.use_count || 0, expired = c.expires_at && new Date(c.expires_at) <= new Date();
     const state = !c.active ? 'off' : expired ? 'expired' : (c.max_uses != null && used >= c.max_uses) ? 'used up' : 'active';
-    return '<tr><td><code>' + escapeHtml(c.code) + '</code>' + (c.note ? '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(c.note) + '</div>' : '') + '</td><td>' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + '</td><td class="num">' + used + '/' + (c.max_uses == null ? '∞' : c.max_uses) + '</td><td>' + fmtD(c.expires_at) + '</td><td>' + state + '</td><td>' + (c.created_by === 'owner' ? 'Demohub' : 'Retailer') + '</td><td>' + (c.redemptions || []).map(x => escapeHtml(x.brand_name || 'Brand') + ' · ' + fmtD(x.redeemed_at)).join('<br>') + '</td><td class="num">' + (c.active ? '<button class="btn-sm" onclick="ownerDeactivateCode(' + JSON.stringify(rid) + ',' + JSON.stringify(c.id) + ')">Turn off</button>' : '') + '</td></tr>';
+    return '<tr><td><code>' + escapeHtml(c.code) + '</code>' + (c.note ? '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(c.note) + '</div>' : '') + '</td><td>' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + '</td><td class="num">' + used + '/' + (c.max_uses == null ? '∞' : c.max_uses) + '</td><td>' + fmtD(c.expires_at) + '</td><td>' + state + '</td><td>' + (c.created_by === 'owner' ? 'Demohub' : 'Retailer') + '</td><td>' + (c.redemptions || []).map(x => escapeHtml(x.brand_name || 'Brand') + ' · ' + fmtD(x.redeemed_at)).join('<br>') + '</td><td class="num">' + (c.active ? '<button class="btn-sm" data-act="off" data-rid="' + escapeHtml(rid) + '" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '') + '</td></tr>';
   }).join('') + '</tbody></table></div>';
 }
 async function ownerGenerateCode(rid) {
   const st = document.getElementById('oCodesStatus'); st.textContent = 'Generating…';
   const uses = document.getElementById('oCodeUses').value, exp = document.getElementById('oCodeExpires').value;
-  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === '' ? null : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: document.getElementById('oCodeNote').value || null });
+  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: document.getElementById('oCodeNote').value || null });
     st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
   catch (e) { st.textContent = 'Could not create the code: ' + e.message; }
 }

@@ -1086,7 +1086,7 @@
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeKind">What it does</label>
                                     <select id="codeKind" class="form-input"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeUses">Uses</label>
-                                    <select id="codeUses" class="form-input"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="">Unlimited until expiry</option></select></div>
+                                    <select id="codeUses" class="form-input"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires (optional)</label><input type="date" id="codeExpires" class="form-input"></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeNote">Note (optional)</label><input type="text" id="codeNote" class="form-input" maxlength="200" placeholder="e.g. First demo for Acme Snacks"></div>
                             </div>
@@ -5429,13 +5429,15 @@ END:VEVENT
                 const reds = (c.redemptions || []).map(r => '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(r.brand_name || 'Brand') + ' · ' + fmtCodeDate(r.redeemed_at) + (r.waived_fee ? ' · fee waived' : '') + (r.waived_lead_time ? ' · short notice' : '') + '</div>').join('');
                 return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:10px 12px; background:#f9f7f2; border-radius:10px; margin-bottom:8px;">'
                     + '<div style="min-width:0;"><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><code style="font-size:0.95rem; font-weight:700; letter-spacing:0.04em; color:var(--forest-900);">' + escapeHtml(c.code) + '</code>'
-                    + '<button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:0.72rem;" onclick="copyBookingCode(' + JSON.stringify(c.code) + ', this)">Copy</button>'
+                    + '<button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:0.72rem;" data-act="copy" data-code="' + escapeHtml(c.code) + '">Copy</button>'
                     + '<span style="font-size:0.72rem; font-weight:700; color:' + stateColor + ';">' + state + '</span></div>'
                     + '<div style="font-size:0.8rem; color:var(--ink-700, #3a3a36); margin-top:3px;">' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + ' · ' + used + '/' + limit + ' used' + (c.expires_at ? ' · expires ' + fmtCodeDate(c.expires_at) : '') + (c.created_by === 'owner' ? ' · added by Demohub' : '') + '</div>'
                     + (c.note ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">' + escapeHtml(c.note) + '</div>' : '') + reds + '</div>'
-                    + (c.active ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; flex-shrink:0;" onclick="deactivateBookingCode(' + JSON.stringify(c.id) + ')">Turn off</button>' : '')
+                    + (c.active ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; flex-shrink:0;" data-act="off" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '')
                     + '</div>';
             }).join('');
+            // Codex BC-1: delegated listener + data attributes (no string-built handlers)
+            if (!el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'copy') copyBookingCode(b.dataset.code, b); else if (b.dataset.act === 'off') deactivateBookingCode(b.dataset.cid); }); }
         }
         async function loadBookingCodes() {
             const st = document.getElementById('bookingCodesStatus'); if (!document.getElementById('bookingCodesList')) return;
@@ -5447,7 +5449,7 @@ END:VEVENT
             const kind = document.getElementById('codeKind').value, uses = document.getElementById('codeUses').value, exp = document.getElementById('codeExpires').value, note = document.getElementById('codeNote').value;
             btn.disabled = true; st.textContent = 'Generating…';
             try {
-                const body = { kind, max_uses: uses === '' ? null : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: note || null };
+                const body = { kind, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: note || null };
                 const r = await fetch('/api/admin?action=codes-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
                 const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
                 st.textContent = 'Created ' + j.code.code + ' — copy it to the brand.'; document.getElementById('codeNote').value = '';

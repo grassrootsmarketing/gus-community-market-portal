@@ -143,6 +143,97 @@ END $$;
 DROP TRIGGER IF EXISTS pa_refuse_fee_waived ON payment_allocations;
 CREATE TRIGGER pa_refuse_fee_waived BEFORE INSERT ON payment_allocations FOR EACH ROW EXECUTE FUNCTION _pa_refuse_fee_waived();
 
+-- ---------------------------------------------------------------------------------------------
+-- Codex review 2026-09-22 (BC-3, BC-4, BC-5): single-use is the database default; one transactional
+-- create-and-redeem operation with a durable idempotency key; a shared, atomic attempt limiter.
+-- ---------------------------------------------------------------------------------------------
+ALTER TABLE booking_codes ALTER COLUMN max_uses SET DEFAULT 1;
+
+-- Durable identity for a code-bearing booking request. The client mints one key per cart item and
+-- re-sends it on retry; the same key + same fingerprint replays the original result, a different
+-- fingerprint under the same key is refused. Rows are small and kept (audit).
+CREATE TABLE IF NOT EXISTS booking_operations (
+  op_key       text PRIMARY KEY,
+  brand_id     uuid NOT NULL REFERENCES brands(id) ON DELETE CASCADE,
+  fingerprint  text NOT NULL,
+  booking_id   uuid REFERENCES bookings(id) ON DELETE SET NULL,
+  result       jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT booking_operations_key_shape CHECK (op_key ~ '^[A-Za-z0-9_-]{16,80}$')
+);
+ALTER TABLE booking_operations ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON booking_operations FROM public, anon, authenticated;
+
+-- Attempt limiter for code preview + code-bearing booking. Counted per (brand, retailer) and per
+-- network hash in a rolling window; atomic because the count and the insert happen in one statement
+-- under the row locks of the window's rows. Old rows are pruned opportunistically.
+CREATE TABLE IF NOT EXISTS booking_code_attempts (
+  id          bigserial PRIMARY KEY,
+  brand_id    uuid,
+  retailer_id uuid,
+  net_hash    text,
+  at          timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS booking_code_attempts_brand_idx ON booking_code_attempts (brand_id, retailer_id, at DESC);
+CREATE INDEX IF NOT EXISTS booking_code_attempts_net_idx ON booking_code_attempts (net_hash, at DESC);
+ALTER TABLE booking_code_attempts ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON booking_code_attempts FROM public, anon, authenticated;
+
+-- Thresholds (documented in docs/booking-codes.md): 12 attempts per brand+retailer per 15 minutes,
+-- 40 per network hash per 15 minutes. A successful application also counts as an attempt.
+CREATE OR REPLACE FUNCTION booking_code_attempt(p_brand_id uuid, p_retailer_id uuid, p_net_hash text)
+RETURNS TABLE (allowed boolean, retry_after_seconds integer, brand_attempts integer, net_attempts integer)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_b int; v_n int; v_win interval := interval '15 minutes'; v_oldest timestamptz;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('booking_code_attempt:' || coalesce(p_brand_id::text, '') || ':' || coalesce(p_retailer_id::text, '')));
+  DELETE FROM booking_code_attempts WHERE at < now() - interval '1 day' AND random() < 0.05;
+  SELECT count(*), min(at) INTO v_b, v_oldest FROM booking_code_attempts WHERE brand_id = p_brand_id AND retailer_id = p_retailer_id AND at >= now() - v_win;
+  SELECT count(*) INTO v_n FROM booking_code_attempts WHERE p_net_hash IS NOT NULL AND net_hash = p_net_hash AND at >= now() - v_win;
+  IF v_b >= 12 OR v_n >= 40 THEN
+    RETURN QUERY SELECT false, greatest(30, extract(epoch FROM (coalesce(v_oldest, now()) + v_win - now()))::int), v_b, v_n; RETURN;
+  END IF;
+  INSERT INTO booking_code_attempts (brand_id, retailer_id, net_hash) VALUES (p_brand_id, p_retailer_id, p_net_hash);
+  RETURN QUERY SELECT true, 0, v_b + 1, v_n + 1;
+END $$;
+REVOKE ALL ON FUNCTION booking_code_attempt(uuid, uuid, text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION booking_code_attempt(uuid, uuid, text) TO service_role;
+
+-- One transaction: idempotency row -> booking insert (every existing trigger runs: slot resolution,
+-- capacity, blackouts) -> redemption under the code lock -> result recorded. Any refusal raises, so
+-- NOTHING partial survives: no booking without its code, no redemption without its booking. A lost
+-- HTTP response is recovered by replaying the key.
+CREATE OR REPLACE FUNCTION booking_create_with_code(p_op_key text, p_fingerprint text, p_brand_id uuid, p_retailer_id uuid, p_payload jsonb, p_code text)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE v_op booking_operations%ROWTYPE; v_b bookings%ROWTYPE; v_r record; v_res jsonb;
+BEGIN
+  INSERT INTO booking_operations (op_key, brand_id, fingerprint) VALUES (p_op_key, p_brand_id, p_fingerprint) ON CONFLICT (op_key) DO NOTHING;
+  SELECT * INTO v_op FROM booking_operations WHERE op_key = p_op_key FOR UPDATE;     -- waits for a concurrent twin to commit
+  IF v_op.brand_id <> p_brand_id OR v_op.fingerprint <> p_fingerprint THEN RAISE EXCEPTION 'op_key_reused' USING errcode = 'check_violation'; END IF;
+  IF v_op.result IS NOT NULL THEN RETURN v_op.result || jsonb_build_object('replay', true); END IF;
+
+  -- pre-check so an obviously bad code never reserves capacity (the redeem below re-checks under lock)
+  SELECT * INTO v_r FROM booking_code_check(p_code, p_retailer_id);
+  IF NOT v_r.ok THEN RAISE EXCEPTION 'code_rejected:%', v_r.reason USING errcode = 'check_violation'; END IF;
+
+  INSERT INTO bookings (retailer_id, venue_id, brand_id, brand_name, contact_name, contact_email, contact_phone, demo_date, demo_time, duration_hours,
+                        product, notes, product_skus, needs_electricity, status, held_expires_at, payment_status, amount_paid)
+  VALUES (p_retailer_id, (p_payload->>'venue_id')::uuid, p_brand_id, p_payload->>'brand_name', p_payload->>'contact_name', p_payload->>'contact_email', p_payload->>'contact_phone',
+          (p_payload->>'demo_date')::date, p_payload->>'demo_time', (p_payload->>'duration_hours')::numeric,
+          p_payload->>'product', p_payload->>'notes', p_payload->'product_skus', (p_payload->>'needs_electricity')::boolean, p_payload->>'status',
+          (p_payload->>'held_expires_at')::timestamptz, coalesce(p_payload->>'payment_status', 'unpaid'), coalesce((p_payload->>'amount_paid')::int, 0))
+  RETURNING * INTO v_b;
+
+  SELECT * INTO v_r FROM booking_code_redeem(p_code, p_retailer_id, v_b.id, p_brand_id);
+  IF NOT v_r.ok THEN RAISE EXCEPTION 'code_rejected:%', v_r.reason USING errcode = 'check_violation'; END IF;
+
+  v_res := jsonb_build_object('ok', true, 'booking_id', v_b.id, 'fee_waived', v_r.waived_fee, 'waived_lead_time', v_r.waived_lead_time, 'target_status', v_r.target_status, 'code_id', v_r.code_id);
+  UPDATE booking_operations SET booking_id = v_b.id, result = v_res WHERE op_key = p_op_key;
+  RETURN v_res || jsonb_build_object('replay', false);
+END $$;
+REVOKE ALL ON FUNCTION booking_create_with_code(text, text, uuid, uuid, jsonb, text) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION booking_create_with_code(text, text, uuid, uuid, jsonb, text) TO service_role;
+
 -- post-conditions
 DO $$
 DECLARE n int;
@@ -150,7 +241,7 @@ BEGIN
   SELECT count(*) INTO n FROM information_schema.columns WHERE table_name = 'bookings' AND column_name IN ('booking_code_id', 'fee_waived');
   IF n <> 2 THEN RAISE EXCEPTION 'POST-CONDITION FAILED: bookings columns missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'pa_refuse_fee_waived') THEN RAISE EXCEPTION 'POST-CONDITION FAILED: trigger missing'; END IF;
-  SELECT count(*) INTO n FROM pg_policies WHERE tablename IN ('booking_codes', 'booking_code_redemptions');
+  SELECT count(*) INTO n FROM pg_policies WHERE tablename IN ('booking_codes', 'booking_code_redemptions', 'booking_operations', 'booking_code_attempts');
   IF n <> 0 THEN RAISE EXCEPTION 'POST-CONDITION FAILED: unexpected policies on booking code tables'; END IF;
 END $$;
 

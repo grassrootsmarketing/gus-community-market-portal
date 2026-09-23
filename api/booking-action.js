@@ -393,6 +393,11 @@ export default async function handler(req, res) {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     // Provisional holds: a 'held' booking (auth placed, not captured) can be confirmed (captures
     // the payment — COI must be approved first), declined, or cancelled (releases the hold, $0).
+    // Booking codes (0085, Codex BC-7): a fee-waived booking sits in pending_payment for the seconds until the
+    // fulfilment worker promotes it. Its outcome here is DEFINED and truthful: not cancellable yet, retry shortly.
+    if (booking.fee_waived === true && booking.status === 'pending_payment') {
+      return res.status(409).json({ error: 'awaiting_confirmation', message: 'This free booking is still being confirmed (usually under a minute). Try again shortly.' });
+    }
     if (action === 'cancel') {
       if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
@@ -420,7 +425,9 @@ export default async function handler(req, res) {
     }
     let demoFee = null;
     if (action === 'confirm') {
-      const fee = demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null);
+      // Booking codes (0085, Codex BC-7): a fee-waived booking projects a $0 demo — never the venue list price and
+      // never a typed override (there is nothing to charge).
+      const fee = booking.fee_waived === true ? 0 : (demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null));
       if (fee == null || !Number.isFinite(fee) || fee < 0) {
         return res.status(400).json({ error: 'venue_missing_fee', message: demo_fee != null ? 'The demo fee override is not a valid amount. Nothing was changed and nothing was charged.' : 'This venue has no demo fee configured. Set one in the admin before confirming this booking. Nothing was charged.' });
       }

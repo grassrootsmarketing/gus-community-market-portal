@@ -52,7 +52,7 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
     ctx.booking_id = bookingId;
     let superseded = false, advanced = false;
     if (row.target_status !== 'held') {
-      const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: ctx.retailer_id, p_action: 'promote_paid', p_fields: { status: row.target_status || 'pending' }, p_demo_fee: null });
+      const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: ctx.retailer_id, p_action: 'promote_paid', p_fields: { status: row.target_status || 'pending' }, p_demo_fee: ctx.fee_waived === true ? 0 : null });   // a waived booking projects a $0 demo, never the venue's list fee
       const tr = Array.isArray(rows) ? rows[0] : rows;
       if (!tr) throw new Error('promote_no_result');
       if (tr.ok !== true) {

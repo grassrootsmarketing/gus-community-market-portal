@@ -1376,14 +1376,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const today = new Date();
             // Booking codes (0085): the minimum is the store's setting (server-enforced in /api/book), not a
             // hard-coded 14; a short-notice code lifts it to tomorrow. Dates before today are never offered.
-            const minDate = new Date(today); minDate.setHours(0, 0, 0, 0); minDate.setDate(minDate.getDate() + bookingLeadDays());
+            const minYmd = (window._bookingCode && window._bookingCode.waives_lead_time && !window._bookingCode.itemId) ? codeEarliestYmd() : storeEarliestYmd();
             const venue = getCurrentVenue();
             // If we have venues loaded but not for this location yet, treat unknown as "all days open" (no over-filtering)
             for (let i = 0; i < firstDay; i++) html += '<div class="calendar-day empty"></div>';
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dow = date.getDay();
-                let disabled = date < minDate;
+                let disabled = dateToYmd(date) < minYmd;
                 // Release B: a blacked-out date is shown as such; a day with no open windows, or whose
                 // windows fit none of the configured slots, is simply unavailable.
                 let blackout = false;
@@ -1537,7 +1537,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 return;
             }
             
+            // Codex BC-6/BC-2: a date inside the store's notice window is only allowed for the ONE item the
+            // short-notice code is assigned to. Anything before retailer-local today is never allowed.
+            if (dateStr < retailerTodayYmd()) { alert('That date has already passed.'); return; }
+            if (dateStr < storeEarliestYmd()) {
+                const c = window._bookingCode;
+                if (!(c && c.waives_lead_time && !c.itemId)) { alert('This store needs ' + storeLeadDays() + " days' notice. A short-notice code from the store can cover ONE demo — apply it before adding that date."); return; }
+            }
             cart.push({
+                id: newOpKey(),
                 date: new Date(selectedDate),
                 dateStr: dateStr,
                 time: selectedTime,
@@ -1551,11 +1559,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             selectedTime = null; selectedHours = null; selectedSlotLabel = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
 
+            // the short-notice item is the one that needed the code; a no-fee-only code goes to the first (or only) item
+            if (window._bookingCode && !window._bookingCode.itemId) { const it = cart[cart.length - 1]; if (window._bookingCode.waives_lead_time ? dateStr < storeEarliestYmd() : cart.length === 1) window._bookingCode.itemId = it.id; }
             updateCartDisplay();
             renderLocationSwitcher();   // per-venue cart badges went stale until a venue switch
         }
         
         function removeFromCart(index) {
+            if (window._bookingCode && cart[index] && window._bookingCode.itemId === cart[index].id) window._bookingCode.itemId = null;
             cart.splice(index, 1);
             updateCartDisplay();
             renderLocationSwitcher();
@@ -1583,13 +1594,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const base = (v && v.demo_fee != null) ? Number(v.demo_fee) : _settingsFee;
                 return _pka ? base : base + PLATFORM_FEE_PER_DEMO;
             }
-            const _codeFree = !!(window._bookingCode && window._bookingCode.waives_fee);
-            const itemFees = cart.map(it => _codeFree ? 0 : _venueFeeFor(it.location));
+            const _code = window._bookingCode;
+            const itemFees = cart.map(it => (_code && _code.waives_fee && _code.itemId === it.id) ? 0 : _venueFeeFor(it.location));
             const total = itemFees.reduce((a, b) => a + b, 0);
             // "Price per demo" summary: exact when all venues share a fee (the common case).
             const perDemoFee = itemFees.length ? itemFees[0] : (_pka ? _settingsFee : _settingsFee + PLATFORM_FEE_PER_DEMO);
             const priceEl = document.getElementById('pricePerDemo');
-            if (priceEl) priceEl.textContent = _codeFree ? '$0.00' : '$' + Number(perDemoFee).toFixed(2);
+            if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
             const subLine = document.getElementById('subtotalLine');
             const platLine = document.getElementById('platformFeeLine');
             const subEl = document.getElementById('subtotalPrice');
@@ -1619,6 +1630,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
                             '<div class="cart-item-time">' + escapeHtml(item.label || item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
+                        (_code && _code.itemId === item.id ? '<span class="cart-item-code" style="font-size:0.7rem; font-weight:700; color:#1f6b3a; margin-right:8px;">code</span>' : (_code && (item.dateStr >= storeEarliestYmd() || _code.waives_lead_time) ? '<button type="button" class="cart-item-usecode" data-item-id="' + escapeHtml(item.id) + '" style="font-size:0.7rem; margin-right:8px; background:none; border:1px solid #1f6b3a; color:#1f6b3a; border-radius:999px; padding:2px 8px; cursor:pointer;">use code here</button>' : '')) +
+                        (item.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === item.id) ? '<span style="font-size:0.7rem; color:#b91c1c; margin-right:8px;">needs short-notice code</span>' : '') +
                         '<span class="cart-item-price">$' + Number(itemFees[index]).toFixed(0) + '</span>' +
                         '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
                             '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
@@ -1627,8 +1640,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 });
                 html += '</div>';
                 cartContainer.innerHTML = html;
-                checkoutBtn.disabled = false;
-                checkoutBtnText.textContent = 'Pay & Confirm – $' + total.toFixed(2);
+                cartContainer.querySelectorAll('.cart-item-usecode').forEach(b => b.addEventListener('click', () => { if (window._bookingCode) { window._bookingCode.itemId = b.dataset.itemId; updateCartDisplay(); renderCalendar(); } }));
+                const blocked = cart.some(it => it.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === it.id));
+                checkoutBtn.disabled = blocked;
+                checkoutBtnText.textContent = blocked ? 'A demo needs a short-notice code' : (total > 0 ? 'Pay & Confirm – $' + total.toFixed(2) : 'Confirm booking – $0.00');
             }
         }
         
@@ -1967,23 +1982,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     // Typed per-booking value (api/book.js validates a boolean). The brand profile only
                     // PREFILLS the toggle; what is sent is what the brand chose for THIS booking.
                     needs_electricity: !!needsElectricity,
-                    booking_code: (window._bookingCode && window._bookingCode.code) || undefined,
+                    booking_code: (window._bookingCode && window._bookingCode.itemId === item.id) ? window._bookingCode.code : undefined,
+                    op_key: (window._bookingCode && window._bookingCode.itemId === item.id) ? item.id : undefined,
                 }),
             }).then(async resp => {
                 const json = await resp.json().catch(() => ({}));
-                return { resp, json };
-            }).catch(e => ({ error: e.message || String(e) })));
+                return { resp, json, item };
+            }).catch(e => ({ error: e.message || String(e), item })));
             const results = await Promise.all(bookingPromises);
-            let coiBlocked = false, freeCount = 0;
+            // Codex BC-2: every outcome is kept. Succeeded items leave the cart (they cannot be resubmitted), failed
+            // items stay with their message, free bookings are reported as awaiting confirmation, and payment is
+            // offered only for the unpaid full-price subset. A free booking id is never sent to checkout.
+            let coiBlocked = false, freeCount = 0; const freeIds = []; const failedItems = [];
             for (const r of results) {
-                if (r.error) { okAll = false; errors.push(r.error); continue; }
+                const label = r.item ? (r.item.displayDate + ' ' + (r.item.label || r.item.time) + ' · ' + r.item.location) : 'a demo';
+                if (r.error) { okAll = false; errors.push(label + ': ' + r.error); failedItems.push(r.item); continue; }
                 const { resp, json } = r;
                 if (!resp.ok || !json.ok) {
                     okAll = false;
-                    errors.push(json.message || json.error || ('HTTP ' + resp.status));
+                    errors.push(label + ': ' + (json.message || json.error || ('HTTP ' + resp.status)));
                     if (json.error === 'coi_required') coiBlocked = true;
+                    failedItems.push(r.item);
                 } else {
-                    if (json.next === 'confirmed' && json.fee_waived) { freeCount++; }
+                    if (json.fee_waived) { freeCount++; freeIds.push(json.booking_id); }
                     else if (json.booking_id) successBookingIds.push(json.booking_id);
                     if (!json.email_sent && !emailWarned) {
                         emailWarned = true;
@@ -1993,13 +2014,19 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
             btn.disabled = false;
             btn.textContent = origLabel;
+            // succeeded items leave the cart; a used code is spent
+            cart = cart.filter(it => failedItems.includes(it));
+            if (window._bookingCode && !cart.some(it => it.id === window._bookingCode.itemId)) { if (freeCount || results.some(r => r.json && r.json.code_applied)) resetBookingCodeUi(); }
+            updateCartDisplay(); renderLocationSwitcher();
             if (!okAll) {
                 const uniq = [...new Set(errors)];
+                const kept = (freeCount ? freeCount + ' free ' + (freeCount === 1 ? 'demo is' : 'demos are') + ' booked and awaiting confirmation. ' : '') + (successBookingIds.length ? successBookingIds.length + ' paid ' + (successBookingIds.length === 1 ? 'demo is' : 'demos are') + ' saved — ' : '');
+                if (successBookingIds.length) window._pendingPaidIds = successBookingIds;
                 if (coiBlocked) {
                     errMsg.innerHTML = _esc(uniq[0])
                         + ' <a href="/brand/dashboard#compliance" target="_blank" style="color:inherit; font-weight:700; text-decoration:underline;">Upload it here</a>, then book again.';
                 } else {
-                    errMsg.textContent = uniq.length === 1 ? uniq[0] : ('Some bookings failed: ' + uniq.join('; '));
+                    errMsg.innerHTML = escapeHtml(kept) + (successBookingIds.length ? '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">pay for ' + (successBookingIds.length === 1 ? 'it' : 'them') + ' now</a>. ' : '') + '<br>Not booked: ' + escapeHtml(uniq.join('; '));
                 }
                 errMsg.style.display = 'block';
                 window._pendingSignedName = null;
@@ -2071,19 +2098,38 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // side, checkout endpoint errored, etc.). Booking IS in the DB but pending payment —
         // retailer will follow up. Very different visual language from "Confirmed!"
         // ---- Booking codes (0085) ----
-        function bookingLeadDays() {
-            if (window._bookingCode && window._bookingCode.waives_lead_time) return 1;
-            const s = window.state && window.state.settings;
-            const n = s && Number.isInteger(Number(s.advance_booking_days)) ? Number(s.advance_booking_days) : 14;
-            return Math.max(0, n);
+        // Dates are judged in the RETAILER's calendar, like the server (Codex BC-6). One policy: the store's minimum
+        // applies; a short-notice code relaxes a positive minimum to tomorrow and never tightens a store that
+        // already allows sooner.
+        function retailerTodayYmd() {
+            const tz = (window.state && window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
+            try { const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const g = (t) => p.find(x => x.type === t).value; return g('year') + '-' + g('month') + '-' + g('day'); }
+            catch (_) { return dateToYmd(new Date()); }
+        }
+        function addDaysYmd(ymd, n) { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d + n)); return dt.toISOString().slice(0, 10); }
+        function storeLeadDays() { const s = window.state && window.state.settings; const n = s && Number.isInteger(Number(s.advance_booking_days)) ? Number(s.advance_booking_days) : 14; return Math.max(0, n); }
+        function storeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), storeLeadDays()); }
+        function codeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), Math.min(storeLeadDays(), 1)); }
+        function bookingLeadDays() { return (window._bookingCode && window._bookingCode.waives_lead_time) ? Math.min(storeLeadDays(), 1) : storeLeadDays(); }
+        function newOpKey() { try { return crypto.randomUUID().replace(/-/g, ''); } catch (_) { return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12); } }
+        function resetBookingCodeUi() {
+            window._bookingCode = null;
+            const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
+            if (input) { input.value = ''; input.disabled = false; } if (btn) btn.textContent = 'Apply'; if (msg) msg.style.display = 'none';
+        }
+        async function payPendingBookings(a) {
+            const ids = window._pendingPaidIds || []; if (!ids.length) return false;
+            a.textContent = 'opening payment…';
+            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; } a.textContent = 'could not open payment — try from your dashboard'; }
+            catch (_) { a.textContent = 'could not open payment — try from your dashboard'; }
+            return false;
         }
         async function applyBookingCode() {
             const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
             const raw = (input.value || '').trim().toUpperCase();
             const show = (text, good) => { msg.textContent = text; msg.style.color = good ? '#1f6b3a' : '#b91c1c'; msg.style.display = 'block'; };
-            if (window._bookingCode) {   // acting as "Remove"
-                window._bookingCode = null; input.value = ''; input.disabled = false; btn.textContent = 'Apply'; msg.style.display = 'none';
-                updateCartDisplay(); renderCalendar(); return;
+            if (window._bookingCode) {   // acting as "Remove": any short-notice item it covered is now blocked until it is removed or re-covered
+                resetBookingCodeUi(); updateCartDisplay(); renderCalendar(); return;
             }
             if (!raw) { show('Type the code the store gave you.', false); return; }
             btn.disabled = true;
@@ -2092,9 +2138,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const j = await r.json().catch(() => ({}));
                 if (r.status === 401) { show('Sign in to your brand account first, then apply the code.', false); return; }
                 if (!r.ok || !j.ok) { show(j.message || 'That code is not valid for this store.', false); return; }
-                window._bookingCode = { code: j.code, waives_fee: j.waives_fee, waives_lead_time: j.waives_lead_time };
+                // assigned to exactly ONE demo: the only item in the cart, else the brand picks with "use code here"
+                window._bookingCode = { code: j.code, waives_fee: j.waives_fee, waives_lead_time: j.waives_lead_time, itemId: cart.length === 1 ? cart[0].id : null };
                 input.value = j.code; input.disabled = true; btn.textContent = 'Remove';
-                show('Code applied: ' + j.label + (j.waives_lead_time ? ' — you can now pick dates from tomorrow.' : '.'), true);
+                const soon = j.waives_lead_time && storeLeadDays() > 0 ? ' — one demo may now be booked from ' + (Math.min(storeLeadDays(), 1) === 1 ? 'tomorrow' : 'today') + '.' : '.';
+                show('Code applied: ' + j.label + soon + (cart.length > 1 ? ' Choose which demo it covers with "use code here".' : ''), true);
                 updateCartDisplay(); renderCalendar();
             } catch (_) { show('Could not check that code right now. Try again in a moment.', false); }
             finally { btn.disabled = false; }
@@ -2111,10 +2159,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     <div style="width:64px;height:64px;border-radius:50%;background:#e6f4ea;display:inline-flex;align-items:center;justify-content:center;margin-bottom:18px;">
                         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1f6b3a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                     </div>
-                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${word} booked — no payment needed</h2>
-                    <p style="font-size:0.95rem;color:#3a3a36;margin:0 0 18px;line-height:1.55;">Your store code covered the demo fee. ${auto ? 'The booking is confirmed' : 'The store will confirm the booking'} and a confirmation goes to <strong>${escapeHtml(email || 'your email')}</strong>.</p>
+                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${word} submitted — no payment needed</h2>
+                    <p style="font-size:0.95rem;color:#3a3a36;margin:0 0 18px;line-height:1.55;">Your store code covered the demo fee. ${auto ? 'Confirmation is being processed and usually lands within a minute' : 'The store will review and confirm it'}; the confirmation email goes to <strong>${escapeHtml(email || 'your email')}</strong>. Until then it shows as awaiting confirmation on your dashboard.</p>
                     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                        <button type="button" onclick="document.getElementById('freeBookedOverlay').remove();window._bookingCode=null;closeModal();" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:999px;font-weight:700;cursor:pointer;">Done</button>
+                        <button type="button" onclick="document.getElementById('freeBookedOverlay').remove();resetBookingCodeUi();closeModal();" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:999px;font-weight:700;cursor:pointer;">Done</button>
                         <a href="/brand/dashboard" style="color:#0f2c17;font-weight:700;font-size:0.92rem;text-decoration:underline;">See your bookings &rarr;</a>
                     </div>
                 </div>`;

@@ -4,7 +4,7 @@
 import { requireBrandSession } from './_booking-identity.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
-import { normalizeCode, CODE_MESSAGES, KIND_LABELS, kindOf } from './_booking-codes.js';
+import { normalizeCode, CODE_MESSAGES, KIND_LABELS, kindOf, checkAttemptLimit, netHash } from './_booking-codes.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -19,6 +19,9 @@ export default async function handler(req, res) {
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
   const norm = normalizeCode(body.code);
   if (!norm) return res.status(400).json({ error: 'code_invalid_format', message: CODE_MESSAGES.code_invalid_format });
+  const rpc = async (fn, args) => { const rr2 = await fetch(`${b.supabaseUrl}/rest/v1/rpc/${fn}`, { method: 'POST', headers: H, body: JSON.stringify(args) }); if (!rr2.ok) throw new Error('rpc ' + rr2.status); const j2 = await rr2.json(); return Array.isArray(j2) ? j2[0] : j2; };
+  const limited = await checkAttemptLimit(rpc, { brandId: auth.brandId, retailerId: retailer.id, netHash: netHash(req) });
+  if (limited) { if (limited.status === 429) res.setHeader('Retry-After', String(limited.body.retry_after_seconds || 60)); return res.status(limited.status).json(limited.body); }
   const r = await fetch(`${b.supabaseUrl}/rest/v1/rpc/booking_code_check`, { method: 'POST', headers: H, body: JSON.stringify({ p_code: norm, p_retailer_id: retailer.id }) });
   if (!r.ok) return res.status(503).json({ error: 'code_check_unavailable' });
   const j = await r.json(); const chk = Array.isArray(j) ? j[0] : j;
