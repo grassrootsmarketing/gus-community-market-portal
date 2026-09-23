@@ -431,7 +431,7 @@ console.log('\n— 10: dashboard markup + copy —');
 {
   const html = readFileSync(new URL('../r/gus/admin/index.html', import.meta.url), 'utf8');
   const card = html.slice(html.indexOf('id="supportActivityCard"'), html.indexOf('id="billingCard"'));
-  ok('dashboard: the "Help from Demohub" card exists (renamed 2026-09-22 at David's request; the id is unchanged)', card.includes('Help from Demohub'));
+  ok('dashboard: the "Help from Demohub" card exists (renamed 2026-09-22 at the owner request; the id is unchanged)', card.includes('Help from Demohub'));
   ok('dashboard: #supportAccessToggle is a checkbox with role="switch" inside the card',
      /<input[^>]*type="checkbox"[^>]*id="supportAccessToggle"[^>]*role="switch"/.test(card) || /<input[^>]*id="supportAccessToggle"[^>]*type="checkbox"[^>]*role="switch"/.test(card), card.match(/<input[^>]*supportAccessToggle[^>]*>/)?.[0]);
   ok('dashboard: the switch has an aria-checked attribute', /id="supportAccessToggle"[^>]*aria-checked=/.test(card));
