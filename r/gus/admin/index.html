@@ -1084,9 +1084,9 @@
                             <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px; line-height:1.55;">Give a brand a code to type at checkout. A code can waive your demo fee, let them book inside your advance-notice minimum, or both. Codes are single-use unless you set a limit.</div>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeKind">What it does</label>
-                                    <select id="codeKind" class="form-input"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select></div>
+                                    <select id="codeKind" class="form-input" onchange="updateCodeKindHelp()" title="What the brand gets when they enter this code at checkout"><option value="fee" title="The demo fee is waived for one demo; the brand pays nothing and skips the payment step">No demo fee</option><option value="lead_time" title="The brand may book one demo inside your advance-notice minimum (from tomorrow); they still pay the normal fee">Short-notice booking</option><option value="both" title="Both: one demo inside your notice window and no fee for it">No fee + short notice</option></select><div id="codeKindHelp" style="font-size:0.75rem; color:var(--ink-500); margin-top:4px; line-height:1.4;"></div></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeUses">Uses</label>
-                                    <select id="codeUses" class="form-input"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select></div>
+                                    <select id="codeUses" class="form-input" title="How many bookings this code can be used for. Each use covers one demo."><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires (optional)</label><input type="date" id="codeExpires" class="form-input"></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeNote">Note (optional)</label><input type="text" id="codeNote" class="form-input" maxlength="200" placeholder="e.g. First demo for Acme Snacks"></div>
                             </div>
@@ -5417,6 +5417,8 @@ END:VEVENT
         // ===== Settings edit toggle =====
         // ===== Booking codes (0085) =====
         const CODE_KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
+        const CODE_KIND_HELP = { fee: "Waives your demo fee for one demo. The brand pays nothing and skips the payment step. Their insurance certificate must already be approved.", lead_time: "Lets the brand book one demo inside your advance-notice minimum (from tomorrow). They still pay the normal fee.", both: "Both: one demo inside your notice window, with no fee." };
+        function updateCodeKindHelp() { const k = document.getElementById("codeKind"), h = document.getElementById("codeKindHelp"); if (k && h) h.textContent = CODE_KIND_HELP[k.value] || ""; }
         function fmtCodeDate(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
         function renderBookingCodes(codes) {
             const el = document.getElementById('bookingCodesList'); if (!el) return;
@@ -5465,7 +5467,7 @@ END:VEVENT
         }
         function copyBookingCode(code, btn) { navigator.clipboard.writeText(code).then(() => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); }).catch(() => {}); }
 
-        function loadSettings() { applySettingsToInputs(); loadBookingCodes();
+        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp();
             try { _renderPerLocationFeeds(); } catch(_){} }
 
 

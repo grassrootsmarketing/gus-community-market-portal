@@ -721,7 +721,7 @@ async function openRetailerProfile(id) {
     + '</div></div>'
     + '<div class="card" id="ownerCodesCard"><h2>Booking codes</h2><div class="sub">Codes this retailer (or you) issued. A code waives the demo fee, lifts the advance-notice minimum, or both. Ones you add here show as "added by Demohub" in the retailer\'s admin.</div>'
     + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">'
-    + '<select id="oCodeKind"><option value="fee">No demo fee</option><option value="lead_time">Short-notice booking</option><option value="both">No fee + short notice</option></select>'
+    + '<select id="oCodeKind" title="What the brand gets at checkout"><option value="fee" title="Demo fee waived for one demo; no payment step">No demo fee</option><option value="lead_time" title="One demo may be booked inside the notice minimum (from tomorrow); normal fee applies">Short-notice booking</option><option value="both" title="One demo inside the notice window, no fee">No fee + short notice</option></select>'
     + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select>'
     + '<input type="date" id="oCodeExpires" title="Expires (optional)"><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
     + '<button class="btn-sm" data-act="gen" data-rid="' + escapeHtml(r.id) + '">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
