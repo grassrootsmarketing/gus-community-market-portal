@@ -37,3 +37,7 @@ David approved. One Auth user created (0 before), then migration 0084 applied by
 Read-only checks (no write probes against production): before the policy the reader saw 0 buckets / 0 objects; after, exactly `avatars, coi-docs, policy-docs`; REST `bookings`/`internal_contacts`/`brands` 403, `payments`/`refunds` 404, `retailers` 403 (anon: 4 rows, unchanged); anon storage listing still empty; token role `authenticated`.
 
 `cli.mjs daily` afterwards: `source: restricted reader login`, complete, 12 objects, off-machine confirmed 1, verify 0 problems, heartbeat sent, exit 0.
+
+## Missed-run alert fired for real (2026-09-21 14:24 local → resolved 2026-09-22)
+
+healthchecks.io went DOWN when no success ping arrived within 26 h of the last one (2026-09-20 12:24 local). Cause: the Claude desktop scheduled task's first automated run (2026-09-19 16:06Z) stalled at its first tool call on a permission prompt that nobody was present to answer; a run left "running" blocks every later scheduled start. All 2026-09-20 successes had been manual runs. Resolution: manual `daily` run 2026-09-22 (complete, 12 objects, off-machine confirmed, reader login, exit 0, heartbeat sent → UP); the stuck run to be stopped and the task's tool approvals pre-granted by David via "Run now". This is the interim-scheduler weakness Codex named; the alert worked as designed.
