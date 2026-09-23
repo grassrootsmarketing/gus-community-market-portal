@@ -1087,7 +1087,7 @@
                                     <select id="codeKind" class="form-input" onchange="updateCodeKindHelp()" title="What the brand gets when they enter this code at checkout"><option value="fee" title="The demo fee is waived for one demo; the brand pays nothing and skips the payment step">No demo fee</option><option value="lead_time" title="The brand may book one demo inside your advance-notice minimum (from tomorrow); they still pay the normal fee">Short-notice booking</option><option value="both" title="Both: one demo inside your notice window and no fee for it">No fee + short notice</option></select><div id="codeKindHelp" style="font-size:0.75rem; color:var(--ink-500); margin-top:4px; line-height:1.4;"></div></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeUses">Uses</label>
                                     <select id="codeUses" class="form-input" title="How many bookings this code can be used for. Each use covers one demo."><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select></div>
-                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires (optional)</label><input type="date" id="codeExpires" class="form-input"></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires</label><select id="codeExpires" class="form-input" title="After this the code stops working, even if it has uses left"><option value="">Never</option><option value="7">In 7 days</option><option value="14">In 14 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select></div>
                                 <div class="form-group" style="margin:0;"><label class="form-label" for="codeNote">Note (optional)</label><input type="text" id="codeNote" class="form-input" maxlength="200" placeholder="e.g. First demo for Acme Snacks"></div>
                             </div>
                             <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
@@ -1270,15 +1270,15 @@
                         </div>
                     </div>
                     <div class="settings-card" id="supportActivityCard">
-                        <div class="settings-card-header"><h3>Demohub support activity</h3></div>
+                        <div class="settings-card-header"><h3>Help from Demohub</h3></div>
                         <div class="settings-card-body">
-                            <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
+                            <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If you ever want a hand with a setting or a booking, you can let the Demohub team look at your admin for a short while. It is off unless you turn it on, it switches itself off after 24 hours, and any visit is listed below.</p>
 
                             <div id="supportAccessConsent" style="display:flex; gap:14px; align-items:flex-start; justify-content:space-between; padding:12px 14px; background:#f9f7f2; border-radius:10px; margin-bottom:16px;">
                                 <div style="flex:1; min-width:0;">
-                                    <label for="supportAccessToggle" style="display:block; font-weight:600; color:var(--forest-900); font-size:0.94rem; cursor:pointer;">Allow Demohub support access</label>
+                                    <label for="supportAccessToggle" style="display:block; font-weight:600; color:var(--forest-900); font-size:0.94rem; cursor:pointer;">Let Demohub help with my admin</label>
                                     <div id="supportAccessSubtitle" style="font-size:0.82rem; color:var(--ink-700); margin-top:3px; line-height:1.55;">Loading…</div>
-                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px; line-height:1.55;">ON allows Demohub support to sign in to your admin for up to 24 hours. Each support session lasts at most four hours and never beyond that consent window. OFF immediately ends any active Demohub support sessions.</div>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px; line-height:1.55;">Only while this is on, and only for the next 24 hours. You can switch it off at any time, which ends any visit straight away.</div>
                                 </div>
                                 <label class="toggle" style="flex-shrink:0; margin-top:2px;">
                                     <input type="checkbox" id="supportAccessToggle" role="switch" aria-checked="false" aria-label="Allow Demohub support access" onchange="toggleSupportAccess(this.checked)">
@@ -1286,7 +1286,7 @@
                                 </label>
                             </div>
 
-                            <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Recent sessions</div>
+                            <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Visits</div>
                             <div id="supportSessionsList" style="font-size:0.88rem;">
                                 <div style="color:var(--ink-500);">Loading…</div>
                             </div>
@@ -5451,7 +5451,7 @@ END:VEVENT
             const kind = document.getElementById('codeKind').value, uses = document.getElementById('codeUses').value, exp = document.getElementById('codeExpires').value, note = document.getElementById('codeNote').value;
             btn.disabled = true; st.textContent = 'Generating…';
             try {
-                const body = { kind, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: note || null };
+                const body = { kind, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: note || null };
                 const r = await fetch('/api/admin?action=codes-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
                 const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
                 st.textContent = 'Created ' + j.code.code + ' — copy it to the brand.'; document.getElementById('codeNote').value = '';
@@ -6939,11 +6939,11 @@ END:VEVENT
                     body: JSON.stringify({ action: 'support-sessions' }),
                     credentials: 'same-origin',
                 });
-                if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded.</div>'; return; }
+                if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500);">No visits yet.</div>'; return; }
                 const j = await r.json();
                 const sessions = j.sessions || [];
                 if (sessions.length === 0) {
-                    el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded. This will populate if anyone from Demohub signs in to your admin.</div>';
+                    el.innerHTML = '<div style="color:var(--ink-500);">No visits yet.</div>';
                     return;
                 }
                 el.innerHTML = sessions.map(s => {
@@ -6988,11 +6988,11 @@ END:VEVENT
                     if (isOn && j.expires_at) {
                         const exp = new Date(j.expires_at);
                         const hours = Math.max(0, Math.round((exp - Date.now()) / 3600000));
-                        subtitle.textContent = `ON. Demohub support can sign in to your admin for about ${hours} more hour${hours === 1 ? '' : 's'}, then this turns itself off.`;
+                        subtitle.textContent = `On for about ${hours} more hour${hours === 1 ? '' : 's'}, then it switches itself off.`;
                     } else if (j.expired) {
-                        subtitle.textContent = 'OFF (the 24-hour window ended). Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
+                        subtitle.textContent = 'Off (the 24 hours ended). Turn on if you would like help again.';
                     } else {
-                        subtitle.textContent = 'OFF. Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
+                        subtitle.textContent = 'Off. Nobody at Demohub can open your admin. Turn on if you would like help.';
                     }
                 }
             } catch (_) {
@@ -7365,6 +7365,8 @@ END:VEVENT
           };
           window.showAdminTab = function(sectionId, opts) {
             buildPanes();
+            // Booking codes: (re)load the list whenever the Settings tab is shown, so it never depends on the login path.
+            if (sectionId === 'settingsSection') { try { loadBookingCodes(); updateCodeKindHelp(); } catch (_) {} }
             document.querySelectorAll('.admin-pane').forEach(p => { p.style.display = (p.dataset.pane === sectionId) ? '' : 'none'; });
             document.querySelectorAll('.subnav-link, .mobile-nav-item').forEach(a => {
               if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');

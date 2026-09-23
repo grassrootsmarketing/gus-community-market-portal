@@ -723,7 +723,7 @@ async function openRetailerProfile(id) {
     + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">'
     + '<select id="oCodeKind" title="What the brand gets at checkout"><option value="fee" title="Demo fee waived for one demo; no payment step">No demo fee</option><option value="lead_time" title="One demo may be booked inside the notice minimum (from tomorrow); normal fee applies">Short-notice booking</option><option value="both" title="One demo inside the notice window, no fee">No fee + short notice</option></select>'
     + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select>'
-    + '<input type="date" id="oCodeExpires" title="Expires (optional)"><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
+    + '<select id="oCodeExpires" title="Expires"><option value="">Never</option><option value="7">In 7 days</option><option value="14">In 14 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
     + '<button class="btn-sm" data-act="gen" data-rid="' + escapeHtml(r.id) + '">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
   renderOwnerCodes(r.id, p.codes || []);
 }
@@ -739,7 +739,7 @@ function renderOwnerCodes(rid, codes) {
 async function ownerGenerateCode(rid) {
   const st = document.getElementById('oCodesStatus'); st.textContent = 'Generating…';
   const uses = document.getElementById('oCodeUses').value, exp = document.getElementById('oCodeExpires').value;
-  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(exp + 'T23:59:59').toISOString() : null, note: document.getElementById('oCodeNote').value || null });
+  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: document.getElementById('oCodeNote').value || null });
     st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
   catch (e) { st.textContent = 'Could not create the code: ' + e.message; }
 }
