@@ -57,7 +57,7 @@ let ownerCookie;
   ownerCookie = (await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }))).cookie('dh_owner_session'); }
 ok('fixtures: staff, other-retailer staff, brand, unverified brand and owner sessions exist', !!staffCookie && !!otherCookie && !!brandCookie && !!unverifiedCookie && !!ownerCookie);
 
-const T = '11:00 AM'; const FAR = dayP(30), FAR2 = dayP(31), FAR3 = dayP(32), FAR4 = dayP(33), FAR5 = dayP(34), SOON = dayP(3), SOON2 = dayP(4), PAST = dayP(-1);   // one booking per date (slot capacity is 1)
+const T = '11:00 AM'; const FAR = dayP(30), FAR2 = dayP(31), FAR3 = dayP(32), FAR4 = dayP(33), FAR5 = dayP(34), SOON = dayP(3), SOON2 = dayP(4), PAST = (() => { const t = earliestBookableYmd(new Date(), LA, 0); const [y, m, d] = t.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10); })();   // retailer-local yesterday   // one booking per date (slot capacity is 1)
 const opKey = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
 const book = (body, cookie = brandCookie, headers = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, ...(body.booking_code ? { op_key: opKey() } : {}), ...body }, cookies: { dh_brand_session: cookie }, headers }));
 const preview = (code, cookie = brandCookie, headers = {}) => callRoute('booking-code.js', req({ body: { retailer_slug: slug, code }, cookies: { dh_brand_session: cookie }, headers }));

@@ -673,6 +673,7 @@
                 <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
                 <a href="#billingSection" class="subnav-link" data-section="billingSection">Billing</a>
+                <a href="#policiesSection" class="subnav-link" data-section="policiesSection">Policies</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
             <div class="mobile-nav-bar" id="mobileNavBar">
@@ -706,6 +707,7 @@
             <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
             <a href="#billingSection" class="mobile-nav-item" data-section="billingSection" onclick="mobileNavGo(event, 'billingSection', 'Billing')">Billing</a>
+            <a href="#policiesSection" class="mobile-nav-item" data-section="policiesSection" onclick="mobileNavGo(event, 'policiesSection', 'Policies')">Policies</a>
             <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
         </nav>
         <script>
@@ -802,7 +804,7 @@
                         <li data-step="policies" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
                             <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Customize your policies</strong> — <span style="color:var(--ink-500);">cancellation + demo conduct that brands sign.</span></span>
-                            <a onclick="onboardingGo('settingsSection','policiesBlock')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Edit →</a>
+                            <a onclick="onboardingGo('policiesSection','policiesBlock')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Edit →</a>
                         </li>
                         <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
@@ -1027,7 +1029,7 @@
                         <div class="settings-card-body" id="availabilitySlotsBody" style="padding-top:0;"></div>
                         <div class="settings-card-body" id="availabilityBlackoutsBody" style="padding-top:0;"></div>
                     </div>
-                    <div id="policySetupCallout" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
+                    <div id="policySetupCallout" data-tab="policiesSection" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ed682f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;" aria-hidden="true">
                             <circle cx="12" cy="12" r="10"/>
                             <line x1="12" y1="8" x2="12" y2="13"/>
@@ -1035,13 +1037,13 @@
                         </svg>
                         <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">
                             <strong style="color:#a14e2a;">Almost set up.</strong>
-                            <span id="policySetupCalloutText"> Your demo conduct policy + cancellation policy are still on the default template. Brands sign these at their first booking — make sure they match how your store actually runs.</span>
+                            <span id="policySetupCalloutText"> Your demo conduct policy and cancellation policy are still on the default template. Brands sign both at their first booking, so make sure they match how your store runs. Edit them below.</span>
                         </div>
                     </div>
                     <div class="settings-card" id="bookingPrefsCard">
                         <div class="settings-card-header"><h3>Booking preferences</h3></div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:16px; line-height:1.55;">How incoming demo requests are handled and what refund policy brands agree to.</div>
+                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:16px; line-height:1.55;">How incoming demo requests are handled. The refund policy lives on the Policies tab.</div>
                             <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">New booking handling</div>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
                                 <input type="radio" name="approvalMode" value="auto" id="approvalAuto" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="onApprovalModeChange()">
@@ -1060,21 +1062,6 @@
                             <!-- Hidden checkbox mirror for backward compat with existing saveBookingPrefs() logic -->
                             <input type="checkbox" id="settingAutoConfirm" style="display:none;">
 
-                            <div id="policiesBlock" style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Cancellation policy</div>
-                            <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
-                                <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
-                                <div style="flex:1;">
-                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">14-day refund window <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">RECOMMENDED</span></div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Brands can cancel and receive a full refund within 14 days of the booking date. After 14 days, non-refundable.</div>
-                                </div>
-                            </label>
-                            <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer;">
-                                <input type="radio" name="cancellationMode" value="non_refundable" id="cancelNonRefundable" style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
-                                <div style="flex:1;">
-                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Non-refundable</div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">All bookings are final immediately. No refunds for cancellations. Brands see this clearly before signing.</div>
-                                </div>
-                            </label>
                             <div id="bookingPrefsStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
                         </div>
                     </div>
@@ -1097,8 +1084,30 @@
                             <div id="bookingCodesList" style="margin-top:16px;"></div>
                         </div>
                     </div>
-<div class="settings-card">
-                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
+<div class="settings-card" id="cancellationPolicyCard" data-tab="policiesSection">
+                        <div class="settings-card-header"><h3>Cancellation policy</h3></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px; line-height:1.55;">What a brand agrees to about cancelling and refunds. Shown before they sign at their first booking.</div>
+                            <div id="policiesBlock"></div>
+                            <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
+                                <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
+                                <div style="flex:1;">
+                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">14-day refund window <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">RECOMMENDED</span></div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Brands can cancel and receive a full refund within 14 days of the booking date. After 14 days, non-refundable.</div>
+                                </div>
+                            </label>
+                            <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer;">
+                                <input type="radio" name="cancellationMode" value="non_refundable" id="cancelNonRefundable" style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
+                                <div style="flex:1;">
+                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Non-refundable</div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">All bookings are final immediately. No refunds for cancellations. Brands see this clearly before signing.</div>
+                                </div>
+                            </label>
+                            <div id="cancellationPolicyStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card" id="demoPolicyCard" data-tab="policiesSection">
+                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo conduct policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout. <strong>Two options:</strong> type it below, or upload your existing PDF (e.g. an Erewhon-style guidelines doc).</div>
 
@@ -4177,7 +4186,7 @@ END:VEVENT
 
         // Save booking preferences (auto-confirm + cancellation mode) to the retailers table
         async function saveBookingPrefs() {
-            const status = document.getElementById('bookingPrefsStatus');
+            const status = document.getElementById('bookingPrefsStatus'); const status2 = document.getElementById('cancellationPolicyStatus');
             const auto = document.getElementById('settingAutoConfirm');
             const cb14 = document.getElementById('cancel14Day');
             const cbNR = document.getElementById('cancelNonRefundable');
@@ -4186,7 +4195,7 @@ END:VEVENT
                 auto_confirm_bookings: !!(auto && auto.checked),
                 cancellation_mode: mode,
             };
-            if (status) status.textContent = 'Saving…';
+            for (const st of [status, status2]) if (st) st.textContent = 'Saving…';
             try {
                 await adminUpdate('retailers', RETAILER_ID, payload);
                 if (window.state.retailer) {
@@ -4194,12 +4203,11 @@ END:VEVENT
                     window.state.retailer.cancellation_mode = payload.cancellation_mode;
                 }
                 if (status) {
-                    status.textContent = 'Saved ✓';
-                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+                    for (const st of [status, status2]) if (st) { st.textContent = 'Saved ✓'; setTimeout(() => { if (st.textContent === 'Saved ✓') st.textContent = ''; }, 2500); }
                 }
                 DhModal.toast('Booking settings saved', 'success');
             } catch (e) {
-                if (status) status.textContent = 'Save failed: ' + (e.message || e);
+                for (const st of [status, status2]) if (st) st.textContent = 'Save failed: ' + (e.message || e);
             }
         }
 
@@ -7281,7 +7289,7 @@ END:VEVENT
         (function(){
           const subnav = document.querySelectorAll('.subnav-link');
           function getScroller() { return document.querySelector('.main-scroll'); }
-          const TABS = ['dashSection','calendarSection','demosSection','brandsSection','complianceSection','storesSection','teamSection','billingSection','settingsSection'];
+          const TABS = ['dashSection','calendarSection','demosSection','brandsSection','complianceSection','storesSection','teamSection','billingSection','policiesSection','settingsSection'];
           let _tabMap = null;
           function buildTabMap() {
             const container = document.querySelector('.main-scroll .container');
@@ -7302,7 +7310,7 @@ END:VEVENT
             });
             // Settings-grid cards routed by data-tab (default → settings)
             if (grid) {
-              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+              Array.from(grid.querySelectorAll('.settings-card, #policySetupCallout')).forEach(card => {
                 const t = card.dataset.tab || 'settingsSection';
                 (map[t] = map[t] || []).push(card);
               });
@@ -7343,7 +7351,7 @@ END:VEVENT
             });
             // Split the settings grid: team/billing cards leave into their panes; settings cards stay in the grid
             if (grid) {
-              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+              Array.from(grid.querySelectorAll('.settings-card, #policySetupCallout')).forEach(card => {
                 const t = card.dataset.tab || 'settingsSection';
                 if (t !== 'settingsSection') panes[t].appendChild(card);
               });
