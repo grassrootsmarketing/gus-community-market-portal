@@ -440,7 +440,7 @@ console.log('\n— 10: dashboard markup + copy —');
   ok('dashboard: copy states ON = up to 24 hours', /24 hours/.test(card));
   ok('dashboard: copy states each session lasts at most four hours', /at most four hours/.test(card));
   ok('dashboard: copy states sessions never outlive consent', /never beyond/.test(card));
-  ok('dashboard: copy states OFF immediately ends active sessions', /OFF immediately ends/.test(card));
+  ok('dashboard: copy states OFF immediately ends active visits', /OFF immediately ends/.test(card));
   ok('dashboard: startup calls _loadSupportAccessStatus', /setTimeout\(_loadSupportAccessStatus/.test(html));
   ok('dashboard: the stale "toggle removed" comment is gone', !/support-access toggle removed/.test(html));
   const fnStart = html.indexOf('async function _loadSupportAccessStatus');
