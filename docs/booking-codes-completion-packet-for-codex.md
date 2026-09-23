@@ -54,3 +54,22 @@ Trigger kept as defence in depth; both lock orders tested. Free/no-ledger model 
 2. Browser evidence is recorded assertions from real clicks on the local preview, not a Playwright e2e file in the repo; the three UIs have no committed DOM test.
 3. The 40-per-network budget uses `x-forwarded-for` as Vercel supplies it; behind a shared NAT that budget can be reached by unrelated brands (by design: a coarse abuse cap, not a per-user limit).
 4. The guarded production paste for 0085 is not written yet; it will be produced and rehearsed when David approves deployment.
+
+---
+
+## Addendum (2026-09-23) — branch now `0e86d4d`; UI changes after David's preview test
+
+The completion packet above describes `3cdc931`. Five further commits, all UI, none touching the server, migration, money rule or tests' server assertions:
+
+| Commit | Change | Why |
+|---|---|---|
+| `67d9ed0` | Tooltips on the code-kind options + a live one-line explanation under the selector (retailer card and owner portal) | David could not tell the three kinds apart |
+| `1257b33` | **Expires** is a fixed list (Never / 7 / 14 / 30 (default) / 90 days) instead of a date picker; the code list reloads every time the Settings tab is shown; the "Demohub support activity" card reworded to "Help from Demohub" | Standard options requested; the list depended on the login path and showed empty after magic-link sign-in; the support wording read as invasive |
+| `4d38750` | Support card keeps the three disclosed limits (24 h consent, ≤ 4 h visits, OFF ends a visit at once) in plain words; `support_access` test updated for the rename (125/125) | Disclosures are reviewed behaviour; only the tone changed |
+| `0e86d4d` | New **Policies** tab in the retailer admin: the "Almost set up" nudge, a **Cancellation policy** card (the 14-day / non-refundable choice, moved out of Booking preferences; saves through the same `saveBookingPrefs`, status mirrored) and the **Demo conduct policy** card (unchanged editor/upload). Tab controller: `policiesSection` added to `TABS`; the two cards and the nudge carry `data-tab="policiesSection"` | The policies brands sign were reachable only through a small nudge |
+
+Verified on the local preview by DOM inspection (no console errors): the tab link exists; the pane holds exactly nudge → Cancellation policy → Demo conduct policy in that order; the cancellation radios are no longer in Settings; Booking preferences and Booking codes remain in Settings; the save-status mirror element exists. `npm run check` clean; `booking_codes` 79/79 (one date assertion now uses retailer-local yesterday — it had been UTC-based and broke after 00:00Z); `support_access` 125/125.
+
+Preview evidence for the code flow: a Vercel Preview of the branch (aliased onto the Preview-trusted origin, since `SITE_ORIGIN` is scoped to that alias and CSRF refused any other host) against demohub-rebuild-check with a seeded "Gus (TEST)" store; David signed in via magic link and generated `GUS-VIP-…` through the real admin route (created_by = his login). The end-to-end brand booking on the preview is still to be done by David.
+
+Open decision unchanged: Gus's 14-day advance-notice minimum (David has not yet confirmed).
