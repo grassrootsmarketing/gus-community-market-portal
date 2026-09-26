@@ -95,11 +95,9 @@ BEGIN
   IF v_b.booking_code_id IS NOT NULL THEN RETURN QUERY SELECT false, 'booking_already_has_code'::text, v_c.id, false, false, NULL::text; RETURN; END IF;
   -- a fee waiver needs an unpaid pending_payment booking; a short-notice-only code may also stamp a provisional
   -- (held) booking, whose hold is captured or released exactly as before.
-  IF v_c.waives_fee THEN
-    IF coalesce(v_b.status, '') <> 'pending_payment' OR coalesce(v_b.payment_status, 'unpaid') <> 'unpaid' THEN
-      RETURN QUERY SELECT false, 'booking_not_redeemable'::text, v_c.id, false, false, NULL::text; RETURN;
-    END IF;
-  ELSIF coalesce(v_b.status, '') NOT IN ('pending_payment', 'held') THEN
+  -- Codex review 2 item 4: this release accepts codes only on an unpaid pending_payment booking. A provisional
+  -- (held) booking takes no code: the short-notice + hold-deadline combination is not proven yet.
+  IF coalesce(v_b.status, '') <> 'pending_payment' OR coalesce(v_b.payment_status, 'unpaid') <> 'unpaid' THEN
     RETURN QUERY SELECT false, 'booking_not_redeemable'::text, v_c.id, false, false, NULL::text; RETURN;
   END IF;
   IF EXISTS (SELECT 1 FROM payment_allocations a WHERE a.booking_id = p_booking_id) THEN
@@ -181,17 +179,22 @@ REVOKE ALL ON booking_code_attempts FROM public, anon, authenticated;
 
 -- Thresholds (documented in docs/booking-codes.md): 12 attempts per brand+retailer per 15 minutes,
 -- 40 per network hash per 15 minutes. A successful application also counts as an attempt.
+-- Codex review 2 item 3: both budgets serialised. Locks are taken in ONE fixed order everywhere (brand+retailer
+-- key first, then the network key), so two requests can never wait on each other in opposite order. Retry
+-- guidance comes from whichever scope is limiting.
 CREATE OR REPLACE FUNCTION booking_code_attempt(p_brand_id uuid, p_retailer_id uuid, p_net_hash text)
 RETURNS TABLE (allowed boolean, retry_after_seconds integer, brand_attempts integer, net_attempts integer)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE v_b int; v_n int; v_win interval := interval '15 minutes'; v_oldest timestamptz;
+DECLARE v_b int; v_n int; v_win interval := interval '15 minutes'; v_oldest_b timestamptz; v_oldest_n timestamptz; v_limiting timestamptz;
 BEGIN
-  PERFORM pg_advisory_xact_lock(hashtext('booking_code_attempt:' || coalesce(p_brand_id::text, '') || ':' || coalesce(p_retailer_id::text, '')));
+  PERFORM pg_advisory_xact_lock(hashtext('booking_code_attempt:brand:' || coalesce(p_brand_id::text, '') || ':' || coalesce(p_retailer_id::text, '')));
+  IF p_net_hash IS NOT NULL THEN PERFORM pg_advisory_xact_lock(hashtext('booking_code_attempt:net:' || p_net_hash)); END IF;
   DELETE FROM booking_code_attempts WHERE at < now() - interval '1 day' AND random() < 0.05;
-  SELECT count(*), min(at) INTO v_b, v_oldest FROM booking_code_attempts WHERE brand_id = p_brand_id AND retailer_id = p_retailer_id AND at >= now() - v_win;
-  SELECT count(*) INTO v_n FROM booking_code_attempts WHERE p_net_hash IS NOT NULL AND net_hash = p_net_hash AND at >= now() - v_win;
+  SELECT count(*), min(at) INTO v_b, v_oldest_b FROM booking_code_attempts WHERE brand_id = p_brand_id AND retailer_id = p_retailer_id AND at >= now() - v_win;
+  SELECT count(*), min(at) INTO v_n, v_oldest_n FROM booking_code_attempts WHERE p_net_hash IS NOT NULL AND net_hash = p_net_hash AND at >= now() - v_win;
   IF v_b >= 12 OR v_n >= 40 THEN
-    RETURN QUERY SELECT false, greatest(30, extract(epoch FROM (coalesce(v_oldest, now()) + v_win - now()))::int), v_b, v_n; RETURN;
+    v_limiting := CASE WHEN v_b >= 12 THEN v_oldest_b ELSE v_oldest_n END;
+    RETURN QUERY SELECT false, greatest(30, extract(epoch FROM (coalesce(v_limiting, now()) + v_win - now()))::int), v_b, v_n; RETURN;
   END IF;
   INSERT INTO booking_code_attempts (brand_id, retailer_id, net_hash) VALUES (p_brand_id, p_retailer_id, p_net_hash);
   RETURN QUERY SELECT true, 0, v_b + 1, v_n + 1;

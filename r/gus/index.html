@@ -689,6 +689,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             try {
                 const p = new URLSearchParams(location.search);
                 if (p.has('paid')) {
+                    try { sessionStorage.removeItem('dh_outcomes_' + RETAILER_SLUG); } catch (_) {}
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
                     // Clear the cart client-side before we leave. No redraw: the assign() below
@@ -1630,17 +1631,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
                             '<div class="cart-item-time">' + escapeHtml(item.label || item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
+                        (item.recovering ? '<span class="cart-item-recovering" style="font-size:0.7rem; font-weight:700; color:#a14e2a; margin-right:8px;" title="The result of this booking was lost in transit. Confirm booking re-checks it with the same request; it will not be duplicated.">checking…</span>' : '') +
                         (_code && _code.itemId === item.id ? '<span class="cart-item-code" style="font-size:0.7rem; font-weight:700; color:#1f6b3a; margin-right:8px;">code</span>' : (_code && (item.dateStr >= storeEarliestYmd() || _code.waives_lead_time) ? '<button type="button" class="cart-item-usecode" data-item-id="' + escapeHtml(item.id) + '" style="font-size:0.7rem; margin-right:8px; background:none; border:1px solid #1f6b3a; color:#1f6b3a; border-radius:999px; padding:2px 8px; cursor:pointer;">use code here</button>' : '')) +
                         (item.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === item.id) ? '<span style="font-size:0.7rem; color:#b91c1c; margin-right:8px;">needs short-notice code</span>' : '') +
                         '<span class="cart-item-price">$' + Number(itemFees[index]).toFixed(0) + '</span>' +
-                        '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
+                        (item.recovering ? '' : '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
                             '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
-                        '</button>' +
+                        '</button>') +
                     '</div>';
                 });
                 html += '</div>';
                 cartContainer.innerHTML = html;
-                cartContainer.querySelectorAll('.cart-item-usecode').forEach(b => b.addEventListener('click', () => { if (window._bookingCode) { window._bookingCode.itemId = b.dataset.itemId; updateCartDisplay(); renderCalendar(); } }));
+                cartContainer.querySelectorAll('.cart-item-usecode').forEach(b => b.addEventListener('click', () => { if (window._bookingCode && !cart.some(it => it.recovering)) { window._bookingCode.itemId = b.dataset.itemId; updateCartDisplay(); renderCalendar(); } }));
                 const blocked = cart.some(it => it.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === it.id));
                 checkoutBtn.disabled = blocked;
                 checkoutBtnText.textContent = blocked ? 'A demo needs a short-notice code' : (total > 0 ? 'Pay & Confirm – $' + total.toFixed(2) : 'Confirm booking – $0.00');
@@ -1971,7 +1973,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({
+                body: JSON.stringify(item.frozen || {
                     retailer_slug: RETAILER_SLUG,
                     venue_id: _venueIdByName.get(item.location) || null,
                     product: product,
@@ -1986,6 +1988,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     op_key: (window._bookingCode && window._bookingCode.itemId === item.id) ? item.id : undefined,
                 }),
             }).then(async resp => {
+                // Codex review 2 item 1: remember exactly what was sent, so an unknown outcome can be retried verbatim.
+                if (!item.frozen && window._bookingCode && window._bookingCode.itemId === item.id) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: window._bookingCode.code, op_key: item.id };
                 const json = await resp.json().catch(() => ({}));
                 return { resp, json, item };
             }).catch(e => ({ error: e.message || String(e), item })));
@@ -1993,19 +1997,28 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Codex BC-2: every outcome is kept. Succeeded items leave the cart (they cannot be resubmitted), failed
             // items stay with their message, free bookings are reported as awaiting confirmation, and payment is
             // offered only for the unpaid full-price subset. A free booking id is never sent to checkout.
-            let coiBlocked = false, freeCount = 0; const freeIds = []; const failedItems = [];
+            let coiBlocked = false, freeCount = 0; const freeIds = []; const failedItems = []; const keepItems = [];
             for (const r of results) {
                 const label = r.item ? (r.item.displayDate + ' ' + (r.item.label || r.item.time) + ' · ' + r.item.location) : 'a demo';
-                if (r.error) { okAll = false; errors.push(label + ': ' + r.error); failedItems.push(r.item); continue; }
+                const isCodeItem = !!(r.item && (r.item.frozen || (window._bookingCode && window._bookingCode.itemId === r.item.id)));
+                if (r.error) {
+                    okAll = false; errors.push(label + ': ' + (isCodeItem ? 'we could not confirm the result — use "Check status" below' : r.error));
+                    // a code-bearing request whose response was lost may have COMMITTED: freeze it for recovery, never resend fresh
+                    if (isCodeItem) { r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); } else failedItems.push(r.item);
+                    continue;
+                }
                 const { resp, json } = r;
                 if (!resp.ok || !json.ok) {
+                    if (json.error === 'booking_outcome_unknown' && r.item) { okAll = false; errors.push(label + ': the result could not be confirmed — use "Check status" below'); r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); continue; }
                     okAll = false;
                     errors.push(label + ': ' + (json.message || json.error || ('HTTP ' + resp.status)));
                     if (json.error === 'coi_required') coiBlocked = true;
                     failedItems.push(r.item);
                 } else {
-                    if (json.fee_waived) { freeCount++; freeIds.push(json.booking_id); }
-                    else if (json.booking_id) successBookingIds.push(json.booking_id);
+                    if (r.item) { r.item.recovering = false; removeRecovery(r.item.id); }
+                    if (json.replay && json.next === 'none') { errors.push(label + ': already booked earlier (' + (json.current_status || 'saved') + ')'); }   // recovered, nothing to pay
+                    else if (json.fee_waived) { freeCount++; freeIds.push(json.booking_id); addOutcome('free', json.booking_id, label); }
+                    else if (json.booking_id) { successBookingIds.push(json.booking_id); addOutcome('paid', json.booking_id, label); }
                     if (!json.email_sent && !emailWarned) {
                         emailWarned = true;
                         console.warn('Email send failed:', json.email_error);
@@ -2015,18 +2028,20 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             btn.disabled = false;
             btn.textContent = origLabel;
             // succeeded items leave the cart; a used code is spent
-            cart = cart.filter(it => failedItems.includes(it));
+            cart = cart.filter(it => failedItems.includes(it) || keepItems.includes(it));
             if (window._bookingCode && !cart.some(it => it.id === window._bookingCode.itemId)) { if (freeCount || results.some(r => r.json && r.json.code_applied)) resetBookingCodeUi(); }
             updateCartDisplay(); renderLocationSwitcher();
+            // Codex review 2 item 2: what is saved is tracked independently of the cart; payment retries use it.
+            const saved = loadOutcomes(); const unpaid = saved.paid.map(o => o.id);
             if (!okAll) {
                 const uniq = [...new Set(errors)];
-                const kept = (freeCount ? freeCount + ' free ' + (freeCount === 1 ? 'demo is' : 'demos are') + ' booked and awaiting confirmation. ' : '') + (successBookingIds.length ? successBookingIds.length + ' paid ' + (successBookingIds.length === 1 ? 'demo is' : 'demos are') + ' saved — ' : '');
-                if (successBookingIds.length) window._pendingPaidIds = successBookingIds;
+                const kept = (saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' submitted and awaiting confirmation. ' : '') + (unpaid.length ? unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid — ' : '');
+                window._pendingPaidIds = unpaid;
                 if (coiBlocked) {
                     errMsg.innerHTML = _esc(uniq[0])
                         + ' <a href="/brand/dashboard#compliance" target="_blank" style="color:inherit; font-weight:700; text-decoration:underline;">Upload it here</a>, then book again.';
                 } else {
-                    errMsg.innerHTML = escapeHtml(kept) + (successBookingIds.length ? '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">pay for ' + (successBookingIds.length === 1 ? 'it' : 'them') + ' now</a>. ' : '') + '<br>Not booked: ' + escapeHtml(uniq.join('; '));
+                    errMsg.innerHTML = escapeHtml(kept) + (unpaid.length ? '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">pay for ' + (unpaid.length === 1 ? 'it' : 'them') + ' now</a>. ' : '') + (keepItems.length ? '<br><a href="#" onclick="return confirmBooking(), false" style="color:inherit; font-weight:700; text-decoration:underline;">Check status</a> of the demo whose result was lost (it is kept exactly as sent and will not be duplicated). ' : '') + '<br>Not booked: ' + escapeHtml(uniq.join('; '));
                 }
                 errMsg.style.display = 'block';
                 window._pendingSignedName = null;
@@ -2036,15 +2051,17 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             try { window._lastBookingEmail = contactEmail; } catch(_){}
             // Booking codes (0085): a fee-waived booking is free — no Stripe, no "pending payment". The server has
             // already queued it (confirmed or awaiting the store's approval, per its auto-confirm setting).
-            if (freeCount > 0 && successBookingIds.length === 0) {
+            if (freeCount > 0 && unpaid.length === 0) {
                 showFreeBookedModal(freeCount, contactEmail);
                 btn.disabled = false; btn.textContent = origLabel;
                 return;
             }
+            window._pendingPaidIds = unpaid;
             // Phase B: try to collect payment via Stripe Checkout for the whole batch.
             // If the retailer isn't Stripe-connected, the endpoint returns { skip: true }
             // and we fall through to the current success modal.
-            if (successBookingIds.length > 0) {
+            if (unpaid.length > 0) {
+                const freeNote = saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' already submitted and awaiting confirmation. ' : '';
                 try {
                     btn.textContent = 'Redirecting to payment…';
                     btn.disabled = true;
@@ -2052,7 +2069,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
-                        body: JSON.stringify({ booking_ids: successBookingIds }),
+                        body: JSON.stringify({ booking_ids: unpaid }),
                     });
                     const checkoutJson = await checkoutResp.json().catch(() => ({}));
                     if (checkoutResp.ok && checkoutJson.url && !checkoutJson.skip) {
@@ -2065,13 +2082,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     // pending_payment status (see api/booking.js), so we're just telling the user.
                     if (checkoutJson.skip) {
                         console.log('Stripe collection skipped:', checkoutJson.reason);
-                        showPendingPaymentModal(cart.length, checkoutJson.reason, contactEmail);
+                        showPendingPaymentModal(unpaid.length, checkoutJson.reason, contactEmail);
                         btn.disabled = false;
                         btn.textContent = origLabel;
                         return;
                     } else if (!checkoutResp.ok) {
                         console.warn('checkout-session failed:', checkoutJson.error || checkoutResp.status);
-                        errMsg.textContent = 'Could not open payment. Try again in a moment, or the retailer can invoice you.';
+                        errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Could not open payment just now. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
                         errMsg.style.display = 'block';
                         btn.disabled = false;
                         btn.textContent = origLabel;
@@ -2079,7 +2096,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     }
                 } catch (e) {
                     console.warn('checkout-session error, falling back to modal:', e);
-                    errMsg.textContent = 'Network error opening payment. Your booking is on hold — try again in a moment.';
+                    errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Network error opening payment. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
                     errMsg.style.display = 'block';
                     btn.disabled = false;
                     btn.textContent = origLabel;
@@ -2117,11 +2134,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
             if (input) { input.value = ''; input.disabled = false; } if (btn) btn.textContent = 'Apply'; if (msg) msg.style.display = 'none';
         }
+        // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1) — independent of the cart, kept in
+        // sessionStorage for this tab (booking ids, labels, the frozen request; no secrets, no extra personal data).
+        const OUTCOMES_KEY = 'dh_outcomes_' + RETAILER_SLUG;
+        function loadOutcomes() { try { const o = JSON.parse(sessionStorage.getItem(OUTCOMES_KEY) || 'null'); if (o && Array.isArray(o.paid) && Array.isArray(o.free) && Array.isArray(o.recovery)) return o; } catch (_) {} return { paid: [], free: [], recovery: [] }; }
+        function saveOutcomes(o) { try { sessionStorage.setItem(OUTCOMES_KEY, JSON.stringify(o)); } catch (_) {} }
+        function addOutcome(kind, id, label) { if (!id) return; const o = loadOutcomes(); if (!o[kind].some(x => x.id === id)) o[kind].push({ id, label }); saveOutcomes(o); }
+        function addRecovery(item) { if (!item || !item.frozen) return; const o = loadOutcomes(); if (!o.recovery.some(x => x.op_key === item.id)) o.recovery.push({ op_key: item.id, frozen: item.frozen, dateStr: item.dateStr, time: item.time, hours: item.hours, label: item.label, location: item.location, displayDate: item.displayDate }); saveOutcomes(o); }
+        function removeRecovery(opKey) { const o = loadOutcomes(); o.recovery = o.recovery.filter(x => x.op_key !== opKey); saveOutcomes(o); }
+        function clearOutcomes() { try { sessionStorage.removeItem(OUTCOMES_KEY); } catch (_) {} }
+        // A lost-result item comes back into the cart after a reload, frozen, so it can only be re-checked — never re-made.
+        function restoreRecoveringItems() {
+            const o = loadOutcomes(); if (!o.recovery.length) return;
+            for (const r of o.recovery) { if (cart.some(it => it.id === r.op_key)) continue; const [y, m, d] = r.dateStr.split('-').map(Number); cart.push({ id: r.op_key, date: new Date(y, m - 1, d), dateStr: r.dateStr, time: r.time, hours: r.hours || 3, label: r.label || r.time, location: r.location, displayDate: r.displayDate, frozen: r.frozen, recovering: true }); }
+            if (!window._bookingCode && o.recovery[0] && o.recovery[0].frozen && o.recovery[0].frozen.booking_code) window._bookingCode = { code: o.recovery[0].frozen.booking_code, waives_fee: false, waives_lead_time: true, itemId: o.recovery[0].op_key, locked: true };
+            updateCartDisplay(); renderLocationSwitcher();
+        }
         async function payPendingBookings(a) {
-            const ids = window._pendingPaidIds || []; if (!ids.length) return false;
+            // the EXACT saved unpaid set: the claim function reuses the existing pending payment group for an identical set
+            const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
             a.textContent = 'opening payment…';
-            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; } a.textContent = 'could not open payment — try from your dashboard'; }
-            catch (_) { a.textContent = 'could not open payment — try from your dashboard'; }
+            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; }
+                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session — open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment — see your dashboard' : 'could not open payment — try again or pay from your dashboard'; }
+            catch (_) { a.textContent = 'could not open payment — try again or pay from your dashboard'; }
             return false;
         }
         async function applyBookingCode() {
@@ -2129,6 +2164,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const raw = (input.value || '').trim().toUpperCase();
             const show = (text, good) => { msg.textContent = text; msg.style.color = good ? '#1f6b3a' : '#b91c1c'; msg.style.display = 'block'; };
             if (window._bookingCode) {   // acting as "Remove": any short-notice item it covered is now blocked until it is removed or re-covered
+                if (cart.some(it => it.recovering)) { show('A demo with this code is still being checked. Use "Confirm booking" to check its status first.', false); return; }
                 resetBookingCodeUi(); updateCartDisplay(); renderCalendar(); return;
             }
             if (!raw) { show('Type the code the store gave you.', false); return; }
@@ -2590,6 +2626,7 @@ function supportMailto(a) {
             }));
             UPCOMING_DEMOS = window.state.demos;
             window.state.settings = data.settings || null;
+            try { restoreRecoveringItems(); } catch (_) {}
             window.state.compliance = [];
             if (document.getElementById('demosTableBody')) renderDemos();
             if (document.getElementById('complianceTableBody')) renderCompliance();

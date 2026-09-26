@@ -107,7 +107,7 @@ try {
     const cancelEarly = await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: freeId }, cookies: { dh_retailer_session: staffCookie } })); ok('BC-7: cancelling a free booking before the worker promotes it is a DEFINED refusal (awaiting_confirmation), not a silent failure', cancelEarly.statusCode === 409 && cancelEarly.body.error === 'awaiting_confirmation', `${cancelEarly.statusCode} ${JSON.stringify(cancelEarly.body).slice(0, 120)}`);
     const b2 = await book({ demo_date: SOON2, booking_code: bothCode.code }); bothId = b2.body.booking_id; if (bothId) track('bookings', bothId); const brow = await bookingRow(bothId);
     ok('combined code: inside the minimum AND free', b2.statusCode === 200 && b2.body.next === 'awaiting_confirmation' && brow && brow.fee_waived === true && brow.payment_status === 'waived', `${b2.statusCode} ${JSON.stringify(b2.body)}`);
-    const unv = await book({ demo_date: FAR3, booking_code: feeCode.code }, unverifiedCookie); ok('a brand WITHOUT a verified COI cannot use a no-fee code (coi_required_for_free_booking)', unv.statusCode === 400 && unv.body.error === 'coi_required_for_free_booking', `${unv.statusCode} ${unv.body && unv.body.error}`);
+    const unv = await book({ demo_date: FAR3, booking_code: feeCode.code }, unverifiedCookie); ok('a brand WITHOUT a verified COI cannot use a no-fee code (coi_required_for_code)', unv.statusCode === 400 && unv.body.error === 'coi_required_for_code', `${unv.statusCode} ${unv.body && unv.body.error}`);
     const counts = await codesFor(); ok('use counts: fee 1, soon 1, both 1, limited 0', counts.find(c => c.id === feeCode.id).use_count === 1 && counts.find(c => c.id === soonCode.id).use_count === 1 && counts.find(c => c.id === bothCode.id).use_count === 1 && counts.find(c => c.id === limitedCode.id).use_count === 0, JSON.stringify(counts.map(c => [c.code, c.use_count]))); }
 
   console.log('\n— BC-3: one transaction, durable op_key —');
@@ -133,7 +133,84 @@ try {
     const c1 = await admin('codes-create', { kind: 'fee' }); const co = await callRoute('checkout.js', req({ body: { booking_ids: [pid] }, cookies: { dh_brand_session: brandCookie } }));
     const afterClaim = await rpc('booking_code_redeem', { p_code: c1.body.code.code, p_retailer_id: retailerId, p_booking_id: pid, p_brand_id: brandId });
     ok('checkout first, then redeem: the claimed booking (allocation exists) is refused as booking_in_checkout', [200, 400, 503].includes(co.statusCode) && afterClaim && afterClaim.ok === false && ['booking_in_checkout', 'booking_not_redeemable'].includes(afterClaim.reason), `checkout ${co.statusCode} ${co.body && co.body.error} redeem ${JSON.stringify(afterClaim)}`);
-    ok('redeem first, then checkout: the waived booking is refused by the route AND the ledger trigger (no allocation exists)', (await callRoute('checkout.js', req({ body: { booking_ids: [freeId] }, cookies: { dh_brand_session: brandCookie } }))).body.error === 'booking_fee_waived' && (await db(`payment_allocations?booking_id=eq.${freeId}&select=id`)).body.length === 0 && (await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: null, booking_id: freeId, customer_amount: 3000, venue_amount: 3000, platform_fee_amount: 0 }) })).status >= 400); }
+    const grp = one(await db('payment_groups', { method: 'POST', body: JSON.stringify({ brand_id: brandId, retailer_id: retailerId, currency: 'usd', total_customer_amount: 3000, platform_keeps_all: true, status: 'pending' }) })); track('payment_groups', grp && grp.id);
+    const allocTry = await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: grp.id, booking_id: freeId, customer_amount: 3000, venue_amount: 3000, platform_fee_amount: 0, currency: 'usd' }) });
+    ok('redeem first, then checkout: the route refuses (booking_fee_waived) AND a VALID allocation into a VALID pending group is rejected by the trigger with the specific booking_fee_waived error, leaving no allocation', (await callRoute('checkout.js', req({ body: { booking_ids: [freeId] }, cookies: { dh_brand_session: brandCookie } }))).body.error === 'booking_fee_waived' && allocTry.status >= 400 && /booking_fee_waived/.test(JSON.stringify(allocTry.body)) && (await db(`payment_allocations?payment_group_id=eq.${grp.id}&select=id`)).body.length === 0, `${allocTry.status} ${JSON.stringify(allocTry.body).slice(0, 160)}`);
+    // item 5: ONE concurrent checkout-vs-redeem interleaving: exactly one side wins, never a mixed state
+    const plain2 = await book({ demo_date: dayP(50) }); const pid2 = plain2.body.booking_id; track('bookings', pid2); const c2 = await admin('codes-create', { kind: 'fee' });
+    const [coR, rdR] = await Promise.all([callRoute('checkout.js', req({ body: { booking_ids: [pid2] }, cookies: { dh_brand_session: brandCookie } })), rpc('booking_code_redeem', { p_code: c2.body.code.code, p_retailer_id: retailerId, p_booking_id: pid2, p_brand_id: brandId })]);
+    const row2 = await bookingRow(pid2); const allocs2 = (await db(`payment_allocations?booking_id=eq.${pid2}&select=id`)).body;
+    ok('CONCURRENT checkout vs redeem on one booking: exactly one outcome, either an allocation exists and the booking is unpaid, or the booking is waived and no allocation exists', (allocs2.length === 1 && row2.payment_status === 'unpaid' && rdR.ok === false) || (allocs2.length === 0 && row2.payment_status === 'waived' && rdR.ok === true && coR.statusCode >= 400), JSON.stringify({ co: coR.statusCode, rd: rdR, allocs: allocs2.length, pay: row2.payment_status }));
+    for (const g of ((await db(`payment_groups?brand_id=eq.${brandId}&select=id`)).body || [])) track('payment_groups', g.id); }
+
+  console.log('\n— Codex review 2 item 1: committed-operation recovery under changed rules —');
+  { const rc1 = await admin('codes-create', { kind: 'both', max_uses: 1 }); const soonDate = dayP(5), key1 = opKey();
+    const made = await book({ demo_date: soonDate, booking_code: rc1.body.code.code, op_key: key1 }); const madeId = made.body.booking_id; track('bookings', madeId);
+    ok('setup: a free short-notice booking committed under the current rules', made.statusCode === 200 && !!madeId, `${made.statusCode} ${made.body.error}`);
+    const same = () => book({ demo_date: soonDate, booking_code: rc1.body.code.code, op_key: key1 });
+    const r1 = await same(); ok('retry after the code is exhausted: the original booking, replay:true, current status reported', r1.statusCode === 200 && r1.body.replay === true && r1.body.booking_id === madeId && typeof r1.body.current_status === 'string', `${r1.statusCode} ${JSON.stringify(r1.body).slice(0, 160)}`);
+    await db(`settings?retailer_id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ advance_booking_days: 60 }) });
+    const r2 = await same(); ok('retry after the notice rule was RAISED to 60 days: still the original booking (Codex reproduction)', r2.statusCode === 200 && r2.body.replay === true && r2.body.booking_id === madeId, `${r2.statusCode} ${r2.body.error}`);
+    await db(`settings?retailer_id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ advance_booking_days: 14 }) });
+    await db(`venues?id=eq.${V1}`, { method: 'PATCH', body: JSON.stringify({ active: false }) });
+    const r3 = await same(); await db(`venues?id=eq.${V1}`, { method: 'PATCH', body: JSON.stringify({ active: true }) });
+    ok('retry after the venue was DEACTIVATED: still the original booking', r3.statusCode === 200 && r3.body.replay === true && r3.body.booking_id === madeId, `${r3.statusCode} ${r3.body.error}`);
+    await db(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify({ coi_verification_status: 'pending', phone: null }) });
+    const r4 = await same(); await db(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify({ coi_verification_status: 'approved', phone: '555-0177' }) });
+    ok('retry after the COI and contact state changed: still the original booking', r4.statusCode === 200 && r4.body.replay === true && r4.body.booking_id === madeId, `${r4.statusCode} ${r4.body.error}`);
+    const r5 = await book({ demo_date: dayP(6), booking_code: rc1.body.code.code, op_key: key1 }); ok('the same key with a later date is refused (op_key_reused), nothing created', r5.statusCode === 409 && r5.body.error === 'op_key_reused' && ((await db(`booking_operations?op_key=eq.${key1}&select=booking_id`)).body || []).length === 1);
+    const r6 = await book({ demo_date: soonDate, booking_code: rc1.body.code.code, op_key: key1 }, unverifiedCookie); ok('ANOTHER brand cannot recover it (its own path runs; refused; no booking)', r6.statusCode !== 200 && r6.body.booking_id === undefined, `${r6.statusCode} ${r6.body.error}`);
+    const ops = (await db(`booking_operations?op_key=eq.${key1}&select=booking_id`)).body; const reds = (await db(`booking_code_redemptions?code_id=eq.${rc1.body.code.id}&select=id`)).body; const fulRows = (await db(`booking_fulfillments?booking_id=eq.${madeId}&select=booking_id`)).body;
+    ok('throughout: one booking, one operation, one redemption, one fulfilment row, use_count 1', ops.length === 1 && reds.length === 1 && fulRows.length === 1 && (await codesFor()).find(c => c.id === rc1.body.code.id).use_count === 1);
+    // transport failures: fetch rejection / timeout / body failure / success without an id: structured unknown outcome, no DELETE
+    const rc2 = await admin('codes-create', { kind: 'fee' }); const realFetch = globalThis.fetch; const cases = {}; await db(`booking_code_attempts?brand_id=eq.${brandId}`, { method: 'DELETE' });
+    const withFetch = async (impl, label) => { globalThis.fetch = (url, o) => (String(url).includes('/rpc/booking_create_with_code') ? impl(url, o) : realFetch(url, o)); try { cases[label] = await book({ demo_date: dayP(51), booking_code: rc2.body.code.code }); } finally { globalThis.fetch = realFetch; } };
+    await withFetch(async () => { throw Object.assign(new Error('ECONNRESET'), { name: 'FetchError' }); }, 'reset');
+    await withFetch(async () => { const e = new Error('aborted'); e.name = 'TimeoutError'; throw e; }, 'timeout');
+    await withFetch(async () => ({ ok: true, status: 200, text: async () => { throw new Error('body stream failed'); } }), 'body');
+    await withFetch(async () => ({ ok: true, status: 200, text: async () => JSON.stringify({ ok: true }) }), 'no_id');
+    const allUnknown = Object.values(cases).every(r => r.statusCode === 503 && r.body.error === 'booking_outcome_unknown' && r.body.retry_with_same_key === true && typeof r.body.op_key === 'string');
+    ok('RPC connection reset, timeout, body-read failure and a success body without an id ALL return the structured unknown-outcome response with the key', allUnknown, JSON.stringify(Object.fromEntries(Object.entries(cases).map(([k, v]) => [k, [v.statusCode, v.body.error]]))));
+    ok('...and nothing was created or deleted by those attempts (no booking on that date, code unused)', ((await db(`bookings?retailer_id=eq.${retailerId}&demo_date=eq.${dayP(51)}&select=id`)).body || []).length === 0 && (await codesFor()).find(c => c.id === rc2.body.code.id).use_count === 0); }
+
+  console.log('\n— Codex review 2 item 3: the network budget is atomic across distinct brands —');
+  { const { createHash } = await import('node:crypto'); const nh = createHash('sha256').update('dh-code-limiter:198.51.100.9').digest('hex').slice(0, 32); await db(`booking_code_attempts?net_hash=eq.${nh}`, { method: 'DELETE' });
+    for (let i = 0; i < 39; i++) await db('booking_code_attempts', { method: 'POST', body: JSON.stringify({ brand_id: null, retailer_id: null, net_hash: nh }) });
+    const uuid = () => crypto.randomUUID(); const pairs = Array.from({ length: 8 }, () => ({ b: uuid(), r: uuid() }));
+    const results = await Promise.all(pairs.map(p => db('rpc/booking_code_attempt', { method: 'POST', body: JSON.stringify({ p_brand_id: p.b, p_retailer_id: p.r, p_net_hash: nh }) })));
+    const admitted = results.filter(r => r.body && r.body[0] && r.body[0].allowed === true).length; const rows = (await db(`booking_code_attempts?net_hash=eq.${nh}&select=id`)).body.length;
+    ok('39 network attempts + 8 SIMULTANEOUS requests from 8 distinct brand/retailer pairs on that network: exactly ONE admitted, 40 rows, no deadlock', admitted === 1 && rows === 40 && results.every(r => r.status === 200), JSON.stringify({ admitted, rows, statuses: results.map(r => r.status) }));
+    const nh2 = createHash('sha256').update('dh-code-limiter:198.51.100.10').digest('hex').slice(0, 32);
+    const other = await db('rpc/booking_code_attempt', { method: 'POST', body: JSON.stringify({ p_brand_id: uuid(), p_retailer_id: uuid(), p_net_hash: nh2 }) });
+    const noAddr = await db('rpc/booking_code_attempt', { method: 'POST', body: JSON.stringify({ p_brand_id: uuid(), p_retailer_id: uuid(), p_net_hash: null }) });
+    ok('an unrelated network and a request with no address are unaffected; the refused one reports retry guidance from the limiting scope', other.body[0].allowed === true && noAddr.body[0].allowed === true && results.some(r => r.body[0].allowed === false && r.body[0].retry_after_seconds >= 30 && r.body[0].net_attempts === 40));
+    await db(`booking_code_attempts?net_hash=eq.${nh}`, { method: 'DELETE' }); await db(`booking_code_attempts?net_hash=eq.${nh2}`, { method: 'DELETE' }); await db(`booking_code_attempts?brand_id=is.null&net_hash=is.null`, { method: 'DELETE' }); }
+
+  console.log('\n— Codex review 2 item 4: no code on a provisional (held) booking this release —');
+  { const sc = await admin('codes-create', { kind: 'lead_time' }); const hv = await book({ demo_date: dayP(52), booking_code: sc.body.code.code }, unverifiedCookie);
+    ok('an unverified-COI brand (provisional path) cannot use even a short-notice code (coi_required_for_code); nothing created', hv.statusCode === 400 && hv.body.error === 'coi_required_for_code' && ((await db(`bookings?retailer_id=eq.${retailerId}&demo_date=eq.${dayP(52)}&select=id`)).body || []).length === 0, `${hv.statusCode} ${hv.body.error}`);
+    const heldId = track('bookings', one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_id: brandId, brand_name: 'Codes Brand Co', contact_email: brandEmail, demo_date: dayP(53), demo_time: T, duration_hours: 3, status: 'held', held_expires_at: new Date(Date.now() + 864e5).toISOString(), payment_status: 'unpaid', amount_paid: 3000 }) })).id);
+    const dr = await rpc('booking_code_redeem', { p_code: sc.body.code.code, p_retailer_id: retailerId, p_booking_id: heldId, p_brand_id: brandId });
+    ok('the redeem RPC refuses a held booking for a short-notice code too (booking_not_redeemable)', dr && dr.ok === false && dr.reason === 'booking_not_redeemable', JSON.stringify(dr)); }
+
+  console.log('\n— Codex review 2 item 5: frozen clock, same-day on a 0-day store, exact 14-day boundary —');
+  { ENV.DEMOHUB_TEST_HOOKS = '1';
+    const zeroSlug2 = uniq('bq'); const zeroId2 = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: zeroSlug2, name: 'Zero Notice 2', billing_email: `${zeroSlug2}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true }) })).id);
+    track('settings', one(await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, demo_fee: 30, demo_duration: '3 hours', advance_booking_days: 0 }) })).id);
+    const ZV2 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, name: 'Zero Main 2', address: '0 St', demo_fee: 30, availability: STANDARD }) })).id);
+    const zb2 = (body, clock) => { ENV.DEMOHUB_CLOCK_OVERRIDE = clock; return callRoute('book.js', req({ body: { retailer_slug: zeroSlug2, venue_id: ZV2, op_key: opKey(), ...body }, cookies: { dh_brand_session: brandCookie } })); };
+    const zc2 = one(await db('booking_codes', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, code: 'ZQ-SOON-' + Date.now().toString(36).toUpperCase().slice(-8), waives_fee: false, waives_lead_time: true, max_uses: 5, created_by: 'owner' }) }));
+    const day = dayP(40); const [y, m, d] = day.split('-').map(Number); const clock8 = new Date(Date.UTC(y, m - 1, d, 15, 0, 0)).toISOString();   // 08:00 LA (PDT) on that day
+    const sameDay = await zb2({ demo_date: day, demo_time: '5:00 PM', booking_code: zc2.code }, clock8);
+    ok('frozen clock 08:00 local: a 0-day store books a SAME-DAY 5 PM slot with a short-notice code', sameDay.statusCode === 200, `${sameDay.statusCode} ${sameDay.body.error}`); if (sameDay.body.booking_id) track('bookings', sameDay.body.booking_id);
+    const started = await zb2({ demo_date: day, demo_time: '2:00 PM' }, new Date(Date.UTC(y, m - 1, d, 22, 30, 0)).toISOString());   // 15:30 LA
+    ok('frozen clock 15:30 local: the 2 PM slot that day is refused as slot_started', started.statusCode === 400 && started.body.error === 'slot_started', `${started.statusCode} ${started.body.error}`);
+    const clockMid = new Date(Date.UTC(y, m - 1, d, 19, 0, 0)).toISOString();   // 12:00 LA on `day`; the 14-day store's boundary is day+14 exactly
+    const dayPlus = (n) => new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+    ENV.DEMOHUB_CLOCK_OVERRIDE = clockMid;
+    const b13 = await book({ demo_date: dayPlus(13) }), b14 = await book({ demo_date: dayPlus(14) }); if (b14.body.booking_id) track('bookings', b14.body.booking_id);
+    ok('exact local-day boundary (14-day store, clock frozen at noon): +13 days refused with earliest = +14, +14 accepted', b13.statusCode === 400 && b13.body.earliest_date === dayPlus(14) && b14.statusCode === 200, `${b13.statusCode} ${b13.body.earliest_date} / ${b14.statusCode} ${b14.body.error}`);
+    delete ENV.DEMOHUB_CLOCK_OVERRIDE; delete ENV.DEMOHUB_TEST_HOOKS; await db(`booking_codes?id=eq.${zc2.id}`, { method: 'DELETE' }).catch(() => {}); }
 
   console.log('\n— BC-5: shared attempt limiter (both routes, across instances) —');
   { await db(`booking_code_attempts?brand_id=eq.${brandId}`, { method: 'DELETE' }); const spam = []; for (let i = 0; i < 14; i++) spam.push(await preview('GUS-FREE-NOPE' + i, brandCookie)); const codes = spam.map(x => x.statusCode);
@@ -188,7 +265,7 @@ try {
     ok('the fulfilment row is complete and Stripe was not called for the free booking', (one(await db(`booking_fulfillments?booking_id=eq.${freeId}&select=status`)) || {}).status === 'done' && spy.calls.stripe.length === stripe0, JSON.stringify({ stripe: spy.calls.stripe.length - stripe0 }));
     // lifecycle after promotion: retailer cancel; decline of a pending (auto-confirm OFF) free booking; repeated cancel
     const cancel = await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: freeId, reason: 'test' }, cookies: { dh_retailer_session: staffCookie } })); const afterCancel = await bookingRow(freeId);
-    ok('BC-7: retailer cancels the confirmed free booking — cancelled, still waived/$0, no refund attempted, no Stripe call, demo retired', cancel.statusCode === 200 && afterCancel.status === 'cancelled' && afterCancel.payment_status === 'waived' && afterCancel.amount_paid === 0 && spy.calls.stripe.length === stripe0 && ((await db(`demos?booking_id=eq.${freeId}&status=in.(confirmed,scheduled)&select=id`)).body || []).length === 0 && ((await db(`refund_operations?booking_id=eq.${freeId}&select=id`)).body || []).length === 0, `${cancel.statusCode} ${JSON.stringify(cancel.body).slice(0, 160)} ${JSON.stringify(afterCancel)}`);
+    ok('BC-7: retailer cancels the confirmed free booking — cancelled, still waived/$0, no refund attempted, no Stripe call, demo retired', cancel.statusCode === 200 && afterCancel.status === 'cancelled' && afterCancel.payment_status === 'waived' && afterCancel.amount_paid === 0 && spy.calls.stripe.length === stripe0 && ((await db(`demos?booking_id=eq.${freeId}&status=in.(confirmed,scheduled)&select=id`)).body || []).length === 0 && (await (async () => { const q = await db(`refund_operations?booking_id=eq.${freeId}&select=id`); return q.status === 200 && Array.isArray(q.body) && q.body.length === 0; })()), `${cancel.statusCode} ${JSON.stringify(cancel.body).slice(0, 160)} ${JSON.stringify(afterCancel)}`);
     const again = await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: freeId }, cookies: { dh_retailer_session: staffCookie } })); ok('repeated cancel is refused, nothing resurrected', again.statusCode === 409 && (await bookingRow(freeId)).status === 'cancelled');
     ok('the waiver audit trail survives cancellation (redemption row kept, use not replenished)', ((await db(`booking_code_redemptions?booking_id=eq.${freeId}&select=id`)).body || []).length === 1 && (await codesFor()).find(c => c.id === feeCode.id).use_count === 1);
     // auto-confirm OFF: the free booking is promoted to PENDING, then declined
@@ -216,7 +293,8 @@ try {
     const list = await admin('codes-list', {}, staffCookie, 'GET'); ok('the retailer sees the owner-made code in its own list, created_by owner', list.body.codes.some(c => c.id === oc.body.code.id && c.created_by === 'owner')); }
 } finally {
   for (const [t, id] of bin) { if (t !== 'bookings') continue; for (const x of ['notification_deliveries', 'notification_events', 'demos', 'booking_fulfillments', 'booking_code_redemptions']) await db(`${x}?booking_id=eq.${id}`, { method: 'DELETE' }); }
-  for (const [t, id] of bin) if (t === 'bookings') await db(`booking_operations?booking_id=eq.${id}`, { method: 'DELETE' });
+  for (const [t, id] of bin) if (t === 'bookings') { await db(`booking_operations?booking_id=eq.${id}`, { method: 'DELETE' }); await db(`payment_allocations?booking_id=eq.${id}`, { method: 'DELETE' }); }
+  for (const [t, id] of bin) if (t === 'payment_groups' && id) { await db(`payment_attempts?payment_group_id=eq.${id}`, { method: 'DELETE' }); await db(`payment_allocations?payment_group_id=eq.${id}`, { method: 'DELETE' }); }
   await db(`booking_operations?brand_id=in.(${brandId},${unverifiedId})`, { method: 'DELETE' }); await db(`booking_code_attempts?brand_id=in.(${brandId},${unverifiedId})`, { method: 'DELETE' });
   await db(`booking_codes?retailer_id=in.(${bin.filter(([t]) => t === 'retailers').map(([, id]) => id).join(',')})`, { method: 'DELETE' });
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
