@@ -689,7 +689,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             try {
                 const p = new URLSearchParams(location.search);
                 if (p.has('paid')) {
-                    try { sessionStorage.removeItem('dh_outcomes_' + RETAILER_SLUG); } catch (_) {}
+                    try { sessionStorage.removeItem('dh_outcomes_' + (location.pathname.split('/')[2] || '')); } catch (_) {}
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
                     // Clear the cart client-side before we leave. No redraw: the assign() below
@@ -2136,13 +2136,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
         // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1) — independent of the cart, kept in
         // sessionStorage for this tab (booking ids, labels, the frozen request; no secrets, no extra personal data).
-        const OUTCOMES_KEY = 'dh_outcomes_' + RETAILER_SLUG;
-        function loadOutcomes() { try { const o = JSON.parse(sessionStorage.getItem(OUTCOMES_KEY) || 'null'); if (o && Array.isArray(o.paid) && Array.isArray(o.free) && Array.isArray(o.recovery)) return o; } catch (_) {} return { paid: [], free: [], recovery: [] }; }
-        function saveOutcomes(o) { try { sessionStorage.setItem(OUTCOMES_KEY, JSON.stringify(o)); } catch (_) {} }
+        // (a function: RETAILER_SLUG is declared further down this script, so it must not be read at load time)
+        const outcomesKey = () => 'dh_outcomes_' + (location.pathname.split('/')[2] || '');
+        function loadOutcomes() { try { const o = JSON.parse(sessionStorage.getItem(outcomesKey()) || 'null'); if (o && Array.isArray(o.paid) && Array.isArray(o.free) && Array.isArray(o.recovery)) return o; } catch (_) {} return { paid: [], free: [], recovery: [] }; }
+        function saveOutcomes(o) { try { sessionStorage.setItem(outcomesKey(), JSON.stringify(o)); } catch (_) {} }
         function addOutcome(kind, id, label) { if (!id) return; const o = loadOutcomes(); if (!o[kind].some(x => x.id === id)) o[kind].push({ id, label }); saveOutcomes(o); }
         function addRecovery(item) { if (!item || !item.frozen) return; const o = loadOutcomes(); if (!o.recovery.some(x => x.op_key === item.id)) o.recovery.push({ op_key: item.id, frozen: item.frozen, dateStr: item.dateStr, time: item.time, hours: item.hours, label: item.label, location: item.location, displayDate: item.displayDate }); saveOutcomes(o); }
         function removeRecovery(opKey) { const o = loadOutcomes(); o.recovery = o.recovery.filter(x => x.op_key !== opKey); saveOutcomes(o); }
-        function clearOutcomes() { try { sessionStorage.removeItem(OUTCOMES_KEY); } catch (_) {} }
+        function clearOutcomes() { try { sessionStorage.removeItem(outcomesKey()); } catch (_) {} }
         // A lost-result item comes back into the cart after a reload, frozen, so it can only be re-checked — never re-made.
         function restoreRecoveringItems() {
             const o = loadOutcomes(); if (!o.recovery.length) return;

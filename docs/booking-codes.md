@@ -17,3 +17,24 @@ Codes are `PREFIX-KIND-XXXXXXXX`: eight symbols from a 32-symbol unambiguous alp
 ## Rollback
 
 Once codes have been redeemed, do not drop the columns or run an app that does not know `fee_waived`. To disable: turn off issuance (retailer/owner "Generate" actions) and redemption (refuse codes in `/api/book`), keep the reader, fulfilment and cancellation paths. Never delete `booking_code_redemptions` or `booking_operations`.
+
+## Recovery (Codex completion review, 2026-09-25)
+
+- **Lost result on a code-bearing booking.** The page keeps the exact request it sent (frozen) under the same operation key, marks the demo "checking…", and persists that per tab (`sessionStorage`, this retailer only: booking ids, labels, the frozen request; no secrets). "Confirm booking" re-sends the frozen request; the server answers with the original booking id and its current state before it runs any eligibility check (venue, slot, notice, clock, COI, contact), so a booking made under an earlier rule is always recoverable. While a recovery is pending the code cannot be removed or reassigned. A reload restores the frozen item.
+- **Payment retry.** Saved outcomes (paid ids, free ids) live independently of the cart. Every checkout failure, skip or network error offers "Try payment again" for the exact saved unpaid set; the claim function reuses the existing pending payment group for an identical set, so a retry resumes rather than regroups. Free ids never enter checkout. The store is cleared on the paid return.
+- **Provisional (held) bookings take no code this release.** The short-notice + hold-deadline combination (capture after the hold's 24 h or after the demo start) is not proven, so `/api/book` refuses any code for a brand without a verified certificate (`coi_required_for_code`) and the redeem RPC refuses a held booking. Verified-COI brands are unaffected.
+
+## Operator: a parked (failed) free fulfilment
+
+The worker retries a fulfilment up to 6 times; after that `booking_fulfillments.status = 'failed'` and the booking stays `pending_payment` with `payment_status = 'waived'`. The brand sees "awaiting confirmation"; cancel returns `awaiting_confirmation`. To requeue (David, via a guarded SQL paste; never from the app):
+
+```sql
+UPDATE booking_fulfillments SET status = 'pending', attempts = 0, lease_owner = NULL, lease_expires_at = NULL, last_error = NULL
+ WHERE booking_id = '<booking id>' AND status = 'failed';
+```
+
+The next worker run promotes it. If it fails again, read `last_error` and fix the cause; do not tell the brand to retry.
+
+## Limiter address source
+
+The network budget hashes `x-forwarded-for` (first hop) as Vercel supplies it to the function; behind a shared NAT unrelated brands share that budget by design. The hash is pseudonymous, not anonymous; it is not used for anything but this cap and is pruned after a day.
