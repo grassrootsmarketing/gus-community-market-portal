@@ -41,6 +41,18 @@ try {
   console.log('\n— retailers —');
   const r = await owner('owner-retailer-profile', { retailer_id: retailerId });
   ok('retailer profile: settings, venue, booking/admin links, upcoming booking, brand rollup; no sensitive columns', r.statusCode === 200 && r.body.settings.advance_booking_days === 14 && r.body.venues.length === 1 && r.body.booking_url.endsWith('/r/' + slug) && r.body.admin_url.endsWith('/admin') && r.body.upcoming.some(b => b.id === bkId) && r.body.brands['Directory Brand Co'] === 1 && !SENSITIVE.test(JSON.stringify(r.body)), JSON.stringify(r.body).slice(0, 300));
+  console.log('\n— calendar —');
+  const cal = await owner('owner-calendar', { from: '2027-01-01', to: '2027-01-31' }); const mine = (cal.body.bookings || []).find(b => b.id === bkId);
+  ok('calendar: the fixture booking appears with retailer, venue and brand names and status', cal.statusCode === 200 && mine && mine.retailer === 'Directory Fixture Market' && mine.venue === 'Directory Main' && mine.brand === 'Directory Brand Co' && mine.status === 'confirmed' && mine.time === '11:00 AM', JSON.stringify(mine));
+  ok('calendar: retailer list returned (without the owner row); no sensitive columns', Array.isArray(cal.body.retailers) && cal.body.retailers.some(r => r.id === retailerId) && !cal.body.retailers.some(r => r.slug === '__owner__') && !SENSITIVE.test(JSON.stringify(cal.body)));
+  const filtered = await owner('owner-calendar', { from: '2027-01-01', to: '2027-01-31', retailer_id: retailerId }); const other = await owner('owner-calendar', { from: '2027-01-01', to: '2027-01-31', retailer_id: '00000000-0000-4000-8000-000000000000' });
+  ok('calendar: retailer filter keeps our booking; an unknown retailer returns none', filtered.body.bookings.some(b => b.id === bkId) && other.body.bookings.length === 0);
+  const badRange = await owner('owner-calendar', { from: '2027-01-01', to: '2027-06-01' }); const badFmt = await owner('owner-calendar', { from: 'jan', to: '2027-01-31' }); const anonCal = await owner('owner-calendar', { from: '2027-01-01', to: '2027-01-31' }, null);
+  ok('calendar: >62-day range and malformed dates are 400; no owner session is 401', badRange.statusCode === 400 && badFmt.statusCode === 400 && anonCal.statusCode === 401, [badRange.statusCode, badFmt.statusCode, anonCal.statusCode].join('/'));
+  console.log('\n— overview watchlist —');
+  const od = await owner('owner-data', {}); const w = od.body.watchlist || {};
+  ok('overview: a brand that signed up today is listed under New sign-ups and is NOT in "inactive > 60d"', od.statusCode === 200 && (w.new_brands_30d || []).some(b => b.id === brandId && b.bookings === 1 && b.coi_status === 'approved') && !(w.inactive_brands_60d || []).some(b => b.id === brandId), JSON.stringify({ new: (w.new_brands_30d || []).filter(b => b.id === brandId), inactive: (w.inactive_brands_60d || []).some(b => b.id === brandId) }));
+  ok('overview: the new retailer is listed under New sign-ups', (w.new_retailers_30d || []).some(r => r.id === retailerId));
 } finally {
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 }
