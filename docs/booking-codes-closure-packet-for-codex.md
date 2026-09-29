@@ -53,3 +53,8 @@ Not proven, so not shipped: a provisional (held, unverified-COI) booking accepts
 1. Gus's advance-notice minimum (14 days as configured, or another value).
 2. Approve the production paste (David runs it in the SQL editor; I load the clipboard) and then say "deploy".
 3. Unrelated but open: the backup recovery key is still on the workstation.
+
+
+## Decision recorded 2026-09-28 (David)
+
+The advance-notice minimum is a per-retailer setting (Settings → Minimum booking lead time, saved to `settings.advance_booking_days`), shown on that retailer's booking page and enforced there. Each retailer decides their own number. **Gus's Community Market: 14 days confirmed.** No default was changed.

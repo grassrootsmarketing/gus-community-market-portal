@@ -29,3 +29,8 @@ Verified (recorded, no console errors): the four states above render with the ex
 - The notice reveals the store's minimum to brands. **David has still not confirmed Gus's 14-day rule**; the notice will display whatever `advance_booking_days` is set to, so the number should be decided before deploy. No value was changed by this fix.
 - Deploy = merge `fix/calendar-first-bookable` into `main` on David's "deploy"; no migration, no env change, no redeploy dependency. Rollback = revert the two commits.
 - Not done: a committed DOM e2e for either fix (Playwright is not installed locally); the assertions above were run by hand in the browser and are reproducible from the recorded scripts.
+
+
+## Decision recorded 2026-09-28 (David)
+
+The advance-notice minimum is a per-retailer setting (Settings → Minimum booking lead time, saved to `settings.advance_booking_days`), shown on that retailer's booking page and enforced there. Each retailer decides their own number. **Gus's Community Market: 14 days confirmed.** No default was changed.
