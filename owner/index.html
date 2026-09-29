@@ -104,6 +104,13 @@ table.simple tr:last-child td { border-bottom:0; }
 .owner-tab { padding:10px 18px; background:transparent; border:1px solid transparent; border-radius:7px; font-family:inherit; font-size:0.92rem; font-weight:600; color:var(--ink-700); cursor:pointer; transition:all 0.15s; white-space:nowrap; }
 .owner-tab.active { background:white; color:var(--forest-900); font-weight:700; border-color:rgba(15,44,23,0.18); box-shadow:0 2px 6px rgba(15,44,23,0.08); }
 .tab-pane { display:none; }
+.btn-sm { font-size:0.78rem; padding:5px 11px; border-radius:999px; border:1px solid rgba(15,44,23,0.18); background:white; color:var(--forest-900); cursor:pointer; }
+.btn-sm:hover { background:rgba(15,44,23,0.05); }
+.dir-h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px; }
+.dir-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+.dir-search { width:100%; max-width:360px; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; margin-bottom:12px; }
+.pill { display:inline-block; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; background:rgba(15,44,23,0.07); color:var(--forest-900); }
+.pill.ok { background:#e3edd6; color:#1f4a26; } .pill.warn { background:#fff3ed; color:#a14e2a; } .pill.bad { background:#fde8e8; color:#8a1f1f; }
 .tab-pane.active { display:block; }
 /* Range bar */
 .range-bar { display:flex; align-items:center; gap:8px; margin-bottom:24px; flex-wrap:wrap; }
@@ -359,15 +366,24 @@ function renderGrowthChart(retailerSeries, brandSeries, widthPx) {
 // Mount (and on resize, re-mount) every growth chart at its container's true pixel width.
 // Series are stashed in window._ghSeries by the render paths; hover re-wires after each mount.
 window._ghSeries = window._ghSeries || {};
+// The viewBox is sized to the mount's REAL width, so the text is never stretched. A width of 0 means the
+// mount has not been laid out yet (first paint, hidden tab): render nothing and let the ResizeObserver
+// below re-render the moment it gets a size, and again on every later size change.
 function remountGrowthCharts() {
   document.querySelectorAll('[data-gh-mount]').forEach(function (el) {
     const s = window._ghSeries[el.dataset.ghMount];
     if (!s) return;
-    const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 700;
+    const w = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 0;
+    if (!w) { el.innerHTML = ''; observeGhMount(el); return; }
+    if (el.dataset.ghW === String(w) && el.firstElementChild) return;   // already rendered at this width
+    el.dataset.ghW = String(w);
     el.innerHTML = renderGrowthChart(s.rs, s.bs, w);
+    observeGhMount(el);
   });
   try { wireGhHover(); } catch (_) {}
 }
+const _ghRO = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(function () { remountGrowthCharts(); }) : null;
+function observeGhMount(el) { if (_ghRO && !el.dataset.ghObserved) { el.dataset.ghObserved = '1'; _ghRO.observe(el); } }
 let _ghResizeT = null;
 window.addEventListener('resize', function () {
   clearTimeout(_ghResizeT); _ghResizeT = setTimeout(remountGrowthCharts, 150);
@@ -617,6 +633,8 @@ function renderDashboard(d) {
     </div>
     <div class="owner-tabs">
       <button class="owner-tab active" data-tab="overview">Overview</button>
+      <button class="owner-tab" data-tab="retailers">Retailers</button>
+      <button class="owner-tab" data-tab="brands">Brands</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
       <button class="owner-tab" data-tab="billing">Billing</button>
       <button class="owner-tab" data-tab="coi">COI Review</button>
@@ -630,6 +648,8 @@ function renderDashboard(d) {
       ${tablesHtml}
       ${watchlistHtml}
     </div>
+    <div class="tab-pane" data-pane="retailers" id="retailersPane"></div>
+    <div class="tab-pane" data-pane="brands" id="brandsPane"></div>
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
     <div class="tab-pane" data-pane="status" id="statusPane"></div>
@@ -658,6 +678,85 @@ function renderDashboard(d) {
   wireTabs();
 }
 
+// ---- Directory tabs (2026-09-29): read-only mirrors of each retailer's and each brand's account ----
+const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
+const fmtD = (iso) => { if (!iso) return '—'; const m = /^(d{4})-(d{2})-(d{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
+const money = (n) => n == null ? '—' : '$' + Number(n).toFixed(2);
+const yesno = (b) => b ? 'Yes' : 'No';
+const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { const e = exp ? new Date(exp) : null; return e && e < new Date() ? '<span class="pill bad">COI expired</span>' : '<span class="pill ok">COI approved' + (exp ? ' · to ' + fmtD(exp) : '') + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
+const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
+const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
+let _retailersCache = null, _brandsCache = null;
+
+async function renderRetailersTab(selectedId) {
+  const pane = document.getElementById('retailersPane'); if (!pane) return;
+  if (!_retailersCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading retailers…</div></div>'; try { _retailersCache = ((await ownerPost('owner-list-retailers')).retailers || []).filter(r => r.slug !== '__owner__'); } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load retailers</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
+  const list = _retailersCache;
+  pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Open one to see its account as the retailer sees it (read-only).</div>'
+    + '<input class="dir-search" id="retailerSearch" placeholder="Search by name or slug" autocomplete="off">'
+    + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
+  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong></td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
+  draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); }); }
+  if (selectedId) openRetailerProfile(selectedId);
+}
+async function openRetailerProfile(id) {
+  const box = document.getElementById('retailerProfile'); if (!box) return;
+  box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let p; try { p = await ownerPost('owner-retailer-profile', { retailer_id: id }); } catch (e) { box.innerHTML = '<div class="card"><h2>Couldn\'t load this retailer</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
+  const r = p.retailer, st = p.settings || {};
+  const kv = [
+    row('Booking page', link(p.booking_url, p.booking_url.replace(/^https?:\/\/(www\.)?/, ''))), row('Admin page', link(p.admin_url, p.admin_url.replace(/^https?:\/\/(www\.)?/, ''))),
+    row('Billing email', escapeHtml(r.billing_email || '—')), row('Phone', escapeHtml(r.phone || '—')), row('Plan · status', escapeHtml((r.billing_tier || '—') + ' · ' + (r.billing_status || '—'))),
+    row('Joined', fmtD(r.created_at)), row('Verification', escapeHtml(r.verification_status || '—') + (r.verified_at ? ' · ' + fmtD(r.verified_at) : '')), row('Time zone', escapeHtml(r.timezone || '—')),
+    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', escapeHtml(st.demo_duration || '—')), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
+    row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || '—')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
+    row('Monthly summary email', yesno(r.monthly_summary_enabled)), row('Support access allowed', yesno(r.allow_support_access)), row('Demo account', yesno(r.is_demo)),
+  ].join('');
+  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td></tr>').join('');
+  const people = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.role || '') + '</td><td>Login</td></tr>').join('') + (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.email || c.name || '') + '</td><td>' + escapeHtml(c.role || '') + '</td><td>Store contact</td></tr>').join('');
+  const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + escapeHtml(b.payment_status || '') + '</td></tr>').join('');
+  const brands = Object.entries(p.brands || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => '<tr><td>' + escapeHtml(n) + '</td><td class="num">' + c + '</td></tr>').join('');
+  const cap = (p.capped || {});
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only.</div></div>' + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
+    + '<div class="dir-grid">'
+    + '<div><h3 class="dir-h3">Account &amp; settings</h3><table class="simple"><tbody>' + kv + '</tbody></table>'
+    + (r.cancellation_policy ? '<div style="margin-top:12px; font-size:0.8rem; color:var(--ink-500);"><strong>Cancellation policy:</strong> ' + escapeHtml(String(r.cancellation_policy).slice(0, 400)) + '</div>' : '')
+    + (r.demo_policy ? '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500);"><strong>Demo policy:</strong> ' + escapeHtml(String(r.demo_policy).slice(0, 400)) + (String(r.demo_policy).length > 400 ? '…' : '') + '</div>' : '') + '</div>'
+    + '<div><h3 class="dir-h3">Locations (' + (p.venues || []).length + ')</h3><table class="simple"><thead><tr><th>Name</th><th>Address</th><th class="num">Fee</th><th class="num">Per slot</th></tr></thead><tbody>' + (venues || '<tr><td colspan="4">None</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">People</h3><table class="simple"><tbody>' + (people || '<tr><td>None</td></tr>') + '</tbody></table></div>'
+    + '<div><h3 class="dir-h3">Upcoming bookings' + (cap.upcoming ? ' (first 25)' : '') + '</h3><table class="simple"><tbody>' + (up || '<tr><td>None</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">Brands (last 25 bookings)</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
+    + '</div></div>';
+}
+
+async function renderBrandsTab() {
+  const pane = document.getElementById('brandsPane'); if (!pane) return;
+  if (!_brandsCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading brands…</div></div>'; try { const j = await ownerPost('owner-list-brands'); _brandsCache = { list: j.brands || [], capped: !!j.capped }; } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load brands</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
+  const list = _brandsCache.list;
+  pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + list.length + (_brandsCache.capped ? '+ (first 500 shown)' : '') + ' signed up. Open one to see its profile, certificate and bookings (read-only).</div>'
+    + '<input class="dir-search" id="brandSearch" placeholder="Search by company, contact or email" autocomplete="off">'
+    + '<div class="tablewrap"><table class="simple"><thead><tr><th>Brand</th><th>Contact</th><th>Certificate</th><th class="num">Demos</th><th>Retailers</th><th>Joined</th><th></th></tr></thead><tbody id="brandRows"></tbody></table></div></div><div id="brandProfile"></div>';
+  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || '—') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || '—') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
+  draw(''); document.getElementById('brandSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act=openb]'); if (b) openBrandProfile(b.dataset.bid); }); }
+}
+async function openBrandProfile(id) {
+  const box = document.getElementById('brandProfile'); if (!box) return;
+  box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let p; try { p = await ownerPost('owner-brand-profile', { brand_id: id }); } catch (e) { box.innerHTML = '<div class="card"><h2>Couldn\'t load this brand</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
+  const b = p.brand;
+  const kv = [row('Contact', escapeHtml(b.contact_name || '—')), row('Email', escapeHtml(b.email || '—')), row('Phone', escapeHtml(b.phone || '—')), row('Website', b.website ? link(/^https?:/.test(b.website) ? b.website : 'https://' + b.website, b.website) : '—'), row('Joined', fmtD(b.created_at)), row('Email verified', yesno(b.is_verified)),
+    row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires) + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? '—' : yesno(b.needs_electricity)),
+    row('Categories', escapeHtml(Array.isArray(b.default_categories) ? b.default_categories.join(', ') : (b.default_categories || '—'))), row('Products', escapeHtml(Array.isArray(b.products) ? b.products.map(x => (x && x.name) || x).join(', ').slice(0, 300) : '—'))].join('');
+  const byR = Object.entries(p.by_retailer || {}).map(([n, a]) => '<tr><td>' + (a.slug ? link('/r/' + a.slug, n) : escapeHtml(n)) + '</td><td class="num">' + a.total + '</td><td class="num">' + a.upcoming + '</td><td class="num">' + money(a.paid_cents / 100) + '</td></tr>').join('');
+  const bk = (p.bookings || []).slice(0, 25).map(x => '<tr><td>' + escapeHtml(x.demo_date) + ' ' + escapeHtml(x.demo_time || '') + '</td><td>' + escapeHtml(x.retailer_name) + '</td><td>' + escapeHtml(x.status) + '</td><td>' + escapeHtml(x.payment_status || '') + (x.payment_status === 'paid' ? ' · ' + money(Number(x.amount_paid || 0) / 100) : '') + '</td></tr>').join('');
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(b.company_name || '—') + '</h2><div class="sub">Mirror of the brand\'s account. Read-only; the certificate file itself is reviewed in COI Review.</div></div>' + (b.logo_url ? '<img src="' + escapeHtml(b.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
+    + '<div class="dir-grid"><div><h3 class="dir-h3">Profile</h3><table class="simple"><tbody>' + kv + '</tbody></table></div>'
+    + '<div><h3 class="dir-h3">By retailer</h3><table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th><th class="num">Upcoming</th><th class="num">Paid</th></tr></thead><tbody>' + (byR || '<tr><td colspan="4">No bookings yet</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">Bookings' + (p.capped ? ' (last 100, showing 25)' : ' (latest 25)') + '</h3><table class="simple"><tbody>' + (bk || '<tr><td>None</td></tr>') + '</tbody></table></div></div></div>';
+}
+
 // Tab switching + lazy-render analytics/billing
 function wireTabs() {
   document.querySelectorAll('.owner-tab').forEach(btn => {
@@ -666,6 +765,8 @@ function wireTabs() {
       document.querySelectorAll('.owner-tab').forEach(b => b.classList.toggle('active', b === btn));
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.dataset.pane === tab));
       if (tab === 'analytics') renderAnalytics('30d');
+      if (tab === 'retailers') renderRetailersTab();
+      if (tab === 'brands') renderBrandsTab();
       if (tab === 'billing') renderBilling();
       if (tab === 'status') renderStatusManager();
       if (tab === 'coi') loadCoiQueue();
