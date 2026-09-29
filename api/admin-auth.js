@@ -1101,7 +1101,7 @@ export default async function handler(req, res) {
       }
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-remove-brand' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1436,6 +1436,31 @@ async function handleOwnerAction(action, req, res, body) {
 
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
+  // ---- OWNER: REMOVE BRAND (2026-09-29). Only a brand with NO history: no bookings (any status), no payment groups,
+  // no legacy demos and no signed retailer agreements. Anything with history is refused (409) so booking, payment,
+  // refund and agreement evidence is never orphaned or deleted. Removing the brand row cascades only its own login
+  // sessions/tokens, members, calendar tokens and COI verification rows (FKs in 0000/0010/0048). The certificate file in
+  // storage is left in place (covered by the storage backup). The removal is logged as one JSON line in the function log.
+  if (action === 'owner-remove-brand') {
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const id = String(body?.brand_id || ''); if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'brand_id required' });
+    const R = encodeURIComponent(id);
+    let brand, history;
+    try {
+      const rows = await sb(`brands?id=eq.${R}&select=id,company_name,email,created_at`);
+      brand = Array.isArray(rows) && rows[0]; if (!brand) return res.status(404).json({ error: 'brand_not_found' });
+      // Errors here are NOT swallowed: if history cannot be read, nothing is removed.
+      const [bk, pg, dm, ag] = await Promise.all(['bookings', 'payment_groups', 'demos', 'brand_retailer_agreements'].map(t => sb(`${t}?brand_id=eq.${R}&select=id&limit=1`)));
+      history = { bookings: (bk || []).length > 0, payments: (pg || []).length > 0, demos: (dm || []).length > 0, agreements: (ag || []).length > 0 };
+    } catch (e) { return res.status(503).json({ error: 'history_check_failed' }); }
+    if (Object.values(history).some(Boolean)) return res.status(409).json({ error: 'brand_has_history', history });
+    try { await sb(`brands?id=eq.${R}`, { method: 'DELETE' }); }
+    catch (e) { return res.status(409).json({ error: 'remove_refused', detail: String(e?.message || e).slice(0, 200) }); }
+    console.log(JSON.stringify({ event: 'owner_brand_removed', brand_id: brand.id, company_name: brand.company_name, email: brand.email, brand_created_at: brand.created_at, by: v.email || null, at: new Date().toISOString() }));
+    return res.status(200).json({ ok: true, removed: { id: brand.id, company_name: brand.company_name, email: brand.email } });
+  }
+
   // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
   // field lists only — never session, token, password-hash or feed-key columns. Lists are capped and say so.
   // ---- OWNER CALENDAR (2026-09-29): every retailer's demo bookings for one date range, read-only mirror. ----
@@ -1467,7 +1492,10 @@ async function handleOwnerAction(action, req, res, body) {
       const bookings = await q('bookings?select=brand_id,retailer_id,status,demo_date&limit=5000');
       const retailers = await q('retailers?select=id,name&limit=500'); const rname = Object.fromEntries((retailers || []).map(r => [r.id, r.name]));
       const agg = {}; for (const b of (bookings || [])) { if (!b.brand_id) continue; const a = agg[b.brand_id] = agg[b.brand_id] || { total: 0, upcoming: 0, retailers: new Set() }; a.total++; if (b.demo_date >= today && ['pending', 'confirmed', 'held', 'pending_payment'].includes(b.status)) a.upcoming++; a.retailers.add(rname[b.retailer_id] || '?'); }
-      return res.status(200).json({ ok: true, brands: (brands || []).map(b => ({ ...b, bookings_total: (agg[b.id] || {}).total || 0, bookings_upcoming: (agg[b.id] || {}).upcoming || 0, retailers: [...((agg[b.id] || {}).retailers || [])] })), capped: (brands || []).length >= 500 });
+      const [pgs, dms, ags] = await Promise.all([q('payment_groups?select=brand_id&limit=5000'), q('demos?select=brand_id&limit=5000'), q('brand_retailer_agreements?select=brand_id&limit=5000')]);
+      const hist = new Set([...(pgs || []), ...(dms || []), ...(ags || [])].map(x => x.brand_id).filter(Boolean));
+      // "removable" is a display hint only; owner-remove-brand re-checks everything itself and refuses on any history.
+      return res.status(200).json({ ok: true, brands: (brands || []).map(b => ({ ...b, removable: !(agg[b.id] || {}).total && !hist.has(b.id), bookings_total: (agg[b.id] || {}).total || 0, bookings_upcoming: (agg[b.id] || {}).upcoming || 0, retailers: [...((agg[b.id] || {}).retailers || [])] })), capped: (brands || []).length >= 500 });
     }
     const id = String(body?.retailer_id || body?.brand_id || ''); if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id required' });
     const R = encodeURIComponent(id);

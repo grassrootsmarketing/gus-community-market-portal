@@ -53,6 +53,22 @@ try {
   const od = await owner('owner-data', {}); const w = od.body.watchlist || {};
   ok('overview: a brand that signed up today is listed under New sign-ups and is NOT in "inactive > 60d"', od.statusCode === 200 && (w.new_brands_30d || []).some(b => b.id === brandId && b.bookings === 1 && b.coi_status === 'approved') && !(w.inactive_brands_60d || []).some(b => b.id === brandId), JSON.stringify({ new: (w.new_brands_30d || []).filter(b => b.id === brandId), inactive: (w.inactive_brands_60d || []).some(b => b.id === brandId) }));
   ok('overview: the new retailer is listed under New sign-ups', (w.new_retailers_30d || []).some(r => r.id === retailerId));
+  console.log('\n— remove brand —');
+  const mk = async (tag) => one(await db('brands', { method: 'POST', body: JSON.stringify({ email: `${uniq(tag)}@fixture.test`, company_name: 'Remove Fixture ' + tag, contact_name: 'Rm', password_hash: 'not-a-real-hash' }) })).id;
+  const cleanId = track('brands', await mk('rmclean')); const agreedId = track('brands', await mk('rmagreed'));
+  track('brand_retailer_agreements', one(await db('brand_retailer_agreements', { method: 'POST', body: JSON.stringify({ brand_id: agreedId, retailer_id: retailerId, signed_name: 'Rm', signed_email: 'rm@fixture.test', policy_hash: 'fixture' }) })).id);
+  track('brand_account_sessions', one(await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: cleanId, expires_at: new Date(Date.now() + 864e5).toISOString() }) }))?.id);
+  const lst = await owner('owner-list-brands', {}); const flag = (id) => ((lst.body.brands || []).find(b => b.id === id) || {}).removable;
+  ok('list: removable only for the brand with no history (booking brand and agreement brand are not)', flag(cleanId) === true && flag(brandId) === false && flag(agreedId) === false, [flag(cleanId), flag(brandId), flag(agreedId)].join('/'));
+  const rmAnon = await owner('owner-remove-brand', { brand_id: cleanId }, null); const rmStaff = await callRoute('admin-auth.js', req({ body: { action: 'owner-remove-brand', brand_id: cleanId }, cookies: { dh_retailer_session: staffCookie } })); const rmBad = await owner('owner-remove-brand', { brand_id: 'nope' });
+  ok('remove: 401 without an owner session, 401 for retailer staff, 400 for a malformed id; nothing removed', rmAnon.statusCode === 401 && rmStaff.statusCode === 401 && rmBad.statusCode === 400 && !!one(await db(`brands?id=eq.${cleanId}&select=id`)), [rmAnon.statusCode, rmStaff.statusCode, rmBad.statusCode].join('/'));
+  const rmBooked = await owner('owner-remove-brand', { brand_id: brandId }); const bookedStill = one(await db(`brands?id=eq.${brandId}&select=id`)); const bkStill = one(await db(`bookings?id=eq.${bkId}&select=brand_id`));
+  ok('remove: a brand with a booking is refused (409 brand_has_history) and brand + booking link stay intact', rmBooked.statusCode === 409 && rmBooked.body.error === 'brand_has_history' && rmBooked.body.history.bookings === true && !!bookedStill && bkStill && bkStill.brand_id === brandId, JSON.stringify(rmBooked.body));
+  const rmAgreed = await owner('owner-remove-brand', { brand_id: agreedId });
+  ok('remove: a brand with only a signed agreement is refused and the agreement is kept', rmAgreed.statusCode === 409 && rmAgreed.body.history.agreements === true && !!one(await db(`brand_retailer_agreements?brand_id=eq.${agreedId}&select=id`)), JSON.stringify(rmAgreed.body));
+  const rmClean = await owner('owner-remove-brand', { brand_id: cleanId }); const gone = await db(`brands?id=eq.${cleanId}&select=id`); const sess = await db(`brand_account_sessions?brand_id=eq.${cleanId}&select=id`);
+  ok('remove: a brand with no history is removed (200) and its login sessions go with it', rmClean.statusCode === 200 && rmClean.body.removed.id === cleanId && Array.isArray(gone.body) && gone.body.length === 0 && Array.isArray(sess.body) && sess.body.length === 0, JSON.stringify(rmClean.body));
+  const rmAgain = await owner('owner-remove-brand', { brand_id: cleanId }); ok('remove: removing it again is 404', rmAgain.statusCode === 404);
 } finally {
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
 }

@@ -183,6 +183,8 @@ table.simple tr:last-child td { border-bottom:0; }
 .gh-tip-row .dot { width:8px; height:8px; border-radius:50%; }
 .gh-tip-row .dot.forest { background:#87b08e; } .gh-tip-row .dot.clay { background:#ed682f; }
 .gh-tip-row b { margin-left:auto; padding-left:16px; font-weight:700; }
+  .btn-sm.btn-remove { color:#a14e2a; border-color:#ed682f55; }
+  .btn-sm.btn-remove:hover { background:#fff3ed; }
 </style>
 </head>
 <body>
@@ -697,7 +699,7 @@ function renderDashboard(d) {
 
 // ---- Directory tabs (2026-09-29): read-only mirrors of each retailer's and each brand's account ----
 const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
-const fmtD = (iso) => { if (!iso) return '—'; const m = /^(d{4})-(d{2})-(d{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
+const fmtD = (iso) => { if (!iso) return '—'; const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
 const money = (n) => n == null ? '—' : '$' + Number(n).toFixed(2);
 const yesno = (b) => b ? 'Yes' : 'No';
 const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { const e = exp ? new Date(exp) : null; return e && e < new Date() ? '<span class="pill bad">COI expired</span>' : '<span class="pill ok">COI approved' + (exp ? ' · to ' + fmtD(exp) : '') + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
@@ -747,6 +749,16 @@ async function openRetailerProfile(id) {
     + '</div></div>';
 }
 
+async function removeBrand(btn) {
+  const b = ((_brandsCache && _brandsCache.list) || []).find(x => x.id === btn.dataset.bid); if (!b) return;
+  const label = b.company_name || b.email || 'this brand';
+  if (!confirm('Remove ' + label + '?' + String.fromCharCode(10, 10) + 'This deletes the brand account and signs it out. It has no bookings, payments or signed agreements. This cannot be undone.')) return;
+  btn.disabled = true; btn.textContent = 'Removing…';
+  try { await ownerPost('owner-remove-brand', { brand_id: b.id }); }
+  catch (e) { btn.disabled = false; btn.textContent = 'Remove'; alert("Couldn't remove " + label + ': ' + (/brand_has_history/.test(e.message) ? 'it now has booking, payment or agreement history, so it is kept.' : e.message)); return; }
+  _brandsCache.list = _brandsCache.list.filter(x => x.id !== b.id); const prof = document.getElementById('brandProfile'); if (prof) prof.innerHTML = '';
+  renderBrandsTab();
+}
 async function renderBrandsTab() {
   const pane = document.getElementById('brandsPane'); if (!pane) return;
   if (!_brandsCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading brands…</div></div>'; try { const j = await ownerPost('owner-list-brands'); _brandsCache = { list: j.brands || [], capped: !!j.capped }; } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load brands</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
@@ -754,9 +766,9 @@ async function renderBrandsTab() {
   pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + list.length + (_brandsCache.capped ? '+ (first 500 shown)' : '') + ' signed up. Open one to see its profile, certificate and bookings (read-only).</div>'
     + '<input class="dir-search" id="brandSearch" placeholder="Search by company, contact or email" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Brand</th><th>Contact</th><th>Certificate</th><th class="num">Demos</th><th>Retailers</th><th>Joined</th><th></th></tr></thead><tbody id="brandRows"></tbody></table></div></div><div id="brandProfile"></div>';
-  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || '—') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || '—') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
+  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || '—') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || '—') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num" style="white-space:nowrap;"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button>' + (b.removable ? ' <button class="btn-sm btn-remove" data-act="removeb" data-bid="' + escapeHtml(b.id) + '">Remove</button>' : '<div style="font-size:0.72rem; color:var(--ink-500); margin-top:4px;">Has history, kept</div>') + '</td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
   draw(''); document.getElementById('brandSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act=openb]'); if (b) openBrandProfile(b.dataset.bid); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act=openb]'); if (b) openBrandProfile(b.dataset.bid); const r = e.target.closest('button[data-act=removeb]'); if (r) removeBrand(r); }); }
 }
 async function openBrandProfile(id) {
   const box = document.getElementById('brandProfile'); if (!box) return;
