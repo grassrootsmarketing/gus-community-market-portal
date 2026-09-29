@@ -9,7 +9,7 @@
 // Uses service_role; never exposes whether an email is registered (anti-enumeration).
 
 import { randomBytes, randomInt } from 'node:crypto';
-import { getBinding, sendBindingFailure } from './_env.js';
+import { getBinding, sendBindingFailure, link } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
 import {
   setSessionCookie as setRoleCookie,
@@ -1101,7 +1101,7 @@ export default async function handler(req, res) {
       }
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1430,6 +1430,46 @@ async function handleOwnerAction(action, req, res, body) {
 
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
+  // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
+  // field lists only — never session, token, password-hash or feed-key columns. Lists are capped and say so.
+  if (action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile') {
+    const sessionId = getOwnerSessionIdFromReq(req);
+    const v = await verifyOwnerSession(sessionId);
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const q = (p) => sb(p).catch(() => []);
+    const today = new Date().toISOString().slice(0, 10);
+    if (action === 'owner-list-brands') {
+      const brands = await q('brands?select=id,company_name,contact_name,email,phone,website,coi_verification_status,default_coi_expires,is_verified,created_at&order=created_at.desc&limit=500');
+      const bookings = await q('bookings?select=brand_id,retailer_id,status,demo_date&limit=5000');
+      const retailers = await q('retailers?select=id,name&limit=500'); const rname = Object.fromEntries((retailers || []).map(r => [r.id, r.name]));
+      const agg = {}; for (const b of (bookings || [])) { if (!b.brand_id) continue; const a = agg[b.brand_id] = agg[b.brand_id] || { total: 0, upcoming: 0, retailers: new Set() }; a.total++; if (b.demo_date >= today && ['pending', 'confirmed', 'held', 'pending_payment'].includes(b.status)) a.upcoming++; a.retailers.add(rname[b.retailer_id] || '?'); }
+      return res.status(200).json({ ok: true, brands: (brands || []).map(b => ({ ...b, bookings_total: (agg[b.id] || {}).total || 0, bookings_upcoming: (agg[b.id] || {}).upcoming || 0, retailers: [...((agg[b.id] || {}).retailers || [])] })), capped: (brands || []).length >= 500 });
+    }
+    const id = String(body?.retailer_id || body?.brand_id || ''); if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id required' });
+    const R = encodeURIComponent(id);
+    if (action === 'owner-brand-profile') {
+      const rows = await q(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website,logo_url,coi_verification_status,default_coi_expires,default_coi_filename,is_verified,created_at,products,default_categories,needs_electricity`);
+      const brand = Array.isArray(rows) && rows[0]; if (!brand) return res.status(404).json({ error: 'brand_not_found' });
+      const [bookings, retailers] = await Promise.all([q(`bookings?brand_id=eq.${R}&select=id,retailer_id,venue_id,demo_date,demo_time,status,payment_status,amount_paid,created_at&order=demo_date.desc&limit=100`), q('retailers?select=id,name,slug&limit=500')]);
+      const rmap = Object.fromEntries((retailers || []).map(r => [r.id, r])); const byRetailer = {};
+      for (const b of (bookings || [])) { const r = rmap[b.retailer_id] || { name: '?' }; const a = byRetailer[r.name] = byRetailer[r.name] || { slug: r.slug || null, total: 0, upcoming: 0, paid_cents: 0 }; a.total++; if (b.demo_date >= today && ['pending', 'confirmed', 'held', 'pending_payment'].includes(b.status)) a.upcoming++; if (b.payment_status === 'paid') a.paid_cents += Number(b.amount_paid || 0); }
+      return res.status(200).json({ ok: true, brand, bookings: (bookings || []).map(b => ({ ...b, retailer_name: (rmap[b.retailer_id] || {}).name || '?' })), by_retailer: byRetailer, capped: (bookings || []).length >= 100 });
+    }
+    const rows = await sb(`retailers?id=eq.${R}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
+    const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+    const [settings, venues, contacts, admins, upcoming, recent] = await Promise.all([
+      q(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
+      q(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot&order=name.asc`),
+      q(`internal_contacts?retailer_id=eq.${R}&select=name,email,role,venue_id&order=name.asc&limit=100`),
+      q(`retailer_admins?retailer_id=eq.${R}&select=email,role,created_at&order=created_at.asc&limit=50`),
+      q(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,venue_id&order=demo_date.asc&limit=25`),
+      q(`bookings?retailer_id=eq.${R}&select=id,demo_date,brand_name,status,payment_status,created_at&order=created_at.desc&limit=25`),
+    ]);
+    const brands = {}; for (const b of (recent || [])) if (b.brand_name) brands[b.brand_name] = (brands[b.brand_name] || 0) + 1;
+    const b0 = await bind();
+    return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'), venues: venues || [], contacts: contacts || [], admins: admins || [], upcoming: upcoming || [], recent: recent || [], brands, capped: { upcoming: (upcoming || []).length >= 25, recent: (recent || []).length >= 25 } });
+  }
+
   if (action === 'owner-list-retailers') {
     const sessionId = getOwnerSessionIdFromReq(req);
     const v = await verifyOwnerSession(sessionId);
