@@ -608,6 +608,14 @@ function renderDashboard(d) {
   const noCoi = (w.brands_without_coi || []).slice(0, 12);
   const dormant = (w.dormant_retailers || []).slice(0, 12);
   const inactiveBrands = (w.inactive_brands_60d || []).slice(0, 12);
+  // Each card says "unavailable" when a read it depends on failed or was partial (Codex OV-2): never "none" from missing data.
+  const wok = d.watchlist_ok || {}; const na = (flag) => flag === false;
+  const UNAV = '<li>Unavailable: the data behind this card could not be fully read.</li>';
+  const dataIssues = Array.isArray(d.data_issues) ? d.data_issues : [];
+  const issuesHtml = dataIssues.length ? `<div class="card" style="border-left:4px solid #ed682f;"><strong>Some data could not be loaded completely.</strong><div class="sub" style="margin:4px 0 0;">${dataIssues.map(i => escapeHtml(i.source) + (i.problem === 'partial' ? ' (partial: ' + Number(i.loaded) + ' of ' + Number(i.total) + ')' : ' (unavailable)')).join(', ')}. Figures that use these are marked unavailable or may be low. Reload to try again.</div></div>` : '';
+  const newCount = (w.new_brands_30d || []).length + (w.new_retailers_30d || []).length;
+  const newItems = (w.new_retailers_30d || []).slice(0, 6).map(r => `<li><strong>Retailer</strong> ${escapeHtml(r.name)} <span style="color:var(--ink-500);">· ${fmtD(r.created_at)}</span></li>`).join('')
+    + (w.new_brands_30d || []).slice(0, 8).map(b => `<li><strong>Brand</strong> ${escapeHtml(b.name || 'Unnamed')} <span style="color:var(--ink-500);">· ${fmtD(b.created_at)} · ${b.coi_status === 'none' ? 'no COI yet' : 'COI ' + escapeHtml(b.coi_status)} · ${Number(b.bookings) || 0} booking${b.bookings === 1 ? '' : 's'}</span></li>`).join('');
   const watchlistHtml = `
     <div class="card">
       <h2>Watchlist</h2>
@@ -615,23 +623,23 @@ function renderDashboard(d) {
       <div class="watch-grid">
         <div class="watch-card">
           <h3>New sign-ups (30d)</h3>
-          <div class="count">${(w.new_brands_30d || []).length + (w.new_retailers_30d || []).length}</div>
-          <ul>${(w.new_retailers_30d || []).slice(0, 6).map(r => `<li><strong>Retailer</strong> ${escapeHtml(r.name)} <span style="color:var(--ink-500);">· ${fmtD(r.created_at)}</span></li>`).join('')}${(w.new_brands_30d || []).slice(0, 8).map(b => `<li><strong>Brand</strong> ${escapeHtml(b.name || '—')} <span style="color:var(--ink-500);">· ${fmtD(b.created_at)} · ${b.coi_status === 'none' ? 'no COI yet' : 'COI ' + escapeHtml(b.coi_status)} · ${b.bookings} booking${b.bookings === 1 ? '' : 's'}</span></li>`).join('') || '<li>No sign-ups in the last 30 days.</li>'}</ul>
+          <div class="count">${na(wok.new_signups) ? 'n/a' : newCount}</div>
+          <ul>${na(wok.new_signups) ? UNAV : (newItems || '<li>No sign-ups in the last 30 days.</li>')}</ul>
         </div>
         <div class="watch-card">
           <h3>Brands without COI</h3>
-          <div class="count">${(w.brands_without_coi || []).length}</div>
-          <ul>${noCoi.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>All brands have COI on file.</li>'}</ul>
+          <div class="count">${na(wok.without_coi) ? 'n/a' : (w.brands_without_coi || []).length}</div>
+          <ul>${na(wok.without_coi) ? UNAV : (noCoi.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>All brands have COI on file.</li>')}</ul>
         </div>
         <div class="watch-card">
           <h3>Dormant retailers</h3>
-          <div class="count">${(w.dormant_retailers || []).length}</div>
-          <ul>${dormant.map(r => `<li>${escapeHtml(r.name)}</li>`).join('') || '<li>Every retailer is active.</li>'}</ul>
+          <div class="count">${na(wok.dormant) ? 'n/a' : (w.dormant_retailers || []).length}</div>
+          <ul>${na(wok.dormant) ? UNAV : (dormant.map(r => `<li>${escapeHtml(r.name)}</li>`).join('') || '<li>Every retailer is active.</li>')}</ul>
         </div>
         <div class="watch-card">
-          <h3>Brands inactive &gt; 60d <span style="font-weight:400; color:var(--ink-500);">(signed up 60+ days ago)</span></h3>
-          <div class="count">${(w.inactive_brands_60d || []).length}</div>
-          <ul>${inactiveBrands.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>Every brand has recent activity.</li>'}</ul>
+          <h3>No booking made in 60 days <span style="font-weight:400; color:var(--ink-500);">(brands signed up 60+ days ago; counts when a booking was made, not when the demo runs)</span></h3>
+          <div class="count">${na(wok.inactive) ? 'n/a' : (w.inactive_brands_60d || []).length}</div>
+          <ul>${na(wok.inactive) ? UNAV : (inactiveBrands.map(b => `<li>${escapeHtml(b.name)}</li>`).join('') || '<li>No brands meet this rule.</li>')}</ul>
         </div>
       </div>
     </div>`;
@@ -657,6 +665,7 @@ function renderDashboard(d) {
 <button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
+      ${issuesHtml}
       ${growthHero}
       ${stats}
       <div id="supportToolsCard"></div>
@@ -697,17 +706,19 @@ function renderDashboard(d) {
 
 // ---- Directory tabs (2026-09-29): read-only mirrors of each retailer's and each brand's account ----
 const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
-const fmtD = (iso) => { if (!iso) return '—'; const m = /^(d{4})-(d{2})-(d{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
+const fmtD = (iso) => { if (!iso) return '—'; const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
 const money = (n) => n == null ? '—' : '$' + Number(n).toFixed(2);
 const yesno = (b) => b ? 'Yes' : 'No';
-const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { const e = exp ? new Date(exp) : null; return e && e < new Date() ? '<span class="pill bad">COI expired</span>' : '<span class="pill ok">COI approved' + (exp ? ' · to ' + fmtD(exp) : '') + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
+const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { if (!exp) return '<span class="pill warn">COI approved · expiry unknown</span>'; const e = String(exp).slice(0, 10), t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); return e < today ? '<span class="pill bad">COI expired ' + fmtD(e) + '</span>' : '<span class="pill ok">COI approved · expires ' + fmtD(e) + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
 const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
 const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
 let _retailersCache = null, _brandsCache = null;
+const loadErr = (title, e, key, id) => '<div class="card"><h2>' + escapeHtml(title) + '</h2><div class="sub">' + (/unavailable/.test(e.message) ? 'The data could not be read just now, so nothing is shown rather than an empty list.' : escapeHtml(e.message)) + '</div><button class="btn-sm" data-retry="' + key + '"' + (id ? ' data-id="' + escapeHtml(id) + '"' : '') + '>Retry</button></div>';
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (!b) return; const k = b.dataset.retry; if (k === 'brands') { _brandsCache = null; renderBrandsTab(); } else if (k === 'retailers') { _retailersCache = null; renderRetailersTab(); } else if (k === 'brand') openBrandProfile(b.dataset.id); else if (k === 'retailer') openRetailerProfile(b.dataset.id); });
 
 async function renderRetailersTab(selectedId) {
   const pane = document.getElementById('retailersPane'); if (!pane) return;
-  if (!_retailersCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading retailers…</div></div>'; try { _retailersCache = ((await ownerPost('owner-list-retailers')).retailers || []).filter(r => r.slug !== '__owner__'); } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load retailers</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
+  if (!_retailersCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading retailers…</div></div>'; try { _retailersCache = ((await ownerPost('owner-list-retailers')).retailers || []).filter(r => r.slug !== '__owner__'); } catch (e) { pane.innerHTML = loadErr("Couldn't load retailers", e, 'retailers'); return; } }
   const list = _retailersCache;
   pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Open one to see its account as the retailer sees it (read-only).</div>'
     + '<input class="dir-search" id="retailerSearch" placeholder="Search by name or slug" autocomplete="off">'
@@ -720,7 +731,7 @@ async function renderRetailersTab(selectedId) {
 async function openRetailerProfile(id) {
   const box = document.getElementById('retailerProfile'); if (!box) return;
   box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  let p; try { p = await ownerPost('owner-retailer-profile', { retailer_id: id }); } catch (e) { box.innerHTML = '<div class="card"><h2>Couldn\'t load this retailer</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
+  let p; try { p = await ownerPost('owner-retailer-profile', { retailer_id: id }); } catch (e) { box.innerHTML = loadErr("Couldn't load this retailer", e, 'retailer', id); return; }
   const r = p.retailer, st = p.settings || {};
   const kv = [
     row('Booking page', link(p.booking_url, p.booking_url.replace(/^https?:\/\/(www\.)?/, ''))), row('Admin page', link(p.admin_url, p.admin_url.replace(/^https?:\/\/(www\.)?/, ''))),
@@ -733,7 +744,7 @@ async function openRetailerProfile(id) {
   const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td></tr>').join('');
   const people = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.role || '') + '</td><td>Login</td></tr>').join('') + (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.email || c.name || '') + '</td><td>' + escapeHtml(c.role || '') + '</td><td>Store contact</td></tr>').join('');
   const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + escapeHtml(b.payment_status || '') + '</td></tr>').join('');
-  const brands = Object.entries(p.brands || {}).sort((a, b) => b[1] - a[1]).map(([n, c]) => '<tr><td>' + escapeHtml(n) + '</td><td class="num">' + c + '</td></tr>').join('');
+  const brands = (Array.isArray(p.brands) ? p.brands : []).map(x => '<tr><td>' + escapeHtml(x.brand || 'Unnamed brand') + '</td><td class="num">' + Number(x.bookings) + '</td></tr>').join('');
   const cap = (p.capped || {});
   box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only.</div></div>' + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
     + '<div class="dir-grid">'
@@ -742,16 +753,16 @@ async function openRetailerProfile(id) {
     + (r.demo_policy ? '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500);"><strong>Demo policy:</strong> ' + escapeHtml(String(r.demo_policy).slice(0, 400)) + (String(r.demo_policy).length > 400 ? '…' : '') + '</div>' : '') + '</div>'
     + '<div><h3 class="dir-h3">Locations (' + (p.venues || []).length + ')</h3><table class="simple"><thead><tr><th>Name</th><th>Address</th><th class="num">Fee</th><th class="num">Per slot</th></tr></thead><tbody>' + (venues || '<tr><td colspan="4">None</td></tr>') + '</tbody></table>'
     + '<h3 class="dir-h3" style="margin-top:16px;">People</h3><table class="simple"><tbody>' + (people || '<tr><td>None</td></tr>') + '</tbody></table></div>'
-    + '<div><h3 class="dir-h3">Upcoming bookings' + (cap.upcoming ? ' (first 25)' : '') + '</h3><table class="simple"><tbody>' + (up || '<tr><td>None</td></tr>') + '</tbody></table>'
-    + '<h3 class="dir-h3" style="margin-top:16px;">Brands (last 25 bookings)</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
+    + '<div><h3 class="dir-h3">Upcoming bookings' + ((p.upcoming_total || 0) > (p.upcoming || []).length ? ' (first ' + (p.upcoming || []).length + ' of ' + Number(p.upcoming_total) + ')' : '') + '</h3><table class="simple"><tbody>' + (up || '<tr><td>None</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">Brands (all bookings' + (p.complete && p.complete.brands === false ? ', partial' : '') + ')</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
     + '</div></div>';
 }
 
 async function renderBrandsTab() {
   const pane = document.getElementById('brandsPane'); if (!pane) return;
-  if (!_brandsCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading brands…</div></div>'; try { const j = await ownerPost('owner-list-brands'); _brandsCache = { list: j.brands || [], capped: !!j.capped }; } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load brands</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; } }
+  if (!_brandsCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading brands…</div></div>'; try { const j = await ownerPost('owner-list-brands'); _brandsCache = { list: j.brands || [], capped: !!j.capped, total: j.total, complete: j.complete || {} }; } catch (e) { pane.innerHTML = loadErr("Couldn't load brands", e, 'brands'); return; } }
   const list = _brandsCache.list;
-  pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + list.length + (_brandsCache.capped ? '+ (first 500 shown)' : '') + ' signed up. Open one to see its profile, certificate and bookings (read-only).</div>'
+  pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + (_brandsCache.capped ? list.length + ' of ' + Number(_brandsCache.total) + ' (partial list)' : list.length) + ' signed up.' + (_brandsCache.complete.bookings === false ? ' Demo counts are partial.' : '') + ' Open one to see its profile, certificate and bookings (read-only).</div>'
     + '<input class="dir-search" id="brandSearch" placeholder="Search by company, contact or email" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Brand</th><th>Contact</th><th>Certificate</th><th class="num">Demos</th><th>Retailers</th><th>Joined</th><th></th></tr></thead><tbody id="brandRows"></tbody></table></div></div><div id="brandProfile"></div>';
   const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || '—') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || '—') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
@@ -761,43 +772,61 @@ async function renderBrandsTab() {
 async function openBrandProfile(id) {
   const box = document.getElementById('brandProfile'); if (!box) return;
   box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  let p; try { p = await ownerPost('owner-brand-profile', { brand_id: id }); } catch (e) { box.innerHTML = '<div class="card"><h2>Couldn\'t load this brand</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
+  let p; try { p = await ownerPost('owner-brand-profile', { brand_id: id }); } catch (e) { box.innerHTML = loadErr("Couldn't load this brand", e, 'brand', id); return; }
   const b = p.brand;
   const kv = [row('Contact', escapeHtml(b.contact_name || '—')), row('Email', escapeHtml(b.email || '—')), row('Phone', escapeHtml(b.phone || '—')), row('Website', b.website ? link(/^https?:/.test(b.website) ? b.website : 'https://' + b.website, b.website) : '—'), row('Joined', fmtD(b.created_at)), row('Email verified', yesno(b.is_verified)),
     row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires) + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? '—' : yesno(b.needs_electricity)),
     row('Categories', escapeHtml(Array.isArray(b.default_categories) ? b.default_categories.join(', ') : (b.default_categories || '—'))), row('Products', escapeHtml(Array.isArray(b.products) ? b.products.map(x => (x && x.name) || x).join(', ').slice(0, 300) : '—'))].join('');
-  const byR = Object.entries(p.by_retailer || {}).map(([n, a]) => '<tr><td>' + (a.slug ? link('/r/' + a.slug, n) : escapeHtml(n)) + '</td><td class="num">' + a.total + '</td><td class="num">' + a.upcoming + '</td><td class="num">' + money(a.paid_cents / 100) + '</td></tr>').join('');
+  const byR = (Array.isArray(p.by_retailer) ? p.by_retailer : []).map(a => '<tr><td>' + (a.slug ? link('/r/' + a.slug, a.name) : escapeHtml(a.name)) + '</td><td class="num">' + a.total + '</td><td class="num">' + a.upcoming + '</td><td class="num">' + money(a.paid_cents / 100) + '</td></tr>').join('');
   const bk = (p.bookings || []).slice(0, 25).map(x => '<tr><td>' + escapeHtml(x.demo_date) + ' ' + escapeHtml(x.demo_time || '') + '</td><td>' + escapeHtml(x.retailer_name) + '</td><td>' + escapeHtml(x.status) + '</td><td>' + escapeHtml(x.payment_status || '') + (x.payment_status === 'paid' ? ' · ' + money(Number(x.amount_paid || 0) / 100) : '') + '</td></tr>').join('');
   box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(b.company_name || '—') + '</h2><div class="sub">Mirror of the brand\'s account. Read-only; the certificate file itself is reviewed in COI Review.</div></div>' + (b.logo_url ? '<img src="' + escapeHtml(b.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
     + '<div class="dir-grid"><div><h3 class="dir-h3">Profile</h3><table class="simple"><tbody>' + kv + '</tbody></table></div>'
-    + '<div><h3 class="dir-h3">By retailer</h3><table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th><th class="num">Upcoming</th><th class="num">Paid</th></tr></thead><tbody>' + (byR || '<tr><td colspan="4">No bookings yet</td></tr>') + '</tbody></table>'
-    + '<h3 class="dir-h3" style="margin-top:16px;">Bookings' + (p.capped ? ' (last 100, showing 25)' : ' (latest 25)') + '</h3><table class="simple"><tbody>' + (bk || '<tr><td>None</td></tr>') + '</tbody></table></div></div></div>';
+    + '<div><h3 class="dir-h3">By retailer' + (p.rollup_complete === false ? ' (partial)' : '') + '</h3><table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th><th class="num">Upcoming</th><th class="num">Paid (booking records)</th></tr></thead><tbody>' + (byR || '<tr><td colspan="4">No bookings yet</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">Bookings' + ' (latest ' + Math.min(25, (p.bookings || []).length) + ' of ' + Number(p.bookings_total != null ? p.bookings_total : (p.bookings || []).length) + ')' + '</h3><table class="simple"><tbody>' + (bk || '<tr><td>None</td></tr>') + '</tbody></table></div></div></div>';
 }
 
 // ---- Owner calendar (2026-09-29): every retailer's demos on one month grid, read-only ----
 const ocal = { y: new Date().getFullYear(), m: new Date().getMonth(), retailer: '', data: null };
 const ymdOf = (y, m, d) => y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+let ocalSeq = 0;
+// Short zone name ("PDT") for a store's IANA zone on a given date; falls back to the zone id.
+const tzShort = (tz, ymd) => { if (!tz) return ''; try { const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date(ymd + 'T12:00:00Z')).find(x => x.type === 'timeZoneName'); return p ? p.value : tz; } catch (_) { return tz; } };
 async function renderOwnerCalendar() {
   const pane = document.getElementById('calendarPane'); if (!pane) return;
-  const first = new Date(ocal.y, ocal.m, 1), last = new Date(ocal.y, ocal.m + 1, 0);
-  const from = ymdOf(ocal.y, ocal.m, 1), to = ymdOf(ocal.y, ocal.m, last.getDate());
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('[data-cal]'); if (!b) return; const a = b.dataset.cal; if (a === 'prev') { ocal.m--; if (ocal.m < 0) { ocal.m = 11; ocal.y--; } renderOwnerCalendar(); } else if (a === 'next') { ocal.m++; if (ocal.m > 11) { ocal.m = 0; ocal.y++; } renderOwnerCalendar(); } else if (a === 'today') { const t = new Date(); ocal.y = t.getFullYear(); ocal.m = t.getMonth(); renderOwnerCalendar(); } else if (a === 'ev') { showOcalDetail(b.dataset.id); } }); pane.addEventListener('change', (e) => { if (e.target && e.target.id === 'ocalRetailer') { ocal.retailer = e.target.value; renderOwnerCalendar(); } }); }
-  pane.innerHTML = '<div class="card"><h2>Demo calendar</h2><div class="sub">Every retailer\'s bookings, read-only. Colours: confirmed green, awaiting store review amber, on hold or awaiting payment grey, completed dark.</div><div class="sub">Loading ' + first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + '…</div></div>';
-  let d; try { d = await ownerPost('owner-calendar', { from, to, retailer_id: ocal.retailer || undefined }); } catch (e) { pane.innerHTML = '<div class="card"><h2>Couldn\'t load the calendar</h2><div class="sub">' + escapeHtml(e.message) + '</div></div>'; return; }
-  ocal.data = d; const byDay = {}; for (const b of d.bookings) (byDay[b.date] = byDay[b.date] || []).push(b);
+  // Snapshot what THIS load is for. A slower earlier load must never paint over a newer one (Codex OV-4).
+  const snap = { y: ocal.y, m: ocal.m, retailer: ocal.retailer }; const seq = ++ocalSeq;
+  const first = new Date(snap.y, snap.m, 1), last = new Date(snap.y, snap.m + 1, 0);
+  const from = ymdOf(snap.y, snap.m, 1), to = ymdOf(snap.y, snap.m, last.getDate());
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('[data-cal]'); if (!b) return; const a = b.dataset.cal; if (a === 'prev') { ocal.m--; if (ocal.m < 0) { ocal.m = 11; ocal.y--; } renderOwnerCalendar(); } else if (a === 'next') { ocal.m++; if (ocal.m > 11) { ocal.m = 0; ocal.y++; } renderOwnerCalendar(); } else if (a === 'today') { const t = new Date(); ocal.y = t.getFullYear(); ocal.m = t.getMonth(); renderOwnerCalendar(); } else if (a === 'retry') { renderOwnerCalendar(); } else if (a === 'ev') { showOcalDetail(b.dataset.id); } }); pane.addEventListener('change', (e) => { if (e.target && e.target.id === 'ocalRetailer') { ocal.retailer = e.target.value; renderOwnerCalendar(); } }); }
+  const monthLabel = first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const intro = '<h2>Demo calendar</h2><div class="sub">Every retailer\'s bookings, read-only. Times are each store\'s local time. Confirmed green, awaiting store review amber, on hold or awaiting payment grey, completed dark.</div>';
+  pane.innerHTML = '<div class="card">' + intro + '<div class="sub">Loading ' + monthLabel + '…</div></div>';
+  let d;
+  try { d = await ownerPost('owner-calendar', { from, to, retailer_id: snap.retailer || undefined }); }
+  catch (e) {
+    if (seq !== ocalSeq) return;
+    pane.innerHTML = '<div class="card">' + intro + '<h3 style="margin-top:12px;">Couldn\'t load ' + monthLabel + '</h3><div class="sub">' + (/unavailable/.test(e.message) ? 'The booking data could not be read just now, so nothing is shown rather than an empty month.' : escapeHtml(e.message)) + '</div><button class="btn-sm" data-cal="retry">Retry</button></div>';
+    return;
+  }
+  if (seq !== ocalSeq) return;
+  ocal.data = d; const byDay = Object.create(null); for (const b of d.bookings) (byDay[b.date] = byDay[b.date] || []).push(b);
   const todayYmd = ymdOf(new Date().getFullYear(), new Date().getMonth(), new Date().getDate());
   let cells = ''; for (let i = 0; i < first.getDay(); i++) cells += '<div class="ocal-day other"></div>';
-  for (let day = 1; day <= last.getDate(); day++) { const k = ymdOf(ocal.y, ocal.m, day); const evs = (byDay[k] || []); cells += '<div class="ocal-day' + (k === todayYmd ? ' today' : '') + '"><div class="n">' + day + '</div>' + evs.map(b => '<button class="ocal-ev ' + escapeHtml(b.status) + '" data-cal="ev" data-id="' + escapeHtml(b.id) + '" title="' + escapeHtml(b.status) + '">' + escapeHtml(b.time || '') + ' · ' + escapeHtml(b.retailer) + (ocal.retailer ? '' : '') + '<br>' + escapeHtml(b.brand || '—') + '</button>').join('') + '</div>'; }
-  const sel = '<select id="ocalRetailer"><option value="">All retailers</option>' + d.retailers.map(r => '<option value="' + escapeHtml(r.id) + '"' + (r.id === ocal.retailer ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>').join('') + '</select>';
-  const counts = d.bookings.reduce((a, b) => { a[b.status] = (a[b.status] || 0) + 1; return a; }, {});
-  pane.innerHTML = '<div class="card"><h2>Demo calendar</h2><div class="sub">Every retailer\'s bookings, read-only. Confirmed green, awaiting store review amber, on hold or awaiting payment grey, completed dark.</div>'
-    + '<div class="ocal-toolbar"><button class="btn-sm" data-cal="prev">‹</button><strong style="min-width:150px; text-align:center;">' + first.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) + '</strong><button class="btn-sm" data-cal="next">›</button><button class="btn-sm" data-cal="today">Today</button>' + sel + '<span class="sub" style="margin:0;">' + d.bookings.length + ' booking' + (d.bookings.length === 1 ? '' : 's') + (Object.keys(counts).length ? ' · ' + Object.entries(counts).map(([k, v]) => v + ' ' + k.replace('_', ' ')).join(', ') : '') + (d.capped ? ' · list capped at 2000' : '') + '</span></div>'
+  for (let day = 1; day <= last.getDate(); day++) { const k = ymdOf(snap.y, snap.m, day); const evs = (byDay[k] || []); cells += '<div class="ocal-day' + (k === todayYmd ? ' today' : '') + '"><div class="n">' + day + '</div>' + evs.map(b => '<button class="ocal-ev ' + escapeHtml(b.status) + '" data-cal="ev" data-id="' + escapeHtml(b.id) + '" title="' + escapeHtml(b.status) + '">' + escapeHtml(b.time || '') + ' · ' + escapeHtml(b.retailer) + '<br>' + escapeHtml(b.brand || 'Unnamed brand') + '</button>').join('') + '</div>'; }
+  const sel = '<select id="ocalRetailer"><option value="">All retailers</option>' + d.retailers.map(r => '<option value="' + escapeHtml(r.id) + '"' + (r.id === snap.retailer ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>').join('') + '</select>';
+  const counts = d.bookings.reduce((a, b) => { a[b.status] = (a[b.status] || 0) + 1; return a; }, Object.create(null));
+  const cmp = d.complete || {};
+  const partial = d.capped ? ' · showing ' + d.bookings.length + ' of ' + Number(d.total) + ' (partial)' : '';
+  const namesNote = (cmp.retailers === false || cmp.venues === false) ? '<div class="sub" style="margin:6px 0 0;">Some retailer or location names could not all be loaded; those show as "?".</div>' : '';
+  pane.innerHTML = '<div class="card">' + intro
+    + '<div class="ocal-toolbar"><button class="btn-sm" data-cal="prev">‹</button><strong style="min-width:150px; text-align:center;">' + monthLabel + '</strong><button class="btn-sm" data-cal="next">›</button><button class="btn-sm" data-cal="today">Today</button>' + sel + '<span class="sub" style="margin:0;">' + d.bookings.length + ' booking' + (d.bookings.length === 1 ? '' : 's') + (Object.keys(counts).length ? ' · ' + Object.entries(counts).map(([k, v]) => v + ' ' + k.replace('_', ' ')).join(', ') : '') + partial + '</span></div>' + namesNote
     + '<div class="ocal-grid">' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(x => '<div class="ocal-dow">' + x + '</div>').join('') + cells + '</div>'
     + '<div id="ocalDetail" style="margin-top:14px;"></div></div>';
 }
 function showOcalDetail(id) {
   const b = (ocal.data && ocal.data.bookings || []).find(x => x.id === id); const el = document.getElementById('ocalDetail'); if (!b || !el) return;
-  el.innerHTML = '<div style="background:rgba(15,44,23,0.04); border-radius:10px; padding:12px 14px;"><strong>' + escapeHtml(b.brand || '—') + '</strong> at <strong>' + escapeHtml(b.retailer) + '</strong>' + (b.venue ? ' · ' + escapeHtml(b.venue) : '') + '<div class="sub" style="margin:4px 0 0;">' + escapeHtml(fmtD(b.date)) + ' · ' + escapeHtml(b.time || '') + (b.hours ? ' · ' + b.hours + ' h' : '') + ' · status ' + escapeHtml(b.status) + ' · payment ' + escapeHtml(b.payment_status || '—') + (b.product ? ' · ' + escapeHtml(b.product) : '') + (b.electricity ? ' · needs electricity' : '') + (b.retailer_slug ? ' · <a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">open in that retailer\'s admin</a>' : '') + '</div></div>';
+  const zone = tzShort(b.retailer_tz, b.date);
+  el.innerHTML = '<div style="background:rgba(15,44,23,0.04); border-radius:10px; padding:12px 14px;"><strong>' + escapeHtml(b.brand || 'Unnamed brand') + '</strong> at <strong>' + escapeHtml(b.retailer) + '</strong>' + (b.venue ? ' · ' + escapeHtml(b.venue) : '') + '<div class="sub" style="margin:4px 0 0;">' + escapeHtml(fmtD(b.date)) + ' · ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' · ' + escapeHtml(String(b.hours)) + ' h' : '') + ' · status ' + escapeHtml(b.status) + ' · payment ' + escapeHtml(b.payment_status || 'none') + (b.product ? ' · ' + escapeHtml(b.product) : '') + (b.electricity ? ' · needs electricity' : '') + (b.retailer_slug ? ' · <a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">open in that retailer\'s admin</a>' : '') + '</div></div>';
 }
 
 // Tab switching + lazy-render analytics/billing

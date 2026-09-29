@@ -19,6 +19,7 @@ import {
   readCookies as parseCookies,
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
+import { parseYmd } from './_local-time.js';
 import { signedCoiUrl } from './_coi-storage.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
@@ -58,6 +59,28 @@ async function sb(path, opts = {}) {
   let json = null; try { json = text ? JSON.parse(text) : null; } catch(_) {}
   if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
   return json;
+}
+
+// Every row of a PostgREST read (Codex OV-3, 2026-09-29). Pages with Range headers and Prefer: count=exact until the
+// exact total is reached. The server's own row cap (max_rows, 1000 locally) may be smaller than the page asked for, so
+// the next page starts after the rows actually returned. `path` MUST carry a deterministic order ending in a unique
+// column (`...,id.asc`) so pages cannot overlap or skip. Any failed page throws. complete=false only when `max` stopped
+// the read early; callers must pass that on rather than present a partial list as the whole.
+async function sbAll(path, { max = 20000, page = 1000 } = {}) {
+  const b = await bind(); const rows = []; let total = null;
+  while (rows.length < max) {
+    const from = rows.length, to = Math.min(from + page, max) - 1;
+    const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: `${from}-${to}` } });
+    const text = await r.text(); let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+    if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
+    if (!Array.isArray(json)) throw new Error('unexpected response shape');
+    const t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+    if (!Number.isFinite(t)) throw new Error('no exact count in response');
+    total = t; rows.push(...json);
+    if (rows.length >= total || json.length === 0) break;
+  }
+  if (total === null) total = rows.length;
+  return { rows, total, complete: rows.length >= total };
 }
 
 // -----------------------------------------------------------------------------
@@ -1211,16 +1234,22 @@ async function verifyOwnerSession(sessionId) {
 
 async function computeOwnerMetrics() {
   // Each query wrapped: if table/column missing, default to [] instead of failing the whole metrics
-  const safeQuery = async (q) => { try { return await sb(q); } catch (e) { console.error('owner metrics query failed:', q, e?.message); return []; } };
+  // Paged to completion (Codex OV-3). A failed or partial read is still tolerated so the rest of the dashboard renders,
+  // but it is reported in data_issues and the watchlist cards that depend on it say "unavailable" instead of "none".
+  const issues = [];
+  const safeQuery = async (name, q) => {
+    try { const r = await sbAll(q, { max: 100000 }); if (!r.complete) issues.push({ source: name, problem: 'partial', loaded: r.rows.length, total: r.total }); return r.rows; }
+    catch (e) { console.error('owner metrics query failed:', name, e?.message); issues.push({ source: name, problem: 'unavailable' }); return []; }
+  };
   const [retailers, brands, demos, bookings, settings] = await Promise.all([
-    safeQuery(`retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id`),
-    safeQuery(`brands?select=id,company_name,created_at,default_coi_url,is_verified,coi_verification_status,contact_name,email`),
-    safeQuery(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
-    safeQuery(`bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at`),
+    safeQuery('retailers', `retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id&order=id.asc`),
+    safeQuery('brands', `brands?select=id,company_name,created_at,default_coi_url,is_verified,coi_verification_status,contact_name,email&order=id.asc`),
+    safeQuery('demos', `demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at&order=id.asc`),
+    safeQuery('bookings', `bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at&order=id.asc`),
     // settings has neither billing_tier nor price_per_demo. demo_fee is the real per-demo
     // price column; tier lives on retailers. safeQuery swallowed the 400, so this row of the
     // owner metrics silently contributed nothing.
-    safeQuery(`settings?select=retailer_id,demo_fee`),
+    safeQuery('settings', `settings?select=retailer_id,demo_fee&order=id.asc`),
   ]);
   const now = new Date();
   const thisMonth = monthKey(now);
@@ -1300,12 +1329,14 @@ async function computeOwnerMetrics() {
 
   const brandsWithoutCoi = brands.filter(b => !b.default_coi_url).slice(0, 25).map(b => ({ id: b.id, name: b.company_name, created_at: b.created_at }));
   const dormantRetailers = retailers.filter(r => !activeRetailerIds.has(r.id)).slice(0, 25).map(r => ({ id: r.id, name: r.name, slug: r.slug, last_active: null }));
-  const brandLastDemo = {};
-  demos.forEach(d => { if (d.brand_id) { const c = d.created_at; if (!brandLastDemo[d.brand_id] || c > brandLastDemo[d.brand_id]) brandLastDemo[d.brand_id] = c; } });
+  // "Inactive" measures when the brand last CREATED a booking (or a legacy demo record), not when a demo takes place.
+  const brandLastDemo = Object.create(null);
+  const noteActivity = (x) => { if (x.brand_id && x.created_at && (!brandLastDemo[x.brand_id] || x.created_at > brandLastDemo[x.brand_id])) brandLastDemo[x.brand_id] = x.created_at; };
+  demos.forEach(noteActivity); bookings.forEach(noteActivity);
   // A brand younger than 60 days cannot be "inactive for 60 days": new sign-ups are listed as such, not as inactive.
   const inactiveBrands = brands.filter(b => new Date(b.created_at) < sixtyDaysAgo && (!brandLastDemo[b.id] || new Date(brandLastDemo[b.id]) < sixtyDaysAgo)).slice(0, 25)
     .map(b => ({ id: b.id, name: b.company_name, last_active: brandLastDemo[b.id] || null }));
-  const bookingsByBrand = {}; bookings.forEach(b => { if (b.brand_id) bookingsByBrand[b.brand_id] = (bookingsByBrand[b.brand_id] || 0) + 1; });
+  const bookingsByBrand = Object.create(null); bookings.forEach(b => { if (b.brand_id) bookingsByBrand[b.brand_id] = (bookingsByBrand[b.brand_id] || 0) + 1; });
   const newBrands = brands.filter(b => b.created_at && new Date(b.created_at) >= thirtyDaysAgo).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
     .map(b => ({ id: b.id, name: b.company_name, contact: b.contact_name || null, created_at: b.created_at, coi_status: b.default_coi_url ? (b.coi_verification_status || 'pending') : 'none', bookings: bookingsByBrand[b.id] || 0 }));
   const newRetailers = retailers.filter(r => r.created_at && new Date(r.created_at) >= thirtyDaysAgo && r.slug !== '__owner__').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
@@ -1317,6 +1348,10 @@ async function computeOwnerMetrics() {
     trends: { retailer_signups: retailerSignups, brand_signups: brandSignups, demos_per_month: demosPerMonth },
     tables: { top_retailers: topRetailers, top_brands: topBrands, pending_stuck: pendingStuck },
     watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands, new_brands_30d: newBrands, new_retailers_30d: newRetailers },
+    // Per watchlist card: were all the reads it depends on complete? false => the card must say "unavailable", not "none".
+    watchlist_ok: (() => { const bad = new Set(issues.map(i => i.source)); const ok = (...src) => src.every(x => !bad.has(x));
+      return { new_signups: ok('retailers', 'brands', 'bookings'), without_coi: ok('brands'), dormant: ok('retailers', 'demos', 'bookings'), inactive: ok('brands', 'demos', 'bookings') }; })(),
+    data_issues: issues,
   };
 }
 
@@ -1438,68 +1473,108 @@ async function handleOwnerAction(action, req, res, body) {
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
   // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
   // field lists only — never session, token, password-hash or feed-key columns. Lists are capped and say so.
-  // ---- OWNER CALENDAR (2026-09-29): every retailer's demo bookings for one date range, read-only mirror. ----
+  // ---- OWNER CALENDAR (2026-09-29, revised per Codex OV-2/OV-3/OV-4): every retailer's demo bookings for one date
+  // range, read-only. Input is validated BEFORE any database access: real calendar dates, an inclusive span of at most
+  // 62 days (both ends counted), a canonical UUID. Any failed read is a 503, never an empty calendar. Every list is paged
+  // to completion or reported as partial. Times are each store's local time; the store's zone is returned with them.
   if (action === 'owner-calendar') {
-    const sessionId = getOwnerSessionIdFromReq(req);
-    const v = await verifyOwnerSession(sessionId);
+    const pf = parseYmd(body?.from), pt = parseYmd(body?.to);
+    if (!pf || !pt) return res.status(400).json({ error: 'from and to must be real dates (YYYY-MM-DD)' });
+    const span = Math.round((Date.UTC(pt.year, pt.month - 1, pt.day) - Date.UTC(pf.year, pf.month - 1, pf.day)) / 864e5) + 1;
+    if (span < 1) return res.status(400).json({ error: 'to is before from' });
+    if (span > 62) return res.status(400).json({ error: 'range too long (max 62 days, both ends counted)' });
+    const rid = body?.retailer_id == null || body.retailer_id === '' ? null : body.retailer_id;
+    if (rid !== null && !isUuid(rid)) return res.status(400).json({ error: 'bad retailer_id' });
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
-    const ymd = /^\d{4}-\d{2}-\d{2}$/; const from = String(body?.from || ''), to = String(body?.to || '');
-    if (!ymd.test(from) || !ymd.test(to) || to < from) return res.status(400).json({ error: 'from/to (YYYY-MM-DD) required' });
-    const days = (new Date(to) - new Date(from)) / 864e5; if (days > 62) return res.status(400).json({ error: 'range too long (max 62 days)' });
-    const rid = body?.retailer_id ? String(body.retailer_id) : null; if (rid && !/^[0-9a-f-]{36}$/i.test(rid)) return res.status(400).json({ error: 'bad retailer_id' });
-    const q = (p) => sb(p).catch(() => []);
-    const [bookings, retailers, venues] = await Promise.all([
-      q(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity&order=demo_date.asc,demo_time.asc&limit=2000`),
-      q('retailers?select=id,name,slug,timezone&limit=500'), q('venues?select=id,name,retailer_id&limit=2000')]);
-    const rm = Object.fromEntries((retailers || []).map(r => [r.id, r])), vm = Object.fromEntries((venues || []).map(x => [x.id, x]));
-    return res.status(200).json({ ok: true, from, to, retailers: (retailers || []).filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug })),
-      bookings: (bookings || []).map(b => ({ id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: (rm[b.retailer_id] || {}).name || '?', retailer_slug: (rm[b.retailer_id] || {}).slug || null, venue: (vm[b.venue_id] || {}).name || '' })), capped: (bookings || []).length >= 2000 });
+    const from = String(body.from), to = String(body.to);
+    let bk, rt, vn;
+    try {
+      [bk, rt, vn] = await Promise.all([
+        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity&order=demo_date.asc,id.asc`, { max: 5000 }),
+        sbAll('retailers?select=id,name,slug,timezone&order=name.asc,id.asc', { max: 5000 }),
+        sbAll('venues?select=id,name,retailer_id&order=id.asc', { max: 20000 }),
+      ]);
+    } catch (e) { console.error('owner-calendar read failed:', e?.message); return res.status(503).json({ error: 'calendar_unavailable', retry: true }); }
+    const rm = new Map(rt.rows.map(r => [r.id, r])), vm = new Map(vn.rows.map(x => [x.id, x]));
+    return res.status(200).json({ ok: true, from, to,
+      retailers: rt.rows.filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug, timezone: r.timezone || null })),
+      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
+      total: bk.total, complete: { bookings: bk.complete, retailers: rt.complete, venues: vn.complete }, capped: !bk.complete });
   }
 
+  // ---- OWNER DIRECTORY (2026-09-29, revised per Codex OV-2/OV-3): read-only mirrors for the Retailers and Brands tabs.
+  // Explicit field lists only; never session, token, password-hash or feed-key columns. A failed read is a 503 with a
+  // retry state, never "none" and never a false 404. Lists are paged to completion or flagged partial. Rollups are keyed
+  // by id in a Map, never by a user-controlled name.
   if (action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile') {
-    const sessionId = getOwnerSessionIdFromReq(req);
-    const v = await verifyOwnerSession(sessionId);
+    const id = action === 'owner-brand-profile' ? body?.brand_id : action === 'owner-retailer-profile' ? body?.retailer_id : null;
+    if (action !== 'owner-list-brands' && !isUuid(id)) return res.status(400).json({ error: 'id required' });
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
-    const q = (p) => sb(p).catch(() => []);
     const today = new Date().toISOString().slice(0, 10);
-    if (action === 'owner-list-brands') {
-      const brands = await q('brands?select=id,company_name,contact_name,email,phone,website,coi_verification_status,default_coi_expires,is_verified,created_at&order=created_at.desc&limit=500');
-      const bookings = await q('bookings?select=brand_id,retailer_id,status,demo_date&limit=5000');
-      const retailers = await q('retailers?select=id,name&limit=500'); const rname = Object.fromEntries((retailers || []).map(r => [r.id, r.name]));
-      const agg = {}; for (const b of (bookings || [])) { if (!b.brand_id) continue; const a = agg[b.brand_id] = agg[b.brand_id] || { total: 0, upcoming: 0, retailers: new Set() }; a.total++; if (b.demo_date >= today && ['pending', 'confirmed', 'held', 'pending_payment'].includes(b.status)) a.upcoming++; a.retailers.add(rname[b.retailer_id] || '?'); }
-      return res.status(200).json({ ok: true, brands: (brands || []).map(b => ({ ...b, bookings_total: (agg[b.id] || {}).total || 0, bookings_upcoming: (agg[b.id] || {}).upcoming || 0, retailers: [...((agg[b.id] || {}).retailers || [])] })), capped: (brands || []).length >= 500 });
-    }
-    const id = String(body?.retailer_id || body?.brand_id || ''); if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id required' });
-    const R = encodeURIComponent(id);
-    if (action === 'owner-brand-profile') {
-      const rows = await q(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website,logo_url,coi_verification_status,default_coi_expires,default_coi_filename,is_verified,created_at,products,default_categories,needs_electricity`);
-      const brand = Array.isArray(rows) && rows[0]; if (!brand) return res.status(404).json({ error: 'brand_not_found' });
-      const [bookings, retailers] = await Promise.all([q(`bookings?brand_id=eq.${R}&select=id,retailer_id,venue_id,demo_date,demo_time,status,payment_status,amount_paid,created_at&order=demo_date.desc&limit=100`), q('retailers?select=id,name,slug&limit=500')]);
-      const rmap = Object.fromEntries((retailers || []).map(r => [r.id, r])); const byRetailer = {};
-      for (const b of (bookings || [])) { const r = rmap[b.retailer_id] || { name: '?' }; const a = byRetailer[r.name] = byRetailer[r.name] || { slug: r.slug || null, total: 0, upcoming: 0, paid_cents: 0 }; a.total++; if (b.demo_date >= today && ['pending', 'confirmed', 'held', 'pending_payment'].includes(b.status)) a.upcoming++; if (b.payment_status === 'paid') a.paid_cents += Number(b.amount_paid || 0); }
-      return res.status(200).json({ ok: true, brand, bookings: (bookings || []).map(b => ({ ...b, retailer_name: (rmap[b.retailer_id] || {}).name || '?' })), by_retailer: byRetailer, capped: (bookings || []).length >= 100 });
-    }
-    const rows = await sb(`retailers?id=eq.${R}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
-    const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
-    const [settings, venues, contacts, admins, upcoming, recent] = await Promise.all([
-      q(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
-      q(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot&order=name.asc`),
-      q(`internal_contacts?retailer_id=eq.${R}&select=name,email,role,venue_id&order=name.asc&limit=100`),
-      q(`retailer_admins?retailer_id=eq.${R}&select=email,role,created_at&order=created_at.asc&limit=50`),
-      q(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,venue_id&order=demo_date.asc&limit=25`),
-      q(`bookings?retailer_id=eq.${R}&select=id,demo_date,brand_name,status,payment_status,created_at&order=created_at.desc&limit=25`),
-    ]);
-    const brands = {}; for (const b of (recent || [])) if (b.brand_name) brands[b.brand_name] = (brands[b.brand_name] || 0) + 1;
-    const b0 = await bind();
-    return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'), venues: venues || [], contacts: contacts || [], admins: admins || [], upcoming: upcoming || [], recent: recent || [], brands, capped: { upcoming: (upcoming || []).length >= 25, recent: (recent || []).length >= 25 } });
+    const ACTIVE = ['pending', 'confirmed', 'held', 'pending_payment'];
+    try {
+      if (action === 'owner-list-brands') {
+        const [br, bk, rt] = await Promise.all([
+          sbAll('brands?select=id,company_name,contact_name,email,phone,website,coi_verification_status,default_coi_expires,is_verified,created_at&order=created_at.desc,id.desc', { max: 5000 }),
+          sbAll('bookings?select=brand_id,retailer_id,status,demo_date&order=id.asc', { max: 100000 }),
+          sbAll('retailers?select=id,name&order=id.asc', { max: 5000 }),
+        ]);
+        const rname = new Map(rt.rows.map(r => [r.id, r.name])); const agg = new Map();
+        for (const b of bk.rows) {
+          if (!b.brand_id) continue;
+          let a = agg.get(b.brand_id); if (!a) agg.set(b.brand_id, a = { total: 0, upcoming: 0, retailers: new Map() });
+          a.total++; if (b.demo_date >= today && ACTIVE.includes(b.status)) a.upcoming++;
+          if (b.retailer_id) a.retailers.set(b.retailer_id, rname.get(b.retailer_id) || '?');
+        }
+        return res.status(200).json({ ok: true,
+          brands: br.rows.map(b => { const a = agg.get(b.id); return { ...b, bookings_total: a ? a.total : 0, bookings_upcoming: a ? a.upcoming : 0, retailers: a ? [...a.retailers.values()] : [] }; }),
+          total: br.total, complete: { brands: br.complete, bookings: bk.complete, retailers: rt.complete }, capped: !br.complete });
+      }
+      const R = encodeURIComponent(id);
+      if (action === 'owner-brand-profile') {
+        const rows = await sb(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website,logo_url,coi_verification_status,default_coi_expires,default_coi_filename,is_verified,created_at,products,default_categories,needs_electricity`);
+        const brand = Array.isArray(rows) && rows[0]; if (!brand) return res.status(404).json({ error: 'brand_not_found' });
+        const bk = await sbAll(`bookings?brand_id=eq.${R}&select=id,retailer_id,venue_id,demo_date,demo_time,status,payment_status,amount_paid,created_at&order=demo_date.desc,id.desc`, { max: 20000 });
+        const rids = [...new Set(bk.rows.map(b => b.retailer_id).filter(isUuid))];
+        const rt = rids.length ? await sb(`retailers?id=in.(${rids.join(',')})&select=id,name,slug`) : [];
+        const rmap = new Map((rt || []).map(r => [r.id, r])); const byR = new Map();
+        for (const b of bk.rows) {
+          const r = rmap.get(b.retailer_id) || {}; let a = byR.get(b.retailer_id || '');
+          if (!a) byR.set(b.retailer_id || '', a = { retailer_id: b.retailer_id || null, name: r.name || '?', slug: r.slug || null, total: 0, upcoming: 0, paid_cents: 0 });
+          a.total++; if (b.demo_date >= today && ACTIVE.includes(b.status)) a.upcoming++;
+          if (b.payment_status === 'paid') a.paid_cents += Number(b.amount_paid || 0);
+        }
+        return res.status(200).json({ ok: true, brand, bookings: bk.rows.slice(0, 100).map(b => ({ ...b, retailer_name: (rmap.get(b.retailer_id) || {}).name || '?' })), bookings_total: bk.total,
+          by_retailer: [...byR.values()].sort((x, y) => y.total - x.total), rollup_complete: bk.complete, capped: bk.total > 100 });
+      }
+      const rows = await sb(`retailers?id=eq.${R}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
+      const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+      const [settings, venues, contacts, admins, upcoming, allBk] = await Promise.all([
+        sb(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
+        sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot&order=name.asc,id.asc`, { max: 2000 }),
+        sbAll(`internal_contacts?retailer_id=eq.${R}&select=name,email,role,venue_ids&order=name.asc,id.asc`, { max: 500 }),
+        sbAll(`retailer_admins?retailer_id=eq.${R}&select=email,role,created_at&order=created_at.asc,id.asc`, { max: 500 }),
+        sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
+        sbAll(`bookings?retailer_id=eq.${R}&select=brand_id,brand_name&order=id.asc`, { max: 50000 }),
+      ]);
+      const roll = new Map();
+      for (const b of allBk.rows) { const k = b.brand_id || ('name:' + (b.brand_name || '')); let a = roll.get(k); if (!a) roll.set(k, a = { brand_id: b.brand_id || null, brand: b.brand_name || '', bookings: 0 }); a.bookings++; }
+      const b0 = await bind();
+      return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
+        venues: venues.rows, contacts: contacts.rows, admins: admins.rows, upcoming: upcoming.rows, upcoming_total: upcoming.total,
+        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings),
+        complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
+    } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
   }
 
   if (action === 'owner-list-retailers') {
-    const sessionId = getOwnerSessionIdFromReq(req);
-    const v = await verifyOwnerSession(sessionId);
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
-    const rows = await sb('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc&limit=500');
-    return res.status(200).json({ ok: true, retailers: rows || [] });
+    let rt; try { rt = await sbAll('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc,id.asc', { max: 5000 }); }
+    catch (e) { console.error('owner-list-retailers read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    return res.status(200).json({ ok: true, retailers: rt.rows, total: rt.total, complete: rt.complete });
   }
 
   // ---- OWNER-IMPERSONATE: create a consent-gated, ≤4-hour session for a retailer, audited ----
