@@ -425,6 +425,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                                     <button onclick="nextMonth()"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
                                 </div>
                             </div>
+                            <div id="leadTimeNotice" style="display:none; font-size:0.8rem; color:var(--ink-500); margin:-4px 0 10px; line-height:1.45;" title="How far ahead this store needs demo bookings"></div>
                             <div class="calendar-grid" id="calendarGrid"></div>
                             <div class="time-slots-label">Available Time Slots <span id="selectedDateLabel" style="font-weight: 400; color: var(--bark-500);"></span></div>
                             <!-- Release B: slots are rendered from the location's configuration (renderTimeSlots). -->
@@ -1366,14 +1367,17 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const firstDay = new Date(currentYear, currentMonth, 1).getDay();
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const today = new Date();
-            const minDate = new Date(today); minDate.setDate(today.getDate() + 14);
+            // The store's own minimum notice (settings.advance_booking_days), judged in the store's calendar; the
+            // old hard-coded 14 ignored the setting. Days before that date are greyed out and the notice says why.
+            const minYmd = storeEarliestYmd();
+            updateLeadTimeNotice(minYmd);
             const venue = getCurrentVenue();
             // If we have venues loaded but not for this location yet, treat unknown as "all days open" (no over-filtering)
             for (let i = 0; i < firstDay; i++) html += '<div class="calendar-day empty"></div>';
             for (let day = 1; day <= daysInMonth; day++) {
                 const date = new Date(currentYear, currentMonth, day);
                 const dow = date.getDay();
-                let disabled = date < minDate;
+                let disabled = dateToYmd(date) < minYmd;
                 // Release B: a blacked-out date is shown as such; a day with no open windows, or whose
                 // windows fit none of the configured slots, is simply unavailable.
                 let blackout = false;
@@ -1480,6 +1484,31 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
         function applyTimeSlotAvailability() { renderTimeSlots(); }
         
+        // ---- Minimum notice helpers (store-local dates) ----
+        function retailerTodayYmd() {
+            const tz = (window.state && window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
+            try { const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const g = (t) => p.find(x => x.type === t).value; return g('year') + '-' + g('month') + '-' + g('day'); }
+            catch (_) { return dateToYmd(new Date()); }
+        }
+        function addDaysYmd(ymd, n) { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); }
+        function storeLeadDays() { const s = window.state && window.state.settings; const n = s && Number.isInteger(Number(s.advance_booking_days)) ? Number(s.advance_booking_days) : 14; return Math.max(0, n); }
+        function storeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), storeLeadDays()); }
+        // A brand should never open on a month with nothing to pick: if the displayed month ends before the first
+        // bookable date, show that date's month. Called when the store's settings load; never overrides a later
+        // month the user navigated to.
+        function showFirstBookableMonth() {
+            const [y, m] = storeEarliestYmd().split('-').map(Number);
+            if (currentYear < y || (currentYear === y && currentMonth < m - 1)) { currentYear = y; currentMonth = m - 1; }
+            renderCalendar();
+        }
+        function updateLeadTimeNotice(minYmd) {
+            const el = document.getElementById('leadTimeNotice'); if (!el) return;
+            const days = storeLeadDays(); const name = (window.state && window.state.retailer && window.state.retailer.name) || 'This store';
+            if (!days) { el.style.display = 'none'; return; }
+            const [y, m, d] = minYmd.split('-').map(Number); const first = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            el.textContent = name + ' asks for at least ' + days + " days' notice, so the first date you can book is " + first + '. Earlier days are greyed out.';
+            el.style.display = '';
+        }
         function prevMonth() { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentYear--; } renderCalendar(); }
         function nextMonth() { currentMonth++; if (currentMonth > 11) { currentMonth = 0; currentYear++; } renderCalendar(); }
         
@@ -2491,6 +2520,7 @@ function supportMailto(a) {
             if (fee) fee.value = '$' + Number(s.demo_fee).toFixed(2);
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
+            try { showFirstBookableMonth(); } catch (_) {}
         }
 
         // (The legacy embedded contact-management block — CONTACT_CONFIGS, loadContacts,
