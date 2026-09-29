@@ -755,7 +755,25 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 // Provisional path: the uploader stays visible (uploading now is still the best
                 // move) but booking is NOT blocked — explain the hold instead.
                 const msg = document.getElementById('bookCoiMsg');
-                if (msg) msg.innerHTML = 'No approved Certificate of Insurance on file yet — you can still book. Your card gets a <strong>temporary hold (not a charge)</strong> and the slot is yours once your COI is uploaded and approved within <strong>24 hours</strong>; otherwise the hold is released automatically and you pay nothing.';
+                // The card's colour must follow the certificate's real state, not stay red forever: an uploaded
+                // certificate awaiting the store's review is a calm green "pending review", a missing or
+                // rejected one is the orange call to action.
+                const bp0 = window._brandProfile || {}; const st0 = String(bp0.coi_verification_status || '').toLowerCase();
+                const inReview0 = !!bp0.default_coi_url && st0 !== 'rejected';
+                const card0 = document.getElementById('bookCoiCard'), head0 = document.getElementById('bookCoiHead'), hint0 = document.getElementById('bookCoiHint'), btn0 = document.getElementById('bookCoiBtn');
+                if (inReview0) {
+                    if (card0) { card0.style.background = '#eef5ee'; card0.style.borderColor = '#2a6b3a44'; card0.style.borderLeftColor = '#2a6b3a'; }
+                    if (head0) { head0.style.color = '#256b34'; head0.textContent = '✓ Certificate uploaded — pending review'; }
+                    if (msg) { msg.style.color = '#2c4a34'; msg.innerHTML = 'Your certificate is in and waiting for the store to review it. You can book now: your card gets a <strong>temporary hold (not a charge)</strong> and the demo locks in once the certificate is approved, usually within <strong>24 hours</strong>.'; }
+                    if (hint0) { hint0.style.color = '#2c4a34'; hint0.textContent = 'Need to replace it? Upload a new file below.'; }
+                    if (btn0) btn0.textContent = 'Replace certificate';
+                } else {
+                    if (card0) { card0.style.background = '#fff3ed'; card0.style.borderColor = '#ed682f55'; card0.style.borderLeftColor = '#ed682f'; }
+                    if (head0) { head0.style.color = '#a14e2a'; head0.textContent = st0 === 'rejected' ? 'Certificate not accepted' : 'Certificate of insurance required'; }
+                    if (msg) { msg.style.color = '#a14e2a'; msg.innerHTML = (st0 === 'rejected' ? 'The store could not accept your last certificate — please upload a corrected one. ' : 'No approved Certificate of Insurance on file yet — you can still book. ') + 'Your card gets a <strong>temporary hold (not a charge)</strong> and the slot is yours once your COI is uploaded and approved within <strong>24 hours</strong>; otherwise the hold is released automatically and you pay nothing.'; }
+                    if (hint0) { hint0.style.color = '#a14e2a'; hint0.textContent = 'PDF, JPG, PNG or WEBP, up to 10MB.'; }
+                    if (btn0) btn0.textContent = 'Upload certificate';
+                }
                 return true;
             }
             if (signedIn && !ok) {
@@ -871,9 +889,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 }
                 // _updateBookCoiGate() sets the right message for the current state (usually
                 // "waiting for the store to review it"); only override it when actually covered.
-                if (_updateBookCoiGate() && msg) {
-                    msg.textContent = 'Certificate accepted. You can book now.';
-                }
+                // _updateBookCoiGate() restyles the card for the new state (green "pending review" when holds are on;
+                // the covered state hides the card). Nothing to override: an upload is received, not yet accepted.
+                _updateBookCoiGate();
             } catch (err) {
                 if (msg) msg.textContent = (err && err.message) || 'Upload failed. Please try again.';
             } finally {
