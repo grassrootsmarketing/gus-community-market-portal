@@ -1,6 +1,6 @@
 # Demohub — booking page UX fixes: pre-deploy handoff for Codex (2026-09-28)
 
-Branch `fix/calendar-first-bookable` @ **`5c19a6b`**, two commits, one file (`r/gus/index.html`, +54/−6), off production `main` `b82ef40`. **Not deployed.** Standalone: no server, migration, payment or booking-code change; the same two commits are also cherry-picked onto `feat/booking-codes` (`9e6d2f0`) so the branches do not conflict. David asked for these as quick fixes after using the live booking page as a brand; this is the one document for the round.
+Branch `fix/calendar-first-bookable` @ **`bcb114a`**, three commits, two files (`r/gus/index.html`, `brand/dashboard/index.html`), off production `main` `b82ef40`. **Not deployed.** Standalone: no server, migration, payment or booking-code change; the same two commits are also cherry-picked onto `feat/booking-codes` (`9e6d2f0`) so the branches do not conflict. David asked for these as quick fixes after using the live booking page as a brand; this is the one document for the round.
 
 ## Fix 1 — the calendar opened on a month with nothing to book
 
@@ -22,6 +22,10 @@ Cause: `_updateBookCoiGate()` returned early on the provisional-holds branch, be
 Change: the provisional branch now styles the card from the brand's real certificate state (`window._brandProfile.default_coi_url` / `coi_verification_status`): missing → orange "Certificate of insurance required"; uploaded and not rejected → green "✓ Certificate uploaded — pending review", message keeps the accurate hold language ("temporary hold, not a charge … locks in once approved, usually within 24 hours"), button becomes "Replace certificate"; rejected → orange "Certificate not accepted"; approved/covered → the card is hidden (unchanged). The upload handler no longer overrides the message.
 
 Verified (recorded, no console errors): the four states above render with the expected background, heading, button label and message; the approved state hides the group.
+
+## Fix 3 — certificate guidance (added 2026-09-29 at David's request)
+
+Brands were uploading certificates that did not name the store. The booking-page COI card now carries a line, filled with the retailer's name (HTML-escaped): "Before you upload: ask your insurer to list <store> as the certificate holder and as an additional insured. Certificates that name the store are approved fastest; a generic certificate is usually sent back." Shown in every card state and colour (missing, pending, rejected; provisional-holds path and not). The brand dashboard Compliance page gets the same guidance phrased for multiple retailers. Copy only. Verified in the browser (three states, escaped name, no console errors).
 
 ## Scope notes for review
 
