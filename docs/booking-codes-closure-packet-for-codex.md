@@ -38,7 +38,7 @@ Not proven, so not shipped: a provisional (held, unverified-COI) booking accepts
 - `awaiting_confirmation` before fulfilment stays as documented; operator requeue for a `failed` fulfilment (`status='failed'` after 6 attempts) is now in `docs/booking-codes.md`: one guarded UPDATE resets the row for the next worker run; read `last_error` before requeueing again.
 - One code / one selected demo contract unchanged; multi-use codes apply to later operations, never one cart as one unlimited redemption.
 - Policies tab: `tests/policies_tab.smoke.mjs` 7/7 — markup routing, and real-route save/reload of `cancellation_mode` (non_refundable → 14_day_refund) and `demo_policy` text. **Observed, pre-existing, out of scope:** the retailers PATCH whitelist accepts any `cancellation_mode` string (returned 200 for `free_for_all`); left unchanged, reported here.
-- **David's decision still open:** Gus's 14-day advance-notice minimum. No other value is set anywhere.
+- **David's decision (2026-09-28): per-retailer setting; Gus stays at 14 days.** No other value is set anywhere.
 - Deployment gate prepared, not executed: `Documents/Codex/cutover-kit/0085-booking-codes-paste.sql` — guard = `get_deployment_identity() = production`, ledger head exactly `0084`, none of the four tables and neither `bookings` column present; then the migration file unmodified; then the ledger row and a verification row (tables 4, functions 5, trigger 1, `max_uses` default 1, waived bookings 0, policies 0). Migration file sha256 `f20246ca09d41a28b8dbf2a8ea5acb2414d946b1c6820f530c39a33ab795d6ce`; paste sha256 `9d0090cc992b691d7aca4ea624e6e24d6e5b1f5e7a0809ca1760e60e62212b70` (21,674 chars); manifest `MANIFEST-0085.json`. **Rehearsed** on demohub-rebuild-check: the guard refused it there (identity ≠ production, observed); the test project was then reset to a true 0084 state (all 0085 objects dropped, ledger row removed) and the guard-less body applied cleanly → `OK 0085 RECORDED`, ledger `0083,0084,0085`, all expected counts; `booking_codes.test.mjs` 97/97 against that freshly applied schema.
 - Old app / new schema: production's current code (`main` @ `b82ef40`) contains no reference to `fee_waived`, `booking_code_id`, `booking_codes` or `booking_operations` (grep 0); the new columns have defaults, so the deployed app keeps working after the paste until the new build is pushed. Deploy order: paste → verify row → push `main`.
 - Rollback = disable, not destroy: `0085-rollback-disable.sql` deactivates every code and revokes `service_role` execution of the create/redeem RPCs (routes fail closed as `code_unavailable` / `booking_outcome_unknown`; no-code checkout unaffected); history kept. Re-enable is the reverse grant.
@@ -50,7 +50,7 @@ Not proven, so not shipped: a provisional (held, unverified-COI) booking accepts
 
 ## Remaining owner decisions
 
-1. Gus's advance-notice minimum (14 days as configured, or another value).
+1. ~~Gus's advance-notice minimum~~ decided: 14 days, per-retailer setting.
 2. Approve the production paste (David runs it in the SQL editor; I load the clipboard) and then say "deploy".
 3. Unrelated but open: the backup recovery key is still on the workstation.
 

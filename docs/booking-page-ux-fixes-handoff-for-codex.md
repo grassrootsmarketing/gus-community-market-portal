@@ -26,7 +26,7 @@ Verified (recorded, no console errors): the four states above render with the ex
 ## Scope notes for review
 
 - Copy only + client-side date maths; no API contract, no new network call, no storage. The existing route tests are unaffected (`npm run check` clean; the file's inline scripts parse).
-- The notice reveals the store's minimum to brands. **David has still not confirmed Gus's 14-day rule**; the notice will display whatever `advance_booking_days` is set to, so the number should be decided before deploy. No value was changed by this fix.
+- The notice reveals the store's minimum to brands; it displays whatever `advance_booking_days` the retailer has set (Gus: 14 days, confirmed by David 2026-09-28, see the decision below). No value was changed by this fix.
 - Deploy = merge `fix/calendar-first-bookable` into `main` on David's "deploy"; no migration, no env change, no redeploy dependency. Rollback = revert the two commits.
 - Not done: a committed DOM e2e for either fix (Playwright is not installed locally); the assertions above were run by hand in the browser and are reproducible from the recorded scripts.
 
