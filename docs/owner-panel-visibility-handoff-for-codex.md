@@ -1,6 +1,6 @@
-# Demohub, owner panel visibility: deploy record + pre-deploy handoff for Codex (2026-09-28)
+# Demohub, owner panel visibility: deploy record + pre-deploy handoff for Codex (2026-09-28, updated 2026-09-29)
 
-One document, two parts. Part A records what is now live in production (build `a01a118`) and what was verified after the deploy. Part B is the pre-deploy handoff for the next branch, `feat/owner-overview-calendar` @ `d9e49b6`, which is pushed but **not** deployed; it waits for Codex's review and David's "deploy".
+One document, three parts. Part A records what is now live in production (build `a01a118`) and what was verified after the deploy. Part B is the pre-deploy handoff for `feat/owner-overview-calendar` @ `d9e49b6`. Part C (added 2026-09-29) is the pre-deploy handoff for `feat/owner-brand-remove` @ `2a000de`, stacked on Part B. Neither B nor C is deployed; both wait for Codex's review and David's "deploy". This version replaces the 2026-09-28 copy.
 
 Repo: `grassrootsmarketing/gus-community-market-portal` (Demohub). Production project: demohub-prod (`dkgjvsstbgnhcfboqqnd`). Tests run against demohub-rebuild-check (`tileejdviuvijumjeplv`). No migration, env change or redeploy dependency in either part; both are HTML + one serverless file.
 
@@ -27,7 +27,7 @@ Three new owner-only actions in `api/admin-auth.js`, all gated by `verifyOwnerSe
 
 Ids are validated as 36-char UUID shape before use and URL-encoded into PostgREST filters. **Never selected**: `password_hash`, `cal_feed_key` / `cal_feed_token`, session ids, tokens, Stripe customer / subscription / account ids. The smoke test sets `password_hash` on its fixture brand and asserts the string never appears in any response.
 
-Owner page (`owner/index.html`): two tabs added to the existing tab controller; rows render through delegated listeners with `data-*` attributes (no inline `onclick` with serialised JSON, the Codex BC-1 lesson from booking codes); all text is HTML-escaped. Growth chart: the SVG viewBox now matches the container's real pixel width, remounted through a `ResizeObserver`, so axis text no longer stretches. `fmtD` parses bare `YYYY-MM-DD` as a local date (a `2027-01-01` expiry rendered as Dec 31 before).
+Owner page (`owner/index.html`): two tabs added to the existing tab controller; rows render through delegated listeners with `data-*` attributes (no inline `onclick` with serialised JSON, the Codex BC-1 lesson from booking codes); all text is HTML-escaped. Growth chart: the SVG viewBox now matches the container's real pixel width, remounted through a `ResizeObserver`, so axis text no longer stretches. `fmtD` was meant to parse bare `YYYY-MM-DD` as a local date (a `2027-01-01` expiry rendered as Dec 31 before). **Correction, found 2026-09-29:** the deployed pattern lost its backslashes and never matches, so this fix is not actually live; see C3.
 
 Tests: `tests/owner_directory.smoke.mjs` (real `admin-auth.js` handlers against demohub-rebuild-check): owner-only access for all three actions (anonymous 401, staff 401), brand list shape and counts, brand profile rollup ($35 paid, 1 upcoming), malformed id → 400, retailer profile (settings, venue, links, upcoming, brand rollup), and the sensitive-column regex on every body. 10/10 at 746e3e3.
 
@@ -105,3 +105,59 @@ Not done: a committed DOM e2e (Playwright still not installed locally); the brow
 ### B6. Deploy / rollback
 
 Deploy = merge `feat/owner-overview-calendar` into `main` on David's "deploy" (push to main deploys; production-only builds). No migration, no env change. Rollback = revert `d9e49b6`. The booking-codes branch (`feat/booking-codes`, separate review, migration 0085 still to be pasted on demohub-prod) is unaffected and stays unmerged until Codex clears it.
+
+---
+
+## Part C: pre-deploy handoff, `feat/owner-brand-remove` @ `2a000de` (one commit off `d9e49b6`)
+
+### C1. Why
+
+David, 2026-09-29, looking at the Brands tab: "might be nice to have a remove button here". The list includes test sign-ups and abandoned accounts.
+
+### C2. Change: Remove, only for brands with no history
+
+Database facts that shaped it (baseline FKs): `bookings.brand_id` and `demos.brand_id` are ON DELETE SET NULL (a delete would orphan booking records), `payment_groups.brand_id` is ON DELETE RESTRICT, and `brand_retailer_agreements`, `coi_verifications`, sessions, tokens, members and calendar tokens CASCADE. Signed agreements are stored as evidence of what the brand accepted.
+
+New owner-only action `owner-remove-brand {brand_id}` in `api/admin-auth.js`:
+
+- Auth: `verifyOwnerSession` (401 otherwise; a retailer staff session is 401). Id must be UUID-shaped (400).
+- Reads the brand (404 if gone), then checks four tables for any row with that `brand_id`: `bookings` (any status, including cancelled and refunded), `payment_groups`, `demos`, `brand_retailer_agreements` (including superseded). These reads use the throwing helper: if any read fails, nothing is removed (503 `history_check_failed`).
+- Any history: 409 `brand_has_history` with `{bookings, payments, demos, agreements}` booleans. Nothing is changed.
+- No history: `DELETE brands?id=eq.<id>`. The cascade removes only the brand's own sessions, tokens, members, calendar tokens and COI verification rows, so the brand is signed out. A delete error (for example the RESTRICT on payment groups) returns 409 `remove_refused`.
+- Audit: one JSON line in the Vercel function log, `{event:"owner_brand_removed", brand_id, company_name, email, brand_created_at, by, at}`. There is no audit table; `error_log` was not used because other code counts its rows as errors.
+- Not removed: the certificate file in storage (left in place, covered by the storage backup).
+
+`owner-list-brands` gains a `removable` flag per brand (no bookings, payment groups, demos or agreements). It is a display hint only; the remove action re-checks everything.
+
+Owner page: removable rows get a "Remove" button next to "Open", behind a confirm dialog ("This deletes the brand account and signs it out. It has no bookings, payments or signed agreements. This cannot be undone."). Other rows show "Has history, kept". On success the row leaves the list; a 409 is explained in plain words.
+
+Known window: the history check and the delete are two requests, not one transaction. If a booking were created for that brand in between, the delete would still run and the new booking would keep its row with `brand_id` set to null (SET NULL). No booking, payment or refund row can be deleted by this path, and a payment group blocks the delete outright. An atomic version needs an RPC (a migration); not done, so this ships without touching the migration ledger while 0085 is pending.
+
+### C3. Fix: owner date helper
+
+`fmtD` in `owner/index.html` had `/^(d{4})-(d{2})-(d{2})$/` (backslashes stripped by a shell edit), which matches a literal "d{4}", so bare dates fell through to `new Date(iso)` (UTC midnight) and could render one day early in US time zones. This is what production `a01a118` serves. Now `/^([0-9]{4})-([0-9]{2})-([0-9]{2})$/`. Checked by evaluating the helper in Node with TZ America/Los_Angeles: `2027-01-01` renders "Jan 1, 2027", `2027-09-30` renders "Sep 30, 2027". No other page had the stripped pattern (grep over the owner, booking, retailer admin and brand dashboard pages).
+
+### C4. Evidence (observed 2026-09-29)
+
+`tests/owner_directory.smoke.mjs` now **22/22** against demohub-rebuild-check. New cases:
+
+- list: `removable` is true only for a fresh brand; false for the booked fixture brand and for a brand with only a signed agreement.
+- remove: anonymous 401, retailer staff 401, malformed id 400; the brand still exists afterwards.
+- remove: the booked brand is refused (409 `brand_has_history`, `bookings: true`); the brand and its booking's `brand_id` are unchanged.
+- remove: the agreement-only brand is refused (`agreements: true`) and the agreement row is kept.
+- remove: the fresh brand is removed (200), its row is gone and its login sessions are gone.
+- remove again: 404.
+
+Browser (local preview, stubbed `fetch`, 1280 wide): the booked brand shows "Has history, kept", the history-free brand shows Open and Remove; clicking Remove shows the confirm text above, sends `owner-remove-brand` with that id, and the row disappears ("1 signed up").
+
+Syntax: `node --check api/admin-auth.js`, inline-script parse of `owner/index.html`, `npm run check` all clean.
+
+### C5. Review asks
+
+1. Is "no bookings, payment groups, demos or signed agreements" the right bar for a hard delete, or should any brand with a COI verification history also be kept?
+2. The two-request window described in C2: acceptable for now, or do you want the RPC version before deploy?
+3. Leaving the certificate file in storage after removal: acceptable, or should removal also delete the object?
+
+### C6. Deploy / rollback
+
+Deploy = merge `feat/owner-brand-remove` (which contains Part B) into `main` on David's "deploy". No migration, no env change. Rollback = revert `2a000de` (and `d9e49b6` for Part B). A removed brand cannot be restored by a code rollback; the brand would sign up again.
