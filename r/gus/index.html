@@ -425,6 +425,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                                     <button onclick="nextMonth()"><svg viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg></button>
                                 </div>
                             </div>
+                            <div id="leadTimeNotice" style="display:none; font-size:0.8rem; color:var(--ink-500); margin:-4px 0 10px; line-height:1.45;" title="How far ahead this store needs demo bookings"></div>
                             <div class="calendar-grid" id="calendarGrid"></div>
                             <div class="time-slots-label">Available Time Slots <span id="selectedDateLabel" style="font-weight: 400; color: var(--bark-500);"></span></div>
                             <!-- Release B: slots are rendered from the location's configuration (renderTimeSlots). -->
@@ -1378,6 +1379,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // Booking codes (0085): the minimum is the store's setting (server-enforced in /api/book), not a
             // hard-coded 14; a short-notice code lifts it to tomorrow. Dates before today are never offered.
             const minYmd = (window._bookingCode && window._bookingCode.waives_lead_time && !window._bookingCode.itemId) ? codeEarliestYmd() : storeEarliestYmd();
+            updateLeadTimeNotice(minYmd);
             const venue = getCurrentVenue();
             // If we have venues loaded but not for this location yet, treat unknown as "all days open" (no over-filtering)
             for (let i = 0; i < firstDay; i++) html += '<div class="calendar-day empty"></div>';
@@ -2128,6 +2130,24 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function storeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), storeLeadDays()); }
         function codeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), Math.min(storeLeadDays(), 1)); }
         function bookingLeadDays() { return (window._bookingCode && window._bookingCode.waives_lead_time) ? Math.min(storeLeadDays(), 1) : storeLeadDays(); }
+        // A brand should never open on a month with nothing to pick: if the displayed month ends before the first
+        // bookable date, show that date's month instead. Called after the store's settings load and when a code
+        // changes the rule; never while the user is looking at a later month they navigated to.
+        function showFirstBookableMonth() {
+            const minYmd = (window._bookingCode && window._bookingCode.waives_lead_time && !window._bookingCode.itemId) ? codeEarliestYmd() : storeEarliestYmd();
+            const [y, m] = minYmd.split('-').map(Number);
+            if (currentYear < y || (currentYear === y && currentMonth < m - 1)) { currentYear = y; currentMonth = m - 1; }
+            renderCalendar();
+        }
+        function updateLeadTimeNotice(minYmd) {
+            const el = document.getElementById('leadTimeNotice'); if (!el) return;
+            const days = storeLeadDays(); const name = (window.state && window.state.retailer && window.state.retailer.name) || 'This store';
+            if (!days) { el.style.display = 'none'; return; }
+            const [y, m, d] = minYmd.split('-').map(Number); const first = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const codeOn = !!(window._bookingCode && window._bookingCode.waives_lead_time);
+            el.textContent = codeOn ? 'Your short-notice code lifts ' + name + "'s " + days + "-day notice rule for one demo; earliest date " + first + '.' : name + ' asks for at least ' + days + " days' notice, so the first date you can book is " + first + '. Earlier days are greyed out.';
+            el.style.display = '';
+        }
         function newOpKey() { try { return crypto.randomUUID().replace(/-/g, ''); } catch (_) { return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12); } }
         function resetBookingCodeUi() {
             window._bookingCode = null;
@@ -2180,7 +2200,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 input.value = j.code; input.disabled = true; btn.textContent = 'Remove';
                 const soon = j.waives_lead_time && storeLeadDays() > 0 ? ' — one demo may now be booked from ' + (Math.min(storeLeadDays(), 1) === 1 ? 'tomorrow' : 'today') + '.' : '.';
                 show('Code applied: ' + j.label + soon + (cart.length > 1 ? ' Choose which demo it covers with "use code here".' : ''), true);
-                updateCartDisplay(); renderCalendar();
+                updateCartDisplay(); showFirstBookableMonth();
             } catch (_) { show('Could not check that code right now. Try again in a moment.', false); }
             finally { btn.disabled = false; }
         }
@@ -2648,6 +2668,7 @@ function supportMailto(a) {
             if (fee) fee.value = '$' + Number(s.demo_fee).toFixed(2);
             if (dur) dur.value = s.demo_duration || '3 hours';
             if (adv) adv.value = (s.advance_booking_days || 14) + ' days minimum';
+            try { showFirstBookableMonth(); } catch (_) {}
         }
 
         // (The legacy embedded contact-management block — CONTACT_CONFIGS, loadContacts,
