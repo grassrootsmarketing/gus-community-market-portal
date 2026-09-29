@@ -544,7 +544,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div id="bookCoiCard" style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
                         <div id="bookCoiHead" style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
-                        <div id="bookCoiMsg" style="font-size:0.88rem; line-height:1.5; color:#a14e2a; margin-bottom:10px;">Stores need proof of insurance before you can demo. Upload yours here and you can book straight away.</div>
+                        <div id="bookCoiMsg" style="font-size:0.88rem; line-height:1.5; color:#a14e2a; margin-bottom:10px;">Stores need an approved certificate of insurance before a demo. Upload yours here; the store reviews it.</div>
                         <input type="file" id="bookCoiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
                         <button type="button" class="btn" id="bookCoiBtn" style="font-size:0.88rem; padding:9px 16px;">Upload certificate</button>
                         <div id="bookCoiHint" style="font-size:0.76rem; color:#a14e2a; opacity:0.85; margin-top:7px;">PDF, JPG, PNG or WEBP, up to 10MB.</div>
@@ -736,7 +736,42 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         function _updateCoiGuide(color) {
             const g = document.getElementById('bookCoiGuide'); if (!g) return;
             const r = (window.state && window.state.retailer) || {}; const name = r.name || 'the store';
-            g.style.color = color; g.innerHTML = '<strong>Before you upload:</strong> ask your insurer to list <strong>' + escapeHtml(name) + '</strong> as the <strong>certificate holder</strong> and as an <strong>additional insured</strong>. Certificates that name the store are approved fastest; a generic certificate is usually sent back.';
+            // Requirements stated per retailer only where the retailer has confirmed them (Gus's Community Market, 2026-09-28);
+            // otherwise generic guidance. No claims about approval speed or rejection rates.
+            g.style.color = color;
+            if (r.slug === 'gus') g.innerHTML = '<strong>' + escapeHtml(name) + ' requires</strong> the certificate to list <strong>' + escapeHtml(name) + '</strong> as the <strong>certificate holder</strong> and to show <strong>additional-insured coverage</strong>. Ask your insurer for this before you upload.';
+            else g.innerHTML = '<strong>Before uploading,</strong> check this retailer\'s insurance requirements with your insurer. These may include naming the retailer as certificate holder and providing evidence of additional-insured coverage. Submit the documents the retailer requires for review.';
+        }
+        // The certificate's REAL state, with the same semantics as _brandCoiOk()/the server gate:
+        //   missing | pending (uploaded, not yet decided) | rejected | expired (approved but ends before the latest
+        //   selected demo date) | no_expiry (approved but coverage dates unreadable) | covered
+        function _coiCardState() {
+            const bp = window._brandProfile || {}; const st = String(bp.coi_verification_status || '').toLowerCase();
+            const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
+            const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
+            if (!bp.default_coi_url) return { state: 'missing', latest };
+            if (st === 'rejected') return { state: 'rejected', latest };
+            if (st !== 'passed' && st !== 'approved') return { state: 'pending', latest };
+            if (!bp.default_coi_expires) return { state: 'no_expiry', latest };
+            const exp = String(bp.default_coi_expires).slice(0, 10);
+            return exp >= latest ? { state: 'covered', latest, exp } : { state: 'expired', latest, exp };
+        }
+        function _renderCoiCard(cs, holdsOn) {
+            const card = document.getElementById('bookCoiCard'), head = document.getElementById('bookCoiHead'), msg = document.getElementById('bookCoiMsg'), btn = document.getElementById('bookCoiBtn'), hint = document.getElementById('bookCoiHint');
+            const fmt = (ymd) => { if (!ymd) return ''; const [y, m, d] = ymd.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
+            // The hold clock has NOT started at this point (nothing is authorized until checkout); say what checkout will do.
+            const hold = holdsOn ? ' If you continue without approved coverage, checkout places a <strong>temporary hold</strong> on your card, not a charge. The booking must be approved and confirmed within the <strong>24-hour hold window</strong>; otherwise the hold is released.' : '';
+            const green = cs.state === 'pending';
+            if (card) { card.style.background = green ? '#eef5ee' : '#fff3ed'; card.style.borderColor = green ? '#2a6b3a44' : '#ed682f55'; card.style.borderLeftColor = green ? '#2a6b3a' : '#ed682f'; }
+            const col = green ? '#2c4a34' : '#a14e2a'; if (head) head.style.color = green ? '#256b34' : '#a14e2a'; if (msg) { msg.style.color = col; msg.style.marginBottom = '10px'; } if (hint) { hint.style.color = col; hint.style.display = ''; } if (btn) btn.style.display = '';
+            let h = '', m = '', b = 'Upload certificate', hn = 'PDF, JPG, PNG or WEBP, up to 10MB.';
+            if (cs.state === 'pending') { h = '✓ Certificate uploaded — pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' Booking opens once the store approves it.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
+            else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = 'No approved certificate of insurance is on file.' + (holdsOn ? hold : ' Stores need an approved certificate before you can book; upload yours below and the store will review it.'); }
+            else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
+            else if (cs.state === 'expired') { h = 'Certificate does not cover your demo date'; m = 'Your approved certificate expires on <strong>' + fmt(cs.exp) + '</strong>, before <strong>' + fmt(cs.latest) + '</strong>. Upload an updated certificate covering that date.' + hold; b = 'Upload updated certificate'; }
+            else if (cs.state === 'no_expiry') { h = 'Coverage dates could not be verified'; m = 'Your certificate is approved but its coverage period could not be read, so it cannot be matched to your demo date. Upload a certificate that shows the coverage dates.' + hold; b = 'Upload certificate with dates'; }
+            if (head) head.textContent = h; if (msg) msg.innerHTML = m; if (btn) btn.textContent = b; if (hint) hint.textContent = hn;
+            _updateCoiGuide(col);
         }
         function _updateBookCoiGate() {
             const grp = document.getElementById('bookCoiGroup');
@@ -753,68 +788,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (signedIn && !ok && window._provisionalHolds) {
                 // Provisional path: the uploader stays visible (uploading now is still the best
                 // move) but booking is NOT blocked — explain the hold instead.
-                const msg = document.getElementById('bookCoiMsg');
-                // The card's colour must follow the certificate's real state, not stay red forever: an uploaded
-                // certificate awaiting the store's review is a calm green "pending review", a missing or
-                // rejected one is the orange call to action.
-                const bp0 = window._brandProfile || {}; const st0 = String(bp0.coi_verification_status || '').toLowerCase();
-                const inReview0 = !!bp0.default_coi_url && st0 !== 'rejected';
-                const card0 = document.getElementById('bookCoiCard'), head0 = document.getElementById('bookCoiHead'), hint0 = document.getElementById('bookCoiHint'), btn0 = document.getElementById('bookCoiBtn');
-                if (inReview0) {
-                    if (card0) { card0.style.background = '#eef5ee'; card0.style.borderColor = '#2a6b3a44'; card0.style.borderLeftColor = '#2a6b3a'; }
-                    if (head0) { head0.style.color = '#256b34'; head0.textContent = '✓ Certificate uploaded — pending review'; }
-                    if (msg) { msg.style.color = '#2c4a34'; msg.innerHTML = 'Your certificate is in and waiting for the store to review it. You can book now: your card gets a <strong>temporary hold (not a charge)</strong> and the demo locks in once the certificate is approved, usually within <strong>24 hours</strong>.'; }
-                    if (hint0) { hint0.style.color = '#2c4a34'; hint0.textContent = 'Need to replace it? Upload a new file below.'; }
-                    _updateCoiGuide('#2c4a34');
-                    if (btn0) btn0.textContent = 'Replace certificate';
-                } else {
-                    if (card0) { card0.style.background = '#fff3ed'; card0.style.borderColor = '#ed682f55'; card0.style.borderLeftColor = '#ed682f'; }
-                    if (head0) { head0.style.color = '#a14e2a'; head0.textContent = st0 === 'rejected' ? 'Certificate not accepted' : 'Certificate of insurance required'; }
-                    if (msg) { msg.style.color = '#a14e2a'; msg.innerHTML = (st0 === 'rejected' ? 'The store could not accept your last certificate — please upload a corrected one. ' : 'No approved Certificate of Insurance on file yet — you can still book. ') + 'Your card gets a <strong>temporary hold (not a charge)</strong> and the slot is yours once your COI is uploaded and approved within <strong>24 hours</strong>; otherwise the hold is released automatically and you pay nothing.'; }
-                    if (hint0) { hint0.style.color = '#a14e2a'; hint0.textContent = 'PDF, JPG, PNG or WEBP, up to 10MB.'; }
-                    _updateCoiGuide('#a14e2a');
-                    if (btn0) btn0.textContent = 'Upload certificate';
-                }
+                _renderCoiCard(_coiCardState(), true);
                 return true;
             }
             if (signedIn && !ok) {
-                const bp = window._brandProfile;
-                const msg = document.getElementById('bookCoiMsg');
-                const card = document.getElementById('bookCoiCard');
-                const head = document.getElementById('bookCoiHead');
-                const upBtn = document.getElementById('bookCoiBtn');
-                const upHint = document.getElementById('bookCoiHint');
-                const st = String(bp.coi_verification_status || '').toLowerCase();
-                const hasCoi = !!bp.default_coi_url;
-                // Uploaded but no decision yet (pending/flagged/blank) = a calm "in review" state, NOT a
-                // red alarm. The expiry is set by the store at review, so no-expiry never means "re-upload."
-                const inReview = hasCoi && st !== 'rejected' && st !== 'passed' && st !== 'approved';
-                if (inReview) {
-                    if (card) { card.style.background = '#eef5ee'; card.style.borderColor = '#2a6b3a44'; card.style.borderLeftColor = '#2a6b3a'; }
-                    _updateCoiGuide('#2c4a34');
-                    if (head) { head.style.color = '#256b34'; head.textContent = '✓ Certificate uploaded — pending review'; }
-                    if (msg) { msg.style.color = '#2c4a34'; msg.style.marginBottom = '0'; msg.textContent = 'Your certificate is in and waiting for the store to review it. You’ll get an email once it’s approved, and you can book straight after that. Nothing more to do here.'; }
-                    if (upBtn) upBtn.style.display = 'none';
-                    if (upHint) upHint.style.display = 'none';
-                } else {
-                    // Action needed: no certificate, rejected, or expired — red state with the uploader.
-                    if (card) { card.style.background = '#fff3ed'; card.style.borderColor = '#ed682f55'; card.style.borderLeftColor = '#ed682f'; }
-                    _updateCoiGuide('#a14e2a');
-                    if (head) head.style.color = '#a14e2a';
-                    if (msg) { msg.style.color = '#a14e2a'; msg.style.marginBottom = '10px'; }
-                    if (upBtn) upBtn.style.display = '';
-                    if (upHint) upHint.style.display = '';
-                    if (!hasCoi) {
-                        if (head) head.textContent = 'Certificate of insurance required';
-                        if (msg) msg.textContent = 'Stores need proof of insurance before you can demo. Upload yours here.';
-                    } else if (st === 'rejected') {
-                        if (head) head.textContent = 'Certificate not accepted';
-                        if (msg) msg.textContent = 'The certificate on your profile was not accepted. Upload a current certificate of liability insurance and it will be reviewed again.';
-                    } else {
-                        if (head) head.textContent = 'Certificate expired';
-                        if (msg) msg.textContent = 'The certificate on your profile has expired or doesn’t cover your demo date. Upload a current one and you can book straight away.';
-                    }
-                }
+                _renderCoiCard(_coiCardState(), false);
             }
             return !(signedIn && !ok);
         }
@@ -1536,7 +1514,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const days = storeLeadDays(); const name = (window.state && window.state.retailer && window.state.retailer.name) || 'This store';
             if (!days) { el.style.display = 'none'; return; }
             const [y, m, d] = minYmd.split('-').map(Number); const first = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-            el.textContent = name + ' asks for at least ' + days + " days' notice, so the first date you can book is " + first + '. Earlier days are greyed out.';
+            el.textContent = name + ' asks for at least ' + days + " days' notice. Bookings must be on or after " + first + '; available dates and times are shown below.';
             el.style.display = '';
         }
         function prevMonth() { currentMonth--; if (currentMonth < 0) { currentMonth = 11; currentYear--; } renderCalendar(); }
