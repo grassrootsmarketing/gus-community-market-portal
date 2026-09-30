@@ -31,3 +31,7 @@ David owns alerts, COI review (manual — AI auto-check is off) and reconciliati
 | 2026-09-20 09:18Z | `b82ef40` | Repo now describes production: migration file `0084_backup_reader_storage_select.sql` (already applied to demohub-prod by guarded paste), `EXPECTED_MIGRATIONS` 85, and one reviewed exception in `tools/check-migrations.mjs`. No application code changed. Verified: `/api/version` build `b82ef40`, booking page 200, `/gussmarket` 307; CI run 35501910943 green (suites on ubuntu + windows; the manual clean-build gate was not dispatched) |
 
 Welcome email for the first brands (plain text, ~150 words): `docs/pilot/brand-welcome-email-gus.txt`.
+
+## Team tab: store contacts grouped by location (David, 2026-09-30)
+
+Retailer admin, Team, "Store contacts & demo notifications": today a flat list with a "Sort by Location" dropdown; Gus has many contacts, most on "All locations". Requested: group the list by location (one section per store, with an "All locations" section on top), plus a search box (name, role, email) and a store filter; a contact scoped to several stores appears under each. Same for the owner panel's mirror of the list. Read-only layout change, no data change. Not started.
