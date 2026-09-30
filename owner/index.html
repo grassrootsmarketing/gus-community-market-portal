@@ -781,6 +781,13 @@ async function renderRetailersTab(selectedId) {
   if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
+// Demo length is per location (slot schedule); summarise the distinct slot lengths offered across the venues.
+function slotSummary(venues) {
+  const lens = new Set(); let errs = 0; for (const v of (venues || [])) { if (v.slots === null) { errs++; continue; } for (const sl of (v.slots || [])) lens.add(sl.hours); }
+  const list = [...lens].sort((a, b) => a - b).map(h => h + (h === 1 ? ' hour' : ' hours'));
+  if (!list.length && !errs) return 'No slots configured';
+  return escapeHtml(list.join(' or ')) + ' per slot, set per location' + (errs ? ' <span style="color:#a14e2a;">(' + errs + ' location' + (errs === 1 ? ' has' : 's have') + ' an invalid slot schedule)</span>' : '');
+}
 async function openRetailerProfile(id) {
   const box = document.getElementById('retailerProfile'); if (!box) return;
   box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -790,12 +797,15 @@ async function openRetailerProfile(id) {
     row('Booking page', link(p.booking_url, p.booking_url.replace(/^https?:\/\/(www\.)?/, ''))), row('Admin page', link(p.admin_url, p.admin_url.replace(/^https?:\/\/(www\.)?/, ''))),
     row('Billing email', escapeHtml(r.billing_email || '—')), row('Phone', escapeHtml(r.phone || '—')), row('Plan · status', escapeHtml((r.billing_tier || '—') + ' · ' + (r.billing_status || '—'))),
     row('Joined', fmtD(r.created_at)), row('Go-live approval', approvalPill(r, true) + (r.verification_status === 'approved' && r.verified_at ? ' <span style="font-size:0.78rem; color:var(--ink-500);">since ' + fmtD(r.verified_at) + '</span>' : '') + '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">' + statusButtons(r) + '</div>'), row('Time zone', escapeHtml(r.timezone || '—')),
-    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', escapeHtml(st.demo_duration || '—')), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
+    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', slotSummary(p.venues)), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
     row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || '—')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
     row('Monthly summary email', yesno(r.monthly_summary_enabled)), row('Support access allowed', yesno(r.allow_support_access)), row('Demo account', yesno(r.is_demo)),
   ].join('');
-  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td></tr>').join('');
-  const people = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.email) + '</td><td>' + escapeHtml(a.role || '') + '</td><td>Login</td></tr>').join('') + (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.email || c.name || '') + '</td><td>' + escapeHtml(c.role || '') + '</td><td>Store contact</td></tr>').join('');
+  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td><td style="font-size:0.78rem;">' + (v.slots === null ? '<span style="color:#a14e2a;">invalid schedule</span>' : (v.slots || []).length ? escapeHtml((v.slots || []).map(sl => sl.start + ' · ' + sl.hours + 'h').join(', ')) + (v.slots_defaulted ? ' (defaults)' : '') : 'none') + '</td></tr>').join('');
+  const locs = (l) => escapeHtml((Array.isArray(l) ? l : []).join(', ') || 'All locations');
+  const staff = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.name || '') + (a.name ? '<br>' : '') + '<span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(a.email) + '</span></td><td>' + escapeHtml(a.role || '') + '</td><td>' + locs(a.locations) + '</td></tr>').join('');
+  const notif = (c) => { const n = c.notifications || {}; const life = (n.lifecycle || []).length ? 'Emails when a demo is ' + escapeHtml(n.lifecycle.join(', ')) : 'No demo emails'; const rem = (n.reminders || []).length ? 'Reminders: ' + escapeHtml(n.reminders.join(', ')) : 'No reminders'; return life + '<br>' + rem + (c.prefs_set ? '' : ' <span style="color:var(--ink-500);">(defaults, never set)</span>'); };
+  const contacts = (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.name || '') + (c.name ? '<br>' : '') + '<span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml([c.email, c.phone].filter(Boolean).join(' · ')) + '</span></td><td>' + escapeHtml(c.role || '') + '</td><td>' + locs(c.locations) + '</td><td style="font-size:0.82rem;">' + notif(c) + '</td></tr>').join('');
   const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + escapeHtml(b.payment_status || '') + '</td></tr>').join('');
   const brands = (Array.isArray(p.brands) ? p.brands : []).map(x => '<tr><td>' + escapeHtml(x.brand || 'Unnamed brand') + '</td><td class="num">' + Number(x.bookings) + '</td></tr>').join('');
   const cap = (p.capped || {});
@@ -804,11 +814,14 @@ async function openRetailerProfile(id) {
     + '<div><h3 class="dir-h3">Account &amp; settings</h3><table class="simple"><tbody>' + kv + '</tbody></table>'
     + (r.cancellation_policy ? '<div style="margin-top:12px; font-size:0.8rem; color:var(--ink-500);"><strong>Cancellation policy:</strong> ' + escapeHtml(String(r.cancellation_policy).slice(0, 400)) + '</div>' : '')
     + (r.demo_policy ? '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500);"><strong>Demo policy:</strong> ' + escapeHtml(String(r.demo_policy).slice(0, 400)) + (String(r.demo_policy).length > 400 ? '…' : '') + '</div>' : '') + '</div>'
-    + '<div><h3 class="dir-h3">Locations (' + (p.venues || []).length + ')</h3><table class="simple"><thead><tr><th>Name</th><th>Address</th><th class="num">Fee</th><th class="num">Per slot</th></tr></thead><tbody>' + (venues || '<tr><td colspan="4">None</td></tr>') + '</tbody></table>'
-    + '<h3 class="dir-h3" style="margin-top:16px;">People</h3><table class="simple"><tbody>' + (people || '<tr><td>None</td></tr>') + '</tbody></table></div>'
+    + '<div><h3 class="dir-h3">Locations (' + (p.venues || []).length + ')</h3><table class="simple"><thead><tr><th>Name</th><th>Address</th><th class="num">Fee</th><th class="num">Per slot</th><th>Slots offered</th></tr></thead><tbody>' + (venues || '<tr><td colspan="5">None</td></tr>') + '</tbody></table>'
+    + '<h3 class="dir-h3" style="margin-top:16px;">Staff logins (' + (p.admins || []).length + ')</h3><table class="simple"><thead><tr><th>Person</th><th>Role</th><th>Locations</th></tr></thead><tbody>' + (staff || '<tr><td colspan="3">None</td></tr>') + '</tbody></table>'
+    + '</div>'
     + '<div><h3 class="dir-h3">Upcoming bookings' + ((p.upcoming_total || 0) > (p.upcoming || []).length ? ' (first ' + (p.upcoming || []).length + ' of ' + Number(p.upcoming_total) + ')' : '') + '</h3><table class="simple"><tbody>' + (up || '<tr><td>None</td></tr>') + '</tbody></table>'
     + '<h3 class="dir-h3" style="margin-top:16px;">Brands (all bookings' + (p.complete && p.complete.brands === false ? ', partial' : '') + ')</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
-    + '</div></div>';
+    + '</div>'
+    + '<h3 class="dir-h3" style="margin-top:18px;">Store contacts &amp; notifications (' + (p.contacts || []).length + ')</h3><div class="sub" style="margin:0 0 6px;">Who is emailed about demos at each location. Contacts do not sign in.</div><div class="tablewrap"><table class="simple"><thead><tr><th>Contact</th><th>Role</th><th>Locations</th><th>Notifications</th></tr></thead><tbody>' + (contacts || '<tr><td colspan="4">None</td></tr>') + '</tbody></table></div>'
+    + '</div>';
 }
 
 async function renderBrandsTab() {
