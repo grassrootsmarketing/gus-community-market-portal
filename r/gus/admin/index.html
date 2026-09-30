@@ -6753,24 +6753,26 @@ END:VEVENT
                     // Demo Fee is type=number - .value is a clean numeric string (or empty)
                     const feeNum = parseFloat(fee.value);
                     const feeToApply = Number.isFinite(feeNum) && feeNum >= 0 ? feeNum : 30;
+                    // Speed (David, 2026-09-30): the store fee is pushed to every location ONLY when it actually changed
+                    // (changing just the lead time used to trigger five location writes), the location writes run in
+                    // parallel with the settings write, and "Saved" shows the moment the settings row is written. The
+                    // data reload that follows is not something to wait for.
+                    const prevFee = Number(window.state.settings.demo_fee);
+                    const feeChanged = !(Number.isFinite(prevFee) && Math.abs(prevFee - feeToApply) < 0.005);
+                    const _venues = feeChanged ? (window.state.venues || []) : [];
+                    // One-price model: this fee is the master control, so push it to every store.
+                    // Billing charges per-venue demo_fee, so the stores must carry the same number
+                    // or the page price and the actual charge drift apart.
+                    const venueWrites = Promise.allSettled(_venues.map(v => adminUpdate('venues', v.id, { demo_fee: feeToApply })));
                     try {
                         await adminUpdate('settings', window.state.settings.id, {
                             demo_fee: feeToApply,
                             // Release B: demo_duration is no longer written — slot length lives per location.
                             advance_booking_days: advanceDays, // preset or custom, validated above (and again by the server)
                         });
-                        // One-price model: this fee is the master control, so push it to every store.
-                        // Billing charges per-venue demo_fee, so the stores must carry the same number
-                        // or the page price and the actual charge drift apart.
-                        const _venues = window.state.venues || [];
-                        if (_venues.length) {
-                            const results = await Promise.allSettled(
-                                _venues.map(v => adminUpdate('venues', v.id, { demo_fee: feeToApply }))
-                            );
-                            const failed = results.filter(r => r.status === 'rejected').length;
-                            if (failed) DhModal.toast(`Saved, but ${failed} store${failed===1?'':'s'} didn't update. Try again.`, 'warn');
-                        }
-                        await refreshAll();
+                        // The settings row is written: say so now. Locations and the reload finish in the background.
+                        window.state.settings.demo_fee = feeToApply; window.state.settings.advance_booking_days = advanceDays;
+                        venueWrites.then(results => { const failed = results.filter(r => r.status === 'rejected').length; if (failed) DhModal.toast(`Saved, but ${failed} store${failed===1?'':'s'} didn't take the new fee. Try again.`, 'warn'); }).then(() => refreshAll()).catch(() => {});
                     } catch (e) {
                         // Stay in edit mode so the user can retry without re-clicking Edit.
                         DhModal.toast('Save failed: ' + e.message, 'error');
