@@ -2637,6 +2637,18 @@ END:VEVENT
                 console.error('admin data load failed', e);
             }
             window.state.retailer = data.retailer || null;
+            // Go-live approval banner (2026-09-30): shown until Demohub approves the store.
+            (function () {
+                const st = data.retailer && data.retailer.verification_status; let el = document.getElementById('approvalBanner');
+                // The read-only demo tenant stays closed to real bookings but never shows this banner to visitors.
+                if (!st || st === 'approved' || (data.retailer && data.retailer.is_demo)) { if (el) el.remove(); return; }
+                if (!el) { el = document.createElement('div'); el.id = 'approvalBanner'; el.setAttribute('role', 'status');
+                    el.style.cssText = 'margin:12px auto; width:calc(100% - 32px); max-width:1100px; box-sizing:border-box; padding:12px 16px; border-radius:12px; background:#fff3ed; border:1px solid #ed682f55; color:#a14e2a; font-size:0.92rem;';
+                    document.body.insertBefore(el, document.body.firstChild); }
+                el.textContent = st === 'pending' ? 'Your store is waiting for Demohub approval. You can set up locations and settings now. Your booking page starts taking bookings once it is approved, and we will email you.'
+                    : st === 'suspended' ? 'Demohub has paused your booking page, so it is not taking new bookings. Email david@demohubhq.com with questions.'
+                    : 'Demohub has not approved this store, so its booking page is closed. Email david@demohubhq.com with questions.';
+            })();
             window.state.features = data.features || null;
             window.state.venues = data.venues || [];
             window.state.bookings = data.bookings || [];

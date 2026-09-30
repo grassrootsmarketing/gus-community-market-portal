@@ -272,14 +272,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
   </div>
   <div class="card success" id="successCard">
     <div class="check">&#10003;</div>
-    <h2>You're live</h2>
-    <p>Your portal is ready. We've also sent a welcome email with these links.</p>
+    <h2>Store created</h2>
+    <p>Demohub reviews every new store before brands can book it. Set up your locations now, and we'll email you when your booking page is live.</p>
     <div class="url-card">
       <div class="url-label">Admin hub</div>
       <div class="url-value"><a id="adminLink" href="#"></a></div>
     </div>
     <div class="url-card">
-      <div class="url-label">Public booking link</div>
+      <div class="url-label">Booking link (live after approval)</div>
       <div class="url-value"><a id="publicLink" href="#"></a></div>
     </div>
     <button class="btn" id="openAdminBtn" style="margin-top:20px;">Open admin &rarr;</button>
@@ -353,7 +353,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         body: JSON.stringify({ action: 'request', email: billing_email, store_name: retailer_name, contact_name, phone, store_count }),
       });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status));
       pendingEmail = billing_email; pendingStoreName = retailer_name;
       if (verifyEmailLabel) verifyEmailLabel.textContent = billing_email;
       if (formCard) formCard.style.display = 'none';

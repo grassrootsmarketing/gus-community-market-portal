@@ -95,7 +95,8 @@ let ownerCookie = null;
      queue.body && Array.isArray(queue.body.retailers) && queue.body.retailers.some(r => r.id === retailerId),
      `${queue.body && queue.body.retailers ? queue.body.retailers.length : '?'} rows`);
 
-  for (const st of ['approved', 'rejected', 'suspended', 'pending']) {
+  // Ends on 'approved': since 2026-09-30 only an approved store takes bookings, and sections 6 and 12 book here.
+  for (const st of ['rejected', 'suspended', 'pending', 'approved']) {
     const r = await callRoute('admin-auth.js', req({ body: { action: 'owner-verify-retailer', retailer_id: retailerId, new_status: st, notes: 'route test' }, cookies: { dh_owner_session: ownerCookie } }));
     ok(`owner can set status ${st}`, r.statusCode === 200, `${r.statusCode} ${JSON.stringify(r.body)}`);
   }

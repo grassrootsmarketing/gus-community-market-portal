@@ -92,8 +92,8 @@ try {
   // Fixtures
   // ---------------------------------------------------------------------------------------------
   const slug = uniq('rbfix');
-  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode)
-                            VALUES ($1, 'Release B Fix Market', $2, 'pro', 'active', true, $3, false, 'refundable') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
+  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode, verification_status)
+                            VALUES ($1, 'Release B Fix Market', $2, 'pro', 'active', true, $3, false, 'refundable', 'approved') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
   const R = fx.retailer;
   const mkVenue = async (name, availability, cap = 1) => (await one(`INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot, availability) VALUES ($1, $2, '1 Fix St', 30, $3, $4::jsonb) RETURNING id`,
       [R, name, cap, availability === undefined ? '{}' : JSON.stringify(availability)])).id;
