@@ -43,6 +43,8 @@ let ownerRetailerId, retailerId, venueId, brandId, retailerSlug;
   retailerId = track('retailers', (await db('retailers', { method: 'POST', body: JSON.stringify({
     slug: retailerSlug, name: 'Route Fixture', billing_email: `${retailerSlug}@fixture.test`,
     billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true }) })).body[0].id);
+  // The server now enforces settings.advance_booking_days (default 14); this suite books days ahead, so the fixture store allows same-day bookings.
+  track('settings', (await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, demo_fee: 30, advance_booking_days: 0 }) })).body[0].id);
 
   venueId = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, name: 'Route Main', address: '1 Route St', demo_fee: 30, availability: HOURLY }) })).body[0].id);

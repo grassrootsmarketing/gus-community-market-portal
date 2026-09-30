@@ -6,10 +6,19 @@ import { coiCovered } from './_coi-coverage.js';
 import { FLAGS } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
-import { parseYmd, parseDemoTime } from './_local-time.js';
+import { parseYmd, parseDemoTime, localDateOf, shiftYmd, ymdString, safeZone, demoStartUtc } from './_local-time.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } from './_slots.js';
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
 let _b = null;
+
+// Minimum booking lead time (2026-09-30). The store's settings.advance_booking_days (default 14) counted in whole
+// retailer-local calendar days from today: earliest allowed date = today + N. Until now only the booking page's
+// calendar applied this (greyed-out days); a stale tab, a failed settings load (page fallback 14) or a direct API call
+// could book inside the window. The server is the rule; the calendar is the explanation. Nothing before today, ever.
+export function earliestBookableYmd(now, tz, advanceDays) {
+  const n = Number.isInteger(advanceDays) && advanceDays >= 0 ? advanceDays : 14;
+  return ymdString(shiftYmd(localDateOf(now, safeZone(tz)), n));
+}
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
 
@@ -45,6 +54,23 @@ export default async function handler(req, res) {
   const slot = resolveRequestedSlot(venue.availability, String(body.demo_date), String(body.demo_time), retailer.timezone);
   if (!slot.ok) {
     return res.status(slot.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slot.reason, message: SLOT_REFUSAL_MESSAGES[slot.reason] || 'That time is not available.' });
+  }
+  // 2c) Minimum lead time, enforced here (see earliestBookableYmd). A settings read failure is "unavailable", never a
+  // silently different rule. One clock for the whole decision; a test hook may pin it.
+  const sr = await rest(`settings?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=advance_booking_days`);
+  if (!sr.ok) return res.status(503).json({ error: 'settings_unavailable', message: "Could not read this store's booking rules. Try again in a moment." });
+  const settingsRow = (await sr.json())[0];
+  const advanceDays = settingsRow && Number.isInteger(settingsRow.advance_booking_days) && settingsRow.advance_booking_days >= 0 ? settingsRow.advance_booking_days : 14;
+  const nowClock = (process.env.DEMOHUB_TEST_HOOKS === '1' && process.env.DEMOHUB_CLOCK_OVERRIDE) ? new Date(process.env.DEMOHUB_CLOCK_OVERRIDE) : new Date();
+  const todayYmd = earliestBookableYmd(nowClock, retailer.timezone, 0);
+  const earliestYmd = earliestBookableYmd(nowClock, retailer.timezone, advanceDays);
+  if (String(body.demo_date) < todayYmd) return res.status(400).json({ error: 'date_in_past', message: 'That date has already passed.' });
+  if (String(body.demo_date) < earliestYmd) {
+    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice. The earliest date you can book is ${earliestYmd}.`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
+  }
+  if (String(body.demo_date) === todayYmd) {
+    const startAt = demoStartUtc(String(body.demo_date), slot.time, retailer.timezone);
+    if (!startAt || startAt.getTime() <= nowClock.getTime()) return res.status(400).json({ error: 'slot_started', message: 'That time has already started today. Pick a later slot.' });
   }
   // Release A: electricity is a TYPED per-booking value. true/false from the form's toggle, absent
   // -> null ("Not specified"). Anything else is refused — never parsed out of the notes text.
