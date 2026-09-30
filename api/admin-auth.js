@@ -21,6 +21,7 @@ import {
 import { requireSameOrigin } from './_csrf.js';
 import { parseYmd } from './_local-time.js';
 import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
+import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
@@ -1604,7 +1605,7 @@ async function handleOwnerAction(action, req, res, body) {
       const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
       const [settings, venues, contacts, admins, upcoming, allBk] = await Promise.all([
         sb(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
-        sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot&order=name.asc,id.asc`, { max: 2000 }),
+        sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot,availability&order=name.asc,id.asc`, { max: 2000 }),
         sbAll(`internal_contacts?retailer_id=eq.${R}&select=name,email,phone,role,venue_ids,notification_prefs&order=name.asc,id.asc`, { max: 500 }),
         sbAll(`retailer_admins?retailer_id=eq.${R}&select=email,name,role,venue_ids,created_at&order=created_at.asc,id.asc`, { max: 500 }),
         sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
@@ -1614,6 +1615,10 @@ async function handleOwnerAction(action, req, res, body) {
       for (const b of allBk.rows) { const k = b.brand_id || ('name:' + (b.brand_name || '')); let a = roll.get(k); if (!a) roll.set(k, a = { brand_id: b.brand_id || null, brand: b.brand_name || '', bookings: 0 }); a.bookings++; }
       // Notification settings at a glance (David, 2026-09-30): the same reading of notification_prefs the outbox
       // uses (_notification-prefs.js), rendered as words, plus which locations each person covers.
+      // Demo length lives per location since Release B (venues.availability.slots); settings.demo_duration is a legacy
+      // field nothing writes or reads any more, so the profile reports the slots actually offered, never that field.
+      const venuesOut = venues.rows.map(v => { const cfg = parseSlotsConfig(v.availability); const { availability, ...pub } = v;
+        return { ...pub, slots: cfg.ok ? cfg.slots.map(sl => ({ start: slotLabel(sl.startMin), hours: sl.hours })) : null, slots_defaulted: !!(cfg.ok && cfg.defaulted), slots_error: cfg.ok ? null : cfg.error }; });
       const venueName = new Map(venues.rows.map(v => [v.id, v.name]));
       const scope = (ids) => (Array.isArray(ids) && ids.length) ? ids.map(id => venueName.get(id) || 'unknown location') : ['All locations'];
       const contactsOut = contacts.rows.map(c => { const np = normalizePrefs(c.notification_prefs); const life = [np.on_confirmed && 'confirmed', np.on_cancelled && 'cancelled', np.on_rescheduled && 'rescheduled'].filter(Boolean);
@@ -1622,7 +1627,7 @@ async function handleOwnerAction(action, req, res, body) {
       const adminsOut = admins.rows.map(a => ({ email: a.email, name: a.name || null, role: a.role || null, locations: a.role === 'viewer' ? scope(a.venue_ids) : ['All locations'], created_at: a.created_at }));
       const b0 = await bind();
       return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
-        venues: venues.rows, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
+        venues: venuesOut, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
         brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings),
         complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
     } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }

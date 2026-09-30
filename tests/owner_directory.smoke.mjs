@@ -62,6 +62,8 @@ try {
   ok('retailer profile: store contact notifications in words (lifecycle without cancelled, reminders 1 week + 3 days) and its location by name', c1 && c1.notifications.lifecycle.join() === 'confirmed,rescheduled' && c1.notifications.reminders.join('|') === '1 week before|3 days before' && c1.locations.join() === 'Directory Main' && c1.prefs_set === true, JSON.stringify(c1));
   ok('retailer profile: a contact with no saved prefs shows the outbox defaults (lifecycle on, no reminders) marked as never set, all locations', c2 && c2.notifications.lifecycle.length === 3 && c2.notifications.reminders.length === 0 && c2.prefs_set === false && c2.locations.join() === 'All locations', JSON.stringify(c2));
   ok('retailer profile: staff login shows name, role and all locations for a non-viewer', a1 && a1.name === 'Dir Staff' && a1.role === 'owner' && a1.locations.join() === 'All locations', JSON.stringify(a1));
+  const v1 = (r2.body.venues || []).find(v => v.id === V1);
+  ok('retailer profile: each location lists the slots it actually offers (STANDARD fixture: 5 slots, 1h and 3h), no raw availability JSON', v1 && Array.isArray(v1.slots) && v1.slots.length === 5 && v1.slots.some(sl => sl.hours === 3 && sl.start === '11:00 AM') && v1.slots_defaulted === false && !('availability' in v1), JSON.stringify(v1 && v1.slots));
   const lr = await owner('owner-list-retailers', {});
   ok('list-retailers: includes the fixture, reports total and complete', lr.statusCode === 200 && lr.body.retailers.some(x => x.id === retailerId) && lr.body.complete === true && lr.body.total === lr.body.retailers.length);
 
