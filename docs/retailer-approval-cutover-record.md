@@ -19,7 +19,7 @@ Living record for the release Codex conditionally accepted on 2026-09-30 ("RA re
 
 - **Observed 2026-09-30 03:31 UTC**: David ran the inventory and the targeted approval on demohub-prod. Result row: `gus | approved | 2026-09-30 03:31:51.619158+00`. Target: `slug = 'gus'` only; before: pending (default); after: approved, `verified_by david@demohubhq.com`, note "Pilot retailer, approved before the go-live gate shipped".
 - **Open**: David to confirm the inventory showed no real store other than `gus`, `harvest-lane-demo` (demo tenant, stays pending) and `__owner__` (system row).
-- **Open**: 0087 paste on demohub-prod (David), expected result `0083,0084,0086,0087` with service_role true / anon false / authenticated false / RLS true.
+- **Observed 2026-09-30 (David, demohub-prod SQL editor)**: 0087 paste ran; verify row: ledger `0083,0084,0086,0087`, service_role can execute **true**, anon **false**, authenticated **false**, anon can read table **false**, RLS **true**.
 
 ## Deploy (Codex item "on David's authorization")
 
