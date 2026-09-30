@@ -18,14 +18,14 @@ Living record for the release Codex conditionally accepted on 2026-09-30 ("RA re
 ## Preflight (Codex item 2)
 
 - **Observed 2026-09-30 03:31 UTC**: David ran the inventory and the targeted approval on demohub-prod. Result row: `gus | approved | 2026-09-30 03:31:51.619158+00`. Target: `slug = 'gus'` only; before: pending (default); after: approved, `verified_by david@demohubhq.com`, note "Pilot retailer, approved before the go-live gate shipped".
-- **Open**: David to confirm the inventory showed no real store other than `gus`, `harvest-lane-demo` (demo tenant, stays pending) and `__owner__` (system row).
+- **Observed 2026-09-30**: David confirmed the inventory showed only `gus`, `harvest-lane-demo` and `__owner__`.
 - **Observed 2026-09-30 (David, demohub-prod SQL editor)**: 0087 paste ran; verify row: ledger `0083,0084,0086,0087`, service_role can execute **true**, anon **false**, authenticated **false**, anon can read table **false**, RLS **true**.
 
 ## Deploy (Codex item "on David's authorization")
 
 - Flags: `PUBLIC_RETAILER_SIGNUP_ENABLED` unset (off) in Production and Preview; `ALLOW_PUBLIC_SIGNUP` unset (off). No change at deploy time.
 - Action on "deploy": merge `feat/retailer-approval` (80e9bc9) into `main`, push. Production build follows.
-- **Not yet performed.**
+- **Observed 2026-09-30 09:42 UTC**: merged as `4e378ec`, pushed; build live at 09:42:58 UTC. Read-only smoke results are in docs/retailer-approval-deployment-record.md.
 
 ## Production smoke (read-only / operator, no fixtures, no charges)
 
