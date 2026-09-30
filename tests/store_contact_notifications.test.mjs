@@ -70,13 +70,13 @@ const textOf = (html) => String(html).replace(/<style[\s\S]*?<\/style>/g, '').re
 // ---------------------------------------------------------------------------
 const slug = uniq('nt');
 const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
-  slug, name: 'Notify Fixture Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
+  slug, name: 'Notify Fixture Market', verification_status: 'approved', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
   platform_keeps_all: true, timezone: LA, auto_confirm_bookings: false, cancellation_mode: 'refundable' }) })).id);
 const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Main', address: '12 Notify Ave, Portland, OR', demo_fee: 30, availability: STANDARD }) })).id);
 const V2 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Notify Annex', address: '99 Annex Rd', demo_fee: 30, availability: STANDARD }) })).id);
 const otherSlug = uniq('nx');
 const otherRetailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({
-  slug: otherSlug, name: 'Other Market', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
+  slug: otherSlug, name: 'Other Market', verification_status: 'approved', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
 
 const staffEmail = `staff-${slug}@fixture.test`;
 track('retailer_admins', one(await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, email: staffEmail, email_normalized: staffEmail, name: 'Notify Staff', role: 'admin' }) })).id);

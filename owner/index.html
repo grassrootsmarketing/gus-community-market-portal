@@ -613,8 +613,11 @@ function renderDashboard(d) {
   const UNAV = '<li>Unavailable: the data behind this card could not be fully read.</li>';
   const dataIssues = Array.isArray(d.data_issues) ? d.data_issues : [];
   const issuesHtml = dataIssues.length ? `<div class="card" style="border-left:4px solid #ed682f;"><strong>Some data could not be loaded completely.</strong><div class="sub" style="margin:4px 0 0;">${dataIssues.map(i => escapeHtml(i.source) + (i.problem === 'partial' ? ' (partial: ' + Number(i.loaded) + ' of ' + Number(i.total) + ')' : ' (unavailable)')).join(', ')}. Figures that use these are marked unavailable or may be low. Reload to try again.</div></div>` : '';
+
+  const awaiting = na(wok.awaiting_approval) ? [] : (w.awaiting_approval || []);
+  const approvalHtml = awaiting.length ? `<div class="card" style="border-left:4px solid #2a6b3a;"><strong>${awaiting.length} retailer${awaiting.length === 1 ? '' : 's'} waiting for your approval</strong><div class="sub" style="margin:4px 0 10px;">${awaiting.slice(0, 6).map(r => escapeHtml(r.name) + (r.is_demo ? ' (demo account)' : '') + ' · signed up ' + fmtD(r.created_at)).join('<br>')}${awaiting.length > 6 ? '<br>and ' + (awaiting.length - 6) + ' more' : ''}</div><button class="btn-sm" data-goto-tab="retailers">Review in Retailers</button></div>` : '';
   const newCount = (w.new_brands_30d || []).length + (w.new_retailers_30d || []).length;
-  const newItems = (w.new_retailers_30d || []).slice(0, 6).map(r => `<li><strong>Retailer</strong> ${escapeHtml(r.name)} <span style="color:var(--ink-500);">· ${fmtD(r.created_at)}</span></li>`).join('')
+  const newItems = (w.new_retailers_30d || []).slice(0, 6).map(r => `<li><strong>Retailer</strong> ${escapeHtml(r.name)} <span style="color:var(--ink-500);">· ${fmtD(r.created_at)}${r.verification_status === 'pending' ? ' · pending approval' : ''}</span></li>`).join('')
     + (w.new_brands_30d || []).slice(0, 8).map(b => `<li><strong>Brand</strong> ${escapeHtml(b.name || 'Unnamed')} <span style="color:var(--ink-500);">· ${fmtD(b.created_at)} · ${b.coi_status === 'none' ? 'no COI yet' : 'COI ' + escapeHtml(b.coi_status)} · ${Number(b.bookings) || 0} booking${b.bookings === 1 ? '' : 's'}</span></li>`).join('');
   const watchlistHtml = `
     <div class="card">
@@ -665,6 +668,7 @@ function renderDashboard(d) {
 <button class="owner-tab" data-tab="status">Status</button>
     </div>
     <div class="tab-pane active" data-pane="overview">
+      ${approvalHtml}
       ${issuesHtml}
       ${growthHero}
       ${stats}
@@ -713,19 +717,53 @@ const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s =
 const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
 const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
 let _retailersCache = null, _brandsCache = null;
+// Go-live approval (2026-09-30). A store takes bookings only when approved; self-service sign-ups arrive pending.
+const approvalPill = (r, full) => {
+  const st = r && r.verification_status; const demo = r && r.is_demo ? ' <span class="pill">demo</span>' : '';
+  if (st === 'approved') return (full ? '<span class="pill ok">Live</span>' : '') + demo;
+  if (st === 'pending') return '<span class="pill warn">Pending approval</span>' + demo;
+  if (st === 'rejected') return '<span class="pill bad">Not approved</span>' + demo;
+  if (st === 'suspended') return '<span class="pill bad">Suspended</span>' + demo;
+  return demo;
+};
+const statusButtons = (r) => {
+  const b = (st, label) => '<button class="btn-sm" data-act="setstatus" data-status="' + st + '" data-rid="' + escapeHtml(r.id) + '" data-name="' + escapeHtml(r.name || '') + '">' + label + '</button>';
+  const st = r.verification_status;
+  if (st === 'approved') return b('suspended', 'Suspend');
+  if (st === 'pending') return b('approved', 'Approve') + b('rejected', 'Reject');
+  return b('approved', 'Approve') + b('pending', 'Back to pending');
+};
+async function setRetailerStatus(id, status, btn) {
+  const name = (btn && btn.dataset.name) || (((_retailersCache || []).find(x => x.id === id)) || {}).name || 'this store';
+  const q = {
+    approved: 'Approve ' + name + '? Its booking page starts taking bookings and the store gets an email saying it is live.',
+    rejected: 'Reject ' + name + '? Its booking page stays closed.',
+    suspended: 'Suspend ' + name + '? Its booking page stops taking new bookings. Existing bookings are not changed.',
+    pending: 'Move ' + name + ' back to pending? Its booking page stays closed.',
+  }[status];
+  if (!q || !confirm(q)) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try { await ownerPost('owner-verify-retailer', { retailer_id: id, new_status: status }); }
+  catch (e) { if (btn) { btn.disabled = false; btn.textContent = 'Try again'; } alert("Couldn't update " + name + ': ' + e.message); return; }
+  const prof = document.getElementById('retailerProfile'); const profileOpen = !!(prof && prof.innerHTML.trim());
+  _retailersCache = null; renderRetailersTab(profileOpen ? id : undefined);
+}
+document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto-tab]'); if (!g) return; const t = document.querySelector('.owner-tab[data-tab="' + g.dataset.gotoTab + '"]'); if (t) { t.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
+
 const loadErr = (title, e, key, id) => '<div class="card"><h2>' + escapeHtml(title) + '</h2><div class="sub">' + (/unavailable/.test(e.message) ? 'The data could not be read just now, so nothing is shown rather than an empty list.' : escapeHtml(e.message)) + '</div><button class="btn-sm" data-retry="' + key + '"' + (id ? ' data-id="' + escapeHtml(id) + '"' : '') + '>Retry</button></div>';
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (!b) return; const k = b.dataset.retry; if (k === 'brands') { _brandsCache = null; renderBrandsTab(); } else if (k === 'retailers') { _retailersCache = null; renderRetailersTab(); } else if (k === 'brand') openBrandProfile(b.dataset.id); else if (k === 'retailer') openRetailerProfile(b.dataset.id); });
 
 async function renderRetailersTab(selectedId) {
   const pane = document.getElementById('retailersPane'); if (!pane) return;
   if (!_retailersCache) { pane.innerHTML = '<div class="card"><div class="sub">Loading retailers…</div></div>'; try { _retailersCache = ((await ownerPost('owner-list-retailers')).retailers || []).filter(r => r.slug !== '__owner__'); } catch (e) { pane.innerHTML = loadErr("Couldn't load retailers", e, 'retailers'); return; } }
-  const list = _retailersCache;
+  // Stores waiting for approval first; otherwise the server's name order.
+  const list = _retailersCache.slice().sort((a, b) => (a.verification_status === 'pending' ? 0 : 1) - (b.verification_status === 'pending' ? 0 : 1));
   pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Open one to see its account as the retailer sees it (read-only).</div>'
     + '<input class="dir-search" id="retailerSearch" placeholder="Search by name or slug" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
-  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong></td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
+  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
   draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
 async function openRetailerProfile(id) {
@@ -736,7 +774,7 @@ async function openRetailerProfile(id) {
   const kv = [
     row('Booking page', link(p.booking_url, p.booking_url.replace(/^https?:\/\/(www\.)?/, ''))), row('Admin page', link(p.admin_url, p.admin_url.replace(/^https?:\/\/(www\.)?/, ''))),
     row('Billing email', escapeHtml(r.billing_email || '—')), row('Phone', escapeHtml(r.phone || '—')), row('Plan · status', escapeHtml((r.billing_tier || '—') + ' · ' + (r.billing_status || '—'))),
-    row('Joined', fmtD(r.created_at)), row('Verification', escapeHtml(r.verification_status || '—') + (r.verified_at ? ' · ' + fmtD(r.verified_at) : '')), row('Time zone', escapeHtml(r.timezone || '—')),
+    row('Joined', fmtD(r.created_at)), row('Go-live approval', approvalPill(r, true) + (r.verification_status === 'approved' && r.verified_at ? ' <span style="font-size:0.78rem; color:var(--ink-500);">since ' + fmtD(r.verified_at) + '</span>' : '') + '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">' + statusButtons(r) + '</div>'), row('Time zone', escapeHtml(r.timezone || '—')),
     row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', escapeHtml(st.demo_duration || '—')), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
     row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || '—')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
     row('Monthly summary email', yesno(r.monthly_summary_enabled)), row('Support access allowed', yesno(r.allow_support_access)), row('Demo account', yesno(r.is_demo)),

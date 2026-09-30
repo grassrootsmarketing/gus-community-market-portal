@@ -1065,6 +1065,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         }
         function renderLocationGrid(retailer) {
             const grid = document.getElementById('locationGrid');
+            if (grid && window.state && window.state.acceptingBookings === false) {
+                const nm = (retailer && retailer.name) || 'This store';
+                grid.innerHTML = '<div style="grid-column:1/-1; padding:18px 20px; border-radius:14px; background:#fff3ed; border:1px solid #ed682f55; color:#a14e2a; text-align:center;"><strong>' + escapeHtml(nm) + ' is not taking demo bookings on Demohub yet.</strong><div style="margin-top:6px; font-size:0.9rem;">Check back soon.</div></div>';
+                return;
+            }
             if (!grid) return;
             const venues = window.state.venues || [];
             const retailerName = (retailer && retailer.name) || 'Loading…';
@@ -2424,6 +2429,8 @@ function supportMailto(a) {
             if (data.retailer && data.retailer.id) RETAILER_ID = data.retailer.id;
             // Store retailer meta on state so consumers can read it
             window.state.retailer = data.retailer || null;
+            // Go-live gate: the server refuses bookings for a store Demohub has not approved; this only explains it.
+            window.state.acceptingBookings = data.accepting_bookings !== false;
             window.state.venues = data.venues || [];
             // Phase G: extract brand color from logo, re-render location grid with it
             if (data.retailer && data.retailer.logo_url && !window._brandGradient) {

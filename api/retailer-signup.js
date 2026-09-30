@@ -11,6 +11,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -67,6 +68,45 @@ async function sendCode(email, code) {
     html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
 }
 
+// ---- Spam control (2026-09-30) ----
+// Hourly counters in rate_limit (the table the other public routes use). Returns true (allowed), false
+// (over the limit) or null (limiter unavailable: callers fail closed). Emails are hashed before they
+// become bucket keys so the table holds no addresses.
+async function hourlyLimit(key, max) {
+  try {
+    const ws = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const q = await rest(`rate_limit?bucket_key=eq.${encodeURIComponent(key)}&window_start=eq.${encodeURIComponent(ws)}&select=id,count`);
+    if (!q.ok) throw new Error('read ' + q.status);
+    const row = (await q.json())[0];
+    if (row && row.count >= max) return false;
+    const w = row
+      ? await rest(`rate_limit?id=eq.${row.id}`, { method: 'PATCH', body: JSON.stringify({ count: row.count + 1 }) })
+      : await rest('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: ws, count: 1 }) });
+    if (!w.ok) throw new Error('write ' + w.status);
+    return true;
+  } catch (e) { console.error('retailer-signup rate limit unavailable:', e?.message || e); return null; }
+}
+function clientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '').split(',').map(x => x.trim()).filter(Boolean);
+  return String(req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown').slice(0, 64); // not cf-connecting-ip: caller-supplied
+}
+const emailKey = (e) => crypto.createHash('sha256').update(String(e)).digest('hex').slice(0, 32);
+export const SIGNUP_LIMITS = Object.freeze({ requestsPerIpPerHour: 5, codeEmailsPerAddressPerHour: 3, verifiesPerIpPerHour: 30 });
+
+// ---- Owner notice (2026-09-30): one email to the operator when a NEW store is provisioned. The store is
+// created pending (0056 default) and takes no bookings until approved, so this is the prompt to review it.
+// Best effort: the durable record is the pending retailer row, which the owner panel lists.
+async function notifyOwnerOfSignup(email, pl, prov) {
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const store = String(pl.store_name || prov.slug).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80);
+  const rows = [['Store', store], ['Contact', pl.contact_name || 'not given'], ['Email', email], ['Phone', pl.phone || 'not given'],
+    ['Stores', pl.store_count || 'not given'], ['Booking page (not live yet)', link(_b, '/r/' + prov.slug)]];
+  const html = '<p>A new retailer signed up on Demohub and is <strong>waiting for your approval</strong>. Its booking page takes no bookings until you approve it.</p>'
+    + '<table>' + rows.map(([k, v]) => '<tr><td style="padding:2px 14px 2px 0;color:#667;">' + esc(k) + '</td><td>' + esc(v) + '</td></tr>').join('') + '</table>'
+    + '<p><a href="' + esc(link(_b, '/owner')) + '">Review it in the owner panel</a>, Retailers tab.</p>';
+  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: OWNER_ALERT_EMAIL, subject: 'New retailer sign-up: ' + store + ' (pending approval)', html }, { binding: _b });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   // Closed-launch envelope: public self-service retailer signup is OFF unless explicitly enabled.
@@ -85,6 +125,15 @@ export default async function handler(req, res) {
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
 
   if (action === 'request') {
+    // Spam control: at most SIGNUP_LIMITS.requestsPerIpPerHour code requests per network (429), and at most
+    // codeEmailsPerAddressPerHour code emails per address. Over the per-address cap the reply is the same
+    // generic 200 with no mail, so the limit reveals nothing about the address. Limiter down: 503.
+    const ipOk = await hourlyLimit('rsu-req-ip:' + clientIp(req), SIGNUP_LIMITS.requestsPerIpPerHour);
+    if (ipOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
+    if (!ipOk) return res.status(429).json({ error: 'too_many_requests', message: 'Too many sign-up attempts from this network. Try again in an hour.' });
+    const addrOk = await hourlyLimit('rsu-req-email:' + emailKey(email), SIGNUP_LIMITS.codeEmailsPerAddressPerHour);
+    if (addrOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
+    if (!addrOk) return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
     // Always respond the same way (no account enumeration). Only email a code.
     try {
       const ch = await createChallenge(email, 'retailer_signup', {
@@ -99,6 +148,9 @@ export default async function handler(req, res) {
   }
 
   if (action === 'verify') {
+    const vOk = await hourlyLimit('rsu-verify-ip:' + clientIp(req), SIGNUP_LIMITS.verifiesPerIpPerHour);
+    if (vOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
+    if (!vOk) return res.status(429).json({ error: 'too_many_requests', message: 'Too many attempts from this network. Try again in an hour.' });
     const code = String(body.code || '').trim();
     const r = await consumeChallenge(email, 'retailer_signup', code);
     if (!r.ok) return res.status(400).json({ error: 'verification_failed', reason: r.reason });
@@ -111,12 +163,13 @@ export default async function handler(req, res) {
       phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
     });
     setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
+    if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
     // well, where page script could read it and put it in localStorage — the cookie was HttpOnly
     // and the copy beside it was not, which cancelled the point of the cookie.
     // provisionVerifiedRetailer() still returns session_id: that is a server-side value consumed
     // one line up and never serialised.
-    return res.status(200).json({ ok: true, slug: prov.slug, admin_url: link(_b, `/r/${prov.slug}/admin`), public_url: link(_b, `/r/${prov.slug}`) });
+    return res.status(200).json({ ok: true, pending_approval: true, slug: prov.slug, admin_url: link(_b, `/r/${prov.slug}/admin`), public_url: link(_b, `/r/${prov.slug}`) });
   }
   return res.status(400).json({ error: 'unknown action' });
 }

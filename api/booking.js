@@ -1,6 +1,7 @@
 // /api/booking — Vercel serverless function
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
+import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
 import { randomBytes } from 'node:crypto';
 import { coiCoverageState } from './_coi-lib.js';
 import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
@@ -258,12 +259,13 @@ export default async function handler(req, res) {
       if (!sn || String(sn).trim().length < 2) return res.status(400).json({ error: 'signed_name required' });
       const _sAuth = await requireBrandSession(req, body);
       if (!_sAuth.ok) return res.status(401).json({ error: 'sign_in_required' });
-      const retResp2 = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,demo_policy,cancellation_policy`, {
+      const retResp2 = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,demo_policy,cancellation_policy,verification_status`, {
         headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
       const rets2 = await retResp2.json();
       const ret2 = Array.isArray(rets2) ? rets2[0] : null;
       if (!ret2) return res.status(404).json({ error: 'Retailer not found' });
+      if (!retailerIsLive(ret2)) return res.status(403).json(NOT_LIVE_BODY);
       const dp2 = ret2.demo_policy || DEFAULT_DEMO_POLICY;
       const cp2 = ret2.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
       const hash2 = await sha256Hex(dp2 + '\n---\n' + cp2 + '\n---tos:' + DEMOHUB_TOS_VERSION);
@@ -314,12 +316,15 @@ export default async function handler(req, res) {
 
 
     // Look up retailer by slug, get id, name, and cancellation policy
-    const retailerResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode,timezone`, {
+    const retailerResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(retailer_slug)}&select=id,name,cancellation_policy,demo_policy,billing_email,auto_confirm_bookings,cancellation_mode,timezone,verification_status`, {
       headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
     });
     const retailers = await retailerResp.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'Retailer not found' });
+    // Go-live gate: an unapproved store cannot create bookings either, including staff manual bookings
+    // (which email the brand contact). api/_retailer-live.js.
+    if (!retailerIsLive(retailer)) return res.status(403).json(NOT_LIVE_BODY);
     const RETAILER_ID = retailer.id;
     // LG-01: anonymous public booking via this endpoint is CLOSED. Creating a booking here now
     // requires an authenticated RETAILER ADMIN session for THIS retailer (staff manual bookings).

@@ -1116,9 +1116,23 @@ export default async function handler(req, res) {
         patch.verified_at = null;
         patch.verified_by = null;
       }
+      let before;
+      try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,verification_status`); before = Array.isArray(rows) && rows[0]; }
+      catch (e) { return res.status(503).json({ error: 'lookup_failed', retry: true }); }
+      if (!before) return res.status(404).json({ error: 'retailer_not_found' });
+      if (before.slug === '__owner__') return res.status(400).json({ error: 'system_retailer' });
       try {
         await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-        return res.status(200).json({ ok: true, retailer_id, new_status });
+        // Go-live notice (2026-09-30): the store hears once, on the transition to approved, never on a repeat.
+        let retailer_notified = false;
+        if (new_status === 'approved' && before.verification_status !== 'approved' && before.billing_email) {
+          const b1 = await bind(); const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+          const pub = siteLink(b1, '/r/' + before.slug), adm = siteLink(b1, '/r/' + before.slug + '/admin');
+          const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: before.billing_email, replyTo: 'david@demohubhq.com', subject: 'Your Demohub booking page is live',
+            html: '<p>Demohub has approved <strong>' + esc(before.name) + '</strong>. Brands can now book demos on your booking page.</p><p>Booking page: <a href="' + esc(pub) + '">' + esc(pub) + '</a><br>Admin: <a href="' + esc(adm) + '">' + esc(adm) + '</a></p><p>Questions? Email david@demohubhq.com.</p>' }, { binding: b1 });
+          retailer_notified = !!sent && sent.ok !== false;
+        }
+        return res.status(200).json({ ok: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified });
       } catch (e) {
         return res.status(500).json({ error: 'Update failed: ' + (e?.message || e) });
       }
@@ -1242,7 +1256,7 @@ async function computeOwnerMetrics() {
     catch (e) { console.error('owner metrics query failed:', name, e?.message); issues.push({ source: name, problem: 'unavailable' }); return []; }
   };
   const [retailers, brands, demos, bookings, settings] = await Promise.all([
-    safeQuery('retailers', `retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id&order=id.asc`),
+    safeQuery('retailers', `retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id,verification_status,is_demo&order=id.asc`),
     safeQuery('brands', `brands?select=id,company_name,created_at,default_coi_url,is_verified,coi_verification_status,contact_name,email&order=id.asc`),
     safeQuery('demos', `demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at&order=id.asc`),
     safeQuery('bookings', `bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at&order=id.asc`),
@@ -1340,17 +1354,20 @@ async function computeOwnerMetrics() {
   const newBrands = brands.filter(b => b.created_at && new Date(b.created_at) >= thirtyDaysAgo).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
     .map(b => ({ id: b.id, name: b.company_name, contact: b.contact_name || null, created_at: b.created_at, coi_status: b.default_coi_url ? (b.coi_verification_status || 'pending') : 'none', bookings: bookingsByBrand[b.id] || 0 }));
   const newRetailers = retailers.filter(r => r.created_at && new Date(r.created_at) >= thirtyDaysAgo && r.slug !== '__owner__').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
-    .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at }));
+    .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, verification_status: r.verification_status || null }));
+  // Stores waiting for the owner's go-live approval (self-service sign-ups arrive here as 'pending').
+  const awaitingApproval = retailers.filter(r => r.slug !== '__owner__' && r.verification_status === 'pending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
+    .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, is_demo: !!r.is_demo }));
 
   return {
     generated_at: new Date().toISOString(),
     headline: { total_retailers: totalRetailers, active_retailers_30d: activeRetailers30d, total_brands: totalBrands, demos_this_month: demosThisMonth, demos_last_month: demosLastMonth, demos_delta_pct: demosDeltaPct, mrr_subs: Math.round(mrrSubs * 100) / 100, mrr_projection: mrrProjection, paid_retailers: paidRetailers, conversion_pct: conversionPct, gmv_month: Math.round(gmvMonth * 100) / 100, gmv_all: Math.round(gmvAll * 100) / 100, take_rate_pct: takeRatePct, tier_counts: tierCounts },
     trends: { retailer_signups: retailerSignups, brand_signups: brandSignups, demos_per_month: demosPerMonth },
     tables: { top_retailers: topRetailers, top_brands: topBrands, pending_stuck: pendingStuck },
-    watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands, new_brands_30d: newBrands, new_retailers_30d: newRetailers },
+    watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands, new_brands_30d: newBrands, new_retailers_30d: newRetailers, awaiting_approval: awaitingApproval },
     // Per watchlist card: were all the reads it depends on complete? false => the card must say "unavailable", not "none".
     watchlist_ok: (() => { const bad = new Set(issues.map(i => i.source)); const ok = (...src) => src.every(x => !bad.has(x));
-      return { new_signups: ok('retailers', 'brands', 'bookings'), without_coi: ok('brands'), dormant: ok('retailers', 'demos', 'bookings'), inactive: ok('brands', 'demos', 'bookings') }; })(),
+      return { awaiting_approval: ok('retailers'), new_signups: ok('retailers', 'brands', 'bookings'), without_coi: ok('brands'), dormant: ok('retailers', 'demos', 'bookings'), inactive: ok('brands', 'demos', 'bookings') }; })(),
     data_issues: issues,
   };
 }
@@ -1572,7 +1589,7 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-list-retailers') {
     const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
-    let rt; try { rt = await sbAll('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc,id.asc', { max: 5000 }); }
+    let rt; try { rt = await sbAll('retailers?select=id,slug,name,billing_email,billing_tier,created_at,verification_status,is_demo&order=name.asc,id.asc', { max: 5000 }); }
     catch (e) { console.error('owner-list-retailers read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
     return res.status(200).json({ ok: true, retailers: rt.rows, total: rt.total, complete: rt.complete });
   }

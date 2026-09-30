@@ -8,6 +8,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 import { parseYmd, parseDemoTime } from './_local-time.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } from './_slots.js';
+import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
 let _b = null;
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
@@ -26,8 +27,10 @@ export default async function handler(req, res) {
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
-  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone`);
+  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+  // Go-live gate: a store Demohub has not approved takes no bookings (api/_retailer-live.js).
+  if (!retailerIsLive(retailer)) return res.status(403).json(NOT_LIVE_BODY);
   const venue = await one(`venues?id=eq.${encodeURIComponent(String(body.venue_id||''))}&select=id,retailer_id,active,demo_fee,availability`);
   if (!venue || venue.retailer_id !== retailer.id) return res.status(400).json({ error: 'invalid_venue' });
   if (venue.active === false) return res.status(400).json({ error: 'venue_inactive' });
