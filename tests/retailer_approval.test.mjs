@@ -130,8 +130,15 @@ try {
   const P2 = await mkPending('rp2'); const m2 = spy.calls.resend.length;
   const [ap2, su2] = await Promise.all([owner('owner-verify-retailer', { retailer_id: P2.id, new_status: 'approved' }), owner('owner-verify-retailer', { retailer_id: P2.id, new_status: 'suspended' })]);
   const finalP2 = one(await db(`retailers?id=eq.${P2.id}&select=verification_status`)).verification_status;
-  const winner = ap2.statusCode === 200 ? 'approved' : su2.statusCode === 200 ? 'suspended' : null;
-  ok('approve vs suspend at once: exactly one 200, the other 409 stale_state, final state = the winner, live email only if approve won', winner && [ap2, su2].filter(r => r.statusCode === 200).length === 1 && [ap2, su2].filter(r => r.statusCode === 409 && r.body.error === 'stale_state').length === 1 && finalP2 === winner && liveMails(m2).length === (winner === 'approved' ? 1 : 0), `ap=${ap2.statusCode} su=${su2.statusCode} final=${finalP2} mails=${liveMails(m2).length}`);
+  // Two valid outcomes (Codex): (1) both read 'pending' -> one CAS wins, the other is 409 stale_state, final = winner;
+  // (2) valid serial order -> the second request read the first's result and transitioned from it, so both are 200
+  //     with the second's previous_status equal to the first's new_status. What must never happen: two 200s that
+  //     both claim previous_status 'pending' (a lost update), or a final state that matches neither reply.
+  const oks = [ap2, su2].filter(r => r.statusCode === 200 && !r.body.no_op), stales = [ap2, su2].filter(r => r.statusCode === 409 && r.body.error === 'stale_state');
+  const raced = oks.length === 1 && stales.length === 1 && finalP2 === oks[0].body.new_status;
+  const serial = oks.length === 2 && oks.filter(r => r.body.previous_status === 'pending').length === 1 && oks.some(r => r.body.previous_status !== 'pending' && [ap2, su2].some(o => o !== r && o.body.new_status === r.body.previous_status));
+  const approveWon = ap2.statusCode === 200 && ap2.body.previous_status === 'pending';
+  ok('approve vs suspend at once: either one CAS winner + one 409 stale_state, or a valid serial pair (second built on the first); never two claims on "pending"; live email iff approve transitioned', (raced || serial) && liveMails(m2).length === (approveWon ? 1 : 0) && (raced || finalP2 === (ap2.body.new_status === 'approved' && su2.body.previous_status === 'approved' ? 'suspended' : ap2.body.previous_status === 'suspended' ? 'approved' : finalP2)), `ap=${ap2.statusCode}/${JSON.stringify(ap2.body)} su=${su2.statusCode}/${JSON.stringify(su2.body)} final=${finalP2} mails=${liveMails(m2).length}`);
   // C. repeat approve is a no-op: no write, no email
   const vBefore = one(await db(`retailers?id=eq.${P1.id}&select=verified_at`)).verified_at; const m3 = spy.calls.resend.length;
   const rep = await owner('owner-verify-retailer', { retailer_id: P1.id, new_status: 'approved' });
