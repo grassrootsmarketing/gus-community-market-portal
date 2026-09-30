@@ -40,7 +40,7 @@
 import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 import { randomUUID } from 'node:crypto';
 import { sendMail } from './_mail.js';
-import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
+import { resolveContactPrefs, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
@@ -138,7 +138,7 @@ const errCode = (e) => (e && (e.code || e.name)) ? String(e.code || e.name) : 'e
 // ---------------------------------------------------------------------------
 // Shared loaders with a per-run cache (a run touches the same booking/retailer/brand many times).
 // ---------------------------------------------------------------------------
-export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map() }; }
+export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map(), defaultsByRetailer: new Map() }; }
 async function loadOne(b, cache, table, id, select = '*') {
   if (!id) return null;
   const m = cache[table];
@@ -161,7 +161,12 @@ async function loadContactsForRetailer(b, cache, retailerId) {
   await pageAll(b, `internal_contacts?retailer_id=eq.${enc(retailerId)}&select=${CONTACT_SELECT}&order=id.asc`, {
     batch: 200, maxBatches: 50, onPage: (rows) => { out.push(...rows); },
   });
-  const list = out.filter(c => c && c.email && String(c.email).trim()).map(c => ({ ...c, email: String(c.email).trim(), prefs: normalizePrefs(c.notification_prefs) }));
+  // Store defaults (0088): a contact with NULL prefs follows settings.notification_defaults. One settings read per
+  // retailer per run; a failed read is treated as "no defaults" (fallback), never as "no contacts".
+  let defaults = null;
+  if (cache.defaultsByRetailer.has(retailerId)) defaults = cache.defaultsByRetailer.get(retailerId);
+  else { try { const rows = await sb(b, `settings?retailer_id=eq.${enc(retailerId)}&select=notification_defaults&limit=1`); defaults = Array.isArray(rows) && rows[0] ? rows[0].notification_defaults : null; } catch (_) { defaults = null; } cache.defaultsByRetailer.set(retailerId, defaults); }
+  const list = out.filter(c => c && c.email && String(c.email).trim()).map(c => { const r = resolveContactPrefs(c.notification_prefs, defaults); return { ...c, email: String(c.email).trim(), prefs: r.prefs, prefs_source: r.source }; });
   cache.contactsByRetailer.set(retailerId, list);
   return list;
 }
@@ -419,7 +424,9 @@ async function recheckAndBuild(b, cache, row, now) {
     if (!contact) return { skip: 'recipient_deleted' };
     if (contact.retailer_id !== booking.retailer_id) return { skip: 'tenant_mismatch' };
     if (!contactInScope(contact, booking.venue_id)) return { skip: 'out_of_scope' };
-    const prefs = normalizePrefs(contact.notification_prefs);
+    // Send-time re-check reads the CURRENT store default too (a contact on "store default" follows changes made since scheduling).
+    let freshDefaults = null; try { const sr = await sb(b, `settings?retailer_id=eq.${enc(booking.retailer_id)}&select=notification_defaults&limit=1`); freshDefaults = Array.isArray(sr) && sr[0] ? sr[0].notification_defaults : null; } catch (_) { freshDefaults = null; }
+    const prefs = resolveContactPrefs(contact.notification_prefs, freshDefaults).prefs;
     if (row.kind === 'reminder') { if (!prefs.reminders.includes(row.offset_key)) return { skip: 'opted_out' }; }
     else if (prefs[lifecyclePrefKey(row.kind)] !== true) return { skip: 'opted_out' };
     const to = String(contact.email || '').trim();

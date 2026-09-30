@@ -20,7 +20,7 @@ import {
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { parseYmd } from './_local-time.js';
-import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
+import { normalizePrefs, offsetLabel, resolveContactPrefs, prefsAreSet } from './_notification-prefs.js';
 import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
 
@@ -1604,7 +1604,7 @@ async function handleOwnerAction(action, req, res, body) {
       const rows = await sb(`retailers?id=eq.${R}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
       const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
       const [settings, venues, contacts, admins, upcoming, allBk] = await Promise.all([
-        sb(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
+        sb(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days,notification_defaults`),
         sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot,availability&order=name.asc,id.asc`, { max: 2000 }),
         sbAll(`internal_contacts?retailer_id=eq.${R}&select=name,email,phone,role,venue_ids,notification_prefs&order=name.asc,id.asc`, { max: 500 }),
         sbAll(`retailer_admins?retailer_id=eq.${R}&select=email,name,role,venue_ids,created_at&order=created_at.asc,id.asc`, { max: 500 }),
@@ -1621,13 +1621,15 @@ async function handleOwnerAction(action, req, res, body) {
         return { ...pub, slots: cfg.ok ? cfg.slots.map(sl => ({ start: slotLabel(sl.startMin), hours: sl.hours })) : null, slots_defaulted: !!(cfg.ok && cfg.defaulted), slots_error: cfg.ok ? null : cfg.error }; });
       const venueName = new Map(venues.rows.map(v => [v.id, v.name]));
       const scope = (ids) => (Array.isArray(ids) && ids.length) ? ids.map(id => venueName.get(id) || 'unknown location') : ['All locations'];
-      const contactsOut = contacts.rows.map(c => { const np = normalizePrefs(c.notification_prefs); const life = [np.on_confirmed && 'confirmed', np.on_cancelled && 'cancelled', np.on_rescheduled && 'rescheduled'].filter(Boolean);
-        return { name: c.name || null, email: c.email || null, phone: c.phone || null, role: c.role || null, locations: scope(c.venue_ids), prefs_set: c.notification_prefs != null && typeof c.notification_prefs === 'object' && Object.keys(c.notification_prefs).length > 0,
-          notifications: { lifecycle: life, reminders: np.reminders.map(offsetLabel) } }; });
+      const storeDefaultsRaw = settings && settings[0] ? settings[0].notification_defaults : null;
+      const words = (np) => ({ lifecycle: [np.on_confirmed && 'confirmed', np.on_cancelled && 'cancelled', np.on_rescheduled && 'rescheduled'].filter(Boolean), reminders: np.reminders.map(offsetLabel) });
+      const notificationDefaults = prefsAreSet(storeDefaultsRaw) ? words(normalizePrefs(storeDefaultsRaw)) : null;
+      const contactsOut = contacts.rows.map(c => { const r = resolveContactPrefs(c.notification_prefs, storeDefaultsRaw);
+        return { name: c.name || null, email: c.email || null, phone: c.phone || null, role: c.role || null, locations: scope(c.venue_ids), prefs_set: r.source === 'custom', prefs_source: r.source, notifications: words(r.prefs) }; });
       const adminsOut = admins.rows.map(a => ({ email: a.email, name: a.name || null, role: a.role || null, locations: a.role === 'viewer' ? scope(a.venue_ids) : ['All locations'], created_at: a.created_at }));
       const b0 = await bind();
       return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
-        venues: venuesOut, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
+        venues: venuesOut, contacts: contactsOut, admins: adminsOut, notification_defaults: notificationDefaults, upcoming: upcoming.rows, upcoming_total: upcoming.total,
         brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings),
         complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
     } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }

@@ -370,7 +370,7 @@ export default async function handler(req, res) {
           compliance: [],
           demos: (filteredDemos || []).map(pickDemo),
           bookings: (filteredBookings || []).map(pickBooking),
-          settings: settingsObj ? { demo_duration: settingsObj.demo_duration, advance_booking_days: settingsObj.advance_booking_days } : null,
+          settings: settingsObj ? { demo_duration: settingsObj.demo_duration, advance_booking_days: settingsObj.advance_booking_days, notification_defaults: settingsObj.notification_defaults || null } : null,
           viewer_venue_ids: viewerVenueIds || null,
         });
       }
@@ -694,6 +694,18 @@ export default async function handler(req, res) {
         body.notification_prefs = normalizePrefs(body.notification_prefs);
         req.body = JSON.stringify(body);
       }
+    }
+  }
+
+  // Store default demo notifications (0088): same shape rules as a contact's prefs, stored normalized; null clears.
+  if (table === 'settings' && ['PATCH', 'PUT'].includes(req.method)) {
+    let body;
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
+    catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (Object.prototype.hasOwnProperty.call(body, 'notification_defaults')) {
+      const v = validateNotificationPrefs(body.notification_defaults);
+      if (!v.ok) return send(res, 400, { error: 'invalid_notification_defaults', message: v.error });
+      if (body.notification_defaults !== null) { body.notification_defaults = normalizePrefs(body.notification_defaults); req.body = JSON.stringify(body); }
     }
   }
 

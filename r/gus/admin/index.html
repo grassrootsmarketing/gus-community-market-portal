@@ -1120,6 +1120,30 @@
                             <div id="teamList" style="display:flex; flex-direction:column; gap:8px;"></div>
                         </div>
                     </div>
+                    <!-- Store default demo notifications (0088, 2026-09-30): the one place a store decides what every
+                         contact is emailed. A contact follows these unless switched to custom in its own editor. -->
+                    <div class="settings-card" data-tab="teamSection">
+                        <div class="settings-card-header"><h3>Demo notification defaults</h3><button type="button" class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="notifDefaultsSaveBtn" onclick="saveNotifDefaults()">Save defaults</button></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:14px;">What every store contact is emailed about demos at their locations, unless that contact is set to custom. Email only. Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am.</div>
+                            <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:18px;">
+                                <div>
+                                    <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Send email when&hellip;</div>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" id="ndOnConfirmed" checked style="margin-top:3px; accent-color:var(--forest-700);"><span>Demo confirmed</span></label>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" id="ndOnCancelled" checked style="margin-top:3px; accent-color:var(--forest-700);"><span>Demo cancelled</span></label>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" id="ndOnRescheduled" checked style="margin-top:3px; accent-color:var(--forest-700);"><span>Demo rescheduled</span></label>
+                                </div>
+                                <div>
+                                    <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Reminders before the demo</div>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" data-nd-reminder="d14" style="margin-top:3px; accent-color:var(--forest-700);"><span>14 days before</span></label>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" data-nd-reminder="w1" style="margin-top:3px; accent-color:var(--forest-700);"><span>7 days before</span></label>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" data-nd-reminder="d3" style="margin-top:3px; accent-color:var(--forest-700);"><span>3 days before</span></label>
+                                    <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="checkbox" data-nd-reminder="morning_of" style="margin-top:3px; accent-color:var(--forest-700);"><span>Morning of the demo (7 am)</span></label>
+                                </div>
+                            </div>
+                            <div id="notifDefaultsStatus" style="font-size:0.85rem; color:var(--ink-500); margin-top:12px; min-height:1.2em;"></div>
+                        </div>
+                    </div>
                     <!-- Store contacts (notification recipients) live WITH the rest of the people
                          management. This card previously sat orphaned between Demos and Brand
                          Contacts, where nobody managing their team would look for it. -->
@@ -1135,7 +1159,7 @@
                             </div>
                         </div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong> — 1 week, 3 days, 1 day, the morning of (7 am), 1 hour, or a custom lead time, each at 9 am in your store's time zone — plus a notice if a confirmed demo is cancelled or rescheduled. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Set the store defaults in the card above; switch a contact to custom only when that person needs something different. Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong> — 1 week, 3 days, 1 day, the morning of (7 am), 1 hour, or a custom lead time, each at 9 am in your store's time zone — plus a notice if a confirmed demo is cancelled or rescheduled. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
                             <div class="tbl-scroll">
                             <table>
                                 <thead><tr><th style="white-space:nowrap;">Name</th><th style="white-space:nowrap;">Role</th><th style="white-space:nowrap;">Location</th><th style="white-space:nowrap;">Email</th><th style="white-space:nowrap;">Phone</th><th style="text-align:right; white-space:nowrap;">Actions</th></tr></thead>
@@ -1382,6 +1406,11 @@
 
                 <!-- Notification prefs (visible only for internal contacts) -->
                 <div id="contactNotifSection" style="display:none; background:#f9f7f2; border-radius:10px; padding:16px 18px; margin-top:8px;">
+                    <div id="contactNotifMode" style="display:flex; flex-direction:column; gap:8px; margin-bottom:12px;">
+                        <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="radio" name="notifMode" value="store" checked onchange="setNotifMode('store')" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Follow the store defaults</strong><br><span id="notifModeStoreSummary" style="font-size:0.82rem; color:var(--ink-500);"></span></span></label>
+                        <label style="display:flex; align-items:flex-start; gap:10px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);"><input type="radio" name="notifMode" value="custom" onchange="setNotifMode('custom')" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Custom for this contact</strong><br><span style="font-size:0.82rem; color:var(--ink-500);">Choose exactly what this person is emailed.</span></span></label>
+                    </div>
+                    <div id="contactNotifCustom" style="display:none;">
                     <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:12px;">Send email when&hellip;</div>
                     <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:10px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);">
                         <input type="checkbox" id="notifOnConfirmed" checked style="margin-top:3px; accent-color:var(--forest-700);">
@@ -1398,6 +1427,10 @@
 
                     <div style="border-top:1px solid var(--sand-200); padding-top:12px; margin-top:4px;">
                         <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Reminders before the demo</div>
+                        <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);">
+                            <input type="checkbox" id="notifRem2w" data-reminder="d14" style="margin-top:3px; accent-color:var(--forest-700);">
+                            <span>2 weeks before</span>
+                        </label>
                         <label style="display:flex; align-items:flex-start; gap:10px; margin-bottom:8px; cursor:pointer; font-size:0.9rem; color:var(--ink-700);">
                             <input type="checkbox" id="notifRem1w" data-reminder="w1" style="margin-top:3px; accent-color:var(--forest-700);">
                             <span>1 week before</span>
@@ -1427,10 +1460,8 @@
                         <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am (only if the demo starts later). Picking "1 day" and "Custom: 1" sends one reminder, not two. Text-message reminders are not available yet — email only.</div>
                     </div>
 
-                    <div style="border-top:1px solid var(--sand-200); padding-top:12px; margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-                        <span style="font-size:0.8rem; color:var(--ink-500);">Same settings for everyone on the team? You'll see who changes before anything is saved.</span>
-                        <button type="button" class="btn btn-secondary" style="padding:6px 12px; font-size:0.82rem;" onclick="applyNotifPrefsToAllContacts()">Use these settings for all store contacts</button>
                     </div>
+
 
                     <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin: 18px 0 8px;">Which stores?</div>
                     <div id="contactVenueCheckboxes" style="display:flex; flex-direction:column; gap:6px; font-size:0.88rem; color:var(--ink-700); max-height:180px; overflow-y:auto; padding:4px 0;">
@@ -2679,6 +2710,7 @@ END:VEVENT
             }));
             UPCOMING_DEMOS = window.state.demos;
             window.state.settings = data.settings || null;
+            try { renderNotifDefaults(); } catch (_) {}   // needs settings (defaults) and internalContacts (counts)
             window.state.compliance = data.compliance || [];
             // Demos table filters: populate venue dropdown + restore prior session selections
             if (document.getElementById('demoFilterControls')) {
@@ -4558,6 +4590,7 @@ END:VEVENT
                 address: c.address || '',
                 email: c.email,
                 phone: c.phone,
+                notification_prefs: type === 'internal' ? (c.notification_prefs || null) : undefined,
             }));
         }
 
@@ -4722,7 +4755,7 @@ END:VEVENT
                         agreementBadge = '<span class="agreement-pill" data-state="missing" title="No demo conduct agreement on file. They sign at their first booking.">No&nbsp;agreement</span>';
                     }
                 }
-                let cells = '<td>' + escapeHtml(c.name) + '</td>'
+                let cells = '<td>' + escapeHtml(c.name) + (type === 'internal' && prefsSet(c.notification_prefs) ? '<div style="font-size:0.72rem; color:var(--ink-500);">Custom notifications</div>' : '') + '</td>'
                     + '<td>' + escapeHtml(c.company) + verifiedMark + agreementBadge + '</td>';
                 // Location only where it's meaningful (store contacts), and never a stray empty green pill.
                 if (cfg.showLocation) cells += '<td>' + (c.venue ? '<span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span>' : '<span style="color:var(--ink-500);">—</span>') + '</td>';
@@ -4808,7 +4841,10 @@ END:VEVENT
             if (id && type === 'internal') {
                 const c = (window.state.internalContacts || []).find(x => x.id === id);
                 if (c) {
-                    fillNotifPrefsForm(readNotifPrefs(c.notification_prefs));
+                    // Custom when this contact has its own prefs; otherwise it follows the store (editor pre-filled with the store's values).
+                    const custom = prefsSet(c.notification_prefs);
+                    fillNotifPrefsForm(custom ? readNotifPrefs(c.notification_prefs) : (readStoreNotifDefaults() || NOTIF_FALLBACK));
+                    setNotifMode(custom ? 'custom' : 'store');
                     // Check venue boxes
                     const vids = c.venue_ids || [];
                     document.querySelectorAll('.contact-venue-check').forEach(cb => {
@@ -4817,7 +4853,8 @@ END:VEVENT
                 }
             } else if (type === 'internal') {
                 // New contact defaults: confirmed/cancelled/rescheduled ON, reminders 3d + 1d + morning of.
-                fillNotifPrefsForm(NOTIF_PREFS_DEFAULTS);
+                fillNotifPrefsForm(readStoreNotifDefaults() || NOTIF_FALLBACK);
+                setNotifMode('store');
                 // presetVenueId: opened from a Locations row — pre-scope the contact to that store.
                 document.querySelectorAll('.contact-venue-check').forEach(cb => { cb.checked = presetVenueId ? cb.dataset.venueId === presetVenueId : false; });
             }
@@ -4862,7 +4899,41 @@ END:VEVENT
             };
         }
         // The fixed checkboxes cover w1/d3/d1/morning_of/h1; any other d<N> is the custom lead time.
-        const NOTIF_FIXED = ['w1', 'd3', 'd1', 'morning_of', 'h1'];
+        const NOTIF_FIXED = ['d14', 'w1', 'd3', 'd1', 'morning_of', 'h1'];
+        // ---- Store default demo notifications (0088) ----
+        const ND_OFFSETS = ['d14', 'w1', 'd3', 'morning_of'];
+        function prefsSet(raw) { return !!raw && typeof raw === 'object' && !Array.isArray(raw) && Object.keys(raw).length > 0; }
+        function readStoreNotifDefaults() { const raw = window.state.settings && window.state.settings.notification_defaults; return prefsSet(raw) ? readNotifPrefs(raw) : null; }
+        const NOTIF_FALLBACK = { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: [] };
+        function renderNotifDefaults() {
+            const d = readStoreNotifDefaults(); const p = d || NOTIF_FALLBACK;
+            const set = (id, v) => { const e = document.getElementById(id); if (e) e.checked = !!v; };
+            set('ndOnConfirmed', p.on_confirmed); set('ndOnCancelled', p.on_cancelled); set('ndOnRescheduled', p.on_rescheduled);
+            document.querySelectorAll('input[data-nd-reminder]').forEach(cb => { cb.checked = p.reminders.includes(cb.dataset.ndReminder); });
+            window._ndExtraReminders = p.reminders.filter(k => !ND_OFFSETS.includes(k));   // an older or custom-day default is kept, not silently dropped
+            const contacts = window.state.internalContacts || []; const custom = contacts.filter(c => prefsSet(c.notification_prefs)).length;
+            const st = document.getElementById('notifDefaultsStatus');
+            if (st) st.textContent = (d ? 'Saved defaults. ' : 'Not set yet: until you save, contacts are emailed when a demo is confirmed, cancelled or rescheduled, and get no reminders. ')
+                + (contacts.length ? (contacts.length - custom) + ' of ' + contacts.length + ' store contact' + (contacts.length === 1 ? '' : 's') + ' follow' + (contacts.length - custom === 1 ? 's' : '') + ' these defaults' + (custom ? '; ' + custom + ' ' + (custom === 1 ? 'has' : 'have') + ' custom settings.' : '.') : 'No store contacts yet.')
+                + (window._ndExtraReminders.length ? ' Also saved: ' + window._ndExtraReminders.map(notifOffsetLabel).join(', ') + ' before (kept from an earlier setting).' : '');
+        }
+        async function saveNotifDefaults() {
+            const sId = window.state.settings && window.state.settings.id;
+            if (!sId) { DhModal.toast('Settings are still loading. Try again in a moment.', 'info'); return; }
+            const on = (id) => !!document.getElementById(id)?.checked;
+            const reminders = Array.from(document.querySelectorAll('input[data-nd-reminder]:checked')).map(cb => cb.dataset.ndReminder).concat(window._ndExtraReminders || []);
+            const prefs = { on_confirmed: on('ndOnConfirmed'), on_cancelled: on('ndOnCancelled'), on_rescheduled: on('ndOnRescheduled'), reminders: notifSort(reminders.map(notifCanonical).filter(Boolean)) };
+            const btn = document.getElementById('notifDefaultsSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+            try { await adminUpdate('settings', sId, { notification_defaults: prefs }); DhModal.toast('Notification defaults saved.', 'success'); }
+            catch (e) { DhModal.toast('Save failed: ' + e.message, 'error'); }
+            finally { if (btn) { btn.disabled = false; btn.textContent = 'Save defaults'; } }
+            await refreshAll();
+        }
+        function setNotifMode(mode) {
+            const custom = document.getElementById('contactNotifCustom'); if (custom) custom.style.display = mode === 'custom' ? '' : 'none';
+            const r = document.querySelector('input[name=notifMode][value="' + mode + '"]'); if (r) r.checked = true;
+            const sum = document.getElementById('notifModeStoreSummary'); if (sum) { const d = readStoreNotifDefaults(); sum.textContent = d ? notifPrefsSummary(d) : 'No defaults saved yet: confirmed, cancelled and rescheduled emails, no reminders.'; }
+        }
         function fillNotifPrefsForm(prefs) {
             const set = (elId, v) => { const e = document.getElementById(elId); if (e) e.checked = !!v; };
             set('notifOnConfirmed', prefs.on_confirmed);
@@ -4897,45 +4968,6 @@ END:VEVENT
             const rems = prefs.reminders.map(notifOffsetLabel).join(', ') || 'none';
             return life + ' · reminders: ' + rems;
         }
-        // "Use these settings for all store contacts": shows WHO changes and HOW before anything is
-        // written, then PATCHes ONLY notification_prefs on THIS retailer's store contacts (the server
-        // pins every write to the session's retailer). Venue scope and every other field are untouched.
-        async function applyNotifPrefsToAllContacts() {
-            if (!RETAILER_ID) { DhModal.toast('Loading, try again in a moment', 'info'); return; }
-            const contacts = (window.state.internalContacts || []).filter(c => c && c.id && (!c.retailer_id || c.retailer_id === RETAILER_ID));
-            if (!contacts.length) { DhModal.toast('No store contacts to update yet.', 'info'); return; }
-            const prefs = collectNotifPrefsForm();
-            const target = notifPrefsSummary(prefs);
-            const changing = [], unchanged = [];
-            for (const c of contacts) {
-                const cur = notifPrefsSummary(readNotifPrefs(c.notification_prefs));
-                (cur === target ? unchanged : changing).push({ c, cur });
-            }
-            if (!changing.length) { DhModal.toast('Every store contact already has these settings.', 'info'); return; }
-            // DhModal renders the message as HTML: every contact-derived string is escaped.
-            const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-            const lines = changing.map(({ c, cur }) => '&bull; <strong>' + esc(c.name || c.email || 'Unnamed contact') + '</strong>: ' + esc(cur) + ' &rarr; ' + esc(target));
-            const message = 'These settings: <strong>' + esc(target) + '</strong>.<br><br>'
-                + changing.length + ' of ' + contacts.length + ' store contact' + (contacts.length === 1 ? '' : 's') + ' will change:<br>'
-                + lines.join('<br>')
-                + (unchanged.length ? '<br><br>' + unchanged.length + ' already match and will not be touched.' : '')
-                + '<br><br>Location scope, names and emails are not changed.';
-            const okGo = await DhModal.confirm({
-                title: `Apply to ${changing.length} store contact${changing.length === 1 ? '' : 's'}?`,
-                message,
-                ok: 'Apply',
-            });
-            if (!okGo) return;
-            let failed = 0;
-            for (const { c } of changing) {
-                try { await adminUpdate('internal_contacts', c.id, { notification_prefs: prefs }); }
-                catch (e) { failed++; console.warn('prefs update failed for', c.id, e?.message || e); }
-            }
-            await refreshAll();
-            if (failed) DhModal.toast(`Updated ${changing.length - failed} of ${changing.length} contacts — ${failed} failed.`, 'error');
-            else DhModal.toast(`Notification settings applied to ${changing.length} store contact${changing.length === 1 ? '' : 's'}.`, 'success');
-        }
-
         async function saveContact() {
             if (!RETAILER_ID) { DhModal.toast('Loading, try again in a moment', 'info'); return; }
             const type = document.getElementById('contactType').value;
@@ -4943,7 +4975,8 @@ END:VEVENT
             let notification_prefs = null;
             let venue_ids = null;
             if (type === 'internal') {
-                notification_prefs = collectNotifPrefsForm();
+                // null = follows the store defaults (0088); an object = custom for this contact.
+                notification_prefs = ((document.querySelector('input[name=notifMode]:checked') || {}).value === 'custom') ? collectNotifPrefsForm() : null;
                 venue_ids = Array.from(document.querySelectorAll('.contact-venue-check:checked')).map(cb => cb.dataset.venueId);
             }
 
@@ -4969,7 +5002,7 @@ END:VEVENT
             // contact added through this UI. Both columns exist (0057); admin.js allows them.
             if (type === 'internal') {
                 payload.venue_ids = Array.isArray(venue_ids) ? venue_ids : [];
-                if (notification_prefs) payload.notification_prefs = notification_prefs;
+                payload.notification_prefs = notification_prefs;
             }
             try {
                 if (id) await adminUpdate(cfg.table, id, payload);

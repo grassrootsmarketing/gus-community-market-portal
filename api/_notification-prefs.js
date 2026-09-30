@@ -97,6 +97,16 @@ export function normalizePrefs(raw) {
   return out;
 }
 
+// Store defaults (0088, 2026-09-30). A contact with its own prefs object is "custom"; one with NULL prefs follows
+// settings.notification_defaults when the store has saved them; otherwise the pre-existing fallback applies
+// (lifecycle on, no reminders). Every reader (outbox scheduler, fan-out, owner mirror) goes through this.
+export function prefsAreSet(raw) { return isPlainObject(raw) && Object.keys(raw).length > 0; }
+export function resolveContactPrefs(contactRaw, storeDefaultsRaw) {
+  if (prefsAreSet(contactRaw)) return { prefs: normalizePrefs(contactRaw), source: 'custom' };
+  if (prefsAreSet(storeDefaultsRaw)) return { prefs: normalizePrefs(storeDefaultsRaw), source: 'store' };
+  return { prefs: normalizePrefs(null), source: 'fallback' };
+}
+
 // Server-side shape check for a CLIENT write (api/admin.js -> 400 invalid_notification_prefs).
 // Returns { ok: true } or { ok: false, error: 'human readable reason' }. Duplicates and equivalent
 // offsets are accepted here and collapsed by normalizePrefs() before the row is written.
