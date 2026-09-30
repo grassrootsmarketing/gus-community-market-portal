@@ -1121,21 +1121,42 @@ export default async function handler(req, res) {
       catch (e) { return res.status(503).json({ error: 'lookup_failed', retry: true }); }
       if (!before) return res.status(404).json({ error: 'retailer_not_found' });
       if (before.slug === '__owner__') return res.status(400).json({ error: 'system_retailer' });
-      try {
-        await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-        // Go-live notice (2026-09-30): the store hears once, on the transition to approved, never on a repeat.
-        let retailer_notified = false;
-        if (new_status === 'approved' && before.verification_status !== 'approved' && before.billing_email) {
-          const b1 = await bind(); const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-          const pub = siteLink(b1, '/r/' + before.slug), adm = siteLink(b1, '/r/' + before.slug + '/admin');
-          const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: before.billing_email, replyTo: 'david@demohubhq.com', subject: 'Your Demohub booking page is live',
-            html: '<p>Demohub has approved <strong>' + esc(before.name) + '</strong>. Brands can now book demos on your booking page.</p><p>Booking page: <a href="' + esc(pub) + '">' + esc(pub) + '</a><br>Admin: <a href="' + esc(adm) + '">' + esc(adm) + '</a></p><p>Questions? Email david@demohubhq.com.</p>' }, { binding: b1 });
-          retailer_notified = !!sent && sent.ok !== false;
-        }
-        return res.status(200).json({ ok: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified });
-      } catch (e) {
-        return res.status(500).json({ error: 'Update failed: ' + (e?.message || e) });
+      // Repeating the current state is a real no-op: nothing is written and nothing is sent.
+      if (before.verification_status === new_status) return res.status(200).json({ ok: true, no_op: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified: false });
+      // Compare-and-set (Codex RA-2): the update applies only if the status is still the one we read, and exactly one
+      // row must come back. Two owners deciding at once cannot both win; the loser gets 409 with the current state.
+      let updated;
+      try { updated = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&verification_status=eq.${encodeURIComponent(before.verification_status)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(patch) }); }
+      catch (e) { return res.status(503).json({ error: 'update_failed', retry: true }); }
+      if (!Array.isArray(updated) || updated.length !== 1) {
+        let current = null; try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=verification_status`); current = rows && rows[0] ? rows[0].verification_status : null; } catch (_) {}
+        return res.status(409).json({ error: 'stale_state', expected: before.verification_status, current_status: current });
       }
+      // Go-live notice: only the winning transition to approved initiates it. Delivery is best effort and reported
+      // truthfully; a failed send leaves the store approved and is retried only through owner-resend-live-notice.
+      let retailer_notified = false, notification_error = false;
+      if (new_status === 'approved') {
+        if (!before.billing_email) notification_error = true;
+        else { const sent = await sendLiveNotice(before); retailer_notified = sent; notification_error = !sent; }
+      }
+      return res.status(200).json({ ok: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified, notification_error });
+    }
+
+    // ---- OWNER-RESEND-LIVE-NOTICE (2026-09-30): re-send "your booking page is live" to an APPROVED store, at most
+    // three times per store per hour (signup_budget_take). Reads the current state first; refuses unless approved.
+    if (action === 'owner-resend-live-notice') {
+      const { retailer_id } = body || {};
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
+      let row; try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,verification_status`); row = Array.isArray(rows) && rows[0]; } catch (e) { return res.status(503).json({ error: 'lookup_failed', retry: true }); }
+      if (!row) return res.status(404).json({ error: 'retailer_not_found' });
+      if (row.verification_status !== 'approved') return res.status(409).json({ error: 'not_live', current_status: row.verification_status });
+      if (!row.billing_email) return res.status(400).json({ error: 'no_billing_email' });
+      let budget; try { const ws = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString(); const r = await sb('rpc/signup_budget_take', { method: 'POST', body: JSON.stringify({ p_bucket_key: 'live-notice:' + row.id, p_window_start: ws, p_max: 3 }) }); budget = Array.isArray(r) ? r[0] : r; } catch (e) { return res.status(503).json({ error: 'budget_unavailable', retry: true }); }
+      if (!budget || budget.admitted !== true) return res.status(429).json({ error: 'resend_limit', message: 'Three notices per store per hour. Contact the store directly.' });
+      const sent = await sendLiveNotice(row);
+      return res.status(200).json({ ok: true, retailer_id, retailer_notified: sent, notification_error: !sent });
     }
 
         if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
@@ -1370,6 +1391,18 @@ async function computeOwnerMetrics() {
       return { awaiting_approval: ok('retailers'), new_signups: ok('retailers', 'brands', 'bookings'), without_coi: ok('brands'), dormant: ok('retailers', 'demos', 'bookings'), inactive: ok('brands', 'demos', 'bookings') }; })(),
     data_issues: issues,
   };
+}
+
+// "Your Demohub booking page is live": one message, escaped, links only. Returns true when the provider accepted it.
+// Approval permits intake; it does not check that venues or slots exist, so the copy promises nothing beyond that.
+async function sendLiveNotice(row) {
+  try {
+    const b1 = await bind(); const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const pub = siteLink(b1, '/r/' + row.slug), adm = siteLink(b1, '/r/' + row.slug + '/admin');
+    const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: row.billing_email, replyTo: 'david@demohubhq.com', subject: 'Your Demohub booking page is live',
+      html: '<p>Demohub has approved <strong>' + esc(row.name) + '</strong>. Brands can now book demos on your booking page, once your locations and hours are set up.</p><p>Booking page: <a href="' + esc(pub) + '">' + esc(pub) + '</a><br>Admin: <a href="' + esc(adm) + '">' + esc(adm) + '</a></p><p>Questions? Email david@demohubhq.com.</p>' }, { binding: b1 });
+    return !!sent && sent.ok !== false;
+  } catch (_) { return false; }
 }
 
 async function handleOwnerAction(action, req, res, body) {

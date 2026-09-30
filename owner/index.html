@@ -729,7 +729,7 @@ const approvalPill = (r, full) => {
 const statusButtons = (r) => {
   const b = (st, label) => '<button class="btn-sm" data-act="setstatus" data-status="' + st + '" data-rid="' + escapeHtml(r.id) + '" data-name="' + escapeHtml(r.name || '') + '">' + label + '</button>';
   const st = r.verification_status;
-  if (st === 'approved') return b('suspended', 'Suspend');
+  if (st === 'approved') return b('suspended', 'Suspend') + '<button class="btn-sm" data-act="resendlive" data-rid="' + escapeHtml(r.id) + '" data-name="' + escapeHtml(r.name || '') + '">Resend live notice</button>';
   if (st === 'pending') return b('approved', 'Approve') + b('rejected', 'Reject');
   return b('approved', 'Approve') + b('pending', 'Back to pending');
 };
@@ -738,15 +738,30 @@ async function setRetailerStatus(id, status, btn) {
   const q = {
     approved: 'Approve ' + name + '? Its booking page starts taking bookings and the store gets an email saying it is live.',
     rejected: 'Reject ' + name + '? Its booking page stays closed.',
-    suspended: 'Suspend ' + name + '? Its booking page stops taking new bookings. Existing bookings are not changed.',
+    suspended: 'Suspend ' + name + '? New bookings and signed agreements are refused from now on. Existing bookings are NOT stopped: their payments, refunds, reschedules and fulfilment carry on.',
     pending: 'Move ' + name + ' back to pending? Its booking page stays closed.',
   }[status];
   if (!q || !confirm(q)) return;
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
-  try { await ownerPost('owner-verify-retailer', { retailer_id: id, new_status: status }); }
-  catch (e) { if (btn) { btn.disabled = false; btn.textContent = 'Try again'; } alert("Couldn't update " + name + ': ' + e.message); return; }
+  let out;
+  try { out = await ownerPost('owner-verify-retailer', { retailer_id: id, new_status: status }); }
+  catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Try again'; }
+    if (/stale_state/.test(e.message)) { alert(name + ' was changed elsewhere before this saved. Nothing was changed by this click; the list will refresh.'); _retailersCache = null; renderRetailersTab(id); return; }
+    alert("Couldn't update " + name + ': ' + e.message); return;
+  }
+  if (out && out.no_op) alert(name + ' is already ' + status + '. Nothing changed.');
+  else if (status === 'approved' && out && out.notification_error) alert(name + ' is approved and its page is live, but the store could NOT be emailed. Use "Resend live notice" in its profile, or contact them directly.');
   const prof = document.getElementById('retailerProfile'); const profileOpen = !!(prof && prof.innerHTML.trim());
   _retailersCache = null; renderRetailersTab(profileOpen ? id : undefined);
+}
+async function resendLiveNotice(id, btn) {
+  const name = (btn && btn.dataset.name) || 'this store';
+  if (!confirm('Email ' + name + ' again that its booking page is live? At most three notices per hour.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+  try { const out = await ownerPost('owner-resend-live-notice', { retailer_id: id }); alert(out.retailer_notified ? 'Sent to the store\'s billing email.' : 'The email provider did not accept the message. Try again later or contact the store directly.'); }
+  catch (e) { alert(/resend_limit/.test(e.message) ? 'Three notices per store per hour. Contact the store directly.' : /not_live/.test(e.message) ? name + ' is not approved right now, so no live notice was sent.' : "Couldn't send: " + e.message); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'Resend live notice'; } }
 }
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto-tab]'); if (!g) return; const t = document.querySelector('.owner-tab[data-tab="' + g.dataset.gotoTab + '"]'); if (t) { t.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
 
@@ -763,7 +778,7 @@ async function renderRetailersTab(selectedId) {
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
   const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
   draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
 async function openRetailerProfile(id) {

@@ -1,4 +1,4 @@
-// Retailer go-live approval (2026-09-30): real routes against the TEST database (demohub-rebuild-check), mail captured.
+// Retailer go-live approval (2026-09-30, RA-1/RA-2 revisions the same day): real routes against the TEST database (demohub-rebuild-check), mail captured.
 // Proves: a self-service sign-up is created pending and emails the owner; a pending/suspended store takes no bookings
 // on any booking route and its public page says so; the owner (only) approves it, which emails the store once and
 // opens booking; code requests are limited per network and per address; the limiter fails closed.
@@ -84,22 +84,73 @@ try {
   ok('owner retailer list carries the approval state', (lr.body.retailers || []).some(x => x.id === ret.id && x.verification_status === 'suspended'));
   if (b2.statusCode === 200 && b2.body && b2.body.booking_id) await db(`bookings?id=eq.${b2.body.booking_id}`, { method: 'DELETE' });
 
-  console.log('\n— spam limits —');
-  const e2 = newEmail('rsa');
-  for (let i = 0; i < 3; i++) await signup({ action: 'request', email: e2, store_name: 'Limit Store' }, ips.addr);
-  const before4 = mailsFor(e2, /verification code/i).length;
-  const r4 = await signup({ action: 'request', email: e2, store_name: 'Limit Store' }, ips.addr);
-  ok('per address: 3 code emails per hour; the 4th request gets the same generic 200 and no email', before4 === 3 && r4.statusCode === 200 && r4.body.ok === true && mailsFor(e2, /verification code/i).length === 3, `${before4} ${r4.statusCode}`);
-  const codes = []; for (let i = 0; i < 5; i++) codes.push((await signup({ action: 'request', email: newEmail('rsn'), store_name: 'Net Store' }, ips.net)).statusCode);
-  const r6 = await signup({ action: 'request', email: newEmail('rsn'), store_name: 'Net Store' }, ips.net);
-  ok('per network: 5 requests per hour; the 6th is 429 too_many_requests with a readable message', codes.every(c => c === 200) && r6.statusCode === 429 && r6.body.error === 'too_many_requests' && /Try again in an hour/.test(r6.body.message), `${codes.join(',')} ${r6.statusCode}`);
-  const ws = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
-  await db('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: 'rsu-verify-ip:' + ips.ver, window_start: ws, count: 30 }) });
-  const vx = await signup({ action: 'verify', email: newEmail('rsv'), code: '123456' }, ips.ver);
-  ok('verify attempts: 30 per network per hour, then 429', vx.statusCode === 429 && vx.body.error === 'too_many_requests', `${vx.statusCode}`);
-  spy.faults.push({ url: '/rest/v1/rate_limit', status: 500, once: true });
-  const e3 = newEmail('rsd'); const down = await signup({ action: 'request', email: e3, store_name: 'Down Store' }, ips.down);
-  ok('limiter unavailable: 503 and no code email (fails closed)', down.statusCode === 503 && down.body.error === 'rate_limit_unavailable' && mailsFor(e3, /verification code/i).length === 0, `${down.statusCode}`);
+  console.log('\n— spam budgets are atomic (Codex RA-1) —');
+  const WS = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+  const seed = (key, count) => db('signup_budgets', { method: 'POST', body: JSON.stringify({ bucket_key: key, window_start: WS, count }) });
+  const codeMails = (ems) => spy.calls.resend.filter(x => /verification code/i.test(x.subject || '') && ems.some(e => JSON.stringify(x).includes(e))).length;
+  // A. network budget at cap-1 (4 of 5), 20 simultaneous requests with distinct addresses: exactly one is admitted
+  const ipA = `test-${RUN}-race-a`; ips.raceA = ipA; await seed('rsu-req-ip:' + ipA, 4);
+  const emA = Array.from({ length: 20 }, () => newEmail('rsa'));
+  const A = await Promise.all(emA.map(e => signup({ action: 'request', email: e, store_name: 'Race A' }, ipA)));
+  const aOk = A.filter(r => r.statusCode === 200).length, a429 = A.filter(r => r.statusCode === 429).length;
+  const storedA = one(await db(`signup_budgets?bucket_key=eq.${encodeURIComponent('rsu-req-ip:' + ipA)}&window_start=eq.${encodeURIComponent(WS)}&select=count`));
+  ok('network budget at 4/5: 20 simultaneous requests admit exactly ONE (one code email), 19 are 429, stored count 5', aOk === 1 && a429 === 19 && codeMails(emA) === 1 && storedA && storedA.count === 5, `ok=${aOk} 429=${a429} mails=${codeMails(emA)} stored=${storedA && storedA.count}`);
+  // B. absent bucket, 20 simultaneous: exactly cap (5) admitted
+  const ipB = `test-${RUN}-race-b`; ips.raceB = ipB; const emB = Array.from({ length: 20 }, () => newEmail('rsb'));
+  const B = await Promise.all(emB.map(e => signup({ action: 'request', email: e, store_name: 'Race B' }, ipB)));
+  ok('network budget on a fresh bucket: 20 simultaneous admit exactly 5 (5 code emails), 15 are 429', B.filter(r => r.statusCode === 200).length === 5 && B.filter(r => r.statusCode === 429).length === 15 && codeMails(emB) === 5, `ok=${B.filter(r => r.statusCode === 200).length} mails=${codeMails(emB)}`);
+  // C. address budget across different networks: one address, 20 simultaneous requests from 20 networks: 3 code emails
+  const emC = newEmail('rsc'); const ipsC = Array.from({ length: 20 }, (_, i) => `test-${RUN}-race-c${i}`); ipsC.forEach((ip, i) => { ips['raceC' + i] = ip; });
+  const C = await Promise.all(ipsC.map(ip => signup({ action: 'request', email: emC, store_name: 'Race C' }, ip)));
+  ok('address budget across networks: all 20 get the same generic 200, exactly 3 code emails are sent', C.every(r => r.statusCode === 200 && r.body.ok === true) && codeMails([emC]) === 3, `codes=${codeMails([emC])} statuses=${[...new Set(C.map(r => r.statusCode))]}`);
+  // D. verify budget at 29/30, 20 simultaneous wrong-code verifies: one is evaluated (400 verification_failed), 19 are 429, nothing provisioned
+  const ipD = `test-${RUN}-race-d`; ips.raceD = ipD; await seed('rsu-verify-ip:' + ipD, 29); const emD = newEmail('rsd');
+  const Dv = await Promise.all(Array.from({ length: 20 }, () => signup({ action: 'verify', email: emD, code: '000000' }, ipD)));
+  ok('verify budget at 29/30: exactly one attempt is evaluated (400), 19 are 429, no store provisioned', Dv.filter(r => r.statusCode === 400 && r.body.error === 'verification_failed').length === 1 && Dv.filter(r => r.statusCode === 429).length === 19 && (await db(`retailers?billing_email=eq.${encodeURIComponent(emD)}&select=id`)).body.length === 0, JSON.stringify(Dv.map(r => r.statusCode)));
+  // E. fixed-window boundary: the same bucket in the next hour window starts fresh (function called directly)
+  const nextWs = new Date(Date.parse(WS) + 3600e3).toISOString();
+  const E = one(await db('rpc/signup_budget_take', { method: 'POST', body: JSON.stringify({ p_bucket_key: 'rsu-req-ip:' + ipA, p_window_start: nextWs, p_max: 5 }) }));
+  ok('window boundary: the exhausted network bucket is admitted again in the next hour window (count 1)', E && E.admitted === true && E.count === 1, JSON.stringify(E));
+  // F. budget unavailable: fail closed, no email
+  spy.faults.push({ url: '/rest/v1/rpc/signup_budget_take', status: 500, once: true });
+  const emF = newEmail('rsf'); const down = await signup({ action: 'request', email: emF, store_name: 'Down Store' }, ips.down);
+  ok('budget unavailable: 503 rate_limit_unavailable and no code email (fails closed)', down.statusCode === 503 && down.body.error === 'rate_limit_unavailable' && codeMails([emF]) === 0, `${down.statusCode}`);
+  { const ipG = `test-${RUN}-seq`; ips.seq = ipG; const codes = []; for (let i = 0; i < 5; i++) codes.push((await signup({ action: 'request', email: newEmail('rsg'), store_name: 'Seq' }, ipG)).statusCode); const r6 = await signup({ action: 'request', email: newEmail('rsg'), store_name: 'Seq' }, ipG);
+    ok('sequential: 5 admitted then 429 too_many_requests with "Try again in an hour"', codes.every(c => c === 200) && r6.statusCode === 429 && r6.body.error === 'too_many_requests' && /Try again in an hour/.test(r6.body.message), `${codes.join(',')} ${r6.statusCode}`); }
+
+  console.log('\n— approval transitions are compare-and-set; notices are truthful (Codex RA-2) —');
+  const mkPending = async (tag) => { const sl = uniq(tag); const r = one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: sl, name: 'Race Store ' + tag, billing_email: `${sl}@fixture.test` }) })); retailerIds.push(r.id); return r; };
+  const liveMails = (mark) => spy.calls.resend.slice(mark).filter(x => /booking page is live/.test(x.subject || ''));
+  // A. 20 simultaneous approves on one pending store
+  const P1 = await mkPending("rp1"); const mA = spy.calls.resend.length;
+  const AA = await Promise.all(Array.from({ length: 20 }, () => owner('owner-verify-retailer', { retailer_id: P1.id, new_status: 'approved' })));
+  const wins = AA.filter(r => r.statusCode === 200 && r.body.previous_status === 'pending' && !r.body.no_op), stale = AA.filter(r => r.statusCode === 409 && r.body.error === 'stale_state'), noops = AA.filter(r => r.statusCode === 200 && r.body.no_op);
+  ok('approve x20 at once: exactly one transition wins; the rest are 409 stale_state or honest no-ops; exactly one live email', wins.length === 1 && wins.length + stale.length + noops.length === 20 && liveMails(mA).length === 1 && one(await db(`retailers?id=eq.${P1.id}&select=verification_status`)).verification_status === 'approved', `wins=${wins.length} stale=${stale.length} noop=${noops.length} mails=${liveMails(mA).length}`);
+  // B. approve racing suspend on a pending store: one wins, the other is stale; a live email only if approve won
+  const P2 = await mkPending('rp2'); const m2 = spy.calls.resend.length;
+  const [ap2, su2] = await Promise.all([owner('owner-verify-retailer', { retailer_id: P2.id, new_status: 'approved' }), owner('owner-verify-retailer', { retailer_id: P2.id, new_status: 'suspended' })]);
+  const finalP2 = one(await db(`retailers?id=eq.${P2.id}&select=verification_status`)).verification_status;
+  const winner = ap2.statusCode === 200 ? 'approved' : su2.statusCode === 200 ? 'suspended' : null;
+  ok('approve vs suspend at once: exactly one 200, the other 409 stale_state, final state = the winner, live email only if approve won', winner && [ap2, su2].filter(r => r.statusCode === 200).length === 1 && [ap2, su2].filter(r => r.statusCode === 409 && r.body.error === 'stale_state').length === 1 && finalP2 === winner && liveMails(m2).length === (winner === 'approved' ? 1 : 0), `ap=${ap2.statusCode} su=${su2.statusCode} final=${finalP2} mails=${liveMails(m2).length}`);
+  // C. repeat approve is a no-op: no write, no email
+  const vBefore = one(await db(`retailers?id=eq.${P1.id}&select=verified_at`)).verified_at; const m3 = spy.calls.resend.length;
+  const rep = await owner('owner-verify-retailer', { retailer_id: P1.id, new_status: 'approved' });
+  ok('repeat approve: 200 no_op, verified_at unchanged, no email', rep.statusCode === 200 && rep.body.no_op === true && rep.body.retailer_notified === false && one(await db(`retailers?id=eq.${P1.id}&select=verified_at`)).verified_at === vBefore && liveMails(m3).length === 0, JSON.stringify(rep.body));
+  // D. failed email: approval stands, response says the store was not notified, resend recovers it
+  const P3 = await mkPending('rp3'); spy.faults.push({ url: 'api.resend.com', status: 500, once: true }); const m4 = spy.calls.resend.length;
+  const ap3 = await owner('owner-verify-retailer', { retailer_id: P3.id, new_status: 'approved' });
+  ok('failed email: 200, store approved, retailer_notified false and notification_error true (approval not described as failed)', ap3.statusCode === 200 && ap3.body.new_status === 'approved' && ap3.body.retailer_notified === false && ap3.body.notification_error === true && one(await db(`retailers?id=eq.${P3.id}&select=verification_status`)).verification_status === 'approved', JSON.stringify(ap3.body));
+  const m5 = spy.calls.resend.length; // after the provider-refused attempt (the spy records refused calls too)
+  const rs1 = await owner('owner-resend-live-notice', { retailer_id: P3.id });
+  ok('resend live notice: 200, one email to the store, retailer_notified true', rs1.statusCode === 200 && rs1.body.retailer_notified === true && liveMails(m5).filter(x => JSON.stringify(x).includes(P3.billing_email)).length === 1, JSON.stringify(rs1.body));
+  const rs2 = await owner('owner-resend-live-notice', { retailer_id: P3.id }); const rs3 = await owner('owner-resend-live-notice', { retailer_id: P3.id }); const rs4 = await owner('owner-resend-live-notice', { retailer_id: P3.id });
+  ok('resend is bounded: three per store per hour, the fourth is 429 resend_limit', rs2.statusCode === 200 && rs3.statusCode === 200 && rs4.statusCode === 429 && rs4.body.error === 'resend_limit', `${rs2.statusCode}/${rs3.statusCode}/${rs4.statusCode}`);
+  const P4 = await mkPending('rp4'); const rsP = await owner('owner-resend-live-notice', { retailer_id: P4.id }); const rsAnon = await owner('owner-resend-live-notice', { retailer_id: P3.id }, null);
+  ok('resend refuses a store that is not approved (409 not_live) and needs an owner session (401)', rsP.statusCode === 409 && rsP.body.error === 'not_live' && rsAnon.statusCode === 401, `${rsP.statusCode}/${rsAnon.statusCode}`);
+  // E. existing-account sign-up reply tells the truth about the store's state
+  const emX = P1.billing_email; emails.push(emX); await signup({ action: 'request', email: emX, store_name: 'X' }, `test-${RUN}-x`); ips.x = `test-${RUN}-x`;
+  const vx2 = await signup({ action: 'verify', email: emX, code: codeFor(emX) }, ips.x);
+  ok('verify for an address that already owns an APPROVED store: already true, live true, pending_approval false', vx2.statusCode === 200 && vx2.body.already === true && vx2.body.live === true && vx2.body.pending_approval === false, JSON.stringify(vx2.body));
 } finally {
   for (const id of retailerIds) {
     for (const t of ['notification_events', 'bookings', 'brand_retailer_agreements', 'admin_sessions', 'retailer_admins', 'admin_tokens', 'settings', 'venues']) await db(`${t}?retailer_id=eq.${id}`, { method: 'DELETE' });
@@ -107,8 +158,8 @@ try {
   }
   if (brandId) { await db(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' }); await db(`brand_account_tokens?brand_id=eq.${brandId}`, { method: 'DELETE' }); await db(`brands?id=eq.${brandId}`, { method: 'DELETE' }); }
   for (const e of emails) await db(`email_verifications?email=eq.${encodeURIComponent(e)}`, { method: 'DELETE' });
-  const keys = [...Object.values(ips).flatMap(ip => ['rsu-req-ip:' + ip, 'rsu-verify-ip:' + ip]), ...emails.map(e => 'rsu-req-email:' + crypto.createHash('sha256').update(e).digest('hex').slice(0, 32))];
-  for (const k of keys) await db(`rate_limit?bucket_key=eq.${encodeURIComponent(k)}`, { method: 'DELETE' });
+  const keys = [...Object.values(ips).flatMap(ip => ['rsu-req-ip:' + ip, 'rsu-verify-ip:' + ip]), ...emails.map(e => 'rsu-req-email:' + crypto.createHash('sha256').update(e).digest('hex').slice(0, 32)), ...retailerIds.map(id => 'live-notice:' + id)];
+  for (const k of keys) await db(`signup_budgets?bucket_key=eq.${encodeURIComponent(k)}`, { method: 'DELETE' });
   spy.restore();
 }
 process.exit(summary('retailer approval') ? 0 : 1);
