@@ -107,7 +107,7 @@ try {
   console.log('\n— paging past a row cap —');
   // Five bookings for the fixture retailer in Feb 2027; the route's bookings reads are forced to 2 rows per response,
   // as a server max_rows smaller than the page would. The handler must keep paging until the exact total.
-  for (let i = 1; i <= 5; i++) track('bookings', one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_name: 'Page Fixture ' + i, contact_email: brandEmail, demo_date: `2027-02-0${i}`, demo_time: '10:00 AM', duration_hours: 3, status: 'completed', payment_status: 'paid', amount_paid: 0 }) })).id);
+  for (let i = 1; i <= 5; i++) track('bookings', one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_name: 'Page Fixture ' + i, contact_email: brandEmail, demo_date: `2027-02-0${i}`, demo_time: '10:00 AM', duration_hours: 3, status: 'completed', payment_status: 'unpaid', amount_paid: 0 }) })).id);
   let pages = 0;
   const capped2 = await withFetch((u, o, real) => { const h = o.headers || {}; if (isTable(u, 'bookings') && h.Range) { pages++; const from = Number(String(h.Range).split('-')[0]); return real(u, { ...o, headers: { ...h, Range: `${from}-${from + 1}` } }); } return real(u, o); }, () => owner('owner-calendar', { from: '2027-02-01', to: '2027-02-28', retailer_id: retailerId }));
   ok('calendar: with a simulated 2-row server cap, all 5 bookings come back, complete, in date order, over 3 pages', capped2.statusCode === 200 && capped2.body.bookings.length === 5 && capped2.body.complete.bookings === true && capped2.body.capped === false && pages === 3 && capped2.body.bookings.map(b => b.date).join() === ['2027-02-01', '2027-02-02', '2027-02-03', '2027-02-04', '2027-02-05'].join(), `pages=${pages} n=${capped2.body.bookings && capped2.body.bookings.length}`);
@@ -115,7 +115,7 @@ try {
   const bslug = uniq('odbulk'); bulkRetailer = one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: bslug, name: 'Directory Bulk Market', billing_email: `${bslug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', timezone: 'America/Los_Angeles' }) })).id;
   const BVS = []; for (const n of ['Bulk A', 'Bulk B']) { const vr = await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: bulkRetailer, name: n, address: n + ' Bulk St', availability: HOURLY }) }); if (!one(vr)) throw new Error('bulk venue refused: ' + vr.status + ' ' + JSON.stringify(vr.body) + ' retailer ' + bulkRetailer); BVS.push(one(vr).id); }
   const times = []; for (let h = 6; h <= 21; h++) times.push(`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`);
-  const rowsBulk = []; for (let d = 0; rowsBulk.length < 1005; d++) { const dt = new Date(Date.UTC(2030, 2, 1 + d)).toISOString().slice(0, 10); for (const BV of BVS) for (const t of times) if (rowsBulk.length < 1005) rowsBulk.push({ retailer_id: bulkRetailer, venue_id: BV, brand_name: 'Bulk Brand', contact_email: 'bulk@fixture.test', demo_date: dt, demo_time: t, duration_hours: 1, status: 'completed', payment_status: 'paid', amount_paid: 0 }); }
+  const rowsBulk = []; for (let d = 0; rowsBulk.length < 1005; d++) { const dt = new Date(Date.UTC(2030, 2, 1 + d)).toISOString().slice(0, 10); for (const BV of BVS) for (const t of times) if (rowsBulk.length < 1005) rowsBulk.push({ retailer_id: bulkRetailer, venue_id: BV, brand_name: 'Bulk Brand', contact_email: 'bulk@fixture.test', demo_date: dt, demo_time: t, duration_hours: 1, status: 'completed', payment_status: 'unpaid', amount_paid: 0 }); }
   const ins = await db('bookings', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(rowsBulk) });
   const lastDate = rowsBulk[rowsBulk.length - 1].demo_date;
   const plain = await db(`bookings?retailer_id=eq.${bulkRetailer}&select=id`);
@@ -144,6 +144,9 @@ try {
   const cal2 = await owner('owner-calendar', { from: '2027-01-01', to: '2027-01-31' }); const twinBk = (cal2.body.bookings || []).find(b => b.retailer_id === twinId);
   ok('calendar: each booking carries its own store time zone (New York vs Los Angeles)', twinBk && twinBk.retailer_tz === 'America/New_York' && (cal2.body.bookings.find(b => b.id === bkId) || {}).retailer_tz === 'America/Los_Angeles');
 } finally {
+  // Paid fixture bookings raise owner notification events (0080 trigger); remove them with the fixtures so the shared
+  // test queue is not left holding events for bookings that no longer exist.
+  for (const rid of [retailerId, bulkRetailer, ...bin.filter(([t]) => t === 'retailers').map(([, id]) => id)].filter(Boolean)) await db(`notification_events?retailer_id=eq.${rid}`, { method: 'DELETE' });
   if (bulkRetailer) { await db(`bookings?retailer_id=eq.${bulkRetailer}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); await db(`venues?retailer_id=eq.${bulkRetailer}`, { method: 'DELETE' }); await db(`retailers?id=eq.${bulkRetailer}`, { method: 'DELETE' }); }
   await db(`brand_account_tokens?brand_id=eq.${brandId}`, { method: 'DELETE' });
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });

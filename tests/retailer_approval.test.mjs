@@ -102,7 +102,7 @@ try {
   ok('limiter unavailable: 503 and no code email (fails closed)', down.statusCode === 503 && down.body.error === 'rate_limit_unavailable' && mailsFor(e3, /verification code/i).length === 0, `${down.statusCode}`);
 } finally {
   for (const id of retailerIds) {
-    for (const t of ['bookings', 'brand_retailer_agreements', 'admin_sessions', 'retailer_admins', 'admin_tokens', 'settings', 'venues']) await db(`${t}?retailer_id=eq.${id}`, { method: 'DELETE' });
+    for (const t of ['notification_events', 'bookings', 'brand_retailer_agreements', 'admin_sessions', 'retailer_admins', 'admin_tokens', 'settings', 'venues']) await db(`${t}?retailer_id=eq.${id}`, { method: 'DELETE' });
     await db(`retailers?id=eq.${id}`, { method: 'DELETE' });
   }
   if (brandId) { await db(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' }); await db(`brand_account_tokens?brand_id=eq.${brandId}`, { method: 'DELETE' }); await db(`brands?id=eq.${brandId}`, { method: 'DELETE' }); }

@@ -1356,7 +1356,7 @@ async function computeOwnerMetrics() {
   const newRetailers = retailers.filter(r => r.created_at && new Date(r.created_at) >= thirtyDaysAgo && r.slug !== '__owner__').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
     .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, verification_status: r.verification_status || null }));
   // Stores waiting for the owner's go-live approval (self-service sign-ups arrive here as 'pending').
-  const awaitingApproval = retailers.filter(r => r.slug !== '__owner__' && r.verification_status === 'pending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
+  const awaitingApproval = retailers.filter(r => r.slug !== '__owner__' && !r.is_demo && r.verification_status === 'pending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
     .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, is_demo: !!r.is_demo }));
 
   return {
