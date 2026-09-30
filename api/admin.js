@@ -697,6 +697,18 @@ export default async function handler(req, res) {
     }
   }
 
+  // Minimum booking lead time: the booking page enforces settings.advance_booking_days, so a nonsense value (NaN from a
+  // blank dropdown, a negative, a year) must never reach the row. Whole days, 0..365.
+  if (table === 'settings' && ['PATCH', 'PUT'].includes(req.method)) {
+    let body;
+    try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
+    catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (Object.prototype.hasOwnProperty.call(body, 'advance_booking_days')) {
+      const n = body.advance_booking_days;
+      if (!(Number.isInteger(n) && n >= 0 && n <= 365)) return send(res, 400, { error: 'invalid_advance_booking_days', message: 'advance_booking_days must be a whole number of days from 0 to 365.' });
+    }
+  }
+
   // Release B: venues.availability is edited ONLY through the availability actions above (merged
   // keys, version check, reservation guard). A whole-blob PATCH from stale client state is refused.
   // POST (new venue) may still carry an initial availability — the 0075 guard validates it.

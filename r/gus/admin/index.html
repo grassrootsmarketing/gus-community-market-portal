@@ -1184,14 +1184,19 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Minimum booking lead time<span data-tooltip="How far in advance brands must book a demo. Gives your team time to prepare for the demo and order product in advance." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
-                                <select class="form-input" id="settingAdvanceBooking" disabled>
-                                    <option value="3">3 days ahead</option>
-                                    <option value="7">1 week ahead</option>
-                                    <option value="14" selected>2 weeks ahead</option>
-                                    <option value="21">3 weeks ahead</option>
-                                    <option value="30">30 days ahead</option>
-                                </select>
-                                <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Gives your team time to prepare — order product, plan staffing, brief the floor.</div>
+                                <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                                    <select class="form-input" id="settingAdvanceBooking" disabled onchange="onAdvanceBookingChange()" style="flex:1 1 200px;">
+                                        <option value="3">3 days ahead</option>
+                                        <option value="7">7 days ahead</option>
+                                        <option value="14" selected>14 days ahead</option>
+                                        <option value="30">30 days ahead</option>
+                                        <option value="45">45 days ahead</option>
+                                        <option value="60">60 days ahead</option>
+                                        <option value="custom">Custom&hellip;</option>
+                                    </select>
+                                    <div id="settingAdvanceCustomWrap" style="display:none; align-items:center; gap:6px;"><input type="number" class="form-input" id="settingAdvanceCustom" min="0" max="365" step="1" disabled style="width:90px;"><span style="font-size:0.85rem; color:var(--ink-700);">days</span></div>
+                                </div>
+                                <div id="settingAdvanceHelp" style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">How far ahead brands must book. Gives your team time to order product, plan staffing and brief the floor. Click Edit at the top of this card to change it.</div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
@@ -4136,7 +4141,9 @@ END:VEVENT
             const feeSlider = document.getElementById('settingDemoFeeSlider');
             if (feeSlider) feeSlider.value = String(feeVal);
             _updateDemoFeeSplit(feeVal);
-            if (adv) adv.value = String(s.advance_booking_days != null ? s.advance_booking_days : 14);
+            // Lead time: the saved value may not be one of the presets (Gus had 60 before 60 was offered). Show it under
+            // Custom instead of a blank dropdown, so what the booking page enforces is always what this card shows.
+            if (adv) setAdvanceBookingControl(s.advance_booking_days != null ? s.advance_booking_days : 14);
             // Load booking preferences from retailer row (not settings row)
             if (window.state.retailer) {
                 const auto = document.getElementById('settingAutoConfirm');
@@ -6701,19 +6708,47 @@ END:VEVENT
             grid.innerHTML = html;
         }
 
+        const ADVANCE_PRESETS = ['3', '7', '14', '30', '45', '60'];
+        function setAdvanceBookingControl(days) {
+            const adv = document.getElementById('settingAdvanceBooking'), wrap = document.getElementById('settingAdvanceCustomWrap'), inp = document.getElementById('settingAdvanceCustom');
+            const v = String(Math.max(0, Math.round(Number(days) || 0)));
+            if (ADVANCE_PRESETS.includes(v)) { adv.value = v; if (wrap) wrap.style.display = 'none'; if (inp) inp.value = v; }
+            else { adv.value = 'custom'; if (wrap) wrap.style.display = 'flex'; if (inp) inp.value = v; }
+        }
+        function onAdvanceBookingChange() {
+            const adv = document.getElementById('settingAdvanceBooking'), wrap = document.getElementById('settingAdvanceCustomWrap'), inp = document.getElementById('settingAdvanceCustom');
+            if (!adv || !wrap) return;
+            wrap.style.display = adv.value === 'custom' ? 'flex' : 'none';
+            if (adv.value === 'custom' && inp) { inp.disabled = false; inp.focus(); }
+        }
+        // The number the booking page will enforce, or null when the custom box holds nothing usable.
+        function readAdvanceBookingDays() {
+            const adv = document.getElementById('settingAdvanceBooking'), inp = document.getElementById('settingAdvanceCustom');
+            const raw = adv && adv.value === 'custom' ? (inp && inp.value) : (adv && adv.value);
+            const n = parseInt(raw, 10);
+            return Number.isInteger(n) && n >= 0 && n <= 365 ? n : null;
+        }
         async function toggleSettingsEdit() {
             const btn = document.getElementById('settingsEditBtn');
             const fee = document.getElementById('settingDemoFee');
             const dur = document.getElementById('settingDemoDuration');
             const adv = document.getElementById('settingAdvanceBooking');
             const feeSlider2 = document.getElementById('settingDemoFeeSlider');
-            const inputs = [fee, feeSlider2, dur, adv].filter(Boolean);
+            const advCustom = document.getElementById('settingAdvanceCustom');
+            const inputs = [fee, feeSlider2, dur, adv, advCustom].filter(Boolean);
             const editing = btn.textContent.trim() === 'Save';
             if (editing) {
                 // Immediate visible reaction: disable + show working state.
                 btn.disabled = true;
                 btn.textContent = 'Saving…';
                 inputs.forEach(i => i.disabled = true);
+                const advanceDays = readAdvanceBookingDays();
+                if (advanceDays === null) {
+                    DhModal.toast('Minimum lead time must be a whole number of days from 0 to 365.', 'error');
+                    inputs.forEach(i => i.disabled = false); btn.disabled = false; btn.textContent = 'Save';
+                    if (adv && adv.value === 'custom' && advCustom) advCustom.focus();
+                    return;
+                }
                 if (window.state.settings && window.state.settings.id) {
                     // Demo Fee is type=number - .value is a clean numeric string (or empty)
                     const feeNum = parseFloat(fee.value);
@@ -6722,7 +6757,7 @@ END:VEVENT
                         await adminUpdate('settings', window.state.settings.id, {
                             demo_fee: feeToApply,
                             // Release B: demo_duration is no longer written — slot length lives per location.
-                            advance_booking_days: parseInt(adv.value, 10), // dropdown value, always numeric
+                            advance_booking_days: advanceDays, // preset or custom, validated above (and again by the server)
                         });
                         // One-price model: this fee is the master control, so push it to every store.
                         // Billing charges per-venue demo_fee, so the stores must carry the same number
@@ -6752,6 +6787,7 @@ END:VEVENT
                 flashSaved(btn);
             } else {
                 inputs.forEach(i => i.disabled = false);
+                onAdvanceBookingChange();
                 btn.textContent = 'Save';
                 setTimeout(() => fee && fee.focus(), 50);
             }
