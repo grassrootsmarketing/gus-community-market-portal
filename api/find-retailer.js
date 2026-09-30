@@ -189,8 +189,11 @@ export default async function handler(req, res) {
       // Release B (Codex R6): the store's zone is public so the booking page can withhold a slot
       // whose interval would cross a clock change on the chosen date.
       const retailerCols = 'id,slug,name,branding,demo_policy,cancellation_policy,logo_url,platform_keeps_all,timezone';
-      const rets = await sb(`retailers?slug=eq.${encodeURIComponent(slug)}&select=${retailerCols}`, true);
-      const retailer = Array.isArray(rets) ? rets[0] : null;
+      // verification_status is read for the go-live flag only; the raw review state is not published.
+      const rets = await sb(`retailers?slug=eq.${encodeURIComponent(slug)}&select=${retailerCols},verification_status`, true);
+      const _row = Array.isArray(rets) ? rets[0] : null;
+      const acceptingBookings = !!_row && _row.verification_status === 'approved';
+      const retailer = _row ? (({ verification_status, ...pub }) => pub)(_row) : null;
       if (!retailer) return res.status(404).json({ error: 'not found' });
       const rid = retailer.id;
 
@@ -210,6 +213,7 @@ export default async function handler(req, res) {
       return res.status(200).json({
         ok: true,
         retailer,
+        accepting_bookings: acceptingBookings,
         // Release B: hours/slots are public (the page renders them); blackout REASONS are not.
         venues: (venues || []).map(v => ({ ...v, availability: publicAvailability(v.availability) })),
         bookings: bookings || [],

@@ -166,7 +166,7 @@ let retailerId, retailerSlug, venueA, venueB, brandId, brandEmail, staffEmail, b
 async function setup() {
   retailerSlug = uniq('e2e-grp');
   const r = await db('retailers', { method: 'POST', body: JSON.stringify({
-    slug: retailerSlug, name: 'E2E Grouped Retailer', billing_email: `${retailerSlug}@example.com`,
+    slug: retailerSlug, name: 'E2E Grouped Retailer', verification_status: 'approved', billing_email: `${retailerSlug}@example.com`,
     billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true,
     auto_confirm_bookings: false,          // bookings land 'pending' after payment -> retailer confirms
   }) });
