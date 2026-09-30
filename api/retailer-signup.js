@@ -11,7 +11,6 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
-import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -68,56 +67,6 @@ async function sendCode(email, code) {
     html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
 }
 
-// ---- Spam control (2026-09-30, atomic per Codex RA-1) ----
-// Hourly budgets live in signup_budgets (0086) and are taken through signup_budget_take(): one INSERT ... ON
-// CONFLICT DO UPDATE whose increment is conditional on count < max, so the database serialises concurrent hits and
-// admits at most max per bucket and hour, however many arrive together. Returns true (admitted), false (over the
-// cap) or null (budget unavailable: callers fail closed). Addresses are hashed before they become bucket keys; the
-// hash is a pseudonymous identifier, not anonymity.
-async function budgetTake(key, max) {
-  try {
-    const ws = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
-    const r = await rest('rpc/signup_budget_take', { method: 'POST', body: JSON.stringify({ p_bucket_key: key, p_window_start: ws, p_max: max }) });
-    if (!r.ok) throw new Error('rpc ' + r.status);
-    const rows = await r.json(); const row = Array.isArray(rows) ? rows[0] : rows;
-    if (!row || typeof row.admitted !== 'boolean') throw new Error('unexpected shape');
-    return row.admitted;
-  } catch (e) { console.error('retailer-signup budget unavailable:', e?.message || e); return null; }
-}
-// Client address as the hosting platform reports it. Vercel sets x-forwarded-for / x-real-ip / x-vercel-forwarded-for
-// to the connecting client's public IP and overwrites any value the caller sent ("we currently overwrite the
-// X-Forwarded-For header and do not forward external IPs. This restriction is in place to prevent IP spoofing",
-// vercel.com/docs/headers/request-headers, read 2026-09-30). x-vercel-forwarded-for is preferred because it survives a
-// proxy placed in front of Vercel; the others are identical on a direct deployment. Nothing else (cf-connecting-ip,
-// true-client-ip) is trusted: a caller can set those freely.
-function clientIp(req) {
-  const first = (v) => String(v || '').split(',')[0].trim();
-  const ip = first(req.headers['x-vercel-forwarded-for']) || first(req.headers['x-real-ip']) || first(req.headers['x-forwarded-for']) || req.socket?.remoteAddress || 'unknown';
-  return String(ip).slice(0, 64);
-}
-const emailKey = (e) => crypto.createHash('sha256').update(String(e)).digest('hex').slice(0, 32);
-// The store's real review state, so the reply never tells an already-live store it is awaiting approval (Codex RA-2).
-async function liveState(retailerId) {
-  try { const r = await rest(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=verification_status`); const row = r.ok ? (await r.json())[0] : null; const st = row ? row.verification_status : null;
-    return { live: st === 'approved', pending_approval: st === 'pending', review_state: st || 'unknown' }; }
-  catch (_) { return { live: false, pending_approval: null, review_state: 'unknown' }; }
-}
-export const SIGNUP_LIMITS = Object.freeze({ requestsPerIpPerHour: 5, codeEmailsPerAddressPerHour: 3, verifiesPerIpPerHour: 30 });
-
-// ---- Owner notice (2026-09-30): one email to the operator when a NEW store is provisioned. The store is
-// created pending (0056 default) and takes no bookings until approved, so this is the prompt to review it.
-// Best effort: the durable record is the pending retailer row, which the owner panel lists.
-async function notifyOwnerOfSignup(email, pl, prov) {
-  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const store = String(pl.store_name || prov.slug).replace(/[\r\n\t]+/g, ' ').trim().slice(0, 80);
-  const rows = [['Store', store], ['Contact', pl.contact_name || 'not given'], ['Email', email], ['Phone', pl.phone || 'not given'],
-    ['Stores', pl.store_count || 'not given'], ['Booking page (not live yet)', link(_b, '/r/' + prov.slug)]];
-  const html = '<p>A new retailer signed up on Demohub and is <strong>waiting for your approval</strong>. Its booking page takes no bookings until you approve it.</p>'
-    + '<table>' + rows.map(([k, v]) => '<tr><td style="padding:2px 14px 2px 0;color:#667;">' + esc(k) + '</td><td>' + esc(v) + '</td></tr>').join('') + '</table>'
-    + '<p><a href="' + esc(link(_b, '/owner')) + '">Review it in the owner panel</a>, Retailers tab.</p>';
-  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: OWNER_ALERT_EMAIL, subject: 'New retailer sign-up: ' + store + ' (pending approval)', html }, { binding: _b });
-}
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   // Closed-launch envelope: public self-service retailer signup is OFF unless explicitly enabled.
@@ -136,15 +85,6 @@ export default async function handler(req, res) {
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
 
   if (action === 'request') {
-    // Spam control: at most SIGNUP_LIMITS.requestsPerIpPerHour code requests per network (429), and at most
-    // codeEmailsPerAddressPerHour code emails per address. Over the per-address cap the reply is the same
-    // generic 200 with no mail, so the limit reveals nothing about the address. Limiter down: 503.
-    const ipOk = await budgetTake('rsu-req-ip:' + clientIp(req), SIGNUP_LIMITS.requestsPerIpPerHour);
-    if (ipOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
-    if (!ipOk) return res.status(429).json({ error: 'too_many_requests', message: 'Too many sign-up attempts from this network. Try again in an hour.' });
-    const addrOk = await budgetTake('rsu-req-email:' + emailKey(email), SIGNUP_LIMITS.codeEmailsPerAddressPerHour);
-    if (addrOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
-    if (!addrOk) return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
     // Always respond the same way (no account enumeration). Only email a code.
     try {
       const ch = await createChallenge(email, 'retailer_signup', {
@@ -159,29 +99,24 @@ export default async function handler(req, res) {
   }
 
   if (action === 'verify') {
-    const vOk = await budgetTake('rsu-verify-ip:' + clientIp(req), SIGNUP_LIMITS.verifiesPerIpPerHour);
-    if (vOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
-    if (!vOk) return res.status(429).json({ error: 'too_many_requests', message: 'Too many attempts from this network. Try again in an hour.' });
     const code = String(body.code || '').trim();
     const r = await consumeChallenge(email, 'retailer_signup', code);
     if (!r.ok) return res.status(400).json({ error: 'verification_failed', reason: r.reason });
     // Don't create a second store if this email already owns one.
     const existing = await rest(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id,slug&limit=1`);
     const exRows = existing.ok ? await existing.json() : [];
-    if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug, ...(await liveState(exRows[0].id)) });
+    if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug });
     const pl = r.payload || {};
     const prov = await provisionVerifiedRetailer(email, pl.store_name, {
       phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
     });
     setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
-    if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
-    const state = await liveState(prov.retailer_id); // read, not assumed: an existing store may already be live
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
     // well, where page script could read it and put it in localStorage — the cookie was HttpOnly
     // and the copy beside it was not, which cancelled the point of the cookie.
     // provisionVerifiedRetailer() still returns session_id: that is a server-side value consumed
     // one line up and never serialised.
-    return res.status(200).json({ ok: true, already: !!prov.already, ...state, slug: prov.slug, admin_url: link(_b, `/r/${prov.slug}/admin`), public_url: link(_b, `/r/${prov.slug}`) });
+    return res.status(200).json({ ok: true, slug: prov.slug, admin_url: link(_b, `/r/${prov.slug}/admin`), public_url: link(_b, `/r/${prov.slug}`) });
   }
   return res.status(400).json({ error: 'unknown action' });
 }

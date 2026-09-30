@@ -289,7 +289,7 @@ export default async function handler(req, res) {
       const callerIsViewer = _callerRoleStr === 'viewer';
       const viewerVenueIds = (callerIsViewer && Array.isArray(_mem.venue_ids) && _mem.venue_ids.length > 0) ? _mem.venue_ids : null;
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
-        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key,verification_status,is_demo`),
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key`),
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
         sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
         sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
