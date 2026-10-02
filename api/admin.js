@@ -697,11 +697,18 @@ export default async function handler(req, res) {
     }
   }
 
-  // Store default demo notifications (0088): same shape rules as a contact's prefs, stored normalized; null clears.
+  // Settings writes (one row per retailer): validate the two fields the admin edits.
+  //  * advance_booking_days: the booking page and /api/book enforce it, so a nonsense value (NaN from a blank dropdown,
+  //    a negative, a year) must never reach the row. Whole days, 0..365.
+  //  * notification_defaults (0088): same shape rules as a contact's prefs, stored normalized; null clears.
   if (table === 'settings' && ['PATCH', 'PUT'].includes(req.method)) {
     let body;
     try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); }
     catch (_) { return send(res, 400, { error: 'Invalid body' }); }
+    if (Object.prototype.hasOwnProperty.call(body, 'advance_booking_days')) {
+      const n = body.advance_booking_days;
+      if (!(Number.isInteger(n) && n >= 0 && n <= 365)) return send(res, 400, { error: 'invalid_advance_booking_days', message: 'advance_booking_days must be a whole number of days from 0 to 365.' });
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'notification_defaults')) {
       const v = validateNotificationPrefs(body.notification_defaults);
       if (!v.ok) return send(res, 400, { error: 'invalid_notification_defaults', message: v.error });
