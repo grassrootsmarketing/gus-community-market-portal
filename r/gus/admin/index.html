@@ -1125,7 +1125,7 @@
                     <div class="settings-card" data-tab="teamSection">
                         <div class="settings-card-header"><h3>Demo notification defaults</h3><button type="button" class="btn btn-primary" style="padding: 8px 16px; font-size: 0.85rem;" id="notifDefaultsSaveBtn" onclick="saveNotifDefaults()">Save defaults</button></div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:14px;">What every store contact is emailed about demos at their locations, unless that contact is set to custom. Email only. Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am.</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:14px;">What every store contact is emailed about demos at their locations, unless that contact is set to custom. Email only. Day-based reminders go out around 9 am in your store's time zone, the morning-of reminder around 7 am when the demo starts later than that. Only upcoming reminder times are scheduled: saving defaults does not send reminders whose time has already passed.</div>
                             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:18px;">
                                 <div>
                                     <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Send email when&hellip;</div>
@@ -1159,7 +1159,7 @@
                             </div>
                         </div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Set the store defaults in the card above; switch a contact to custom only when that person needs something different. Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong> — 1 week, 3 days, 1 day, the morning of (7 am), 1 hour, or a custom lead time, each at 9 am in your store's time zone — plus a notice if a confirmed demo is cancelled or rescheduled. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Set the store defaults in the card above; switch a contact to custom only when that person needs something different. Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong>: day-based reminders (14 days, 1 week, 3 days, 1 day or a custom number of days) go out around 9 am in your store's time zone, the morning-of reminder around 7 am when the demo starts later than that, and the one-hour reminder about an hour before the start. A notice also goes out if a confirmed demo is cancelled or rescheduled. Only upcoming reminder times are scheduled; saving settings does not send reminders whose time has already passed. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
                             <div class="tbl-scroll">
                             <table>
                                 <thead><tr><th style="white-space:nowrap;">Name</th><th style="white-space:nowrap;">Role</th><th style="white-space:nowrap;">Location</th><th style="white-space:nowrap;">Email</th><th style="white-space:nowrap;">Phone</th><th style="text-align:right; white-space:nowrap;">Actions</th></tr></thead>
@@ -1462,7 +1462,7 @@
                             <input type="number" id="notifCustomDays" min="1" max="30" step="1" value="7" disabled style="width:60px; padding:5px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem;">
                             <span>days before</span>
                         </label>
-                        <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am (only if the demo starts later). Picking "1 day" and "Custom: 1" sends one reminder, not two. Text-message reminders are not available yet — email only.</div>
+                        <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Day-based reminders go out around 9 am in your store's time zone; the morning-of reminder around 7 am (only if the demo starts later). Picking "1 day" and "Custom: 1" sends one reminder, not two. Text-message reminders are not available yet — email only.</div>
                     </div>
 
                     </div>
@@ -4881,6 +4881,8 @@ END:VEVENT
         // silently enrolled in reminders); a NEW contact is saved with the visible defaults below.
         const NOTIF_OFFSET_RE = /^(w1|d3|d1|d(?:[1-9]|[12][0-9]|30)|morning_of|h1)$/;
         const NOTIF_LEGACY_ALIAS = { '1w': 'w1', '3d': 'd3', '1d': 'd1', '1h': 'h1' };
+        // Historical: the fixed starting values the contact editor once pre-filled. Since 0088 a new contact follows the
+        // store defaults instead (saved as NULL prefs); this constant stays only for the custom editor's reset.
         const NOTIF_PREFS_DEFAULTS = { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['w1', 'd3'] };
         function notifCanonical(k) {
             k = typeof k === 'string' ? k.trim() : '';
@@ -4920,7 +4922,7 @@ END:VEVENT
             window._ndExtraReminders = p.reminders.filter(k => !ND_OFFSETS.includes(k));   // an older or custom-day default is kept, not silently dropped
             const contacts = window.state.internalContacts || []; const custom = contacts.filter(c => prefsSet(c.notification_prefs)).length;
             const st = document.getElementById('notifDefaultsStatus');
-            if (st) st.textContent = (d ? 'Saved defaults. ' : 'Not set yet: until you save, contacts are emailed when a demo is confirmed, cancelled or rescheduled, and get no reminders. ')
+            if (st) st.textContent = (d ? 'Saved defaults. ' : 'Not set yet. Contacts following store defaults receive confirmation, cancellation and reschedule emails, but no reminders until defaults are saved. Custom contacts keep their own settings. ')
                 + (contacts.length ? (contacts.length - custom) + ' of ' + contacts.length + ' store contact' + (contacts.length === 1 ? '' : 's') + ' follow' + (contacts.length - custom === 1 ? 's' : '') + ' these defaults' + (custom ? '; ' + custom + ' ' + (custom === 1 ? 'has' : 'have') + ' custom settings.' : '.') : 'No store contacts yet.')
                 + (window._ndExtraReminders.length ? ' Also saved: ' + window._ndExtraReminders.map(notifOffsetLabel).join(', ') + ' before (kept from an earlier setting).' : '');
         }
@@ -4939,7 +4941,7 @@ END:VEVENT
         function setNotifMode(mode) {
             const custom = document.getElementById('contactNotifCustom'); if (custom) custom.style.display = mode === 'custom' ? '' : 'none';
             const r = document.querySelector('input[name=notifMode][value="' + mode + '"]'); if (r) r.checked = true;
-            const sum = document.getElementById('notifModeStoreSummary'); if (sum) { const d = readStoreNotifDefaults(); sum.textContent = d ? notifPrefsSummary(d) : 'No defaults saved yet: confirmed, cancelled and rescheduled emails, no reminders.'; }
+            const sum = document.getElementById('notifModeStoreSummary'); if (sum) { const d = readStoreNotifDefaults(); sum.textContent = d ? notifPrefsSummary(d) : 'No defaults saved yet: following contacts get confirmation, cancellation and reschedule emails and no reminders.'; }
         }
         function fillNotifPrefsForm(prefs) {
             const set = (elId, v) => { const e = document.getElementById(elId); if (e) e.checked = !!v; };

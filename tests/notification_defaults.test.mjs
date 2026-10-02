@@ -42,7 +42,7 @@ const staffCookie = (await callRoute('admin-auth.js', req({ body: { action: 'ver
 const adminPatch = (table, id, body) => callRoute('admin.js', req({ method: 'PATCH', query: { table, id }, body, cookies: { dh_retailer_session: staffCookie } }));
 let ownerCookie; { const OWNER_EMAIL = 'david@demohubhq.com'; const ex = await db('retailers?slug=eq.__owner__&select=id'); const ownerRid = ex.body[0].id; const tok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: OWNER_EMAIL, retailer_id: ownerRid }) })).body[0]; ownerCookie = (await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }))).cookie('dh_owner_session'); }
 const owner = (action, body) => callRoute('admin-auth.js', req({ body: { action, ...body }, cookies: { dh_owner_session: ownerCookie } }));
-let bookingId = null;
+let bookingId = null; const extraBookings = [];
 try {
   ok('fixtures: staff and owner sessions exist', !!staffCookie && !!ownerCookie);
 
@@ -84,11 +84,100 @@ try {
   const pf = (prof.body.contacts || []).find(c => c.name === 'Follows Store'), pc = (prof.body.contacts || []).find(c => c.name === 'Custom Person');
   ok('owner profile: the store default in words, and each contact tagged store default / custom with the resolved reminders', prof.statusCode === 200 && prof.body.notification_defaults && prof.body.notification_defaults.reminders.join('|') === '1 week before|Morning of (7 am)' && pf && pf.prefs_source === 'store' && pf.notifications.reminders.join('|') === '1 week before|Morning of (7 am)' && pc && pc.prefs_source === 'custom' && pc.notifications.reminders.join() === '1 day before', JSON.stringify({ d: prof.body.notification_defaults, pf, pc }));
 
+
+  console.log('\n— ND-1: an unreadable store default is an ERROR, never "no default" —');
+  const DEF_URL = `settings?retailer_id=eq.${retailerId}&select=notification_defaults`;
+  const worker = () => callRoute('notification-worker.js', req({ method: 'GET', headers: CRON }));
+  const rowsFor = async (bid, extra = '') => (await db(`notification_deliveries?booking_id=eq.${bid}${extra}&select=id,kind,offset_key,recipient_id,status,skip_reason,lease_until,due_at,expires_at`)).body || [];
+  const eventFor = async (bid) => one(await db(`notification_events?booking_id=eq.${bid}&kind=eq.demo_confirmed&select=id,fanned_out_at`));
+  const mailsTo = (email, from) => spy.calls.resend.slice(from).filter(x => JSON.stringify(x).includes(email)).length;
+  const followEmail = `follow-${slug}@fixture.test`, customEmail = `custom-${slug}@fixture.test`;
+  // Store default: confirmation OFF, one reminder (1 week). The following contact must inherit exactly that.
+  await adminPatch('settings', settingsId, { notification_defaults: { on_confirmed: false, on_cancelled: true, on_rescheduled: true, reminders: ['w1'] } });
+  const mkBooking = async (time) => { const r = one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_name: 'Outage Brand', contact_email: 'brand2@fixture.test', demo_date: dayP(20), demo_time: time, duration_hours: 3, status: 'confirmed', payment_status: 'unpaid', amount_paid: 0 }) })); extraBookings.push(r.id); return r.id; };
+
+  // A. HTTP 500 on the defaults read during fan-out and scheduling
+  const B2 = await mkBooking('2:00 PM'); const mA = spy.calls.resend.length;
+  spy.faults.push({ url: DEF_URL, status: 500 });
+  const wkA = await worker();
+  const evA = await eventFor(B2); const rowsA = await rowsFor(B2);
+  ok('ND-1 A: with the settings read failing (HTTP 500), the run reports the failure (500, ok:false) and names it', wkA.statusCode === 500 && wkA.body.ok === false && /db_get_failed/.test(String(wkA.body.first_error)), `${wkA.statusCode} ${JSON.stringify(wkA.body).slice(0, 200)}`);
+  ok('ND-1 A: the demo_confirmed event stays UNFANNED, no deliveries exist for the booking, no mail went out', evA && evA.fanned_out_at === null && rowsA.length === 0 && mailsTo(followEmail, mA) === 0 && mailsTo(customEmail, mA) === 0, `fanned=${evA && evA.fanned_out_at} rows=${rowsA.length}`);
+  // B. network rejection and a malformed 200 are errors too (two more bookings, two more runs)
+  spy.faults.length = 0;
+  const B3 = await mkBooking('5:00 PM');
+  { const real = globalThis.fetch; globalThis.fetch = (u, o) => String(u).includes(DEF_URL) ? Promise.reject(Object.assign(new TypeError('fetch failed'), { name: 'TypeError' })) : real(u, o);
+    try { var wkB1 = await worker(); } finally { globalThis.fetch = real; } }
+  const evB1 = await eventFor(B3);
+  ok('ND-1 B: a network rejection on the defaults read is reported (db_unreachable), event unfanned, no rows', wkB1.statusCode === 500 && /db_unreachable/.test(String(wkB1.body.first_error)) && evB1 && evB1.fanned_out_at === null && (await rowsFor(B3)).length === 0, `${JSON.stringify(wkB1.body).slice(0, 160)}`);
+  { const real = globalThis.fetch; globalThis.fetch = (u, o) => String(u).includes(DEF_URL) ? Promise.resolve(new Response(JSON.stringify({ not: 'an array' }), { status: 200, headers: { 'content-type': 'application/json' } })) : real(u, o);
+    try { var wkB2 = await worker(); } finally { globalThis.fetch = real; } }
+  const evB2 = await eventFor(B3);
+  ok('ND-1 B: a malformed successful response is rejected (settings_read_malformed), not read as "no default"', wkB2.statusCode === 500 && /settings_read_malformed/.test(String(wkB2.body.first_error)) && evB2 && evB2.fanned_out_at === null && (await rowsFor(B3)).length === 0, `${JSON.stringify(wkB2.body).slice(0, 160)}`);
+  // C. a healthy run recovers: real preferences apply, no fallback-derived rows, no duplicates on repeat
+  const wkC = await worker();
+  const rowsC2 = await rowsFor(B2), rowsC3 = await rowsFor(B3);
+  const confFollow = rowsC2.filter(r => r.kind === 'demo_confirmed' && r.recipient_id === cFollow), confCustom = rowsC2.filter(r => r.kind === 'demo_confirmed' && r.recipient_id === cCustom);
+  const remFollow = rowsC2.filter(r => r.kind === 'reminder' && r.recipient_id === cFollow).map(r => r.offset_key), remCustom = rowsC2.filter(r => r.kind === 'reminder' && r.recipient_id === cCustom).map(r => r.offset_key);
+  ok('ND-1 C: healthy run: events fan out; the following contact gets NO confirmation (store default off) and exactly its w1 reminder; the custom contact keeps its confirmation and d1', wkC.statusCode === 200 && (await eventFor(B2)).fanned_out_at && (await eventFor(B3)).fanned_out_at && confFollow.length === 0 && confCustom.length === 1 && remFollow.join() === 'w1' && remCustom.join() === 'd1' && rowsC3.some(r => r.kind === 'reminder' && r.recipient_id === cFollow && r.offset_key === 'w1'), `follow conf=${confFollow.length} rem=${remFollow} | custom conf=${confCustom.length} rem=${remCustom}`);
+  const before = (await rowsFor(B2)).length + (await rowsFor(B3)).length; await worker();
+  ok('ND-1 C: a repeat healthy run creates no duplicate rows', (await rowsFor(B2)).length + (await rowsFor(B3)).length === before, `${before}`);
+  // D. dispatch under an outage: the following contact's reminder is claimed, then left for lease-expiry recovery
+  const w1Row = (await rowsFor(B2)).find(r => r.kind === 'reminder' && r.recipient_id === cFollow && r.offset_key === 'w1');
+  await db(`notification_deliveries?id=eq.${w1Row.id}`, { method: 'PATCH', body: JSON.stringify({ due_at: new Date(Date.now() - 60e3).toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
+  const mD = spy.calls.resend.length; spy.faults.push({ url: DEF_URL, status: 503 });
+  const wkD = await worker(); const afterD = one(await db(`notification_deliveries?id=eq.${w1Row.id}&select=status,skip_reason,lease_until,attempts`));
+  ok('ND-1 D: dispatch with the defaults read failing: the run reports it, the row is CLAIMED with a lease (not skipped, accepted or failed), no mail', wkD.statusCode === 500 && wkD.body.dispatch && wkD.body.dispatch.errors >= 1 && afterD && afterD.status === 'claimed' && afterD.skip_reason === null && mailsTo(followEmail, mD) === 0, JSON.stringify({ wk: wkD.body.first_error, row: afterD }));
+  // E. the custom contact's own reminder is unaffected by the outage: no defaults read, it sends
+  const d1Row = (await rowsFor(B2)).find(r => r.kind === 'reminder' && r.recipient_id === cCustom && r.offset_key === 'd1');
+  await db(`notification_deliveries?id=eq.${d1Row.id}`, { method: 'PATCH', body: JSON.stringify({ due_at: new Date(Date.now() - 60e3).toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
+  const mE = spy.calls.resend.length; await worker(); const afterE = one(await db(`notification_deliveries?id=eq.${d1Row.id}&select=status`));
+  ok('ND-1 E: during the same outage a CUSTOM contact\'s reminder still sends (its decision needs no defaults read)', afterE && afterE.status === 'accepted' && mailsTo(customEmail, mE) === 1, JSON.stringify(afterE));
+  // F. lease expiry + recovery: the following contact's reminder is reclaimed and sent exactly once on the real default
+  spy.faults.length = 0;
+  await db(`notification_deliveries?id=eq.${w1Row.id}`, { method: 'PATCH', body: JSON.stringify({ lease_until: new Date(Date.now() - 60e3).toISOString() }) });
+  const mF = spy.calls.resend.length; const wkF = await worker(); const afterF = one(await db(`notification_deliveries?id=eq.${w1Row.id}&select=status,skip_reason,attempts`));
+  ok('ND-1 F: after the lease expires and the read works again, the reminder is reclaimed and sent once (accepted); nothing was marked opted_out in between', wkF.statusCode === 200 && afterF && afterF.status === 'accepted' && mailsTo(followEmail, mF) === 1, JSON.stringify(afterF));
+  // G. a default changed after scheduling but before dispatch is respected on a successful fresh read: drop w1 for B3's w1 row
+  await adminPatch('settings', settingsId, { notification_defaults: { on_confirmed: false, on_cancelled: true, on_rescheduled: true, reminders: ['d3'] } });
+  const w1B3 = (await rowsFor(B3)).find(r => r.kind === 'reminder' && r.recipient_id === cFollow && r.offset_key === 'w1');
+  await db(`notification_deliveries?id=eq.${w1B3.id}`, { method: 'PATCH', body: JSON.stringify({ due_at: new Date(Date.now() - 60e3).toISOString(), expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
+  const mG = spy.calls.resend.length; await worker(); const afterG = one(await db(`notification_deliveries?id=eq.${w1B3.id}&select=status,skip_reason`));
+  ok('ND-1 G: a reminder the store default no longer includes (changed after scheduling) is skipped opted_out on a SUCCESSFUL fresh read, not sent', afterG && afterG.status === 'skipped' && afterG.skip_reason === 'opted_out' && mailsTo(followEmail, mG) === 0, JSON.stringify(afterG));
+  // H. a demo ten days out never gets a late 14-day reminder: it is recorded as skipped due_before_scheduling, not sent
+  await adminPatch('settings', settingsId, { notification_defaults: { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['d14', 'd3'] } });
+  const B4 = one(await db('bookings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, venue_id: V1, brand_name: 'Ten Days Brand', contact_email: 'brand4@fixture.test', demo_date: dayP(10), demo_time: '11:00 AM', duration_hours: 3, status: 'confirmed', payment_status: 'unpaid', amount_paid: 0 }) })).id; extraBookings.push(B4);
+  const mH = spy.calls.resend.length; await worker(); await worker();
+  const rowsH = (await rowsFor(B4)).filter(r => r.kind === 'reminder' && r.recipient_id === cFollow);
+  ok('ND-1 H: ten days out: the 14-day reminder is one skipped due_before_scheduling row (never sent), the 3-day reminder is pending, and a second run adds nothing', rowsH.filter(r => r.offset_key === 'd14').length === 1 && rowsH.find(r => r.offset_key === 'd14').status === 'skipped' && rowsH.find(r => r.offset_key === 'd14').skip_reason === 'due_before_scheduling' && rowsH.filter(r => r.offset_key === 'd3' && r.status === 'pending').length === 1 && rowsH.length === 2 && spy.calls.resend.slice(mH).filter(x => /reminder/i.test(x.subject || '') && JSON.stringify(x).includes(followEmail)).length === 0, JSON.stringify(rowsH.map(r => [r.offset_key, r.status, r.skip_reason])));
+
+
+  console.log('\n— ND-3: who may change the store default; unrelated saves leave it alone —');
+  const beforeDef = one(await db(`settings?id=eq.${settingsId}&select=notification_defaults,demo_fee,advance_booking_days`));
+  const mkStaff = async (rid, role) => { const em = `${role}-${uniq('nd3')}@fixture.test`; track('retailer_admins', one(await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: rid, email: em, email_normalized: em, name: role, role }) })).id); const tk = one(await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: em, retailer_id: rid }) })); return (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: tk.token } }))).cookie('dh_retailer_session'); };
+  const viewerCookie = await mkStaff(retailerId, 'viewer');
+  const rv = await callRoute('admin.js', req({ method: 'PATCH', query: { table: 'settings', id: settingsId }, body: { notification_defaults: { reminders: ['h1'] } }, cookies: { dh_retailer_session: viewerCookie } }));
+  const afterViewer = one(await db(`settings?id=eq.${settingsId}&select=notification_defaults`));
+  ok('a VIEWER cannot change the store default (refused, value unchanged)', rv.statusCode >= 400 && rv.statusCode < 500 && JSON.stringify(afterViewer.notification_defaults) === JSON.stringify(beforeDef.notification_defaults), `${rv.statusCode} ${JSON.stringify(J(rv)).slice(0, 100)}`);
+  const otherSlug = uniq('nd3o'); const otherRid = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: otherSlug, name: 'Other Store', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', verification_status: 'approved' }) })).id);
+  const otherOwner = await mkStaff(otherRid, 'owner');
+  const ro = await callRoute('admin.js', req({ method: 'PATCH', query: { table: 'settings', id: settingsId }, body: { notification_defaults: { reminders: ['h1'] } }, cookies: { dh_retailer_session: otherOwner } }));
+  const afterOther = one(await db(`settings?id=eq.${settingsId}&select=notification_defaults`));
+  ok('ANOTHER retailer\'s owner cannot change this store\'s default (refused, value unchanged)', ro.statusCode >= 400 && ro.statusCode < 500 && JSON.stringify(afterOther.notification_defaults) === JSON.stringify(beforeDef.notification_defaults), `${ro.statusCode} ${JSON.stringify(J(ro)).slice(0, 100)}`);
+  const rs = await adminPatch('settings', settingsId, { demo_fee: 31, advance_booking_days: 7 });
+  const afterSettings = one(await db(`settings?id=eq.${settingsId}&select=notification_defaults,demo_fee,advance_booking_days`));
+  ok('an unrelated Settings save (fee + lead time) leaves notification_defaults untouched', rs.statusCode < 300 && JSON.stringify(afterSettings.notification_defaults) === JSON.stringify(beforeDef.notification_defaults) && Number(afterSettings.demo_fee) === 31 && afterSettings.advance_booking_days === 7, JSON.stringify(afterSettings));
+  const rd = await adminPatch('settings', settingsId, { notification_defaults: { on_confirmed: true, on_cancelled: true, on_rescheduled: true, reminders: ['w1'] } });
+  const afterDefaults = one(await db(`settings?id=eq.${settingsId}&select=notification_defaults,demo_fee,advance_booking_days`));
+  ok('saving notification defaults leaves the fee and lead time untouched', rd.statusCode < 300 && afterDefaults.notification_defaults.reminders.join() === 'w1' && Number(afterDefaults.demo_fee) === 31 && afterDefaults.advance_booking_days === 7, JSON.stringify(afterDefaults));
+  await db(`admin_sessions?retailer_id=eq.${otherRid}`, { method: 'DELETE' }); await db(`admin_tokens?retailer_id=eq.${otherRid}`, { method: 'DELETE' });
+
   console.log('\n— clearing the default restores the fallback —');
   const clr = await adminPatch('settings', settingsId, { notification_defaults: null });
   const prof2 = await owner('owner-retailer-profile', { retailer_id: retailerId }); const pf2 = (prof2.body.contacts || []).find(c => c.name === 'Follows Store');
   ok('null clears the default; the following contact is back on the fallback (lifecycle on, no reminders)', clr.statusCode < 300 && prof2.body.notification_defaults === null && pf2 && pf2.prefs_source === 'fallback' && pf2.notifications.reminders.length === 0 && pf2.notifications.lifecycle.length === 3, JSON.stringify(pf2));
 } finally {
+  for (const id of extraBookings) { await db(`notification_deliveries?booking_id=eq.${id}`, { method: 'DELETE' }); await db(`notification_events?booking_id=eq.${id}`, { method: 'DELETE' }); await db(`bookings?id=eq.${id}`, { method: 'DELETE' }); }
   if (bookingId) { await db(`notification_deliveries?booking_id=eq.${bookingId}`, { method: 'DELETE' }); await db(`notification_events?booking_id=eq.${bookingId}`, { method: 'DELETE' }); await db(`bookings?id=eq.${bookingId}`, { method: 'DELETE' }); }
   await db(`notification_events?retailer_id=eq.${retailerId}`, { method: 'DELETE' });
   await db(`admin_sessions?retailer_id=eq.${retailerId}`, { method: 'DELETE' }); await db(`admin_tokens?retailer_id=eq.${retailerId}`, { method: 'DELETE' });

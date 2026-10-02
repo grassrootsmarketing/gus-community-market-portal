@@ -40,7 +40,7 @@
 import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 import { randomUUID } from 'node:crypto';
 import { sendMail } from './_mail.js';
-import { resolveContactPrefs, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
+import { resolveContactPrefs, prefsAreSet, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
@@ -155,17 +155,33 @@ async function loadFresh(b, table, id, select = '*') {
   return Array.isArray(rows) ? rows[0] || null : null;
 }
 const CONTACT_SELECT = 'id,retailer_id,name,email,venue_ids,notification_prefs';
+// Store default demo notifications (0088; Codex ND-1, 2026-10-02). The ONE loader for settings.notification_defaults,
+// with an explicit contract: it resolves ONLY on a successful, structurally valid read, to either the saved default
+// object or null (= the row has no default, or the retailer has no settings row: the documented legacy absence, which
+// resolveContactPrefs maps to the Release A fallback). A database, network or timeout failure, or a malformed body,
+// THROWS. Callers never substitute null for an outage: an outage must not turn into "lifecycle on, no reminders".
+// `cache` holds successful reads only; `fresh: true` bypasses it (dispatch re-checks the current default).
+async function loadStoreDefaults(b, cache, retailerId, { fresh = false } = {}) {
+  if (!fresh && cache && cache.defaultsByRetailer.has(retailerId)) return cache.defaultsByRetailer.get(retailerId);
+  const rows = await sb(b, `settings?retailer_id=eq.${enc(retailerId)}&select=notification_defaults&limit=1`);
+  if (!Array.isArray(rows)) throw new OutboxError('settings_read_malformed', { retailer_id: retailerId });
+  const raw = rows.length ? rows[0].notification_defaults : null;
+  if (raw != null && (typeof raw !== 'object' || Array.isArray(raw))) throw new OutboxError('settings_defaults_malformed', { retailer_id: retailerId });
+  const value = raw == null ? null : raw;
+  if (cache && !fresh) cache.defaultsByRetailer.set(retailerId, value);
+  return value;
+}
+
 async function loadContactsForRetailer(b, cache, retailerId) {
   if (cache.contactsByRetailer.has(retailerId)) return cache.contactsByRetailer.get(retailerId);
   const out = [];
   await pageAll(b, `internal_contacts?retailer_id=eq.${enc(retailerId)}&select=${CONTACT_SELECT}&order=id.asc`, {
     batch: 200, maxBatches: 50, onPage: (rows) => { out.push(...rows); },
   });
-  // Store defaults (0088): a contact with NULL prefs follows settings.notification_defaults. One settings read per
-  // retailer per run; a failed read is treated as "no defaults" (fallback), never as "no contacts".
-  let defaults = null;
-  if (cache.defaultsByRetailer.has(retailerId)) defaults = cache.defaultsByRetailer.get(retailerId);
-  else { try { const rows = await sb(b, `settings?retailer_id=eq.${enc(retailerId)}&select=notification_defaults&limit=1`); defaults = Array.isArray(rows) && rows[0] ? rows[0].notification_defaults : null; } catch (_) { defaults = null; } cache.defaultsByRetailer.set(retailerId, defaults); }
+  // Store defaults (0088): a contact with NULL prefs follows settings.notification_defaults. One successful read per
+  // retailer per run (loadStoreDefaults). A failed read THROWS here, so the event stays unfanned / the booking gets no
+  // scheduled rows this run and the run reports the error; nothing is cached for this retailer.
+  const defaults = await loadStoreDefaults(b, cache, retailerId);
   const list = out.filter(c => c && c.email && String(c.email).trim()).map(c => { const r = resolveContactPrefs(c.notification_prefs, defaults); return { ...c, email: String(c.email).trim(), prefs: r.prefs, prefs_source: r.source }; });
   cache.contactsByRetailer.set(retailerId, list);
   return list;
@@ -425,7 +441,11 @@ async function recheckAndBuild(b, cache, row, now) {
     if (contact.retailer_id !== booking.retailer_id) return { skip: 'tenant_mismatch' };
     if (!contactInScope(contact, booking.venue_id)) return { skip: 'out_of_scope' };
     // Send-time re-check reads the CURRENT store default too (a contact on "store default" follows changes made since scheduling).
-    let freshDefaults = null; try { const sr = await sb(b, `settings?retailer_id=eq.${enc(booking.retailer_id)}&select=notification_defaults&limit=1`); freshDefaults = Array.isArray(sr) && sr[0] ? sr[0].notification_defaults : null; } catch (_) { freshDefaults = null; }
+    // Codex ND-1: a custom contact's own prefs decide without any defaults read. A following contact needs a
+    // SUCCESSFUL fresh read of the store default (a later opt-out must be honoured); if that read fails the error
+    // propagates to processClaimed's error path, which reports it and leaves the claim for lease-expiry recovery.
+    // It is never marked opted_out, accepted or failed on a read we could not make.
+    const freshDefaults = prefsAreSet(contact.notification_prefs) ? null : await loadStoreDefaults(b, null, booking.retailer_id, { fresh: true });
     const prefs = resolveContactPrefs(contact.notification_prefs, freshDefaults).prefs;
     if (row.kind === 'reminder') { if (!prefs.reminders.includes(row.offset_key)) return { skip: 'opted_out' }; }
     else if (prefs[lifecyclePrefKey(row.kind)] !== true) return { skip: 'opted_out' };

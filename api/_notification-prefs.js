@@ -11,9 +11,9 @@
 //   * GENUINELY MISSING prefs (null / not an object / no keys) -> lifecycle ON, reminders OFF. A
 //     contact added before reminders existed is told about confirmed/cancelled/rescheduled demos
 //     but never receives a reminder burst the day this ships;
-//   * new contacts created in the form are saved with the VISIBLE defaults: lifecycle ON and
-//     reminders ['w1','d3'] (DEFAULT_NEW_CONTACT_PREFS) — written explicitly, never
-//     implied;
+//   * (until 0088) new contacts created in the form were saved with the VISIBLE defaults: lifecycle ON and
+//     reminders ['w1','d3'] (DEFAULT_NEW_CONTACT_PREFS). Since 0088 a new contact FOLLOWS the store default
+//     (saved as NULL prefs); the constant remains for the custom editor's reset and older rows;
 //   * an explicitly empty reminders list means no reminders;
 //   * legacy `days_before: [3, 1]` -> ['d3','d1']; legacy `custom_days: N` -> 'd<N>';
 //   * equivalent offsets collapse: 'd1' + custom 1 -> one 'd1'; custom 7 -> 'w1'. The NORMALIZED
