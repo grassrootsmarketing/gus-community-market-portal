@@ -17,10 +17,14 @@
 //     worker keep running on an otherwise valid binding.
 //   * Readiness is not proof of delivery: a provider can still refuse a message; routes log that separately
 //     (logSigninMailFailure) with a reason code only, never the address, code, hash or provider body.
+import { FLAGS } from './_flags.js';
+
 export const MIN_PEPPER_LEN = 32;
 
 export function signinConfigStatus(binding) {
   const reasons = [];
+  // Codex C-1: the operator's maintenance gate closes code-based sign-in for the duration of a schema switch.
+  if (FLAGS.signinMaintenance) reasons.push('maintenance');
   const p = process.env.VERIFY_PEPPER;
   if (!p || String(p).trim().length < MIN_PEPPER_LEN) reasons.push('verify_pepper');
   if (!binding || !binding.resendApiKey) reasons.push('mail_provider');
@@ -31,6 +35,15 @@ export const SIGNIN_UNAVAILABLE = Object.freeze({
   error: 'signin_unavailable',
   message: 'Sign-in is temporarily unavailable. Please try again shortly.',
 });
+export const SIGNIN_MAINTENANCE = Object.freeze({
+  error: 'signin_unavailable',
+  maintenance: true,
+  message: 'Sign-in is paused for a few minutes of maintenance. Please try again shortly.',
+});
+// The body a route answers for a given status: the maintenance wording when the gate is the (or a) reason.
+export function signinUnavailableBody(status) {
+  return status && Array.isArray(status.reasons) && status.reasons.includes('maintenance') ? SIGNIN_MAINTENANCE : SIGNIN_UNAVAILABLE;
+}
 
 export function logSigninConfigFailure(route, status) {
   console.error(JSON.stringify({ event: 'signin_config_invalid', route, reasons: (status && status.reasons) || [] }));

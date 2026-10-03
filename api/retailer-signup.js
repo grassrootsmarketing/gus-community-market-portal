@@ -12,7 +12,7 @@ import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
-import { signinConfigStatus, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
+import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -136,7 +136,7 @@ export default async function handler(req, res) {
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
   // Codex S-1: configuration failure is a 503 for everyone, before budgets and lookups.
-  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('retailer-signup', cfg); return res.status(503).json(SIGNIN_UNAVAILABLE); } }
+  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('retailer-signup', cfg); return res.status(503).json(signinUnavailableBody(cfg)); } }
 
   if (action === 'request') {
     // Spam control: at most SIGNUP_LIMITS.requestsPerIpPerHour code requests per network (429), and at most

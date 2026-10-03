@@ -18,6 +18,8 @@
 //   brandInviteEnabled    BRAND_INVITE_ENABLED            api/brand-account.js action=team-invite     false
 //   coiAutoEnforcement    COI_AUTO_ENFORCEMENT_ENABLED    api/coi-enforcement.js (dual gate w/ mode)  false
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
+//   signinMaintenance     SIGNIN_MAINTENANCE_ENABLED      api/_signin-config.js (503 on brand-signup +  false
+//                                                         retailer-signup request AND verify, before quotas)
 //   notificationWorker    NOTIFICATION_WORKER_ENABLED     api/notification-worker.js (200 disabled) +   false
 //                                                         api/find-retailer.js (job required only when on)
 //   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
@@ -54,6 +56,12 @@ export const FLAGS = {
   // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
   // proven in-process (tests/release_b_corrections.test.mjs R4) without re-importing the module graph.
   get slotEditing() { return exactTrue(process.env.SLOT_EDITING_ENABLED); },
+  // Codex C-1 (2026-10-03): maintenance gate for the CODE-BASED sign-in flows only (brand sign-in/sign-up,
+  // retailer sign-up: request and verify). On = those routes answer 503 before any quota is spent, so a schema
+  // switch (migration 0089) can happen with no half-working issuance. Payments, existing sessions, the
+  // notification worker, magic-link retailer login and every other route are untouched. Set in Vercel
+  // Production and redeploy to close; unset and redeploy to reopen. Read at request time.
+  get signinMaintenance() { return exactTrue(process.env.SIGNIN_MAINTENANCE_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -93,6 +101,7 @@ export function flagSnapshot() {
     coiUploadEnabled: FLAGS.coiUploadEnabled,
     brandInviteEnabled: FLAGS.brandInviteEnabled,
     slotEditing: FLAGS.slotEditing,
+    signinMaintenance: FLAGS.signinMaintenance,
     notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,

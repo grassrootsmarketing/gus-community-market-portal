@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { createChallenge, hashCode } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
-import { signinConfigStatus, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
+import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
@@ -163,7 +163,7 @@ export default async function handler(req, res) {
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
   // Codex S-1: a globally misconfigured sign-in says so (503, identical for every address) BEFORE any quota is
   // debited or any account looked up. Never the generic "code is on its way" for our own configuration failure.
-  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('brand-signup', cfg); return res.status(503).json(SIGNIN_UNAVAILABLE); } }
+  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('brand-signup', cfg); return res.status(503).json(signinUnavailableBody(cfg)); } }
 
   // Cross-role guard: one email = one role. An address already registered as a RETAILER cannot
   // also become a brand. This restores the check orphaned when brand signup moved off the

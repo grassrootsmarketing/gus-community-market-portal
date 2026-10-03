@@ -13,11 +13,14 @@
 //   S-5  no rendered sign-in or notification mail carries a literal em dash or the &mdash; entity.
 import crypto from 'node:crypto';
 import { callRoute, req, ok, summary, uniq, installSpy, ENV } from './_route.mjs';
-import { signinConfigStatus, MIN_PEPPER_LEN, SIGNIN_UNAVAILABLE } from '../api/_signin-config.js';
+// The validator imports api/_flags.js, whose non-getter flags freeze at first import; load it AFTER the harness env
+// is in place (callRoute sets process.env from ENV), or PUBLIC_RETAILER_SIGNUP_ENABLED would freeze as off.
 import * as mail from '../api/_notification-mail.js';
 
 ENV.PUBLIC_RETAILER_SIGNUP_ENABLED = 'true'; // the suite exercises sign-up; tests/launch_flags.test.mjs proves the default-off
 
+process.env = { ...process.env, ...ENV };
+const { signinConfigStatus, MIN_PEPPER_LEN, SIGNIN_UNAVAILABLE, SIGNIN_MAINTENANCE } = await import('../api/_signin-config.js');
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
 const spy = installSpy();
@@ -59,13 +62,15 @@ async function footprint(email, ip) {
   };
 }
 const zero = (f) => Object.values(f).every(v => v === 0);
-const is503 = (r) => r.statusCode === 503 && r.body && r.body.error === 'signin_unavailable' && r.body.message === SIGNIN_UNAVAILABLE.message;
+const is503 = (r) => r.statusCode === 503 && r.body && r.body.error === 'signin_unavailable' && (r.body.message === SIGNIN_UNAVAILABLE.message || (r.body.maintenance === true && r.body.message === SIGNIN_MAINTENANCE.message));
 
 const BROKEN = {
   'pepper missing': { VERIFY_PEPPER: undefined },
   'pepper short': { VERIFY_PEPPER: 'x'.repeat(MIN_PEPPER_LEN - 1) },
   'pepper blank padding': { VERIFY_PEPPER: ' '.repeat(MIN_PEPPER_LEN + 4) },
   'mail key missing': { RESEND_API_KEY: undefined },
+  // Codex C-1: the operator's maintenance gate is a configuration-level closure of the code-based sign-in only.
+  'maintenance gate': { SIGNIN_MAINTENANCE_ENABLED: 'true' },
 };
 
 try {
@@ -74,6 +79,10 @@ try {
     process.env = { ...ENV };
     const good = signinConfigStatus({ resendApiKey: 'k' });
     ok('valid pepper + mail key is ok with no reasons', good.ok === true && good.reasons.length === 0);
+    for (const v of ['TRUE', ' true', 'yes', '1', '']) { process.env.SIGNIN_MAINTENANCE_ENABLED = v; ok(`maintenance gate ignores ${JSON.stringify(v)} (literal "true" only)`, signinConfigStatus({ resendApiKey: 'k' }).ok === true); }
+    process.env.SIGNIN_MAINTENANCE_ENABLED = 'true';
+    ok('maintenance gate closes with the literal "true" and names itself', JSON.stringify(signinConfigStatus({ resendApiKey: 'k' })) === JSON.stringify({ ok: false, reasons: ['maintenance'] }));
+    delete process.env.SIGNIN_MAINTENANCE_ENABLED;
     process.env.VERIFY_PEPPER = 'short';
     const s1 = signinConfigStatus({ resendApiKey: 'k' });
     ok('short pepper names verify_pepper only', !s1.ok && s1.reasons.join() === 'verify_pepper');
@@ -104,14 +113,15 @@ try {
     ok('no mail attempted', !spy.calls.resend.some(m => JSON.stringify(m).includes(bEmail) || JSON.stringify(m).includes(rEmail)));
     const fresh = logsWith('signin_config_invalid').slice(beforeLogs);
     ok('four structured config-failure log lines (one per call)', fresh.length === 4, String(fresh.length));
-    ok('log names the route and the reason, never the address', fresh.every(l => /"route":"(brand|retailer)-signup"/.test(l) && /"reasons":\["(verify_pepper|mail_provider)"\]/.test(l) && !l.includes('@fixture.test')));
+    if (label === 'maintenance gate') ok('maintenance replies say so (maintenance:true, its own wording) on all four calls', [results.bReq, results.bVer, results.rReq, results.rVer].every(r => r.body.maintenance === true && /maintenance/.test(r.body.message)));
+    ok('log names the route and the reason, never the address', fresh.every(l => /"route":"(brand|retailer)-signup"/.test(l) && /"reasons":\["(verify_pepper|mail_provider|maintenance)"\]/.test(l) && !l.includes('@fixture.test')));
 
     console.log(`— ${label}: status is degraded and says so coarsely —`);
     const st = await withEnv(overrides, status);
     ok('status route still answers 200', st.statusCode === 200, String(st.statusCode));
     ok('checks.signin.ok is false', st.body && st.body.checks && st.body.checks.signin && st.body.checks.signin.ok === false, JSON.stringify(st.body && st.body.checks));
     ok('overall status is not operational', st.body && st.body.status !== 'operational', st.body && st.body.status);
-    ok('status payload carries no reasons or secrets', !JSON.stringify(st.body).match(/verify_pepper|mail_provider|VERIFY_PEPPER|RESEND/));
+    ok('status payload carries no reasons or secrets', !JSON.stringify(st.body).match(/verify_pepper|mail_provider|VERIFY_PEPPER|RESEND|maintenance/));
 
     console.log(`— ${label}: unrelated routes on the same binding keep working —`);
     const unrelated = await withEnv(overrides, async () => ({
@@ -147,6 +157,7 @@ try {
     const page = readFileSync('brand/signin/index.html', 'utf8');
     ok('submit() throws json.message before json.error', page.includes("throw new Error(json.message || json.error || ('HTTP ' + r.status));"));
     ok('success card carries the delivery expectations', page.includes('Delivery can take a few minutes. Check spam.'));
+    ok('success card promises no fixed lifetime: codes expire at the time stated in the email', page.includes('Codes expire at the time stated in the email.') && !page.includes('Expires in 30 minutes'));
     const signup = readFileSync('signup/index.html', 'utf8');
     ok('retailer verify card carries the delivery expectations', signup.includes('Delivery can take a few minutes. Check spam.'));
   }
