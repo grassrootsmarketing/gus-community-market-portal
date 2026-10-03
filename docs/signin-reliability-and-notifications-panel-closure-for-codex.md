@@ -70,7 +70,7 @@ Run on `release/signin-and-notifications` @ `8271e93`, demohub-rebuild-check, St
 | Suite | Result |
 |---|---|
 | signin_config (S-1/S-3/S-5 + C-1 gate) | 123 / 0 |
-| signin_codes (S-2 + C-1/C-2/C-4) | verification windows (S-2): 110 / 0 |
+| signin_codes (S-2 + C-1/C-2/C-4) | 110 / 0 |
 | signin_compat (old app ae22e3f / new schema) | 7 / 0 |
 | brand_retailers_tab (S-4) | 27 / 0 |
 | owner_notifications (N-1 + C-3/C-4) | 92 / 0 |
