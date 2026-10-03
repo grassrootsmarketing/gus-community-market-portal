@@ -11,7 +11,9 @@
 --   * It is the serialization point: issuance and redemption both lock it (SELECT ... FOR UPDATE), so for one
 --     address and purpose they run one at a time. Different addresses and purposes never block each other.
 --   * It owns the failed-guess budget: p_max_failed wrong guesses (default 6) in the window exhaust it; every code
---     in that window is then unusable. Resends neither reset the count nor move the deadline.
+--     in that window is then unusable. Resends neither reset the count nor move the deadline, and a request made
+--     while the window is exhausted issues NOTHING (outcome 'exhausted', no row, no mail): a code that cannot match
+--     must not be sent (Codex C-2).
 --   * It owns the deadline: 30 minutes from the FIRST issuance. Every code issued in the window expires at that
 --     deadline, so a new code never extends an older one. When the deadline passes, or the window was closed by
 --     a success, the next issuance starts a new window (window_seq + 1); codes of earlier windows stay dead.
@@ -102,6 +104,12 @@ begin
      returning * into v_w;
   end if;
 
+  -- Codex C-2: a window whose budget is spent and whose deadline has not passed issues nothing. The budget and
+  -- deadline are untouched and no live-code slot is used; the caller sends no mail.
+  if v_w.exhausted_at is not null then
+    return jsonb_build_object('outcome', 'exhausted', 'window_seq', v_w.window_seq, 'expires_at', v_w.deadline);
+  end if;
+
   insert into email_verifications (email, purpose, code_hash, payload, attempts, expires_at, window_seq)
   values (v_email, p_purpose, p_code_hash, p_payload, 0, v_w.deadline, v_w.window_seq)
   returning id into v_id;
@@ -122,8 +130,7 @@ begin
   update verification_windows set updated_at = now() where email = v_email and purpose = p_purpose;
 
   return jsonb_build_object(
-    'id', v_id, 'window_seq', v_w.window_seq, 'expires_at', v_w.deadline,
-    'retired', v_retired, 'exhausted', v_w.exhausted_at is not null
+    'outcome', 'issued', 'id', v_id, 'window_seq', v_w.window_seq, 'expires_at', v_w.deadline, 'retired', v_retired
   );
 end $$;
 

@@ -49,6 +49,15 @@ export function logSigninConfigFailure(route, status) {
   console.error(JSON.stringify({ event: 'signin_config_invalid', route, reasons: (status && status.reasons) || [] }));
 }
 
+// A database-side failure of issuance or redemption: allowlisted code only, never the address, body or SQL.
+export function logSigninDbFailure(route, stage, code) {
+  console.error(JSON.stringify({ event: 'signin_db_failed', route, stage, code: String(code || 'db_failed') }));
+}
+// A request that could not issue because the window's budget is spent: observable, address-free.
+export function logSigninIssueRefused(route, reason) {
+  console.warn(JSON.stringify({ event: 'signin_issue_refused', route, reason: String(reason || 'unknown') }));
+}
+
 // `sent` is the sendMailQuietly result: { ok: false, code } on a refusal, otherwise the provider result.
 export function logSigninMailFailure(route, sent) {
   if (!sent || sent.ok === false) console.error(JSON.stringify({ event: 'signin_mail_failed', route, code: (sent && sent.code) || 'unknown' }));

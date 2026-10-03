@@ -31,6 +31,12 @@ let ipN = 0; const newIp = () => { const ip = `test-${RUN}-${++ipN}`; ips.push(i
 // Database time rules boundaries; the harness clock may differ by a few seconds, so "past" is two minutes ago.
 const PAST = new Date(Date.now() - 120000).toISOString();
 const emailKey = (e) => crypto.createHash('sha256').update(String(e)).digest('hex').slice(0, 32);
+// Server-log capture (console.error / console.warn): the routes report db failures and refused issuance as JSON lines.
+const logged = [];
+const realError = console.error, realWarn = console.warn;
+console.error = (...a) => { logged.push(a.map(String).join(' ')); };
+console.warn = (...a) => { logged.push(a.map(String).join(' ')); };
+const logsWith = (event) => logged.filter(l => l.includes(`"event":"${event}"`));
 
 const brand = (body, ip) => callRoute('brand-signup.js', req({ body, headers: { 'x-real-ip': ip } }));
 const retailer = (body, ip) => callRoute('retailer-signup.js', req({ body, headers: { 'x-real-ip': ip } }));
@@ -143,6 +149,18 @@ try {
     ok('the correct ORIGINAL code is now unusable (429)', (await brand({ action: 'verify', email, code }, ip)).statusCode === 429);
     ok('the correct RESENT code is unusable too (same window)', (await brand({ action: 'verify', email, code: codesFor(email)[1] }, ip)).statusCode === 429);
     ok('no session was issued', (await sessionsFor(email)).length === 0);
+    // Codex C-2: a request into the exhausted window (2 of 5 hourly requests used so far) issues NOTHING.
+    {
+      const before = await windowRow(email, 'brand_signup'); const rowsBefore = (await challenges(email, 'brand_signup')).length; const mailsBefore = codesFor(email).length; const refusedBefore = logsWith('signin_issue_refused').length;
+      const r = await brand({ action: 'request', email, company_name: 'Budget Co exhausted' }, ip);
+      ok('exhausted window: request still answers the generic 200', r.statusCode === 200 && r.body && r.body.ok === true && /code is on its way/.test(r.body.message), JSON.stringify([r.statusCode, r.body]));
+      ok('exhausted window: zero new challenge rows', (await challenges(email, 'brand_signup')).length === rowsBefore);
+      ok('exhausted window: zero new mail', codesFor(email).length === mailsBefore);
+      const after = await windowRow(email, 'brand_signup');
+      ok('exhausted window: failed count, deadline and window unchanged', after.failed_guesses === before.failed_guesses && after.deadline === before.deadline && after.window_seq === before.window_seq && !!after.exhausted_at);
+      ok('exhausted window: one address-free signin_issue_refused log line', logsWith('signin_issue_refused').length === refusedBefore + 1 && logsWith('signin_issue_refused').slice(-1)[0].includes('"reason":"exhausted"') && !logsWith('signin_issue_refused').slice(-1)[0].includes(email));
+      ok('exhausted window: the hourly request throttle was still consumed (abuse controls intact)', (await db(`verification_throttle?scope=eq.email&key=eq.${encodeURIComponent(email)}&purpose=eq.brand_signup&select=attempts`)).body[0].attempts === 3);
+    }
     // Lapsed window: starting a new window does not resurrect the exhausted codes.
     await db(`verification_windows?email=eq.${encodeURIComponent(email)}&purpose=eq.brand_signup`, { method: 'PATCH', body: JSON.stringify({ deadline: PAST }) });
     await brand({ action: 'request', email, company_name: 'Budget Co new window' }, ip);
@@ -301,6 +319,50 @@ try {
     ok('a later sign-up with the same email returns the existing store (already:true), no cookie, no duplicate', v2.statusCode === 200 && v2.body.already === true && v2.body.slug === r.slug && !v2.cookie('dh_retailer_session') && ((await db(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id`)).body || []).length === 1, JSON.stringify(v2.body));
   }
 
+  console.log('\n— new app on an OLD schema (RPC missing): service-wide 503, never a misleading 200 —');
+  {
+    const email = newEmail('oldschema'), ip = newIp();
+    const missing = (fn) => ({ url: '/rest/v1/rpc/' + fn, method: 'POST', status: 404, message: 'Could not find the function public.' + fn + ' in the schema cache', once: true });
+    const dbBefore = logsWith('signin_db_failed').length;
+    spy.faults.push(missing('verification_issue'));
+    const bReq = await brand({ action: 'request', email, company_name: 'Old Schema Co' }, ip);
+    ok('brand request with verification_issue missing → 503 signin_unavailable (not the generic 200)', bReq.statusCode === 503 && bReq.body.error === 'signin_unavailable', JSON.stringify([bReq.statusCode, bReq.body]));
+    ok('brand request: no mail, no challenge row', codesFor(email).length === 0 && (await challenges(email, 'brand_signup')).length === 0);
+    spy.faults.push(missing('verification_issue'));
+    const rReq = await retailer({ action: 'request', email, store_name: 'Old Schema Market' }, ip);
+    ok('retailer request with verification_issue missing → 503 signin_unavailable', rReq.statusCode === 503 && rReq.body.error === 'signin_unavailable', JSON.stringify([rReq.statusCode, rReq.body]));
+    spy.faults.push(missing('redeem_retailer_signup'));
+    const rVer = await retailer({ action: 'verify', email, code: '123456' }, ip);
+    ok('retailer verify with redeem_retailer_signup missing → 503 signin_unavailable (not wrong_code)', rVer.statusCode === 503 && rVer.body.error === 'signin_unavailable', JSON.stringify([rVer.statusCode, rVer.body]));
+    const bVer = await brand({ action: 'verify', email, code: '123456' }, ip);
+    ok('brand verify (redeem_brand_signup exists in both schemas) with no issued code → 400, no session', bVer.statusCode === 400 && (await sessionsFor(email)).length === 0);
+    const lines = logsWith('signin_db_failed').slice(dbBefore);
+    ok('three sanitized signin_db_failed lines (route, stage, code rpc_missing), no address or SQL text', lines.length === 3 && lines.every(l => /"code":"rpc_missing"/.test(l) && /"stage":"(issue|redeem)"/.test(l) && !l.includes(email) && !/schema cache|Could not find/.test(l)), JSON.stringify(lines));
+    // C-4: a provider error body carrying synthetic sensitive markers never reaches logs or replies.
+    const MARK = 'SECRET-MARKER-' + RUN;
+    spy.faults.push({ url: '/rest/v1/rpc/verification_issue', method: 'POST', status: 500, message: 'boom ' + MARK + ' service_role_key=sk_live_' + MARK, once: true });
+    const leakReq = await brand({ action: 'request', email, company_name: 'Leak Co' }, ip);
+    spy.faults.push({ url: '/rest/v1/rpc/redeem_brand_signup', method: 'POST', status: 500, message: 'boom ' + MARK, once: true });
+    const leakVer = await brand({ action: 'verify', email, code: '123456' }, ip);
+    spy.faults.push({ url: '/rest/v1/rpc/redeem_retailer_signup', method: 'POST', status: 500, message: 'boom ' + MARK, once: true });
+    const leakRVer = await retailer({ action: 'verify', email, code: '123456' }, ip);
+    ok('db failures answer 503 on request and both verifies', leakReq.statusCode === 503 && leakVer.statusCode === 503 && leakRVer.statusCode === 503, JSON.stringify([leakReq.statusCode, leakVer.statusCode, leakRVer.statusCode]));
+    ok('the marker appears in no reply and no log line', !JSON.stringify([leakReq.body, leakVer.body, leakRVer.body]).includes(MARK) && !logged.some(l => l.includes(MARK)));
+    ok('those failures are logged with the allowlisted code db_failed', logsWith('signin_db_failed').slice(-3).every(l => /"code":"db_failed"/.test(l)));
+    // C-4: a stalled or dropped connection maps to db_timeout / db_unreachable (unit-level, fetch stubbed for one call)
+    {
+      process.env = { ...ENV }; if (!verify) verify = await import('../api/_verify.js?t=' + Date.now());
+      const realFetch = globalThis.fetch;
+      globalThis.fetch = async () => { const e = new Error('aborted'); e.name = 'TimeoutError'; throw e; };
+      let code = null; try { await verify.createChallenge(email, 'brand_signup', null); } catch (e) { code = e.code; } finally { globalThis.fetch = realFetch; }
+      ok('a timed-out RPC call throws VerifyError db_timeout', code === 'db_timeout', String(code));
+      globalThis.fetch = async () => { throw new Error('ECONNRESET'); };
+      try { await verify.createChallenge(email, 'brand_signup', null); } catch (e) { code = e.code; } finally { globalThis.fetch = realFetch; }
+      ok('a dropped connection throws VerifyError db_unreachable', code === 'db_unreachable', String(code));
+      ok('RPC calls carry a 10 s deadline constant', verify.RPC_TIMEOUT_MS === 10000);
+    }
+  }
+
   console.log('\n— privileges: browser roles cannot execute; service role can —');
   {
     const anonKey = process.env.SB_ANON_KEY || null;
@@ -320,6 +382,7 @@ try {
     ok('even the service role cannot call verification_match directly (redeem functions only)', !direct.ok && [401, 403, 404].includes(direct.status), String(direct.status));
   }
 } finally {
+  console.error = realError; console.warn = realWarn;
   for (const e of emails) {
     await db(`brand_account_sessions?email=eq.${encodeURIComponent(e)}`, { method: 'DELETE' });
     await db(`brand_members?email=eq.${encodeURIComponent(e)}`, { method: 'DELETE' });

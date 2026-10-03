@@ -5,14 +5,14 @@
 
 import crypto from 'node:crypto';
 import { FLAGS } from './_flags.js';
-import { createChallenge, redeemRetailerSignup, minutesUntil } from './_verify.js';
+import { createChallenge, redeemRetailerSignup, minutesUntil, VerifyError } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
-import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
+import { signinConfigStatus, signinUnavailableBody, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure, logSigninDbFailure, logSigninIssueRefused } from './_signin-config.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -148,16 +148,23 @@ export default async function handler(req, res) {
     const addrOk = await budgetTake('rsu-req-email:' + emailKey(email), SIGNUP_LIMITS.codeEmailsPerAddressPerHour);
     if (addrOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
     if (!addrOk) return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
-    // Always respond the same way (no account enumeration). Only email a code.
+    // Address-dependent outcomes answer the same generic 200 (no account enumeration). A database-side failure of
+    // issuance is service-wide and answers 503 with a sanitized log line (Codex C-1); an exhausted window issues no
+    // code and mails nothing (Codex C-2).
+    let ch;
     try {
-      const ch = await createChallenge(email, 'retailer_signup', {
+      ch = await createChallenge(email, 'retailer_signup', {
         store_name: String(body.store_name || '').slice(0, 120),
         contact_name: String(body.contact_name || '').slice(0, 120),
         phone: String(body.phone || '').slice(0, 40),
         store_count: Number.isFinite(+body.store_count) ? Math.max(1, Math.min(999, Math.round(+body.store_count))) : null,
       });
-      await sendCode(email, ch.code, minutesUntil(ch.expires_at));
-    } catch (_) {}
+    } catch (e) {
+      logSigninDbFailure('retailer-signup', 'issue', e instanceof VerifyError ? e.code : 'db_failed');
+      return res.status(503).json(SIGNIN_UNAVAILABLE);
+    }
+    if (!ch.issued) { logSigninIssueRefused('retailer-signup', ch.reason); return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' }); }
+    await sendCode(email, ch.code, minutesUntil(ch.expires_at));
     return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
   }
 
@@ -170,7 +177,7 @@ export default async function handler(req, res) {
     // usable and a retry cannot create a second store. A database failure is said plainly (503), never "wrong code".
     const code = String(body.code || '').trim();
     const r = await redeemRetailerSignup(email, code);
-    if (!r.ok && r.unavailable) return res.status(503).json({ error: 'verification_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
+    if (!r.ok && r.unavailable) { logSigninDbFailure('retailer-signup', 'redeem', r.code); return res.status(503).json(SIGNIN_UNAVAILABLE); }
     if (!r.ok) return res.status(r.reason === 'too_many_attempts' ? 429 : 400).json({ error: 'verification_failed', reason: r.reason === 'bad_code_shape' ? 'wrong_code' : r.reason });
     // An email that already owns a store gets that store back (no new session minted, as before).
     if (r.already && !r.session_id) return res.status(200).json({ ok: true, already: true, slug: r.slug, ...(await liveState(r.retailer_id)) });

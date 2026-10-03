@@ -147,7 +147,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
     <p>We sent a 6-digit code to <strong id="sentEmail"></strong>.</p>
-    <p style="font-size:0.85rem; color:var(--ink-500);">Delivery can take a few minutes. Check spam. You can request another code after the countdown. Request limits apply.</p>
+    <p style="font-size:0.85rem; color:var(--ink-500);">Delivery can take a few minutes. Check spam. Codes expire at the time stated in the email. You can request another code after the countdown; request limits apply.</p>
     <p style="margin-top:10px;font-size:0.9rem;">Enter it below to finish signing in. Codes expire at the time stated in the email.</p>
     <div style="margin-top:16px;">
       <input id="brandCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
@@ -190,9 +190,9 @@ async function _brandVerifyCode() {
     if (!r.ok) {
       // The server keeps one generic failure code; the status tells the two cases apart. The guess budget is
       // shared by every code sent in this window, so a resend does not reset it: wait for the window to end.
-      if (r.status === 429) throw new Error('Too many tries. Wait for the countdown to finish, then request a new code.');
+      if (r.status === 429) throw new Error('Verification is temporarily limited. Requesting another code will not reset the limit. Please try again later.');
       if (r.status === 503) throw new Error(j.message || 'Sign-in is temporarily unavailable. Please try again shortly.');
-      throw new Error('That code did not work. Check the newest email, or request a new code after the countdown.');
+      throw new Error('That code is not right. Check the code in your email and try again.');
     }
     // The category from the sign-up card rides the challenge payload and is applied by the redeem step itself,
     // blank-only, to a brand this email owns. There is no follow-up profile write from this page.

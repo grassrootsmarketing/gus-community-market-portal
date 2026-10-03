@@ -4,10 +4,10 @@
 // path is login only. Password format matches the existing login (<salt_hex>$<hash_hex>, scrypt).
 
 import crypto from 'node:crypto';
-import { createChallenge, hashCode, isCodeShape, minutesUntil, MAX_FAILED_GUESSES } from './_verify.js';
+import { createChallenge, redeemBrandSignup, isCodeShape, minutesUntil, VerifyError } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
-import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
+import { signinConfigStatus, signinUnavailableBody, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure, logSigninDbFailure, logSigninIssueRefused } from './_signin-config.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
@@ -189,20 +189,30 @@ export default async function handler(req, res) {
       // account-existence and traffic oracle.
       return res.status(200).json({ ok: true, message: GENERIC_REQUEST_REPLY });
     }
+    let ch;
     try {
       // Profile fields ride on the challenge payload. They are applied only at redeem time,
       // and only to fields that are currently blank.
-      const ch = await createChallenge(email, 'brand_signup', {
+      ch = await createChallenge(email, 'brand_signup', {
         company_name: String(body.company_name || '').trim() || null,
         contact_name: String(body.contact_name || '').trim() || null,
         phone: String(body.phone || '').trim() || null,
         default_categories: cleanCategory(body.default_categories),
       });
-      await sendCode(email, ch.code, minutesUntil(ch.expires_at));
     } catch (e) {
-      // Never reveal whether the address exists, is throttled, or the mail provider failed.
-      console.warn('brand_signup request failed', JSON.stringify({ code: (e && e.message) || 'unknown' }));
+      // Codex C-1: a database-side failure of issuance is SERVICE-WIDE (missing RPC on an old schema, timeout,
+      // unreachable), not a fact about the address, so it is said plainly as a 503 with a sanitized code in the
+      // log. The generic 200 is reserved for address-dependent outcomes.
+      logSigninDbFailure('brand-signup', 'issue', e instanceof VerifyError ? e.code : 'db_failed');
+      return res.status(503).json(SIGNIN_UNAVAILABLE);
     }
+    if (!ch.issued) {
+      // Codex C-2: the window's guess budget is spent; no code was created and none is mailed (it could not match).
+      // The reply stays generic: whether an address is in an exhausted window is address state.
+      logSigninIssueRefused('brand-signup', ch.reason);
+      return res.status(200).json({ ok: true, message: GENERIC_REQUEST_REPLY });
+    }
+    await sendCode(email, ch.code, minutesUntil(ch.expires_at));
     return res.status(200).json({ ok: true, message: GENERIC_REQUEST_REPLY });
   }
   if (action === 'verify') {
@@ -220,15 +230,9 @@ export default async function handler(req, res) {
     const guess = String(body.code || '').trim();
     if (!isCodeShape(guess)) return res.status(400).json({ error: 'verification_failed' });
     const token = crypto.randomUUID();
-    const r = await rpc('redeem_brand_signup', {
-      p_email: email,
-      p_code_hash: hashCode(email, 'brand_signup', guess),
-      p_session_token: token,
-      p_session_days: 30,
-      p_max_attempts: MAX_FAILED_GUESSES,
-    });
-    if (!r.ok) return res.status(503).json({ error: 'verification_unavailable' });
-    const out = r.json || {};
+    const r = await redeemBrandSignup(email, guess, token);
+    if (!r.ok) { logSigninDbFailure('brand-signup', 'redeem', r.code); return res.status(503).json(SIGNIN_UNAVAILABLE); }
+    const out = r.out || {};
 
     if (out.outcome !== 'ok') {
       // One response for every failure mode. Distinguishing "wrong code" from "no challenge"
