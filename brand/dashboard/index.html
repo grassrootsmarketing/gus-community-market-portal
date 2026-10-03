@@ -99,6 +99,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .badge { display:inline-block; padding:3px 9px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.7rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap; }
 .badge.inactive { background:#e8e6e1; color:var(--ink-700); }
 .badge.empty { background:#fdebe5; color:var(--clay-700); }
+.badge.pending { background:#fff4d6; color:#7a5a00; }
 .retailer-row .btn-book { padding:8px 16px; border:1.5px solid rgba(15,44,23,0.15); border-radius:99px; font-size:0.84rem; font-weight:600; color:var(--forest-900); text-decoration:none; background:white; white-space:nowrap; }
 .retailer-row .btn-book:hover { background:var(--cream-100); border-color:var(--forest-500); }
 
@@ -719,12 +720,17 @@ async function loadData() {
     // Merge paid-but-unconfirmed bookings into the demos list as "awaiting confirmation"
     // rows, so a brand who just paid sees their demo right away instead of a blank page.
     if (_data && Array.isArray(_data.pending_bookings) && _data.pending_bookings.length) {
-      const _pb = _data.pending_bookings.map(function (b) {
+      // Codex S-4: a booking that already has a demo projection (confirmed between the two reads) is not
+      // listed twice. Dedupe by BOOKING id, never by retailer.
+      const _projected = new Set((_data.demos || []).map(function (d) { return d && d.booking_id; }).filter(Boolean));
+      const _pb = _data.pending_bookings.filter(function (b) { return b && b.id && !_projected.has(b.id); }).map(function (b) {
         // Provisional holds: a 'held' booking = card authorized (NOT charged) while the COI is
         // verified within 24h. Rendered with its own badge + "upload your COI" nudge.
         const isHeld = b.status === 'held';
         return {
           id: 'pb_' + b.id,
+          booking_id: b.id,
+          retailer_id: b.retailer_id || (b.retailers && b.retailers.id) || null,
           demo_date: b.demo_date,
           demo_time: b.demo_time,
           status: isHeld ? 'held' : 'pending',
@@ -1247,7 +1253,7 @@ function renderOverview() {
             <div class="demos-venue">${escapeHtml(d.venues?.name || '')} · ${escapeHtml(d.demo_time || '')}</div>
             ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
-          <div class="demos-status ${d.status}">${d._held ? 'Slot held' : (d._awaitingConfirmation ? "Awaiting confirmation" : d.status)}</div>
+          <div class="demos-status ${d.status}">${d._held ? 'Awaiting COI review' : (d._awaitingConfirmation ? "Awaiting store confirmation" : d.status)}</div>
         </div>${d._held ? heldBannerHtml(d) : ''}${d.reschedule_to_date ? rescheduleBannerHtml(d) : ''}`;
       }).join('')}
     </div>`;
@@ -1356,21 +1362,38 @@ window.dismissWelcome = function(key) {
 // Every Demohub retailer this brand has a relationship with, derived from their demos + contacts.
 // This is the brand's home base for booking links: they come back here to rebook, and new retailers
 // appear automatically as the brand books through more Demohub stores.
+// Today's date in the brand's local calendar (not UTC), for next-versus-last decisions.
+function localYmd(d) { const x = d || new Date(); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+
+// Codex S-4: one row per retailer, built from the demo projection (confirmed/completed), the paid or held
+// bookings the store has not acted on yet (already merged into _data.demos as pb_ rows, deduped by booking
+// id), and saved contacts. Counts are per booking; a future date is "next", only a past date is "last".
 function computeYourRetailers() {
   const demos = (_data && _data.demos) || [];
   const contacts = (_data && _data.contacts) || [];
+  const today = localYmd();
   const map = {};
+  const row = (rid, r) => { if (!map[rid]) map[rid] = { id: rid, name: (r && r.name) || 'Unknown', slug: (r && r.slug) || '', demoCount: 0, confirmedCount: 0, awaitingCount: 0, heldCount: 0, nextDate: null, lastDate: null }; return map[rid]; };
   demos.forEach(d => {
-    const rid = d.retailer_id; if (!rid) return;
-    if (!map[rid]) map[rid] = { id: rid, name: (d.retailers && d.retailers.name) || 'Unknown', slug: (d.retailers && d.retailers.slug) || '', demoCount: 0, lastDemoDate: null };
-    map[rid].demoCount++;
-    if (!map[rid].lastDemoDate || d.demo_date > map[rid].lastDemoDate) map[rid].lastDemoDate = d.demo_date;
+    const rid = d.retailer_id || (d.retailers && d.retailers.id); if (!rid) return;
+    const r = row(rid, d.retailers);
+    if (d.status === 'cancelled') return;
+    r.demoCount++;
+    if (d._held) r.heldCount++;
+    else if (d._awaitingConfirmation) r.awaitingCount++;
+    else r.confirmedCount++;
+    if (!d.demo_date) return;
+    if (d.demo_date >= today) { if (!r.nextDate || d.demo_date < r.nextDate) r.nextDate = d.demo_date; }
+    else if (!r.lastDate || d.demo_date > r.lastDate) r.lastDate = d.demo_date;
   });
-  contacts.forEach(c => { const rid = c.retailer_id; if (!rid || map[rid]) return; map[rid] = { id: rid, name: (c.retailers && c.retailers.name) || 'Unknown', slug: (c.retailers && c.retailers.slug) || '', demoCount: 0, lastDemoDate: null }; });
+  contacts.forEach(c => { const rid = c.retailer_id; if (!rid) return; row(rid, c.retailers); });
   return Object.values(map).sort((a, b) => {
-    if (a.lastDemoDate && b.lastDemoDate) return b.lastDemoDate.localeCompare(a.lastDemoDate);
-    if (a.lastDemoDate) return -1;
-    if (b.lastDemoDate) return 1;
+    if (a.nextDate && b.nextDate) return a.nextDate.localeCompare(b.nextDate);
+    if (a.nextDate) return -1;
+    if (b.nextDate) return 1;
+    if (a.lastDate && b.lastDate) return b.lastDate.localeCompare(a.lastDate);
+    if (a.lastDate) return -1;
+    if (b.lastDate) return 1;
     return b.demoCount - a.demoCount || a.name.localeCompare(b.name);
   });
 }
@@ -1380,11 +1403,23 @@ function renderRetailers() {
   if (!main) return;
   const retailers = computeYourRetailers();
   const origin = window.location.origin;
+  const unavailable = (_data && Array.isArray(_data.unavailable)) ? _data.unavailable : [];
+  const truncated = (_data && Array.isArray(_data.truncated)) ? _data.truncated : [];
   const head = `
     <div class="page-head"><div>
       <h1>Retailers</h1>
-      <div class="sub">Every Demohub retailer you work with, and their booking links — come back any time to rebook.</div>
+      <div class="sub">Every Demohub retailer you work with, and their booking links. Come back any time to rebook.</div>
     </div></div>`;
+  // Codex S-4: a failed read is an explicit unavailable state, never "No retailers yet".
+  const unavailableNote = unavailable.length ? `
+      <div class="card" id="retailersUnavailable" style="border-color:#f0c9bd; background:#fdf3ef; margin-bottom:14px;">
+        <div style="font-weight:700; color:var(--clay-700); margin-bottom:4px;">Part of this list is unavailable right now</div>
+        <div style="font-size:0.9rem; color:var(--ink-700); line-height:1.5;">We could not load ${escapeHtml(unavailable.map(n => n.replace(/_/g, ' ')).join(', '))}. Retailers you have worked with may be missing. <a href="#retailers" onclick="loadData().then(function () { render(); }); return false;">Try again</a>.</div>
+      </div>` : '';
+  if (retailers.length === 0 && unavailable.length) {
+    main.innerHTML = head + unavailableNote;
+    return;
+  }
   if (retailers.length === 0) {
     main.innerHTML = head + `
       <div class="card" style="text-align:center; padding:44px 24px;">
@@ -1395,18 +1430,31 @@ function renderRetailers() {
       </div>`;
     return;
   }
-  main.innerHTML = head + `
+  const fmtDay = (ymd) => new Date(ymd + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  const countLabel = truncated.length ? `Showing your most recent retailers` : `${retailers.length} retailer${retailers.length === 1 ? '' : 's'}`;
+  main.innerHTML = head + unavailableNote + `
     <div class="card">
-      <div class="sub" style="margin-bottom:14px;">${retailers.length} retailer${retailers.length === 1 ? '' : 's'} · use a link to book your next demo.</div>
+      <div class="sub" style="margin-bottom:14px;">${countLabel} · use a link to book your next demo.</div>
       ${retailers.map(r => {
-        const lastDate = r.lastDemoDate ? new Date(r.lastDemoDate + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : null;
-        const isActive = r.lastDemoDate && (Date.now() - new Date(r.lastDemoDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180;
-        const badge = r.demoCount === 0 ? '<span class="badge empty">No demos yet</span>' : (isActive ? '<span class="badge">Active</span>' : '<span class="badge inactive">Dormant</span>');
+        // Badge: the store's own next step first; otherwise activity in the last 180 days.
+        const isActive = r.nextDate || (r.lastDate && (Date.now() - new Date(r.lastDate + 'T00:00:00').getTime()) < 1000 * 60 * 60 * 24 * 180);
+        let badge;
+        if (r.awaitingCount) badge = '<span class="badge pending" data-state="awaiting">Awaiting store confirmation</span>';
+        else if (r.heldCount) badge = '<span class="badge pending" data-state="held">Awaiting COI review</span>';
+        else if (r.demoCount === 0) badge = '<span class="badge empty" data-state="none">No demos yet</span>';
+        else badge = isActive ? '<span class="badge" data-state="active">Active</span>' : '<span class="badge inactive" data-state="dormant">Dormant</span>';
+        const parts = [];
+        if (r.confirmedCount) parts.push(`${r.confirmedCount} confirmed demo${r.confirmedCount === 1 ? '' : 's'}`);
+        if (r.awaitingCount) parts.push(`${r.awaitingCount} awaiting store confirmation`);
+        if (r.heldCount) parts.push(`${r.heldCount} awaiting COI review`);
+        if (r.nextDate) parts.push('next on ' + fmtDay(r.nextDate));
+        else if (r.lastDate) parts.push('last on ' + fmtDay(r.lastDate));
+        const meta = r.demoCount === 0 ? 'Profile created, no demos booked' : parts.join(' · ');
         const url = r.slug ? origin + '/r/' + r.slug : '';
-        return `<div class="retailer-row">
+        return `<div class="retailer-row" data-retailer-id="${escapeHtml(r.id)}">
           <div class="retailer-info">
             <div class="retailer-name-row"><span class="retailer-name">${escapeHtml(r.name)}</span>${badge}</div>
-            <div class="retailer-meta">${r.demoCount === 0 ? 'Profile created, no demos booked' : `${r.demoCount} demo${r.demoCount === 1 ? '' : 's'}${lastDate ? ' · last on ' + lastDate : ''}`}</div>
+            <div class="retailer-meta">${meta}</div>
             ${url ? `<div style="margin-top:6px; font-size:0.82rem; color:var(--ink-500); word-break:break-all;">${escapeHtml(url)}</div>` : ''}
           </div>
           ${url ? `<div style="display:flex; gap:8px; flex-shrink:0; align-items:center; flex-wrap:wrap;">

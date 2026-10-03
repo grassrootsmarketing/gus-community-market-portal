@@ -668,7 +668,17 @@ export default async function handler(req, res) {
         profile = { ...profileRaw };
         for (const k of PROFILE_NEVER_SEND) delete profile[k];
       }
-      const demos = await demosR.json();
+      // Codex S-4: a collection whose read failed is reported in `unavailable` so the dashboard can show an
+      // explicit unavailable state instead of "No retailers yet". A collection is also flagged `truncated`
+      // when it hits the PostgREST page cap, so the UI never claims an exact total it did not receive.
+      const unavailable = [];
+      const PAGE_CAP = 1000;
+      const readList = async (r, name) => {
+        if (!r || !r.ok) { unavailable.push(name); return []; }
+        try { const j = await r.json(); if (!Array.isArray(j)) { unavailable.push(name); return []; } return j; }
+        catch (_) { unavailable.push(name); return []; }
+      };
+      const demos = await readList(demosR, 'demos');
       // 0074: a pending reschedule proposal is versioned on the BOOKING (reschedule_proposal_version);
       // the dashboard's Accept/Decline must quote it. demos has no FK to bookings, so it cannot be
       // embedded — one side query for the demos that carry a proposal.
@@ -685,12 +695,12 @@ export default async function handler(req, res) {
           }
         }
       } catch (e) { console.warn('reschedule_proposal_version lookup failed:', (e && e.message) || e); }
-      const contacts = await contactsR.json();
-      let pending_bookings = [];
-      try { pending_bookings = await pendingR.json(); } catch (_) {}
+      const contacts = await readList(contactsR, 'contacts');
+      const pending_bookings = await readList(pendingR, 'pending_bookings');
+      const truncated = [['demos', demos], ['contacts', contacts], ['pending_bookings', pending_bookings]].filter(([, rows]) => rows.length >= PAGE_CAP).map(([n]) => n);
       // provisional_holds tells the booking page whether an unverified-COI brand may proceed
       // (server gate in api/book.js stays authoritative either way).
-      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings, provisional_holds: FLAGS.provisionalHolds });
+      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds });
     }
 
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
