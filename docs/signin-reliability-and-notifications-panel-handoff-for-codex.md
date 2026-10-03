@@ -34,7 +34,7 @@ Also observed: the Preview's redirect inbox (`EMAIL_ALLOWLIST`, first entry) poi
 - Tests: a route test on `brand-account` data with a pending booking at a manual-confirm store: the retailer is present with `pending: 1` and `confirmed: 0`; after confirmation, `confirmed: 1`.
 
 ### S-5. Em dashes out of notification mail
-- `api/_notification-mail.js` subjects and bodies, `api/_verify.js` code email, `api/_mail.js` sink banner: replace with a comma, colon or full stop. Tests: existing message-builder tests assert no `—` in subject or html.
+- `api/_notification-mail.js` subjects and bodies, `api/_verify.js` code email, `api/_mail.js` sink banner: replace with a comma, colon or full stop. Tests: existing message-builder tests assert no `(em dash)` in subject or html.
 
 ### N-1. Owner "Notifications" panel (the capability David asked for)
 Purpose: David asked "how can I confirm the reminders will go out?" and the honest answer today is a SQL query. The owner panel should show it.
