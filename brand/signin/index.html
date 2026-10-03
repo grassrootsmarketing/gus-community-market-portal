@@ -187,19 +187,15 @@ async function _brandVerifyCode() {
       body: JSON.stringify({ action: 'verify', email: String(email).trim(), code }),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.message || j.error || 'That code did not work.');
-    // Persist the single primary category from the signup card. brand-signup only carries
-    // company_name/contact_name/phone through the redeem RPC, so category rides a follow-up
-    // authenticated profile-update (the verify above just set the brand session cookie).
-    const _cat = window._lastBrandSend && window._lastBrandSend.data && window._lastBrandSend.data.default_categories;
-    if (_cat) {
-      try {
-        await fetch('/api/brand-account?action=profile-update', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin', body: JSON.stringify({ default_categories: _cat }),
-        });
-      } catch (_) { /* non-blocking — they can set it later in Profile */ }
+    if (!r.ok) {
+      // The server keeps one generic failure code; the status tells the two cases apart. The guess budget is
+      // shared by every code sent in this window, so a resend does not reset it: wait for the window to end.
+      if (r.status === 429) throw new Error('Too many tries. Wait for the countdown to finish, then request a new code.');
+      if (r.status === 503) throw new Error(j.message || 'Sign-in is temporarily unavailable. Please try again shortly.');
+      throw new Error('That code did not work. Check the newest email, or request a new code after the countdown.');
     }
+    // The category from the sign-up card rides the challenge payload and is applied by the redeem step itself,
+    // blank-only, to a brand this email owns. There is no follow-up profile write from this page.
     window.location.href = '/brand/dashboard';
   } catch (e) {
     if (err) { err.textContent = (e && e.message) || 'That code did not work. Check it and try again.'; err.style.display = 'block'; }

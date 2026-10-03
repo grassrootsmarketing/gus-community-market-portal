@@ -48,6 +48,12 @@ function spyFetch({ identityOk = true } = {}) {
                json: async () => [{ environment: 'staging', project_ref: 'bbbbbbbbbbbbbbbbbbbb' }] };
     }
     if (u.includes('/rpc/verification_throttle_hit')) { rpcs.push('throttle'); return { ok: true, status: 200, text: async () => JSON.stringify({ allowed: true }) }; }
+    // Codex S-2 (0089): the challenge is issued by the verification_issue RPC inside the address's window.
+    if (u.includes('/rpc/verification_issue')) {
+      rpcs.push('issue'); writes.push('POST rpc/verification_issue');
+      const out = { id: '00000000-0000-4000-8000-0000000000aa', window_seq: 1, expires_at: new Date(Date.now() + 30 * 60000).toISOString(), retired: 0, exhausted: false };
+      return { ok: true, status: 200, text: async () => JSON.stringify(out), json: async () => out };
+    }
     if (u.includes('/rpc/redeem_brand_signup')) { rpcs.push('redeem'); return { ok: true, status: 200, text: async () => JSON.stringify({ outcome: 'invalid' }) }; }
     if (u.includes('api.resend.com')) { mail.push(1); return { ok: true, status: 200, json: async () => ({}) }; }
     if (u.includes('/rest/v1/')) {
@@ -83,8 +89,8 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   const brandWrites = f.writes.filter(w => /brands|brand_members|brand_account_sessions/.test(w));
   ok('request: NO write to brands / brand_members / brand_account_sessions',
      brandWrites.length === 0, `— saw ${JSON.stringify(brandWrites)}`);
-  ok('request: only the challenge table is written',
-     f.writes.every(w => /email_verifications/.test(w)), `— saw ${JSON.stringify(f.writes)}`);
+  ok('request: only the challenge issuance happens (verification_issue RPC, 0089)',
+     f.writes.length > 0 && f.writes.every(w => /verification_issue/.test(w)), `— saw ${JSON.stringify(f.writes)}`);
   ok('request: throttle consulted', f.rpcs.includes('throttle'));
   ok('request: generic 200 reply', res.statusCode === 200 && /code is on its way/i.test(res.body?.message || ''));
   ok('request: reply leaks no account existence', !/exists|already|unknown/i.test(JSON.stringify(res.body)));
@@ -117,9 +123,6 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url); const method = opts.method || 'GET';
     if (u.includes('/rpc/redeem_brand_signup')) { base.rpcs.push('redeem'); return { ok: true, status: 200, text: async () => JSON.stringify({ outcome: 'ok', brand_id: 'b-1', created: true, expires_at: '2027-01-01T00:00:00Z' }) }; }
-    if (u.includes('/rest/v1/email_verifications') && method === 'GET' && u.includes('consumed_at=not.is.null')) {
-      return { ok: true, status: 200, json: async () => [{ payload: { company_name: 'Cat Co', default_categories: scenario.category } }] };
-    }
     if (u.includes('/rest/v1/') && method !== 'GET') bodies.push({ method, table: u.split('/rest/v1/')[1].split('?')[0], filter: u.split('?')[1] || '', body: String(opts.body || '') });
     return base(url, opts);
   };
@@ -129,25 +132,21 @@ const realEnv = process.env, realFetch = globalThis.fetch;
   let res = mockRes();
   await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
     body: { action: 'request', email: 'cat@brand.test', company_name: 'Cat Co', contact_name: 'C', phone: '1', default_categories: '  Protein,   bars & energy  ' } }, res);
-  const chal = bodies.find(b => b.table === 'email_verifications' && b.method === 'POST');
-  ok('request: the challenge payload carries the normalised category', !!chal && JSON.parse(chal.body).payload.default_categories === 'Protein, bars & energy', chal && chal.body.slice(0, 200));
+  const chal = bodies.find(b => b.table === 'rpc/verification_issue' && b.method === 'POST');
+  ok('request: the challenge payload carries the normalised category (into verification_issue)', !!chal && JSON.parse(chal.body).p_payload.default_categories === 'Protein, bars & energy', chal && chal.body.slice(0, 200));
+  ok('request: the issue call names the purpose and never carries the raw code', !!chal && JSON.parse(chal.body).p_purpose === 'brand_signup' && !/"code"/.test(chal.body) && /p_code_hash/.test(chal.body));
   ok('request: still no brand writes', !bodies.some(b => /^brands|brand_members|brand_account_sessions/.test(b.table)));
 
-  // verify (correct code): the category lands on the brand row, blank-only, after the atomic redeem
+  // verify (correct code): the redeem RPC applies the MATCHED challenge's category itself (0089, blank-only,
+  // own-brand and brand-new paths). The route writes nothing to brands, before or after the RPC.
   bodies.length = 0; res = mockRes();
   await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
     body: { action: 'verify', email: 'cat@brand.test', code: '123456' } }, res);
-  const patch = bodies.find(b => b.table === 'brands' && b.method === 'PATCH');
   ok('verify: 200 with the brand id', res.statusCode === 200 && res.body && res.body.brand_id === 'b-1', JSON.stringify(res.body));
-  ok('verify: the category from the consumed challenge is written to the brand', !!patch && JSON.parse(patch.body).default_categories === 'Protein, bars & energy', patch && patch.body);
-  ok('verify: the write is blank-only (filters on default_categories=is.null) and scoped to that brand', !!patch && /id=eq\.b-1/.test(patch.filter) && /default_categories=is\.null/.test(patch.filter), patch && patch.filter);
-  ok('verify: no other provisioning writes (the RPC did those)', bodies.filter(b => /^brands$|brand_members|brand_account_sessions/.test(b.table)).length === 1, JSON.stringify(bodies.map(b => b.method + ' ' + b.table)));
-
-  // verify with NO category on the challenge: nothing is written to brands
-  scenario.category = null; bodies.length = 0; res = mockRes();
-  await mod.default({ method: 'POST', headers: { ...SAME_ORIGIN, 'x-forwarded-for': '203.0.113.9' },
-    body: { action: 'verify', email: 'cat@brand.test', code: '123456' } }, res);
-  ok('verify without a category: 200 and no brands write at all', res.statusCode === 200 && !bodies.some(b => b.table === 'brands'), JSON.stringify(bodies));
+  ok('verify: the route makes NO brands write (the category is applied inside redeem_brand_signup)', !bodies.some(b => b.table === 'brands'), JSON.stringify(bodies.map(b => b.method + ' ' + b.table)));
+  ok('verify: no reads of "the most recently consumed challenge" either', !bodies.some(b => /email_verifications/.test(b.table)) && base.rpcs.includes('redeem'));
+  ok('verify: the only database call is the redeem RPC (plus the throttle)', bodies.filter(b => !/^rpc\/(redeem_brand_signup|verification_throttle_hit)$/.test(b.table) && !/^retailers$/.test(b.table)).length === 0, JSON.stringify(bodies.map(b => b.method + ' ' + b.table)));
+  void scenario;
   globalThis.fetch = realFetch;
 }
 

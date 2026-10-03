@@ -4,7 +4,7 @@
 // path is login only. Password format matches the existing login (<salt_hex>$<hash_hex>, scrypt).
 
 import crypto from 'node:crypto';
-import { createChallenge, hashCode } from './_verify.js';
+import { createChallenge, hashCode, isCodeShape, minutesUntil, MAX_FAILED_GUESSES } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
@@ -36,19 +36,10 @@ function cleanCategory(v) {
   const s = String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, 80);
   return s || null;
 }
-async function applyChallengeCategory(email, brandId) {
-  try {
-    const r = await rest(`email_verifications?email=eq.${encodeURIComponent(email)}&purpose=eq.brand_signup&consumed_at=not.is.null&order=consumed_at.desc&limit=1&select=payload`);
-    if (!r.ok) return;
-    const rows = await r.json();
-    const cat = cleanCategory(rows && rows[0] && rows[0].payload && rows[0].payload.default_categories);
-    if (!cat || !brandId) return;
-    // Blank-only, like the RPC's own profile fields: never overwrites a category the brand already set.
-    await rest(`brands?id=eq.${encodeURIComponent(brandId)}&default_categories=is.null`, {
-      method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ default_categories: cat }),
-    });
-  } catch (_) { /* best-effort — the Profile page remains the place to set it */ }
-}
+// Codex S-2: the category is applied INSIDE redeem_brand_signup (migration 0089) from the MATCHED challenge's
+// payload, blank-only, on the own-brand and brand-new paths only. The old page-side follow-up read "the most
+// recently consumed challenge for this email", which is not necessarily the one that was redeemed once several
+// codes can be live; there is no route-side category write any more.
 
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
 function hashPassword(password) {
@@ -99,7 +90,7 @@ async function _retired_provisionOrClaimVerifiedBrand(email, password, profile =
 }
 
 // Branded verification email, consistent with the retailer login template (api/admin-auth.js).
-function verificationCodeEmail(code) {
+function verificationCodeEmail(code, minutes) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:24px 32px;background:#0f2c17;"><span style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</span></td></tr>
@@ -107,16 +98,16 @@ function verificationCodeEmail(code) {
 <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:16px;">Verify your email</div>
 <div style="font-size:13px;color:#6b6a64;margin-bottom:12px;">Your verification code</div>
 <div style="font-size:38px;font-weight:800;letter-spacing:0.18em;color:#0f2c17;font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;margin-bottom:14px;">${code}</div>
-<div style="font-size:13px;color:#6b6a64;">This code expires in 30 minutes.</div>
+<div style="font-size:13px;color:#6b6a64;">This code expires in ${minutes} minute${minutes === 1 ? '' : 's'}.</div>
 <p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email. No action will be taken.</p>
 </td></tr>
 <tr><td style="padding:16px 36px;background:#faf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:11px;color:#9a978f;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307</td></tr>
 </table></body></html>`;
 }
 
-async function sendCode(email, code) {
+async function sendCode(email, code, minutes) {
   // The provider's refusal is observed (reason code only), never shown to the caller: the reply stays generic.
-  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
+  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code, minutes) }, { binding: _b });
   logSigninMailFailure('brand-signup', sent);
 }
 
@@ -207,7 +198,7 @@ export default async function handler(req, res) {
         phone: String(body.phone || '').trim() || null,
         default_categories: cleanCategory(body.default_categories),
       });
-      await sendCode(email, ch.code);
+      await sendCode(email, ch.code, minutesUntil(ch.expires_at));
     } catch (e) {
       // Never reveal whether the address exists, is throttled, or the mail provider failed.
       console.warn('brand_signup request failed', JSON.stringify({ code: (e && e.message) || 'unknown' }));
@@ -225,13 +216,16 @@ export default async function handler(req, res) {
     // the challenge row FOR UPDATE. Codex finding A required atomicity here; previously a crash
     // between consume and provision left the code spent and the brand absent, and N parallel
     // guesses could all read the same pre-increment attempt count.
+    // Codex S-2: a guess is exactly six digits; anything else is refused before hashing and costs no budget.
+    const guess = String(body.code || '').trim();
+    if (!isCodeShape(guess)) return res.status(400).json({ error: 'verification_failed' });
     const token = crypto.randomUUID();
     const r = await rpc('redeem_brand_signup', {
       p_email: email,
-      p_code_hash: hashCode(email, 'brand_signup', String(body.code || '')),
+      p_code_hash: hashCode(email, 'brand_signup', guess),
       p_session_token: token,
       p_session_days: 30,
-      p_max_attempts: 6,
+      p_max_attempts: MAX_FAILED_GUESSES,
     });
     if (!r.ok) return res.status(503).json({ error: 'verification_unavailable' });
     const out = r.json || {};
@@ -244,7 +238,6 @@ export default async function handler(req, res) {
     }
 
     setBrandCookie(res, token);
-    await applyChallengeCategory(email, out.brand_id);
     // Codex finding B: the session goes in the HttpOnly cookie ONLY. It is not returned in the
     // body, so page JavaScript cannot read it and it cannot land in localStorage or a log.
     return res.status(200).json({ ok: true, brand_id: out.brand_id, created: !!out.created });

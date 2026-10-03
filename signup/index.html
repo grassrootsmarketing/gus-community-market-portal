@@ -381,9 +381,11 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
         const reason = j.reason || j.error || '';
-        if (reason === 'expired') showError(verifyError, 'That code expired. Tap Resend for a new one.');
-        else if (reason === 'too_many_attempts') showError(verifyError, 'Too many tries. Tap Resend for a fresh code.');
-        else showError(verifyError, 'That code is not right. Check your email and try again.');
+        if (reason === 'expired' || reason === 'no_active_code') showError(verifyError, 'That code has expired. Request a new one after the countdown.');
+        else if (reason === 'already_used') showError(verifyError, 'That code was already used. Request a new one after the countdown.');
+        else if (reason === 'too_many_attempts') showError(verifyError, 'Too many tries. Wait for the countdown to finish, then request a new code.');
+        else if (r.status === 503) showError(verifyError, j.message || 'Sign-up is briefly unavailable. Try again in a moment.');
+        else showError(verifyError, 'That code is not right. Any code we sent you in the last 30 minutes works. Check your email and try again.');
         verifyBtn.disabled = false; verifyBtn.textContent = 'Verify & create my store';
         return;
       }

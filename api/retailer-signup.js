@@ -5,7 +5,7 @@
 
 import crypto from 'node:crypto';
 import { FLAGS } from './_flags.js';
-import { createChallenge, consumeChallenge } from './_verify.js';
+import { createChallenge, redeemRetailerSignup, minutesUntil } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
@@ -63,9 +63,9 @@ export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
   return { retailer_id: row.retailer_id, slug: row.slug, session_id: row.session_id, already: !!row.already };
 }
 
-async function sendCode(email, code) {
+async function sendCode(email, code, minutes) {
   const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
-    html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
+    html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in ${minutes} minute${minutes === 1 ? '' : 's'}.</p>` }, { binding: _b });
   logSigninMailFailure('retailer-signup', sent);
 }
 
@@ -156,7 +156,7 @@ export default async function handler(req, res) {
         phone: String(body.phone || '').slice(0, 40),
         store_count: Number.isFinite(+body.store_count) ? Math.max(1, Math.min(999, Math.round(+body.store_count))) : null,
       });
-      await sendCode(email, ch.code);
+      await sendCode(email, ch.code, minutesUntil(ch.expires_at));
     } catch (_) {}
     return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
   }
@@ -165,18 +165,18 @@ export default async function handler(req, res) {
     const vOk = await budgetTake('rsu-verify-ip:' + clientIp(req), SIGNUP_LIMITS.verifiesPerIpPerHour);
     if (vOk === null) return res.status(503).json({ error: 'rate_limit_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
     if (!vOk) return res.status(429).json({ error: 'too_many_requests', message: 'Too many attempts from this network. Try again in an hour.' });
+    // Codex S-2: match against the window's live set AND provision the store in one database transaction
+    // (redeem_retailer_signup, migration 0089). A provisioning failure rolls the consume back, so the code stays
+    // usable and a retry cannot create a second store. A database failure is said plainly (503), never "wrong code".
     const code = String(body.code || '').trim();
-    const r = await consumeChallenge(email, 'retailer_signup', code);
-    if (!r.ok) return res.status(400).json({ error: 'verification_failed', reason: r.reason });
-    // Don't create a second store if this email already owns one.
-    const existing = await rest(`retailers?billing_email=eq.${encodeURIComponent(email)}&select=id,slug&limit=1`);
-    const exRows = existing.ok ? await existing.json() : [];
-    if (exRows.length) return res.status(200).json({ ok: true, already: true, slug: exRows[0].slug, ...(await liveState(exRows[0].id)) });
+    const r = await redeemRetailerSignup(email, code);
+    if (!r.ok && r.unavailable) return res.status(503).json({ error: 'verification_unavailable', message: 'Sign-up is briefly unavailable. Try again in a moment.' });
+    if (!r.ok) return res.status(r.reason === 'too_many_attempts' ? 429 : 400).json({ error: 'verification_failed', reason: r.reason === 'bad_code_shape' ? 'wrong_code' : r.reason });
+    // An email that already owns a store gets that store back (no new session minted, as before).
+    if (r.already && !r.session_id) return res.status(200).json({ ok: true, already: true, slug: r.slug, ...(await liveState(r.retailer_id)) });
     const pl = r.payload || {};
-    const prov = await provisionVerifiedRetailer(email, pl.store_name, {
-      phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
-    });
-    setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
+    const prov = { retailer_id: r.retailer_id, slug: r.slug, session_id: r.session_id, already: !!r.already };
+    setSessionCookie(res, prov.session_id); // land them logged in: no token in URL
     if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
     const state = await liveState(prov.retailer_id); // read, not assumed: an existing store may already be live
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
