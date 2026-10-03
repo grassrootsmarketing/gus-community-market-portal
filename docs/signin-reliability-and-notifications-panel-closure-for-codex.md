@@ -1,4 +1,106 @@
-# Demohub sign-in reliability and owner Notifications panel: closure packet for Codex (2026-10-03)
+# Demohub sign-in reliability and owner Notifications panel: closure packet for Codex, revision 2 (2026-10-03)
+
+Revision 2 answers your closure review (C-1 to C-4). The corrections are described first with their evidence; the original packet follows as the baseline description of the four groups (branch SHAs there are superseded by the table below). Production is unchanged at `ae22e3f`. Nothing touched demohub-prod; no deployment, no gate, no migration was applied anywhere but the test project.
+
+| Artifact | SHA | Notes |
+|---|---|---|
+| S-1/S-3/S-5 + maintenance gate | `fix/signin-visibility` @ **`fd3d886`** | code-only; releasable on its own |
+| S-4 | `fix/brand-retailers-tab` @ **`94d5beb`** | unchanged; code-only |
+| S-2 + C-1/C-2/C-4 | `fix/signin-codes` @ **`4a1378e`** (stacked on fd3d886) | needs 0089 under the gate |
+| **Rollback artifact (0089 contract kept, unrelated UI reverted)** | `fallback/signin-codes-contract` @ **`4a1378e`** | = main + S-1 + S-2 only (no S-4, no N-1) |
+| N-1 + C-3/C-4 | `feat/owner-notifications-panel` @ **`7abd36c`** | code-only |
+| Combined candidate | `release/signin-and-notifications` @ **`8271e93`** | all four on `main` `ae22e3f`, no conflicts; ND `e8d0148` still merges cleanly (0 conflict markers) |
+
+## C-1 (complete): a tested, gated cutover; the compatibility matrix as evidence, not assumption
+
+**Maintenance gate.** `SIGNIN_MAINTENANCE_ENABLED` (literal `true`; Vercel **Production**, redeploy needed to close, unset + redeploy to reopen) is read by the shared validator `api/_signin-config.js`, so brand-signup and retailer-signup `request` AND `verify` answer `503 {error:'signin_unavailable', maintenance:true, message:'Sign-in is paused for a few minutes of maintenance. Please try again shortly.'}` before any throttle, budget or lookup; the status check reports `signin.ok=false` while it is on. Payments, existing sessions, the magic-link retailer login, the notification worker and every other route are untouched. Reported in the flag snapshot. Proven in `signin_config` as a fifth configuration case (zero quota footprint on both routes and both actions, degraded status, unrelated routes keep running, literal-true rule).
+
+**Route boundary.** A database-side failure of issuance or redemption (RPC missing on an old schema, timeout, unreachable, forbidden, malformed response) is now a **503** on `request` and `verify` for both routes, never the generic 200 with no email. Logged as `{event:'signin_db_failed', route, stage, code}` with an allowlisted code (`rpc_missing | db_timeout | db_unreachable | db_forbidden | db_failed | invalid_response`), never the provider body or the address.
+
+**Compatibility matrix, observed through the real routes against the test database:**
+
+| | old app (`ae22e3f`, its own routes) | new app (`4a1378e`) |
+|---|---|---|
+| **old schema** (pre-0089) | brand and retailer both work end to end (baseline, 6/6 after the rehearsal rollback) | request → 503 on both routes (RPC missing); retailer verify → 503; brand verify → 400, no session (`signin_codes`, RPC-missing faults) |
+| **new schema** (0089) | **brand: a code is mailed and the window-based redeem refuses it (400); requesting again repeats the incompatible issuance. INCOMPATIBLE.** retailer: still works (the old verifier reads the newest row itself). 7/7 (`signin_compat`) | 110/110 (`signin_codes`) |
+
+So neither order is safe without the gate, exactly as you found; the runbook below therefore pauses code-based sign-in for the switch.
+
+**Runbook (S-2 cutover), for David to execute step by step, each on explicit instruction:**
+1. Release the code-only groups first if desired (fd3d886 includes the gate code). The gate must be in the running production code before step 2.
+2. Close: set `SIGNIN_MAINTENANCE_ENABLED=true` in Vercel **Production**; redeploy the current build. Confirm `/status` shows sign-in degraded and a request answers 503 maintenance. Wait 2 minutes for old instances to drain.
+3. Read-only: confirm the production ledger (`select version from supabase_migrations.schema_migrations where version >= '0083' order by version`). The kit's guard expects `0083,0084,0086,0087,0088`; if 0088 is not applied, I regenerate the kit for the real ledger (the generator is parameterised) and recompute the manifest. Nothing is applied merely to satisfy the kit.
+4. Run `0089-verification-windows-paste.sql` in the demohub-prod SQL editor (pasted in chat at that time). Verify select: ledger tail, `redeem_is_window_based_expect_true`, privilege booleans.
+5. Deploy the matching candidate (4a1378e via main). The gate is still on, so nothing half-works.
+6. Readiness: unset `SIGNIN_MAINTENANCE_ENABLED` in **Production**, redeploy; `/status` `signin.ok=true`; one real request + first-code-after-resend redeem on the Preview alias or a controlled address; existing sessions still valid.
+7. Tell brands that a code emailed before the switch will not work and to request a new one (quotas apply).
+
+**Rollback.** Code: `fallback/signin-codes-contract` @ 4a1378e keeps the 0089 contract while leaving S-4 and N-1 out; plain `ae22e3f` is **not** a valid code rollback after 0089 (brand codes would be mailed and refused). Schema: `0089-rollback-paste.sql` restores the 0064 body of `redeem_brand_signup` verbatim, removes the 0089 ledger row, **drops nothing and deletes no challenge** (tables, columns and the new functions stay, unused); it runs only under the gate, then the pre-0089 code is deployed, then the gate reopens. Both pastes refuse the test project on identity.
+
+**Rehearsal on demohub-rebuild-check** (log `rehearsal-0089.log`), with test-targeted guards (identity `staging`, that project's ledger) and the production identity guard untouched: (0) both production pastes refused ("identifies as staging"); (1) rehearsal rollback applied (challenge rows kept: 22; redeem no longer window-based; ledger 0089 removed); (2) old app / old schema: 6/6; (3) new app on the rolled-back schema: 83 passed, 27 failed (mixed versions are not viable: evidence for the gate); (4) rehearsal forward applied (postcondition and verify select green); (5) old app / new schema: 7/7 with the brand incompatibility observed; (6) new app / new schema: 110/110; (7) forward again refused ("0089 already in ledger"). The test project ends on the 0089 schema with ledger `0083,0084,0085,0086,0087,0088,0089`.
+
+**Kit** (`Documents/Codex/cutover-kit`, `MANIFEST-0089.json`): migration file sha256 `0998b5707438a4fa1e75efd00adb2de61ae684714abae322fe6633d563854580` (changed for C-2); `0089-verification-windows-paste.sql` `0799a97290fd2e7894048145e20b61826aaff35e7aad3ccf0164a4e5d01008f8`; `0089-rollback-paste.sql` `32daeab90d99cf081fa0f4855e6a19e3c43fae02c8fe7f8815c3f029c09499e6`; rehearsal forward `10f8ab15…ea269`; rehearsal rollback `e31a4a61…dcf97`. The forward postcondition now also asserts that `redeem_brand_signup` is the window-based body.
+
+## C-2 (complete): no code is mailed into an exhausted window; honest recovery copy
+
+`verification_issue` returns `{outcome:'exhausted'}` and inserts nothing while the window's budget is spent and its deadline has not passed (budget, deadline and live-code slots untouched); after the deadline the next request opens a new window as before. `createChallenge` returns `{issued:false, reason:'exhausted'}`; both routes mail nothing, keep the generic reply (whether an address is in an exhausted window is address state) and log `{event:'signin_issue_refused', route, reason}`. Hourly request throttles still count the attempt (abuse controls unchanged).
+
+Copy: 429 → "Verification is temporarily limited. Requesting another code will not reset the limit. Please try again later." (both pages); wrong code → "That code is not right. Check the code in your email and try again."; expired / used have their own lines; success cards: "Codes expire at the time stated in the email." (the brand card no longer says "Expires in 30 minutes"); the resend link's 30-second cooldown reads "Sent. You can resend in Ns" and is never presented as an unlock timer; emails state the real minutes left.
+
+Evidence: `signin_codes` (exhausted window with 2 of 5 hourly requests used: generic 200, zero new rows, zero mail, failed count/deadline/window unchanged, one address-free log line, throttle consumed; lapsed window then opens window 2 and old codes stay dead; concurrency and throttling cases re-run green); `signin_pages_dom` (18, Chromium: success copy, cooldown vs lockout wording, wrong/expired/used copy, 503 on request and verify, no em dash).
+
+## C-3 (complete): the booking summary is exact, and incompleteness is labelled
+
+`owner-booking-notifications` no longer derives its summary from the first 500 deliveries. Status counts (scheduled, in progress, accepted, failed, unknown, skipped), reminder-email counts and the earlier-revision count are **exact count queries** scoped to the current occurrence; reminder times and skipped reasons come from a separate read of the current occurrence's own rows, with `summary_complete`, `current_rows_loaded` and `current_rows_total` stated. UI: when the current occurrence itself exceeds the cap, figures are labelled "at least N … (among loaded rows)" and "(among loaded rows; incomplete: 500 of 524 current-schedule rows loaded)"; the outcomes line is headed "(exact counts)"; event truncation is stated next to the event facts; the detail-list cap note sits above the table and says the counts cover all rows and the list does not.
+
+Evidence: `owner_notifications` (520 earlier-revision rows due before 4 current rows: the detail list is 500 earlier rows while the summary reports 2 scheduled / 1 failed / 1 unknown exactly, so "no current reminders or failures" cannot be claimed from the first page; 111 events → 100 with `events_complete=false`; the current occurrence pushed over the cap → `summary_complete=false`, 500 of 524, exact counts still exact; the existing empty, partial-read and pagination cases re-run green); `owner_notifications_dom` (the truncated view's labels and their placement; a complete view shows no incompleteness label).
+
+## C-4 (complete): strict pages, bounded reads, sanitised logs
+
+`sbPage` rejects an HTTP 200 whose body is not an array, a missing or unparsable Content-Range and a Content-Range that disagrees with the rows received (`db_bad_body`, `db_no_count`, `db_bad_range`); the legitimate empty page (416 or `*/total` past the end) is kept as its own tested case. Every owner-notification read and every verification RPC call is bounded (12 s and 10 s respectively, request and body read under one deadline); timeouts map to `db_timeout`, dropped connections to `db_unreachable`, and the routes answer 503 with retry, never a false success. `_verify.js` no longer carries any response text in an exception; both sign-in routes log issuance and redemption failures as structured lines with allowlisted codes; the retailer request's empty catch is gone. Proven with synthetic secret markers in provider error bodies on both sides: the marker reaches no reply and no log line.
+
+## Deferred, explicitly
+
+N-1 shipped as a dedicated Notifications tab. The other proposed placements (Calendar day detail, Overview card, retailer-profile summary) are **deferred**, not completed. The retailer-specific provisioning-failure injection (test-only failure mechanism on an isolated database) is **deferred until before public retailer sign-up**; the brand-side injection proves the single-transaction mechanism and the retailer function is one RPC call.
+
+## Evidence on the combined SHA `8271e93`
+
+Run on `release/signin-and-notifications` @ `8271e93`, demohub-rebuild-check, Stripe and Resend intercepted, local page server for the Chromium suites (restarted on this SHA). `npm run check`: 4 of 4. `npm test` (unit battery): exit 0.
+
+| Suite | Result |
+|---|---|
+| signin_config (S-1/S-3/S-5 + C-1 gate) | 123 / 0 |
+| signin_codes (S-2 + C-1/C-2/C-4) | verification windows (S-2): 110 / 0 |
+| signin_compat (old app ae22e3f / new schema) | 7 / 0 |
+| brand_retailers_tab (S-4) | 27 / 0 |
+| owner_notifications (N-1 + C-3/C-4) | 92 / 0 |
+| brand_signup | 21 / 0 |
+| retailer_approval | 33 / 0 |
+| route_flows | 191 / 0 |
+| store_contact_notifications | 117 / 0 |
+| notification_worker | 86 / 0 |
+| owner_alert | 23 / 0 |
+| mail_containment | 17 / 0 |
+| launch_flags | 70 / 0 |
+| status_page | 43 / 0 |
+| session_transport | 76 / 0 |
+| provisional_resolution | 11 / 0 |
+| release_b_corrections | 117 / 0 |
+| coi_enforcement_gate | 14 / 0 |
+| lead_time_enforcement | 14 / 0 |
+| lead_time_setting | 12 / 0 |
+| owner_directory.smoke | 61 / 0 |
+| brand_retailers_tab_dom (Chromium) | 25 / 0 |
+| owner_notifications_dom (Chromium) | 38 / 0 |
+| signin_pages_dom (Chromium) | 18 / 0 |
+| brand_coi_tile_dom (Chromium) | 21 / 0 |
+| owner_coi_review_dom (Chromium) | 18 / 0 |
+
+Each corrected group was also run on its own branch before the merge, with the same results.
+
+---
+
+# Baseline packet (revision 1, 2026-10-03), kept for the description of the four groups
 
 One document for the four groups of your design review (S-1/S-3/S-5, S-4, S-2, N-1). Each group is on its own branch, built off production `main` `ae22e3f`; the combined candidate is `release/signin-and-notifications` @ **`468c174`** (the four branches merged onto `main`, no conflicts). Production is unchanged at `ae22e3f`. Nothing touched demohub-prod: no challenge created, no mail sent, no secret rotated, no worker pause, no database change, no deployment. All suites ran on demohub-rebuild-check (`tileejdviuvijumjeplv`) with Stripe and Resend intercepted. Gus's live reminder preferences were not touched.
 
