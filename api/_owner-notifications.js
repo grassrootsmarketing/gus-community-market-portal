@@ -94,28 +94,65 @@ export function listQuery(list, w, rid) {
   throw new Error('unknown list');
 }
 
-// One page of a PostgREST query with the exact total. Throws on failure (the caller answers 503).
+// Codex C-4: every read here is bounded (request and body read under one deadline) and strict about what counts as
+// a successful page: an HTTP 200 whose body is not an array, a Content-Range that is missing, unparsable or that
+// disagrees with the rows received, is a FAILED read (the caller answers 503), never a convincing empty page. The
+// one legitimate empty page, an offset at or past the end, answers 416 or an empty array with "*/total" and is
+// kept as its own case. Error messages carry a code and a status only, never the provider's body.
+export const READ_TIMEOUT_MS = 12000;
+export class ReadError extends Error { constructor(code, status) { super(code); this.name = 'ReadError'; this.code = code; this.status = status || null; } }
+async function boundedFetch(url, headers) {
+  let r, text;
+  try {
+    r = await fetch(url, { headers, signal: globalThis.AbortSignal.timeout(READ_TIMEOUT_MS) });
+    text = await r.text();
+  } catch (e) {
+    throw new ReadError((e && (e.name === 'TimeoutError' || e.name === 'AbortError')) ? 'db_timeout' : 'db_unreachable');
+  }
+  let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) { json = undefined; }
+  // headers may be absent on a non-standard response object; treat that as "no Content-Range"
+  const header = (n) => (r && r.headers && typeof r.headers.get === 'function') ? r.headers.get(n) : null;
+  return { r: { ok: !!r.ok, status: r.status, header }, json };
+}
+// Parse "a-b/total" or "*/total". Returns { from, to, total } (from/to null for "*"), or null when malformed.
+export function parseContentRange(h) {
+  const m = /^(\*|(\d+)-(\d+))\/(\d+)$/.exec(String(h || '').trim());
+  if (!m) return null;
+  return { from: m[2] == null ? null : Number(m[2]), to: m[3] == null ? null : Number(m[3]), total: Number(m[4]) };
+}
+const auth = (b, extra = {}) => ({ apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, ...extra });
+
+// One page of a PostgREST query with the exact total. Throws ReadError on failure (the caller answers 503).
 export async function sbPage(b, path, offset, limit) {
-  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: `${offset}-${offset + limit - 1}` } });
-  const text = await r.text(); let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
-  if (!r.ok && r.status !== 416) throw new Error(json?.message || text || `HTTP ${r.status}`);
-  const total = Number(String(r.headers.get('content-range') || '').split('/')[1]);
-  if (!Number.isFinite(total)) throw new Error('no exact count in response');
-  const rows = Array.isArray(json) ? json : [];
-  return { rows, total, complete: offset + rows.length >= total };
+  const { r, json } = await boundedFetch(`${b.supabaseUrl}/rest/v1/${path}`, auth(b, { Prefer: 'count=exact', 'Range-Unit': 'items', Range: `${offset}-${offset + limit - 1}` }));
+  const cr = parseContentRange(r.header('content-range'));
+  if (r.status === 416) {
+    // out of range: PostgREST answers 416 with "*/total"; a valid, complete, empty page
+    if (!cr || cr.from !== null) throw new ReadError('db_bad_range', r.status);
+    return { rows: [], total: cr.total, complete: true };
+  }
+  if (!r.ok) throw new ReadError('db_read_failed', r.status);
+  if (!Array.isArray(json)) throw new ReadError('db_bad_body', r.status);
+  if (!cr) throw new ReadError('db_no_count', r.status);
+  if (json.length === 0) {
+    if (cr.from !== null) throw new ReadError('db_bad_range', r.status);        // rows claimed, none sent
+    return { rows: [], total: cr.total, complete: offset >= cr.total };
+  }
+  if (cr.from !== offset || cr.to !== offset + json.length - 1 || cr.total < cr.to + 1) throw new ReadError('db_bad_range', r.status);
+  return { rows: json, total: cr.total, complete: offset + json.length >= cr.total };
 }
 // Exact count only (no rows).
 export async function sbCount(b, path) {
-  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: '0-0' } });
-  if (!r.ok && r.status !== 416) throw new Error((await r.text()).slice(0, 200) || `HTTP ${r.status}`);
-  const total = Number(String(r.headers.get('content-range') || '').split('/')[1]);
-  if (!Number.isFinite(total)) throw new Error('no exact count in response');
-  return total;
+  const { r } = await boundedFetch(`${b.supabaseUrl}/rest/v1/${path}`, auth(b, { Prefer: 'count=exact', 'Range-Unit': 'items', Range: '0-0' }));
+  if (!r.ok && r.status !== 416) throw new ReadError('db_count_failed', r.status);
+  const cr = parseContentRange(r.header('content-range'));
+  if (!cr) throw new ReadError('db_no_count', r.status);
+  return cr.total;
 }
 async function sbRows(b, path) {
-  const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}` } });
-  const text = await r.text(); let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
-  if (!r.ok || !Array.isArray(json)) throw new Error(json?.message || text || `HTTP ${r.status}`);
+  const { r, json } = await boundedFetch(`${b.supabaseUrl}/rest/v1/${path}`, auth(b));
+  if (!r.ok) throw new ReadError('db_read_failed', r.status);
+  if (!Array.isArray(json)) throw new ReadError('db_bad_body', r.status);
   return json;
 }
 const inList = (ids) => ids.map(encodeURIComponent).join(',');
@@ -187,6 +224,10 @@ export async function workerHealth(b, now = new Date()) {
   };
 }
 
+function logRead(action, e) {
+  console.error(JSON.stringify({ event: 'owner_notifications_read_failed', action, code: (e && e.code) || 'db_failed', status: (e && e.status) || null }));
+}
+
 // ---- action: owner-notifications (one list page) ----
 export async function listAction(b, body) {
   const p = parseListInput(body);
@@ -194,7 +235,7 @@ export async function listAction(b, body) {
   const w = windowFor(p.days);
   let page;
   try { page = await sbPage(b, listQuery(p.list, w, p.retailer_id), p.offset, p.limit); }
-  catch (e) { console.error('owner-notifications read failed:', e?.message); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
+  catch (e) { logRead('owner-notifications', e); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
   const ctx = await enrich(b, page.rows);
   return { status: 200, body: { ok: true, list: p.list, retailer_id: p.retailer_id, window: w, offset: p.offset, limit: p.limit, total: page.total, complete: page.complete, partial: ctx.partial, rows: page.rows.map(d => publicDelivery(d, ctx)) } };
 }
@@ -211,7 +252,7 @@ export async function summaryAction(b, body) {
       workerHealth(b),
     ]);
     return { status: 200, body: { ok: true, retailer_id: p.retailer_id, window: w, counts: { scheduled, overdue, attention, accepted }, worker, lookahead_days: SCHEDULING_LOOKAHEAD_DAYS } };
-  } catch (e) { console.error('owner-notifications-summary read failed:', e?.message); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
+  } catch (e) { logRead('owner-notifications-summary', e); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
 }
 
 // ---- action: owner-booking-notifications ----
@@ -227,27 +268,42 @@ export async function bookingAction(b, body) {
       sbPage(b, `notification_deliveries?select=${DELIVERY_COLS}&booking_id=eq.${encodeURIComponent(id)}&order=due_at.asc,id.asc`, 0, MAX_LIMIT),
       sbPage(b, `notification_events?select=id,kind,transition_id,created_at,fanned_out_at&booking_id=eq.${encodeURIComponent(id)}&kind=neq.owner_booking_created&order=created_at.asc,id.asc`, 0, 100),
     ]);
-  } catch (e) { console.error('owner-booking-notifications read failed:', e?.message); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
+  } catch (e) { logRead('owner-booking-notifications', e); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
   const ctx = await enrich(b, deliveries.rows.length ? deliveries.rows : [{ booking_id: bk.id, retailer_id: bk.retailer_id }]);
   if (!ctx.bookings.has(bk.id)) ctx.bookings.set(bk.id, bk);
   let worker = null; try { worker = await workerHealth(b); } catch (_) { ctx.partial.push('worker'); }
   const rt = ctx.retailers.get(bk.retailer_id) || null, vn = ctx.venues.get(bk.venue_id) || null;
   const rows = deliveries.rows.map(d => publicDelivery(d, ctx));
   const currentKey = `${bk.id}:${bk.schedule_revision}`;
-  // Counts: reminder TIMES are distinct offsets of the current occurrence's non-skipped reminders; recipient EMAILS
-  // are rows. Both are stated so "3 reminders" can never be read two ways.
-  const cur = rows.filter(r => r.occurrence_key === currentKey);
+  // Codex C-3: the summary is computed from the CURRENT occurrence's own rows, read separately from the capped
+  // detail list (which is ordered oldest-due first and could be entirely earlier revisions), plus exact counts
+  // per status that do not depend on any row cap. If even the current occurrence exceeds the cap, the summary says
+  // so (summary_complete=false) and the UI labels every figure as "among loaded rows; incomplete".
+  const occ = encodeURIComponent(currentKey);
+  const base = `notification_deliveries?booking_id=eq.${encodeURIComponent(id)}&occurrence_key=eq.${occ}`;
+  let curRows, exact;
+  try {
+    [curRows, ...exact] = await Promise.all([
+      sbPage(b, `${base}&select=id,kind,offset_key,status,skip_reason&order=due_at.asc,id.asc`, 0, MAX_LIMIT),
+      ...['pending', 'claimed', 'accepted', 'failed', 'unknown', 'skipped'].map(st => sbCount(b, `${base}&status=eq.${st}&select=id`)),
+      sbCount(b, `${base}&kind=eq.reminder&status=eq.pending&select=id`),
+      sbCount(b, `${base}&kind=eq.reminder&status=neq.skipped&select=id`),
+      sbCount(b, `notification_deliveries?booking_id=eq.${encodeURIComponent(id)}&occurrence_key=neq.${occ}&select=id`),
+    ]);
+  } catch (e) { logRead('owner-booking-notifications', e); return { status: 503, body: { error: 'notifications_unavailable', retry: true } }; }
+  const [nPending, nClaimed, nAccepted, nFailed, nUnknown, nSkipped, nRemPending, nRemTotal, nEarlier] = exact;
+  const cur = curRows.rows;
   const curRem = cur.filter(r => r.kind === 'reminder' && r.status !== 'skipped');
-  const count = (xs, st) => xs.filter(r => r.status === st).length;
   const summary = {
     current_occurrence: currentKey, schedule_revision: bk.schedule_revision,
+    // exact (count queries, independent of any cap)
+    scheduled: nPending, in_progress: nClaimed, accepted_by_provider: nAccepted, failed: nFailed, unknown: nUnknown, skipped: nSkipped,
+    reminder_emails_scheduled: nRemPending, reminder_emails_total: nRemTotal, earlier_occurrence_rows: nEarlier,
+    // from the current occurrence's rows (complete unless summary_complete is false)
     reminder_times_scheduled: new Set(curRem.filter(r => r.status === 'pending').map(r => r.offset_key)).size,
-    reminder_emails_scheduled: count(curRem, 'pending'),
     reminder_times_total: new Set(curRem.map(r => r.offset_key)).size,
-    reminder_emails_total: curRem.length,
-    accepted_by_provider: count(cur, 'accepted'), failed: count(cur, 'failed'), unknown: count(cur, 'unknown'), in_progress: count(cur, 'claimed'), scheduled: count(cur, 'pending'),
-    skipped: count(cur, 'skipped'), skipped_reasons: Object.fromEntries([...cur.filter(r => r.status === 'skipped').reduce((m, r) => m.set(r.skip_reason || 'unspecified', (m.get(r.skip_reason || 'unspecified') || 0) + 1), new Map())]),
-    earlier_occurrence_rows: rows.length - cur.length,
+    skipped_reasons: Object.fromEntries([...cur.filter(r => r.status === 'skipped').reduce((m, r) => m.set(r.skip_reason || 'unspecified', (m.get(r.skip_reason || 'unspecified') || 0) + 1), new Map())]),
+    summary_complete: curRows.complete, current_rows_loaded: cur.length, current_rows_total: curRows.total,
   };
   return { status: 200, body: { ok: true,
     booking: { id: bk.id, status: bk.status, demo_date: bk.demo_date, demo_time: bk.demo_time, timezone: bk.timezone || (rt && rt.timezone) || null, schedule_revision: bk.schedule_revision, brand: bk.brand_name || null, retailer_id: bk.retailer_id, retailer: rt ? rt.name : null, retailer_slug: rt ? rt.slug : null, venue: vn ? vn.name : null, created_at: bk.created_at },

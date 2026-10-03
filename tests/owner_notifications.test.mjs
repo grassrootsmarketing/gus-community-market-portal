@@ -15,7 +15,7 @@
 import crypto from 'node:crypto';
 import { callRoute, req, ok, summary, uniq, installSpy } from './_route.mjs';
 import { STANDARD } from './_fixture_availability.mjs';
-import { publicErrorCode, ERROR_CODES, parseListInput } from '../api/_owner-notifications.js';
+import { publicErrorCode, ERROR_CODES, parseListInput, sbPage, parseContentRange, READ_TIMEOUT_MS } from '../api/_owner-notifications.js';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -31,9 +31,10 @@ const dayP = (n) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); re
 
 // ---- fixtures ----
 const mkRetailer = async (tag, name, tz) => { const slug = uniq(tag); return { slug, id: track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug, name, verification_status: 'approved', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: tz }) })).id) }; };
-const A = await mkRetailer('ona', 'Notify Owner Market <b>A</b>', LA), B = await mkRetailer('onb', 'Notify Owner Market B', NY);
+const A = await mkRetailer('ona', 'Notify Owner Market <b>A</b>', LA), B = await mkRetailer('onb', 'Notify Owner Market B', NY), C = await mkRetailer('onc', 'Notify Owner Market C', LA);
 const vA = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: A.id, name: 'A Main', address: '1 A St', demo_fee: 30, availability: STANDARD }) })).id);
 const vB = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: B.id, name: 'B Main', address: '1 B St', demo_fee: 30, availability: STANDARD }) })).id);
+const vC = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: C.id, name: 'C Main', address: '1 C St', demo_fee: 30, availability: STANDARD }) })).id);
 const cA1 = track('internal_contacts', one(await db('internal_contacts', { method: 'POST', body: JSON.stringify({ retailer_id: A.id, name: 'Contact "One" <script>x</script>', role: 'Lead', email: `c1-${RUN}@fixture.test`, venue_ids: [vA], notification_prefs: { on_confirmed: true, reminders: ['d3'] } }) })).id);
 const cA2 = track('internal_contacts', one(await db('internal_contacts', { method: 'POST', body: JSON.stringify({ retailer_id: A.id, name: 'Contact Two', role: 'Lead', email: `c2-${RUN}@fixture.test`, venue_ids: [vA], notification_prefs: { on_confirmed: true, reminders: ['d3'] } }) })).id);
 const brandEmail = `${uniq('onbrand')}@fixture.test`;
@@ -43,6 +44,9 @@ const bkA = await mkBooking(A, vA, dayP(10));        // the main booking: two co
 const bkB = await mkBooking(B, vB, dayP(5));         // second store, for the filter
 const bkEmpty = await mkBooking(A, vA, dayP(40));    // confirmed, beyond lookahead: no rows at all
 const bkBig = await mkBooking(A, vA, dayP(20));      // 1,050 pending rows for pagination
+const bkOld = await mkBooking(C, vC, dayP(25));      // Codex C-3 (store C, so stores A/B keep their asserted counts): 520 earlier-revision rows due BEFORE a few current rows
+const bkEv = await mkBooking(C, vC, dayP(26));       // Codex C-3: more events than the 100-row event cap
+await db(`bookings?id=in.(${bkOld},${bkEv})`, { method: 'PATCH', body: JSON.stringify({ schedule_revision: 1 }) });
 await db(`bookings?id=eq.${bkA}`, { method: 'PATCH', body: JSON.stringify({ schedule_revision: 1 }) });
 const revA = one(await db(`bookings?id=eq.${bkA}&select=schedule_revision`)).schedule_revision;
 ok('fixture: booking A is at schedule revision 1', revA === 1, String(revA));
@@ -87,6 +91,18 @@ await db(`notification_deliveries?booking_id=eq.${bkA}&status=eq.unknown`, { met
 // 1,050 pending rows on bkBig, all due in 15 days, so the scheduled list for store A crosses the 1000-row default
 const big = Array.from({ length: 1050 }, (_, i) => del({ booking_id: bkBig, occurrence_key: `${bkBig}:0`, offset_key: 'd5', due_at: new Date(Date.now() + 15 * 864e5 + i * 1000).toISOString() }));
 for (let i = 0; i < big.length; i += 350) { const r = await db('notification_deliveries', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(big.slice(i, i + 350)) }); if (!r.ok) ok('fixture: bulk insert chunk', false, JSON.stringify(r.body)); }
+// bkOld: 520 skipped rows of revision 0 due days 1..3 (sorted first by due_at), then the current revision: 2 pending, 1 failed, 1 unknown
+const oldRows = Array.from({ length: 520 }, (_, i) => del({ retailer_id: C.id, booking_id: bkOld, occurrence_key: `${bkOld}:0`, offset_key: 'd3', status: 'skipped', skip_reason: 'rescheduled', due_at: new Date(Date.now() + 1 * 864e5 + i * 1000).toISOString() }));
+const curRows = [
+  del({ retailer_id: C.id, booking_id: bkOld, occurrence_key: `${bkOld}:1`, offset_key: 'w1', due_at: days(18) }),
+  del({ retailer_id: C.id, booking_id: bkOld, occurrence_key: `${bkOld}:1`, offset_key: 'd3', due_at: days(22) }),
+  del({ retailer_id: C.id, booking_id: bkOld, occurrence_key: `${bkOld}:1`, kind: 'demo_rescheduled', offset_key: null, status: 'failed', due_at: days(20), attempts: 5, next_attempt_at: null, last_error: 'max_attempts: x' }),
+  del({ retailer_id: C.id, booking_id: bkOld, occurrence_key: `${bkOld}:1`, kind: 'demo_rescheduled', offset_key: null, status: 'unknown', due_at: days(21), recipient_id: cA2, recipient_email: `c2-${RUN}@fixture.test`, attempts: 2, last_error: 'mail_ack_unverified: y' }),
+];
+for (let i = 0; i < oldRows.length; i += 350) { const r = await db('notification_deliveries', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(oldRows.slice(i, i + 350)) }); if (!r.ok) ok('fixture: bkOld bulk insert', false, JSON.stringify(r.body)); }
+{ const r = await db('notification_deliveries', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(curRows) }); if (!r.ok) ok('fixture: bkOld current rows', false, JSON.stringify(r.body)); }
+// bkEv: the trigger wrote demo_confirmed; add 110 demo_rescheduled events (distinct transition ids)
+{ const evs = Array.from({ length: 110 }, (_, i) => ({ retailer_id: C.id, booking_id: bkEv, brand_id: brandId, kind: 'demo_rescheduled', transition_id: `${bkEv}:rescheduled:${i + 1}`, fanned_out_at: null, payload: {} })); const r = await db('notification_events', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(evs) }); if (!r.ok) ok('fixture: bkEv events', false, JSON.stringify(r.body)); }
 const hb = one(await db('cron_heartbeat', { method: 'POST', body: JSON.stringify({ cron_name: 'notification-worker', ran_at: new Date().toISOString(), duration_ms: 120, outcome: 'succeeded', summary: { claimed: 3, accepted: 3, skipped: 0, failed: 0, unknown: 0, note: 'FREE TEXT MUST NOT LEAK' } }) }));
 if (hb) track('cron_heartbeat', hb.id);
 
@@ -190,6 +206,51 @@ try {
   const bigv = (await owner('owner-booking-notifications', { booking_id: bkBig })).body;
   ok('a booking with 1,050 rows: capped at 500 with total and complete=false', bigv.deliveries.length === 500 && bigv.deliveries_total === 1050 && bigv.deliveries_complete === false);
 
+  console.log('\n— C-3: the summary is exact even when the capped list holds only earlier-revision rows —');
+  {
+    const v = (await owner('owner-booking-notifications', { booking_id: bkOld })).body;
+    ok('detail list: capped at 500 of 524, complete=false, and every loaded row is an EARLIER revision', v.deliveries.length === 500 && v.deliveries_total === 524 && v.deliveries_complete === false && v.deliveries.every(r => r.current_occurrence === false), JSON.stringify([v.deliveries.length, v.deliveries_total, v.deliveries_complete]));
+    const s = v.summary;
+    ok('summary (exact counts): 2 scheduled, 1 failed, 1 unknown, 0 skipped for the CURRENT revision; 520 earlier rows', s.scheduled === 2 && s.failed === 1 && s.unknown === 1 && s.skipped === 0 && s.earlier_occurrence_rows === 520, JSON.stringify(s));
+    ok('summary: 2 reminder times / 2 reminder emails scheduled, from the current occurrence\'s own rows', s.reminder_times_scheduled === 2 && s.reminder_emails_scheduled === 2 && s.reminder_emails_total === 2);
+    ok('summary_complete is true (the current occurrence has 4 rows, all loaded)', s.summary_complete === true && s.current_rows_loaded === 4 && s.current_rows_total === 4);
+    ok('the panel cannot claim "no current reminders or failures" from the first page', !(s.scheduled === 0 && s.failed === 0 && s.unknown === 0));
+    const e = (await owner('owner-booking-notifications', { booking_id: bkEv })).body;
+    ok('events over the cap: 100 of 111 returned, events_complete=false', e.events.length === 100 && e.events_complete === false, JSON.stringify([e.events.length, e.events_complete]));
+    // summary incomplete: force the current occurrence itself over the cap by pointing 520 rows at revision 1
+    await db(`notification_deliveries?booking_id=eq.${bkOld}&occurrence_key=eq.${encodeURIComponent(bkOld + ':0')}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ occurrence_key: `${bkOld}:1` }) });
+    const w = (await owner('owner-booking-notifications', { booking_id: bkOld })).body;
+    ok('when the current occurrence exceeds the cap: summary_complete=false with loaded/total stated; exact counts still exact (520 skipped, 2 scheduled)', w.summary.summary_complete === false && w.summary.current_rows_loaded === 500 && w.summary.current_rows_total === 524 && w.summary.skipped === 520 && w.summary.scheduled === 2 && w.summary.failed === 1, JSON.stringify(w.summary));
+  }
+
+  console.log('\n— C-4: strict page parsing, bounded reads, sanitised logs —');
+  {
+    const realFetch = globalThis.fetch;
+    const fake = (status, body, range) => async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...(range ? { 'content-range': range } : {}) } });
+    const b = { supabaseUrl: 'https://x.test', serviceKey: 'k' };
+    const code = async (fn) => { globalThis.fetch = fn; try { await sbPage(b, 'notification_deliveries?select=id', 0, 10); return 'ok'; } catch (e) { return e.code; } finally { globalThis.fetch = realFetch; } };
+    ok('200 with a non-array body → db_bad_body (not an empty page)', (await code(fake(200, { message: 'nope' }, '0-0/1'))) === 'db_bad_body');
+    ok('200 with an array but no Content-Range → db_no_count', (await code(fake(200, [{ id: 1 }]))) === 'db_no_count');
+    ok('200 whose Content-Range disagrees with the rows (0-4/9 but 1 row) → db_bad_range', (await code(fake(200, [{ id: 1 }], '0-4/9'))) === 'db_bad_range');
+    ok('200 empty array claiming a row range → db_bad_range', (await code(fake(200, [], '0-0/5'))) === 'db_bad_range');
+    ok('416 with */total → valid empty, complete page', JSON.stringify(await (async () => { globalThis.fetch = fake(416, { message: 'range' }, '*/7'); try { return await sbPage(b, 'x', 20, 10); } finally { globalThis.fetch = realFetch; } })()) === JSON.stringify({ rows: [], total: 7, complete: true }));
+    ok('200 empty array with */total at an offset past the end → valid empty, complete page', JSON.stringify(await (async () => { globalThis.fetch = fake(200, [], '*/7'); try { return await sbPage(b, 'x', 20, 10); } finally { globalThis.fetch = realFetch; } })()) === JSON.stringify({ rows: [], total: 7, complete: true }));
+    ok('a consistent page parses (0-1/5, 2 rows, incomplete)', JSON.stringify(await (async () => { globalThis.fetch = fake(200, [{ id: 1 }, { id: 2 }], '0-1/5'); try { return await sbPage(b, 'x', 0, 2); } finally { globalThis.fetch = realFetch; } })()) === JSON.stringify({ rows: [{ id: 1 }, { id: 2 }], total: 5, complete: false }));
+    ok('parseContentRange rejects garbage', parseContentRange('abc') === null && parseContentRange('0-1') === null && parseContentRange('') === null && JSON.stringify(parseContentRange('*/3')) === JSON.stringify({ from: null, to: null, total: 3 }));
+    ok('a timed-out read maps to db_timeout', (await code(async () => { const e = new Error('t'); e.name = 'TimeoutError'; throw e; })) === 'db_timeout');
+    ok('a dropped connection maps to db_unreachable', (await code(async () => { throw new Error('ECONNRESET'); })) === 'db_unreachable');
+    ok('reads carry a 12 s deadline constant', READ_TIMEOUT_MS === 12000);
+    // through the route: a malformed 200 is a 503, and an error body with secret markers reaches no log or reply
+    const logged = []; const realErr = console.error; console.error = (...a) => logged.push(a.map(String).join(' '));
+    try {
+      const MARK = 'SECRET-MARKER-' + RUN;
+      spy.faults.push({ url: '/rest/v1/notification_deliveries?select=', status: 500, message: 'boom ' + MARK + ' key=sk_live_' + MARK, once: true });
+      const r1 = await owner('owner-notifications', { list: 'scheduled', retailer_id: A.id });
+      ok('route: provider error with secret markers → 503, marker in no reply', r1.statusCode === 503 && !JSON.stringify(r1.body).includes(MARK));
+      ok('route: the log line is structured (event, action, code, status) and carries no marker', logged.length === 1 && /"event":"owner_notifications_read_failed"/.test(logged[0]) && /"code":"db_read_failed"/.test(logged[0]) && /"status":500/.test(logged[0]) && !logged[0].includes(MARK), JSON.stringify(logged));
+    } finally { console.error = realErr; }
+  }
+
   console.log('\n— failures: required read → 503 retry; enrichment read → partial, rows kept —');
   spy.faults.push({ url: '/rest/v1/notification_deliveries?select=', status: 500, message: 'injected', once: true });
   const f1 = await owner('owner-notifications', { list: 'scheduled', retailer_id: A.id });
@@ -211,9 +272,9 @@ try {
   ok('every mapped value is in ERROR_CODES', ['mail_send_failed: x', 'mail_provider_unreachable', 'mail_ack_unverified: y', 'mail_provider_not_configured', 'idempotency_window_expired: z', 'review_required', 'max_attempts: q', 'recipient_changed', 'settings_read_malformed', 'send_failed', 'something new and raw', 'DROP TABLE'].every(e => ERROR_CODES.includes(publicErrorCode(e))));
   ok('empty error → null; unknown text → other', publicErrorCode('') === null && publicErrorCode('weird: {"json":true}') === 'other');
 } finally {
-  await db(`notification_deliveries?booking_id=in.(${[bkA, bkB, bkEmpty, bkBig].join(',')})`, { method: 'DELETE' });
-  await db(`notification_events?booking_id=in.(${[bkA, bkB, bkEmpty, bkBig].join(',')})`, { method: 'DELETE' });
-  await db(`admin_sessions?retailer_id=in.(${A.id},${B.id})`, { method: 'DELETE' });
+  await db(`notification_deliveries?booking_id=in.(${[bkA, bkB, bkEmpty, bkBig, bkOld, bkEv].join(',')})`, { method: 'DELETE' });
+  await db(`notification_events?booking_id=in.(${[bkA, bkB, bkEmpty, bkBig, bkOld, bkEv].join(',')})`, { method: 'DELETE' });
+  await db(`admin_sessions?retailer_id=in.(${A.id},${B.id},${C.id})`, { method: 'DELETE' });
   await db(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
   await db(`brand_account_tokens?brand_id=eq.${brandId}`, { method: 'DELETE' });
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });

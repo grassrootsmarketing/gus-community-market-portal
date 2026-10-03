@@ -52,9 +52,12 @@ const summary = { ok: true, retailer_id: null, window: window14, counts: { sched
 const bookingView = { ok: true, booking: { id: base.booking_id, status: 'confirmed', demo_date: '2026-10-10', demo_time: '11:00 AM', timezone: 'America/Los_Angeles', schedule_revision: 1, brand: 'Brand <i>X</i>', retailer_id: 'r-a', retailer: HOSTILE_STORE, retailer_slug: 'a', venue: 'A Main', created_at: T },
   events: [{ id: 'e-1', kind: 'demo_confirmed', created_at: T, fanned_out_at: T }], events_complete: true,
   deliveries: [...rows.scheduled, ...rows.accepted], deliveries_total: 5, deliveries_complete: true,
-  summary: { current_occurrence: base.occurrence_key, schedule_revision: 1, reminder_times_scheduled: 3, reminder_emails_scheduled: 3, reminder_times_total: 3, reminder_emails_total: 3, accepted_by_provider: 1, failed: 0, unknown: 0, in_progress: 0, scheduled: 3, skipped: 1, skipped_reasons: { opted_out: 1 }, earlier_occurrence_rows: 1 },
+  summary: { current_occurrence: base.occurrence_key, schedule_revision: 1, reminder_times_scheduled: 3, reminder_emails_scheduled: 3, reminder_times_total: 3, reminder_emails_total: 3, accepted_by_provider: 1, failed: 0, unknown: 0, in_progress: 0, scheduled: 3, skipped: 1, skipped_reasons: { opted_out: 1 }, earlier_occurrence_rows: 1, summary_complete: true, current_rows_loaded: 5, current_rows_total: 5 },
   worker, lookahead_days: 31, partial: [] };
-const state = { fail: false, partial: [], big: false };
+// Codex C-3: the same booking when the detail list, the event list AND the current occurrence are all over their caps.
+const truncatedView = { ...bookingView, events_complete: false, deliveries_total: 700, deliveries_complete: false,
+  summary: { ...bookingView.summary, scheduled: 2, failed: 1, unknown: 1, reminder_times_scheduled: 2, reminder_emails_scheduled: 2, reminder_emails_total: 2, summary_complete: false, current_rows_loaded: 500, current_rows_total: 524, earlier_occurrence_rows: 176 } };
+const state = { fail: false, partial: [], big: false, truncated: false };
 
 const browser = await chromium.launch();
 try {
@@ -73,7 +76,7 @@ try {
       const big = state.big && body.list === 'scheduled';
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, list: body.list, retailer_id: body.retailer_id || null, window: window14, offset: body.offset || 0, limit: body.limit || 100, total: big ? 250 : list.length, complete: big ? (body.offset || 0) + 100 >= 250 : true, partial: state.partial, rows: list }) });
     }
-    if (a === 'owner-booking-notifications') { calls.push(a); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(bookingView) }); }
+    if (a === 'owner-booking-notifications') { calls.push(a); return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.truncated ? truncatedView : bookingView) }); }
     return route.continue();
   });
   await page.goto(`${BASE}/owner`, { waitUntil: 'networkidle' });
@@ -121,11 +124,24 @@ try {
   const bt = await page.evaluate(() => document.getElementById('onotifBooking').innerText);
   ok('facts: demo line with store zone label, booking status and revision', /Brand <i>X<\/i> at Market <b>Bold<\/b> & Sons, A Main/.test(bt) && /\(PDT\)/.test(bt) && /confirmed · schedule revision 1/.test(bt), bt.slice(0, 300));
   ok('events listed with fan-out state', /Demo confirmed .*\(fanned out\)/.test(bt));
-  ok('reminders stated two ways: times and recipient emails', /3 reminder times, 3 recipient emails scheduled/.test(bt));
+  ok('reminders stated two ways: times (exact) and recipient emails (exact count)', /3 reminder times \(exact\), 3 recipient emails scheduled \(exact count\)/.test(bt), bt.slice(0, 400));
   ok('outcomes line includes skipped reasons and earlier schedules', /1 accepted by provider · 3 scheduled/.test(bt) && /1 skipped \(1 opted out\)/.test(bt) && /1 row belongs to an earlier schedule revision/.test(bt));
   ok('no injected element in the booking view', (await page.$$('#onotifBooking img, #onotifBooking script, #onotifBooking b, #onotifBooking i')).length === 0 && (await page.evaluate(() => window.__xss)) === undefined);
   await page.click('[data-notif-back]');
   ok('Close empties the booking view', (await page.evaluate(() => document.getElementById('onotifBooking').innerHTML)) === '');
+  ok('complete booking view shows no incompleteness labels', !/among loaded rows|incomplete|capped/.test(bt));
+
+  console.log('\n— C-3: truncated booking data is labelled, never exact-looking —');
+  state.truncated = true;
+  await page.click('[data-notif-booking]'); await page.waitForFunction(() => /Detail list is capped/.test((document.getElementById('onotifBooking') || {}).innerText || ''), null, { timeout: 10000 });
+  const tt = await page.evaluate(() => document.getElementById('onotifBooking').innerText);
+  ok('reminder times say "at least 2 ... (among loaded rows)" with the loaded/total note', /at least 2 reminder times \(among loaded rows\)/.test(tt) && /among loaded rows; incomplete: 500 of 524 current-schedule rows loaded/.test(tt), tt.slice(0, 600));
+  ok('recipient email count is marked as an exact count', /2 recipient emails scheduled \(exact count\)/.test(tt));
+  ok('outcomes line is headed as exact counts and shows the non-zero failures', /Outcomes, current schedule \(exact counts\)/.test(tt) && /1 failed · 1 unknown/.test(tt));
+  ok('event truncation is stated next to the event facts', /\(event list incomplete: more events exist than are shown\)/.test(tt) && tt.indexOf('event list incomplete') < tt.indexOf('Reminders, current schedule'));
+  ok('the detail-list cap note sits ABOVE the table and says the counts cover all rows', /Detail list is capped: showing the first 5 of 700 rows/.test(tt) && tt.indexOf('Detail list is capped') < tt.indexOf('WHEN (STORE TIME)'));
+  ok('no "no notification rows" claim while rows exist beyond the cap', !/No notification rows are recorded/.test(tt));
+  state.truncated = false; await page.click('[data-notif-back]');
 
   console.log('\n— failure: 503 renders the retry card, not an empty list —');
   state.fail = true;
