@@ -15,7 +15,7 @@ import { getBinding } from './_env.js';
 //                              compute a valid code hash for any email offline.
 // Now required, with a length floor. Missing or weak configuration means codes cannot be
 // issued or verified at all, which is the correct failure for an auth primitive.
-const MIN_PEPPER_LEN = 32;
+import { MIN_PEPPER_LEN } from './_signin-config.js';   // the one compatibility floor (Codex S-1)
 function requirePepper() {
   const p = process.env.VERIFY_PEPPER;
   if (!p || String(p).trim().length < MIN_PEPPER_LEN) {

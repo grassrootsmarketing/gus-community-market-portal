@@ -12,6 +12,7 @@ import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
 import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
+import { signinConfigStatus, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 let _b = null;
 
 function rest(path, opts = {}) {
@@ -63,9 +64,9 @@ export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
 }
 
 async function sendCode(email, code) {
-  if (!_b.resendApiKey) return;
-  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
+  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
     html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
+  logSigninMailFailure('retailer-signup', sent);
 }
 
 // ---- Spam control (2026-09-30, atomic per Codex RA-1) ----
@@ -134,6 +135,8 @@ export default async function handler(req, res) {
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
+  // Codex S-1: configuration failure is a 503 for everyone, before budgets and lookups.
+  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('retailer-signup', cfg); return res.status(503).json(SIGNIN_UNAVAILABLE); } }
 
   if (action === 'request') {
     // Spam control: at most SIGNUP_LIMITS.requestsPerIpPerHour code requests per network (429), and at most

@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { createChallenge, hashCode } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { signinConfigStatus, SIGNIN_UNAVAILABLE, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
@@ -107,15 +108,16 @@ function verificationCodeEmail(code) {
 <div style="font-size:13px;color:#6b6a64;margin-bottom:12px;">Your verification code</div>
 <div style="font-size:38px;font-weight:800;letter-spacing:0.18em;color:#0f2c17;font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;margin-bottom:14px;">${code}</div>
 <div style="font-size:13px;color:#6b6a64;">This code expires in 30 minutes.</div>
-<p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email &mdash; no action will be taken.</p>
+<p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email. No action will be taken.</p>
 </td></tr>
 <tr><td style="padding:16px 36px;background:#faf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:11px;color:#9a978f;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307</td></tr>
 </table></body></html>`;
 }
 
 async function sendCode(email, code) {
-  if (!_b.resendApiKey) return;
-  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
+  // The provider's refusal is observed (reason code only), never shown to the caller: the reply stays generic.
+  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
+  logSigninMailFailure('brand-signup', sent);
 }
 
 const GENERIC_REQUEST_REPLY = 'If that email can receive mail, a code is on its way.';
@@ -159,6 +161,9 @@ export default async function handler(req, res) {
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
+  // Codex S-1: a globally misconfigured sign-in says so (503, identical for every address) BEFORE any quota is
+  // debited or any account looked up. Never the generic "code is on its way" for our own configuration failure.
+  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('brand-signup', cfg); return res.status(503).json(SIGNIN_UNAVAILABLE); } }
 
   // Cross-role guard: one email = one role. An address already registered as a RETAILER cannot
   // also become a brand. This restores the check orphaned when brand signup moved off the

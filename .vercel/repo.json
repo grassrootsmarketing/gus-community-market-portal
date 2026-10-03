@@ -1,0 +1,11 @@
+{
+  "remoteName": "origin",
+  "projects": [
+    {
+      "id": "prj_hkpdTJMAwBQu01nOm599KBsyFh1N",
+      "name": "demohub",
+      "directory": ".",
+      "orgId": "team_ywOxgwwpadytV2yDbtWj9YeH"
+    }
+  ]
+}

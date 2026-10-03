@@ -147,6 +147,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="check">&#9993;</div>
     <h2>Check your email</h2>
     <p>We sent a 6-digit code to <strong id="sentEmail"></strong>.</p>
+    <p style="font-size:0.85rem; color:var(--ink-500);">Delivery can take a few minutes. Check spam. You can request another code after the countdown. Request limits apply.</p>
     <p style="margin-top:10px;font-size:0.9rem;">Enter it below to finish signing in. Expires in 30 minutes.</p>
     <div style="margin-top:16px;">
       <input id="brandCodeInput" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="6"
@@ -266,7 +267,7 @@ async function submit(action, data, btn, btnText) {
         btn.disabled = false; btn.textContent = btnText;
         return;
       }
-      throw new Error(json.error || ('HTTP ' + r.status));
+      throw new Error(json.message || json.error || ('HTTP ' + r.status));
     }
     document.getElementById('formCard').style.display = 'none';
     document.getElementById('successCard').style.display = 'block';

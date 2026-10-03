@@ -330,9 +330,9 @@ export function holdPlacedEmailHtml(ctx, binding, amountCents) {
   const amountStr = amountCents != null ? '$' + (Number(amountCents) / 100).toFixed(2) : null;
   const deadline = deadlineLabelOf(ctx.held_expires_at);
   return shell(
-    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Slot held &mdash; action needed</div>' +
+    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Slot held: action needed</div>' +
     `<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Your demo slot is held${ctx.contact_name ? ', ' + H(ctx.contact_name) : ''}.</h1>` +
-    `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">We placed a hold on your card${amountStr ? ' for <strong>' + amountStr + '</strong>' : ''} &mdash; <strong>you have not been charged</strong>. Your slot at <strong>${H((ctx.retailers && ctx.retailers.name) || 'the store')}</strong> is reserved while we verify your Certificate of Insurance.</p>` +
+    `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 20px;">We placed a hold on your card${amountStr ? ' for <strong>' + amountStr + '</strong>' : ''}. <strong>You have not been charged</strong>. Your slot at <strong>${H((ctx.retailers && ctx.retailers.name) || 'the store')}</strong> is reserved while we verify your Certificate of Insurance.</p>` +
     detailsTable([
       ['Brand', ctx.brand_name],
       ['Store', ctx.venues && ctx.venues.name],
@@ -352,9 +352,9 @@ export function holdReleasedEmailHtml(ctx, binding, { bumped = false } = {}) {
     ? 'A brand with an approved Certificate of Insurance booked this slot, which takes priority over a provisional hold.'
     : 'We didn’t receive an approved Certificate of Insurance within the 24-hour window.';
   return shell(
-    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Hold released &mdash; you were not charged</div>' +
+    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Hold released: you were not charged</div>' +
     `<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">${H(headline)}</h1>` +
-    `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">${why} The hold on your card has been released &mdash; <strong>no charge was made</strong>. Holds can take a few business days to drop off your statement depending on your bank.</p>` +
+    `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">${why} The hold on your card has been released. <strong>No charge was made</strong>. Holds can take a few business days to drop off your statement depending on your bank.</p>` +
     detailsTable([
       ['Brand', ctx.brand_name],
       ['Store', ctx.venues && ctx.venues.name],

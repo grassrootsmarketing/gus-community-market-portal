@@ -5,6 +5,7 @@
 //     payload for the public booking page. Server-side, uses SERVICE key, returns
 //     ONLY safe public fields (no PII, no contacts, no compliance docs).
 
+import { signinConfigStatus } from './_signin-config.js';
 import { getBinding, sendBindingFailure, BindingError } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { publicAvailability } from './_slots.js';
@@ -159,7 +160,9 @@ export default async function handler(req, res) {
       // Status: incident=major → outage, incident=minor → degraded, no incidents + checks ok → operational
       const hasMajor = incidents.some(i => i.severity === 'major');
       const hasMinor = incidents.length > 0;
-      const allChecksOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50;
+      // Codex S-1: sign-in configuration readiness (coarse: ok or not; reasons stay in the server log).
+      const signin = signinConfigStatus(_b);
+      const allChecksOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50 && signin.ok;
       let status = 'operational';
       if (hasMajor) status = 'outage';
       else if (hasMinor || !allChecksOk) status = 'degraded';
@@ -175,6 +178,7 @@ export default async function handler(req, res) {
         db: { ok: !!checks.db.ok },
         cron: { ok: !!checks.cron.ok, jobs: publicJobs },
         errors: { ok: (checks.errors.last_24h || 0) < 50 },
+        signin: { ok: !!signin.ok },
       };
       const publicIncidents = incidents.map(i => ({ title: i.title, severity: i.severity, started_at: i.started_at }));
       return res.status(200).json({ ok: true, status, checks: publicChecks, incidents: publicIncidents, checked_at: new Date().toISOString() });

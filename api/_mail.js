@@ -88,7 +88,7 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
       `<div style="background:#fff3cd;border:1px solid #ffe08a;padding:12px 14px;margin-bottom:16px;` +
       `font:13px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#5c4400;">` +
       `<strong>Non-production email.</strong> Intended recipient: ` +
-      `${plan.intended.map(a => a.replace(/[<>&]/g, '')).join(', ')} — redirected here because that ` +
+      `${plan.intended.map(a => a.replace(/[<>&]/g, '')).join(', ')}. Redirected here because that ` +
       `address is not on this environment's allowlist.</div>`;
     finalHtml = banner + (html || '');
   }

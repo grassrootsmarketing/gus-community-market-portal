@@ -234,9 +234,9 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <p style="margin:0 0 8px;">Two things to do now so your next booking pre-fills cleanly:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">
 <li style="margin-bottom:6px;"><strong>Upload your Certificate of Insurance.</strong> It attaches automatically to every demo you book at every Demohub retailer. (Profile &rarr; Compliance &rarr; upload.)</li>
-<li style="margin-bottom:6px;"><strong>Fill in the rest of your profile</strong> &mdash; phone, website, product categories, and what you typically demo. (Profile &rarr; Contact + Product.)</li>
+<li style="margin-bottom:6px;"><strong>Fill in the rest of your profile</strong>: phone, website, product categories, and what you typically demo. (Profile &rarr; Contact + Product.)</li>
 </ol>
-<p style="margin:0 0 14px;">Once that's done, when you visit a Demohub retailer's booking page &mdash; like <a href="${ex}" style="color:#2a5b32;">${ex}</a> &mdash; your info pre-fills. Hit submit and you're done.</p>
+<p style="margin:0 0 14px;">Once that's done, when you visit a Demohub retailer's booking page, like <a href="${ex}" style="color:#2a5b32;">${ex}</a>, your info pre-fills. Hit submit and you're done.</p>
 <p style="margin:0 0 14px;">If you have a Demohub retailer you already work with, send them your way and they can confirm your next demo in two clicks.</p>
 <p style="margin:0 0 14px;">Free forever for brands. Always.</p>
 <p style="margin:0 0 4px;">Welcome,<br>David<br>Demohub</p>
@@ -264,12 +264,12 @@ function retailerDay3Email({ first_name }) {
 <p style="margin:0 0 14px;">It's been a few days since you joined Demohub. Wanted to check in.</p>
 <p style="margin:0 0 8px;">A couple of things I see most retailers ask in the first week:</p>
 <ul style="margin:0 0 18px;padding-left:22px;">
-<li style="margin-bottom:8px;"><strong>"How do I price demos?"</strong> Most start at $30 per slot. You'll see it round to $3 per demo on your Demohub bill &mdash; and you can change it any time, per store.</li>
-<li style="margin-bottom:8px;"><strong>"Can I share my booking link on Instagram?"</strong> Yep. Drop the link in your bio or a story &mdash; brands can submit a request without ever calling you.</li>
+<li style="margin-bottom:8px;"><strong>"How do I price demos?"</strong> Most start at $30 per slot. You'll see it round to $3 per demo on your Demohub bill, and you can change it any time, per store.</li>
+<li style="margin-bottom:8px;"><strong>"Can I share my booking link on Instagram?"</strong> Yep. Drop the link in your bio or a story. Brands can submit a request without ever calling you.</li>
 <li style="margin-bottom:8px;"><strong>"How does the calendar sync work?"</strong> Copy the iCal URL from Settings &rarr; Calendar feed and paste it into Google Calendar, Apple Calendar, or Outlook.</li>
 </ul>
 <p style="margin:0 0 14px;">If you want a 20-minute walkthrough where I show you how to set up venues, manage team access, and review your first booking, grab a slot here: <a href="https://calendly.com/demohubhq/walkthrough" style="color:#2a5b32;">calendly.com/demohubhq/walkthrough</a></p>
-<p style="margin:0 0 14px;">Or just hit reply &mdash; happy to help by email too.</p>
+<p style="margin:0 0 14px;">Or just hit reply. Happy to help by email too.</p>
 <p style="margin:0 0 4px;">Talk soon,<br>David<br>Demohub</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
@@ -294,15 +294,15 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 </td></tr>
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
-<p style="margin:0 0 14px;">Your first Demohub demo is confirmed &mdash; <strong>${rn}</strong> on <strong>${dd}</strong>. Congrats. That's one slot you didn't have to chase down by email.</p>
+<p style="margin:0 0 14px;">Your first Demohub demo is confirmed: <strong>${rn}</strong> on <strong>${dd}</strong>. Congrats. That's one slot you didn't have to chase down by email.</p>
 <p style="margin:0 0 8px;">A few quick wins now that you're live:</p>
 <ul style="margin:0 0 18px;padding-left:22px;">
 <li style="margin-bottom:8px;"><strong>Round out your product categories</strong> so retailers searching for what you make can find you.</li>
-<li style="margin-bottom:8px;"><strong>Check your COI expiration date</strong> is current &mdash; if it's within 90 days, retailers will flag the booking.</li>
+<li style="margin-bottom:8px;"><strong>Check your COI expiration date</strong> is current. If it's within 90 days, retailers will flag the booking.</li>
 <li style="margin-bottom:8px;"><strong>Sync your demos to your own calendar.</strong> Profile &rarr; Account &rarr; calendar URL.</li>
 </ul>
 <p style="margin:0 0 14px;">Want to see every Demohub retailer in one place? It's right at the top of your dashboard. Book a second demo while you're there.</p>
-<p style="margin:0 0 14px;">Reply to this email with how the demo went &mdash; we love hearing how things land at the floor.</p>
+<p style="margin:0 0 14px;">Reply to this email with how the demo went. We love hearing how things land at the floor.</p>
 <p style="margin:0 0 4px;">Cheers,<br>David<br>Demohub</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
@@ -778,7 +778,7 @@ export default async function handler(req, res) {
             ? `${escapeText(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeText(String(movedTo.date))}${movedTo.time ? ' at ' + escapeText(String(movedTo.time)) : ''}</strong>.`
             : `${escapeText(brandName)} declined the new date, so their demo stays on <strong>${escapeText(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeText(String(demo.demo_time)) : ''}</strong>.`;
           await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'david@demohubhq.com', subject,
-            html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">&mdash; Demohub</p></div>` }, { binding: _b });
+            html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">Demohub</p></div>` }, { binding: _b });
         } catch (_) {}
       }
       return jsonResp(res, 200, { ok: true, decision, moved_to: movedTo, schedule_revision: verdict.schedule_revision });

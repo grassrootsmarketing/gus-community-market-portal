@@ -120,8 +120,8 @@ function declinedEmail({ contact_name, brand_name, retailerName, venueName, date
 <h1 style="font-family:Georgia,serif;font-size:30px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Hi${contact_name ? ' ' + html(contact_name) : ''},</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Unfortunately ${html(retailerName)} can't host your demo for <strong>${html(brand_name)}</strong> on ${html(dateLabel)} at ${html(demo_time)} (${html(venueName)}).</p>
 ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ${html(reason)}</p>` : ''}
-${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed &mdash; typically within 5&ndash;10 business days.</p>` : refundStatus === 'auth_released' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your card was never charged.</strong> The temporary hold has been released &mdash; depending on your bank it can take a few business days to drop off your statement.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically &mdash; we're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date &mdash; just head back to <a href="${link(_b, '/r/gus')}" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
+${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed, typically within 5&ndash;10 business days.</p>` : refundStatus === 'auth_released' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your card was never charged.</strong> The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically. We're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date: just head back to <a href="${link(_b, '/r/gus')}" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
@@ -130,9 +130,9 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 
 function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
-    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed &mdash; typically within 5&ndash;10 business days.</p>'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed, typically within 5&ndash;10 business days.</p>'
     : refundStatus === 'auth_released'
-    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged &mdash; the temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged. The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
     : refundStatus === 'pending_manual'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
     : refundStatus === 'not_paid'
@@ -282,7 +282,7 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 <tr><td style="padding:12px 16px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#6b6a64;">From</td><td style="padding:12px 16px;text-align:right;color:#6b6a64;text-decoration:line-through;">${html(fromLabel)}</td></tr>
 <tr><td style="padding:12px 16px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#2a5b32;border-top:1px solid #ede3d0;">To</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-weight:700;border-top:1px solid #ede3d0;">${html(toLabel)}</td></tr>
 </table>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Your booking and payment stay exactly as they are &mdash; only the date changes if you accept.</p>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Your booking and payment stay exactly as they are. Only the date changes if you accept.</p>
 <a href="${link(_b, '/brand/dashboard')}" style="display:inline-block;background:#0f2c17;color:white;padding:13px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">Review and respond &rarr;</a>
 <p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:18px 0 0;">Accept or decline from your dashboard. Decline and the demo stays on its original date.</p>
 </td></tr>

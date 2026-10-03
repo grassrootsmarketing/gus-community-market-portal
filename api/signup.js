@@ -118,15 +118,15 @@ function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
 <p style="margin:0 0 14px;">Welcome to Demohub. Your admin is live and waiting for you here: <strong><a href="${au}" style="color:#2a5b32;">${au}</a></strong></p>
-<p style="margin:0 0 14px;">I built this for retailers like you &mdash; independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.</p>
+<p style="margin:0 0 14px;">I built this for retailers like you: independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.</p>
 <p style="margin:0 0 8px;">Four things to get you set up:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">
 <li style="margin-bottom:6px;"><strong>Set your hours and demo windows</strong> for each store, so brands can only book inside slots you actually staff. (Settings &rarr; Locations.)</li>
-<li style="margin-bottom:6px;"><strong>Add your team contacts</strong> &mdash; the manager, the floor lead, anyone who needs the demo schedule. (Settings &rarr; Team.)</li>
+<li style="margin-bottom:6px;"><strong>Add your team contacts</strong>: the manager, the floor lead, anyone who needs the demo schedule. (Settings &rarr; Team.)</li>
 <li style="margin-bottom:6px;"><strong>Sync your calendar</strong> so confirmed demos show up next to everything else on your week. (Settings &rarr; Calendar feed.)</li>
 <li style="margin-bottom:6px;"><strong>Share your booking link</strong> with the brands you already work with: <a href="${pu}" style="color:#2a5b32;">${pu}</a></li>
 </ol>
-<p style="margin:0 0 14px;">If you get stuck or want a walkthrough, just hit reply &mdash; I read every email myself. We'll be in touch in a few days to check in.</p>
+<p style="margin:0 0 14px;">If you get stuck or want a walkthrough, just hit reply. I read every email myself. We'll be in touch in a few days to check in.</p>
 <p style="margin:0 0 4px;">Welcome aboard,<br>David<br>Demohub</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>

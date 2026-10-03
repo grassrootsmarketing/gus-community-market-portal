@@ -552,7 +552,7 @@ export default async function handler(req, res) {
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed on</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${signedDate}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Valid through</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${expiresDate}</td></tr>
 </table>
-<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You can view this agreement (and all signed agreements with brands) in your admin under <strong>Brands</strong> &mdash; each brand shows an &ldquo;Agreement &check;&rdquo; pill once they&apos;ve signed.</p>
+<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You can view this agreement (and all signed agreements with brands) in your admin under <strong>Brands</strong>. Each brand shows an &ldquo;Agreement &check;&rdquo; pill once they&apos;ve signed.</p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">If you change your demo or cancellation policy text, this brand will be re-prompted to sign before their next booking.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>

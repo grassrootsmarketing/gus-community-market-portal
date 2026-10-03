@@ -92,13 +92,13 @@ export function demoDetailRows(ctx, { strikeOld = null } = {}) {
   }
   const loc = (ctx.venue && ctx.venue.name)
     ? `<strong>${H(ctx.venue.name)}</strong>${ctx.venue.address ? `<br><span style="color:#6b6a64;font-size:13px;">${H(ctx.venue.address)}</span>` : ''}`
-    : '&mdash;';
+    : 'not given';
   rows.push(['Location', loc]);
   rows.push(['Brand', `<strong>${H(ctx.brand_name)}</strong>`]);
-  rows.push(['Product', ctx.product ? H(ctx.product) : '&mdash;']);
+  rows.push(['Product', ctx.product ? H(ctx.product) : 'not given']);
   rows.push(['Needs electricity', electricityLabel(ctx.needs_electricity)]);
   const rep = [ctx.rep_name, ctx.rep_phone].filter(Boolean).map(H).join(' &middot; ');
-  rows.push(['Brand rep', rep || '&mdash;']);
+  rows.push(['Brand rep', rep || 'not given']);
   if (ctx.notes) rows.push(['Notes from the brand', `<span style="white-space:pre-wrap;">${H(ctx.notes)}</span>`]);
   return rows;
 }
@@ -142,11 +142,11 @@ export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, to
 // ---------------------------------------------------------------------------
 export function confirmedMessage(b, ctx) {
   return {
-    subject: `Demo confirmed: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `Demo confirmed: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo confirmed', tone: 'green',
       heading: `A demo is confirmed at ${H(venueName(ctx))}.`,
-      intro: `Make sure you've got enough product on hand &mdash; <strong>${H(ctx.brand_name)}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.`,
+      intro: `Make sure you've got enough product on hand: <strong>${H(ctx.brand_name)}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.`,
       rows: demoDetailRows(ctx), skus: ctx.skus,
     }),
   };
@@ -166,7 +166,7 @@ export function reminderPhrase(ctx, now) {
 export function reminderMessage(b, ctx, now = new Date()) {
   const { eyebrow, phrase } = reminderPhrase(ctx, now);
   return {
-    subject: `${eyebrow}: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `${eyebrow}: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow, tone: 'green',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} ${phrase}.`,
@@ -188,7 +188,7 @@ export function cancelReasonText(reason) {
 export function cancelledMessage(b, ctx, { reason } = {}) {
   reason = cancelReasonText(reason);
   return {
-    subject: `Demo cancelled: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `Demo cancelled: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo cancelled', tone: 'clay',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} on ${H(dayOf(ctx))} was cancelled.`,
@@ -203,7 +203,7 @@ export function rescheduledMessage(b, ctx, { from } = {}) {
   const hasFrom = !!(from && from.startAt);
   const wasLine = hasFrom ? `It was on <strong>${H(dayOfYear(ctx, from.startAt))}</strong> at ${H(timeLabel(from.startAt, ctx.tz))}; it` : 'It';
   return {
-    subject: `Demo rescheduled: ${ctx.brand_name} at ${venueName(ctx)} — now ${dayOf(ctx)}`,
+    subject: `Demo rescheduled: ${ctx.brand_name} at ${venueName(ctx)}, now ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo rescheduled', tone: 'clay',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} has moved.`,
@@ -230,12 +230,12 @@ export function coiApprovedMessage(b, { brand, verification }) {
   const expiryLabel = expiry ? dateLabel(String(expiry).slice(0, 10), { year: true }) : null;
   const note = verification && verification.brand_note ? String(verification.brand_note) : '';
   return {
-    subject: `Your Certificate of Insurance is approved${expiryLabel ? ` — valid through ${expiryLabel}` : ''}`,
+    subject: `Your Certificate of Insurance is approved${expiryLabel ? `, valid through ${expiryLabel}` : ''}`,
     html: shell({
       eyebrow: 'Certificate of Insurance approved', tone: 'green',
       heading: `Your certificate is approved${expiryLabel ? ` through ${H(expiryLabel)}` : ''}.`,
       intro: expiryLabel
-        ? `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong>. Coverage is recorded as expiring on <strong>${H(expiryLabel)}</strong> &mdash; you can book demos on any date up to then. We'll remind you before it lapses.`
+        ? `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong>. Coverage is recorded as expiring on <strong>${H(expiryLabel)}</strong>. You can book demos on any date up to then. We'll remind you before it lapses.`
         : `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong> and approved it.`,
       body: noteBlock(note),
       cta: { href: link(b, '/brand/dashboard#compliance'), label: 'View your compliance status' },

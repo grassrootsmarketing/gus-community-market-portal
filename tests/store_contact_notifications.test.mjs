@@ -212,7 +212,7 @@ try {
     confirmedSample = m;
     const startAt = demoStartUtc(D, T, LA);
     const dateStr = startAt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: LA });
-    ok('subject: Demo confirmed: <brand> at <location> — <Weekday, Month D>', subj(m) === `[SINK] Demo confirmed: Notify Brand Co at Notify Main — ${dateStr}`, subj(m));
+    ok('subject: Demo confirmed: <brand> at <location>, <Weekday, Month D> (no em dash, Codex S-5)', subj(m) === `[SINK] Demo confirmed: Notify Brand Co at Notify Main, ${dateStr}`, subj(m));
     const body = String(m.html);
     ok('body has the date with year', body.includes(startAt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: LA })));
     ok('body has the start–end time range with the zone abbreviation', /11:00\s?AM – 2:00\s?PM P[DS]T/.test(body), (body.match(/11:00[^<]{0,30}/) || [])[0]);
@@ -358,7 +358,7 @@ try {
     const s1 = demoStartUtc(D, T, LA), s2 = demoStartUtc(D2, T2, LA);
     const lbl = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: LA });
     ok('the notice shows the old and the new date/time', String(m.html).includes(lbl(s1)) && String(m.html).includes(lbl(s2)) && /2:00\s?PM/.test(String(m.html)) && /11:00\s?AM/.test(String(m.html)), redact(textOf(m.html)).slice(0, 400));
-    ok('subject names the NEW date', subj(m).includes(`— now ${s2.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: LA })}`), subj(m));
+    ok('subject names the NEW date', subj(m).includes(`, now ${s2.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: LA })}`), subj(m));
     const rem2 = await deliveries(`&occurrence_key=eq.${bookingId}:2&kind=eq.reminder`);
     const keyed2 = rem2.map(r => `${who(r.recipient_id)}:${r.offset_key}:${r.status}`).sort();
     ok('new reminders were scheduled for occurrence :2 (C1 d3/d1/morning_of, C2 h1, C6 d3, C8 h1), all pending', JSON.stringify(keyed2) === JSON.stringify(['C1:d1:pending', 'C1:d3:pending', 'C1:morning_of:pending', 'C2:h1:pending', 'C6:d3:pending', 'C8:h1:pending'].sort()), JSON.stringify(keyed2));

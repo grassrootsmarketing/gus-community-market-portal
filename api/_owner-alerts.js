@@ -96,12 +96,12 @@ export function describeOccurrence(ctx, { retailerTimezone = null, settingDurati
 export function holdInstructions(autoConfirm, expiryLabel) {
   const by = expiryLabel ? ` before ${expiryLabel}` : ' before the hold expires';
   if (autoConfirm === true) {
-    return `Card authorized — not charged. Review and approve a COI covering this demo date${by}. With auto-confirm enabled, approval triggers an attempt to capture the payment and confirm the booking; check the booking's status to verify it completed. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+    return `Card authorized, not charged. Review and approve a COI covering this demo date${by}. With auto-confirm enabled, approval triggers an attempt to capture the payment and confirm the booking; check the booking's status to verify it completed. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
   }
   if (autoConfirm === false) {
-    return `Card authorized — not charged. Review and approve a COI covering this demo date, then confirm the booking in the retailer admin${by}. Approving the COI alone does not capture the payment. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+    return `Card authorized, not charged. Review and approve a COI covering this demo date, then confirm the booking in the retailer admin${by}. Approving the COI alone does not capture the payment. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
   }
-  return `Card authorized — not charged. Review the COI${by}, then check the booking in the retailer admin to see whether its confirmation is still required. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+  return `Card authorized, not charged. Review the COI${by}, then check the booking in the retailer admin to see whether its confirmation is still required. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
 }
 
 // kind: 'paid' (captured; targetStatus pending = awaiting retailer confirmation, confirmed = auto-confirmed)
@@ -121,7 +121,7 @@ export function ownerBookedEmail(ctx, { kind, targetStatus, facts = {} }, bindin
     ? holdInstructions(typeof facts.autoConfirm === 'boolean' ? facts.autoConfirm : null, expiryLabel)
     : (targetStatus === 'confirmed'
         ? 'PAID and CONFIRMED' + (facts.autoConfirm === true ? ' (this retailer auto-confirms)' : ' by the retailer') + '. The demo is on the calendar.'
-        : 'PAID — awaiting the retailer\'s confirmation in their admin.');
+        : 'PAID, awaiting the retailer\'s confirmation in their admin.');
   const row = (k, v) => v ? '<tr><td style="padding:3px 14px 3px 0;color:#6b6a64;vertical-align:top;white-space:nowrap;">' + k + '</td><td style="padding:3px 0;">' + v + '</td></tr>' : '';
   const btn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;background:' + bg + ';color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;margin-right:8px;">' + label + '</a>';
   const subject = (kind === 'hold' ? 'Hold placed: ' : 'Booked: ') + brand + ' -> ' + retailerName + (venueName ? ' / ' + venueName : '') + ' | ' + (ctx.demo_date || '') + ' ' + (ctx.demo_time || '');

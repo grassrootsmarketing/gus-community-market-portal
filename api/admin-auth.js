@@ -252,7 +252,7 @@ function magicLinkEmail({ retailerName, link, code }) {
 <tr><td style="padding:0 36px 32px;text-align:center;">
 <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:14px 0 18px;">Or use the direct link below to sign in without entering the code:</p>
 <p style="margin:0 0 20px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;font-size:14px;">Sign in &rarr;</a></p>
-<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore this email &mdash; no action will be taken.</p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore this email. No action will be taken.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
 </table></body></html>`;
