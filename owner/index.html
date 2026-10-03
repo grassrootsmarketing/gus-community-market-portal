@@ -660,6 +660,7 @@ function renderDashboard(d) {
     <div class="owner-tabs">
       <button class="owner-tab active" data-tab="overview">Overview</button>
       <button class="owner-tab" data-tab="calendar">Calendar</button>
+      <button class="owner-tab" data-tab="notifications">Notifications</button>
       <button class="owner-tab" data-tab="retailers">Retailers</button>
       <button class="owner-tab" data-tab="brands">Brands</button>
       <button class="owner-tab" data-tab="analytics">Analytics</button>
@@ -678,6 +679,7 @@ function renderDashboard(d) {
       ${watchlistHtml}
     </div>
     <div class="tab-pane" data-pane="calendar" id="calendarPane"></div>
+    <div class="tab-pane" data-pane="notifications" id="notificationsPane"></div>
     <div class="tab-pane" data-pane="retailers" id="retailersPane"></div>
     <div class="tab-pane" data-pane="brands" id="brandsPane"></div>
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
@@ -766,7 +768,7 @@ async function resendLiveNotice(id, btn) {
 document.addEventListener('click', (e) => { const g = e.target.closest('[data-goto-tab]'); if (!g) return; const t = document.querySelector('.owner-tab[data-tab="' + g.dataset.gotoTab + '"]'); if (t) { t.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); } });
 
 const loadErr = (title, e, key, id) => '<div class="card"><h2>' + escapeHtml(title) + '</h2><div class="sub">' + (/unavailable/.test(e.message) ? 'The data could not be read just now, so nothing is shown rather than an empty list.' : escapeHtml(e.message)) + '</div><button class="btn-sm" data-retry="' + key + '"' + (id ? ' data-id="' + escapeHtml(id) + '"' : '') + '>Retry</button></div>';
-document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (!b) return; const k = b.dataset.retry; if (k === 'brands') { _brandsCache = null; renderBrandsTab(); } else if (k === 'retailers') { _retailersCache = null; renderRetailersTab(); } else if (k === 'brand') openBrandProfile(b.dataset.id); else if (k === 'retailer') openRetailerProfile(b.dataset.id); });
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (!b) return; const k = b.dataset.retry; if (k === 'notifications') { renderOwnerNotifications(); } else if (k === 'brands') { _brandsCache = null; renderBrandsTab(); } else if (k === 'retailers') { _retailersCache = null; renderRetailersTab(); } else if (k === 'brand') openBrandProfile(b.dataset.id); else if (k === 'retailer') openRetailerProfile(b.dataset.id); });
 
 async function renderRetailersTab(selectedId) {
   const pane = document.getElementById('retailersPane'); if (!pane) return;
@@ -895,6 +897,113 @@ function showOcalDetail(id) {
   el.innerHTML = '<div style="background:rgba(15,44,23,0.04); border-radius:10px; padding:12px 14px;"><strong>' + escapeHtml(b.brand || 'Unnamed brand') + '</strong> at <strong>' + escapeHtml(b.retailer) + '</strong>' + (b.venue ? ' · ' + escapeHtml(b.venue) : '') + '<div class="sub" style="margin:4px 0 0;">' + escapeHtml(fmtD(b.date)) + ' · ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' · ' + escapeHtml(String(b.hours)) + ' h' : '') + ' · status ' + escapeHtml(b.status) + ' · payment ' + escapeHtml(b.payment_status || 'none') + (b.product ? ' · ' + escapeHtml(b.product) : '') + (b.electricity ? ' · needs electricity' : '') + (b.retailer_slug ? ' · <a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">open in that retailer\'s admin</a>' : '') + '</div></div>';
 }
 
+// ---- Owner notifications (2026-10-03, Codex N-1): read-only view of the demo-notification outbox ----
+// Four bounded lists (scheduled, overdue, needs attention, accepted by provider), exact counts, worker health, and a
+// per-booking drill-down. Every time is shown in the STORE's timezone with a label; nothing is formatted in this
+// browser's zone. "Accepted by email provider" is the strongest claim made: there is no inbox evidence.
+const onotif = { retailer: '', days: 14, list: 'scheduled', offset: 0, retailers: null, booking: null };
+let onotifSeq = 0;
+const NOTIF_LIST_META = {
+  scheduled: { title: 'Scheduled', blurb: 'Emails the worker will send in the next {days} days (pending rows, due between now and then).' },
+  overdue:   { title: 'Overdue', blurb: 'Work the worker has not finished: due but still pending, claims whose lease expired, and failed sends that will be retried. Normally empty right after a worker run.' },
+  attention: { title: 'Needs attention', blurb: 'Terminal failures and unknown outcomes (the provider may or may not have accepted). Shown regardless of age; nothing here disappears because it got old.' },
+  accepted:  { title: 'Accepted by email provider', blurb: 'Emails the provider accepted in the last {days} days. Acceptance is not inbox delivery.' },
+};
+const OFFSET_LABELS = { w1: '1 week before', d14: '2 weeks before', d7: '1 week before', d3: '3 days before', d1: '1 day before', morning_of: 'Morning of', h1: '1 hour before' };
+const offsetWords = (k) => { if (!k) return ''; if (OFFSET_LABELS[k]) return OFFSET_LABELS[k]; const m = /^d(\d+)$/.exec(k); return m ? m[1] + ' days before' : k; };
+const kindWords = (kind, offset) => kind === 'reminder' ? 'Reminder: ' + offsetWords(offset) : kind === 'demo_confirmed' ? 'Demo confirmed' : kind === 'demo_cancelled' ? 'Demo cancelled' : kind === 'demo_rescheduled' ? 'Demo rescheduled' : kind === 'coi_approved' ? 'COI approved' : kind === 'coi_rejected' ? 'COI rejected' : kind;
+const ERROR_WORDS = { provider_rejected: 'Email provider rejected it', provider_unreachable: 'Email provider unreachable', provider_ack_unverified: 'Provider answer could not be verified', provider_not_configured: 'Email provider not configured', idempotency_window_expired: 'Retry window closed before a send could complete', review_required: 'Needs manual review', max_attempts: 'Gave up after repeated attempts', recipient_changed: 'Recipient changed or was removed', settings_unreadable: 'Store settings could not be read', send_failed: 'Send failed', other: 'Failed (details in server logs)' };
+// A UTC instant shown in the store's zone, labelled: "Tue, Oct 6, 9:00 AM PDT". Falls back to UTC with a label.
+function inStoreTime(iso, tz) {
+  if (!iso) return '';
+  const zone = tz || 'UTC';
+  try { return new Date(iso).toLocaleString('en-US', { timeZone: zone, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); }
+  catch (_) { return new Date(iso).toLocaleString('en-US', { timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' UTC'; }
+}
+const statusPill = (r) => { const c = r.status === 'accepted' ? 'background:var(--forest-100); color:var(--forest-700);' : r.status === 'pending' ? 'background:#eef3ff; color:#2a4a9a;' : r.status === 'claimed' ? 'background:#fff4d6; color:#7a5a00;' : r.status === 'skipped' ? 'background:#efede8; color:var(--ink-700);' : 'background:#fdebe5; color:var(--clay-700);'; return '<span style="display:inline-block; padding:2px 8px; border-radius:99px; font-size:0.72rem; font-weight:700; white-space:nowrap; ' + c + '">' + escapeHtml(r.status_label) + '</span>'; };
+function notifRowHtml(r) {
+  const when = r.status === 'accepted' && r.accepted_at ? inStoreTime(r.accepted_at, r.timezone) : inStoreTime(r.due_at, r.timezone);
+  const extra = r.status === 'failed' && r.next_attempt_at ? ' · retry ' + inStoreTime(r.next_attempt_at, r.timezone) : r.status === 'claimed' && r.lease_expired ? ' · claim lease expired' : '';
+  const err = r.error_code ? '<div style="font-size:0.78rem; color:var(--clay-700);">' + escapeHtml(ERROR_WORDS[r.error_code] || r.error_code) + (r.attempts ? ' · ' + r.attempts + ' attempt' + (r.attempts === 1 ? '' : 's') : '') + '</div>' : '';
+  const skip = r.skip_reason ? '<div style="font-size:0.78rem; color:var(--ink-500);">skipped: ' + escapeHtml(r.skip_reason.replace(/_/g, ' ')) + '</div>' : '';
+  const demo = (r.demo_date ? escapeHtml(r.demo_date) + (r.demo_time ? ' ' + escapeHtml(r.demo_time) : '') : '') + (r.current_occurrence === false ? ' <span style="font-size:0.74rem; color:var(--ink-500);">(earlier schedule)</span>' : '');
+  return '<tr data-booking="' + escapeHtml(r.booking_id || '') + '">'
+    + '<td style="white-space:nowrap;">' + escapeHtml(when) + (r.timezone ? '' : ' <span style="font-size:0.72rem; color:var(--ink-500);">(zone unknown, shown in UTC)</span>') + extra + '</td>'
+    + '<td>' + escapeHtml(kindWords(r.kind, r.offset_key)) + err + skip + '</td>'
+    + '<td>' + escapeHtml(r.recipient_name || '') + (r.recipient_name ? '<br>' : '') + '<span style="font-size:0.82rem; color:var(--ink-700);">' + escapeHtml(r.recipient_email) + '</span></td>'
+    + '<td>' + escapeHtml(r.retailer || (r.retailer_id ? 'Retailer ' + r.retailer_id.slice(0, 8) : '')) + (r.venue ? '<br><span style="font-size:0.82rem; color:var(--ink-500);">' + escapeHtml(r.venue) + '</span>' : '') + '</td>'
+    + '<td>' + escapeHtml(r.brand || '') + (demo ? '<br><span style="font-size:0.82rem; color:var(--ink-500);">' + demo + '</span>' : '') + (r.booking_id ? '<br><button class="btn-sm" data-notif-booking="' + escapeHtml(r.booking_id) + '" style="margin-top:4px;">Booking detail</button>' : '') + '</td>'
+    + '<td>' + statusPill(r) + '</td></tr>';
+}
+function workerHtml(w, lookahead) {
+  if (!w) return '<div class="sub">Worker health could not be read.</div>';
+  const ok = w.healthy;
+  return '<div style="display:flex; gap:10px; align-items:flex-start; flex-wrap:wrap;"><span style="display:inline-block; width:10px; height:10px; border-radius:50%; margin-top:5px; background:' + (ok ? 'var(--forest-700)' : 'var(--clay-700)') + ';"></span><div>'
+    + '<div style="font-weight:700;">Notification worker ' + (ok ? 'ran recently' : (w.last_success_at ? 'has not succeeded in the last ' + w.stale_after_minutes + ' minutes' : 'has no recorded successful run')) + '</div>'
+    + '<div class="sub" style="margin:2px 0 0;">Last successful run: ' + (w.last_success_at ? escapeHtml(inStoreTime(w.last_success_at, 'UTC')) + ' (' + w.last_success_age_minutes + ' min ago)' : 'none recorded') + '. Last run outcome: ' + escapeHtml(w.last_outcome || 'none') + '.'
+    + (w.last_run_counts ? ' Last run: ' + Object.entries(w.last_run_counts).map(([k, v]) => v + ' ' + k).join(', ') + '.' : '')
+    + ' Reminders are scheduled up to ' + lookahead + ' days ahead, on each run.</div></div></div>';
+}
+async function renderOwnerNotifications() {
+  const pane = document.getElementById('notificationsPane'); if (!pane) return;
+  const snap = { retailer: onotif.retailer, days: onotif.days, list: onotif.list, offset: onotif.offset }; const seq = ++onotifSeq;
+  if (!pane.dataset.wired) {
+    pane.dataset.wired = '1';
+    pane.addEventListener('change', (e) => { if (e.target.id === 'onotifRetailer') { onotif.retailer = e.target.value; onotif.offset = 0; renderOwnerNotifications(); } if (e.target.id === 'onotifDays') { onotif.days = Number(e.target.value); onotif.offset = 0; renderOwnerNotifications(); } });
+    pane.addEventListener('click', (e) => {
+      const l = e.target.closest('[data-notif-list]'); if (l) { onotif.list = l.dataset.notifList; onotif.offset = 0; renderOwnerNotifications(); return; }
+      const pg = e.target.closest('[data-notif-page]'); if (pg) { onotif.offset = Math.max(0, Number(pg.dataset.notifPage) || 0); renderOwnerNotifications(); return; }
+      const bk = e.target.closest('[data-notif-booking]'); if (bk) { renderBookingNotifications(bk.dataset.notifBooking); return; }
+      const back = e.target.closest('[data-notif-back]'); if (back) { const box = document.getElementById('onotifBooking'); if (box) box.innerHTML = ''; return; }
+      const rt = e.target.closest('[data-retry="notifications"]'); if (rt) { renderOwnerNotifications(); }
+    });
+  }
+  pane.innerHTML = '<div class="card"><h2>Notifications</h2><div class="sub">Loading…</div></div>';
+  let sum, page, rts;
+  try {
+    [sum, page, rts] = await Promise.all([
+      ownerPost('owner-notifications-summary', { retailer_id: snap.retailer || undefined, days: snap.days }),
+      ownerPost('owner-notifications', { list: snap.list, retailer_id: snap.retailer || undefined, days: snap.days, offset: snap.offset, limit: 100 }),
+      onotif.retailers ? Promise.resolve(onotif.retailers) : ownerPost('owner-list-retailers', {}).then(d => (d.retailers || []).map(r => ({ id: r.id, name: r.name }))),
+    ]);
+  } catch (e) { if (seq !== onotifSeq) return; pane.innerHTML = loadErr("Couldn't load notifications", e, 'notifications'); return; }
+  if (seq !== onotifSeq) return;
+  onotif.retailers = rts;
+  const meta = NOTIF_LIST_META[snap.list];
+  const sel = '<select id="onotifRetailer"><option value="">All retailers</option>' + rts.map(r => '<option value="' + escapeHtml(r.id) + '"' + (r.id === snap.retailer ? ' selected' : '') + '>' + escapeHtml(r.name) + '</option>').join('') + '</select>';
+  const daysSel = '<select id="onotifDays">' + [7, 14, 31].map(n => '<option value="' + n + '"' + (n === snap.days ? ' selected' : '') + '>Next / last ' + n + ' days</option>').join('') + '</select>';
+  const tabs = ['scheduled', 'overdue', 'attention', 'accepted'].map(k => '<button class="btn-sm" data-notif-list="' + k + '" style="' + (k === snap.list ? 'background:var(--forest-900); color:#fff;' : '') + (k === 'attention' && sum.counts.attention ? ' border-color:var(--clay-700);' : '') + '">' + NOTIF_LIST_META[k].title + ' <span style="opacity:0.8;">' + sum.counts[k] + '</span></button>').join(' ');
+  const total = page.total, from = page.offset + 1, to = page.offset + page.rows.length;
+  const pager = total > page.limit ? '<div class="sub" style="display:flex; gap:10px; align-items:center;">Showing ' + (page.rows.length ? from + '–' + to : '0') + ' of ' + total + (page.offset > 0 ? ' <button class="btn-sm" data-notif-page="' + Math.max(0, page.offset - page.limit) + '">Previous</button>' : '') + (!page.complete ? ' <button class="btn-sm" data-notif-page="' + (page.offset + page.limit) + '">Next</button>' : '') + '</div>' : '<div class="sub">' + total + ' email' + (total === 1 ? '' : 's') + '</div>';
+  const partial = page.partial && page.partial.length ? '<div class="sub" style="color:var(--clay-700);">Some details could not be read (' + escapeHtml(page.partial.join(', ')) + '); rows show ids instead of names.</div>' : '';
+  const table = page.rows.length ? '<table class="simple"><thead><tr><th>When (store time)</th><th>Email</th><th>To</th><th>Store</th><th>Demo</th><th>Status</th></tr></thead><tbody>' + page.rows.map(notifRowHtml).join('') + '</tbody></table>'
+    : '<div class="sub">Nothing in this list for the selected store and window.</div>';
+  pane.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>Notifications</h2><div class="sub">Read-only view of the demo-notification outbox. Times are shown in each store\'s local time. The strongest status here is "accepted by email provider"; inbox delivery is not observed.</div></div><div style="display:flex; gap:8px; flex-wrap:wrap;">' + sel + daysSel + '</div></div>'
+    + '<div style="margin:14px 0; padding:12px 14px; border:1px solid rgba(15,44,23,0.08); border-radius:10px; background:#fbfaf7;">' + workerHtml(sum.worker, sum.lookahead_days) + '</div>'
+    + '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">' + tabs + '</div>'
+    + '<div class="sub" style="margin-bottom:10px;">' + escapeHtml(meta.blurb.replace('{days}', String(snap.days))) + ' Window: ' + snap.days + ' × 24 hours from now (UTC instants).</div>'
+    + partial + pager + table + (page.rows.length > 20 ? pager : '') + '</div><div id="onotifBooking"></div>';
+}
+async function renderBookingNotifications(id) {
+  const box = document.getElementById('onotifBooking'); if (!box) return;
+  box.innerHTML = '<div class="card"><div class="sub">Loading booking…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  let d; try { d = await ownerPost('owner-booking-notifications', { booking_id: id }); } catch (e) { box.innerHTML = loadErr("Couldn't load this booking's notifications", e, 'notifications'); return; }
+  const b = d.booking, s = d.summary;
+  const facts = [
+    row('Demo', escapeHtml((b.brand || '') + ' at ' + (b.retailer || '') + (b.venue ? ', ' + b.venue : '')) + '<br><span style="font-size:0.85rem; color:var(--ink-500);">' + escapeHtml(b.demo_date + ' ' + (b.demo_time || '')) + (b.timezone ? ' (' + escapeHtml(tzShort(b.timezone, b.demo_date)) + ')' : '') + '</span>'),
+    row('Booking status', escapeHtml(b.status) + ' · schedule revision ' + b.schedule_revision),
+    row('Events recorded', d.events.length ? d.events.map(e => escapeHtml(kindWords(e.kind)) + ' ' + escapeHtml(inStoreTime(e.created_at, b.timezone)) + (e.fanned_out_at ? ' (fanned out)' : ' (not yet fanned out)')).join('<br>') : 'None. Deliveries are created when a confirmed booking is processed by the worker.'),
+    row('Reminders, current schedule', s.reminder_times_scheduled + ' reminder time' + (s.reminder_times_scheduled === 1 ? '' : 's') + ', ' + s.reminder_emails_scheduled + ' recipient email' + (s.reminder_emails_scheduled === 1 ? '' : 's') + ' scheduled' + (s.reminder_emails_total !== s.reminder_emails_scheduled ? ' (' + s.reminder_emails_total + ' reminder emails in total, including sent and failed)' : '')),
+    row('Outcomes, current schedule', s.accepted_by_provider + ' accepted by provider · ' + s.scheduled + ' scheduled · ' + s.in_progress + ' in progress · ' + s.failed + ' failed · ' + s.unknown + ' unknown · ' + s.skipped + ' skipped' + (Object.keys(s.skipped_reasons).length ? ' (' + Object.entries(s.skipped_reasons).map(([k, v]) => v + ' ' + k.replace(/_/g, ' ')).join(', ') + ')' : '')),
+    s.earlier_occurrence_rows ? row('Earlier schedules', s.earlier_occurrence_rows + ' row' + (s.earlier_occurrence_rows === 1 ? ' belongs' : 's belong') + ' to an earlier schedule revision (rescheduled demo); they are listed below and marked.') : '',
+    row('Worker', d.worker ? (d.worker.healthy ? 'Ran successfully ' + d.worker.last_success_age_minutes + ' min ago.' : 'No successful run in the last ' + d.worker.stale_after_minutes + ' minutes.') + ' Reminders are scheduled up to ' + d.lookahead_days + ' days ahead.' : 'Worker health could not be read.'),
+  ].join('');
+  const empty = !d.deliveries.length ? '<div class="sub" style="margin-top:10px;">No notification rows are recorded for this booking. The facts above are what is known; the panel does not infer a cause. Common, verifiable cases: the booking is not confirmed; the demo is more than ' + d.lookahead_days + ' days out; no store contact is in scope for this location; every contact has opted out; the worker has not run since confirmation.</div>' : '';
+  const table = d.deliveries.length ? '<table class="simple" style="margin-top:12px;"><thead><tr><th>When (store time)</th><th>Email</th><th>To</th><th>Store</th><th>Demo</th><th>Status</th></tr></thead><tbody>' + d.deliveries.map(notifRowHtml).join('') + '</tbody></table>' + (!d.deliveries_complete ? '<div class="sub">Showing the first ' + d.deliveries.length + ' of ' + d.deliveries_total + ' rows.</div>' : '') : '';
+  const partial = d.partial && d.partial.length ? '<div class="sub" style="color:var(--clay-700);">Some details could not be read (' + escapeHtml(d.partial.join(', ')) + ').</div>' : '';
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;"><h2>Booking notifications</h2><button class="btn-sm" data-notif-back="1">Close</button></div>' + partial + '<table class="simple"><tbody>' + facts + '</tbody></table>' + empty + table + '</div>';
+}
+
 // Tab switching + lazy-render analytics/billing
 function wireTabs() {
   document.querySelectorAll('.owner-tab').forEach(btn => {
@@ -905,6 +1014,7 @@ function wireTabs() {
       if (tab === 'analytics') renderAnalytics('30d');
       if (tab === 'retailers') renderRetailersTab();
       if (tab === 'calendar') renderOwnerCalendar();
+      if (tab === 'notifications') renderOwnerNotifications();
       if (tab === 'brands') renderBrandsTab();
       if (tab === 'billing') renderBilling();
       if (tab === 'status') renderStatusManager();

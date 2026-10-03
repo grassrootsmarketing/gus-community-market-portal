@@ -23,6 +23,7 @@ import { parseYmd } from './_local-time.js';
 import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
 import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
+import { listAction as ownerNotificationsList, summaryAction as ownerNotificationsSummary, bookingAction as ownerBookingNotifications } from './_owner-notifications.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind() — the exported guards work even when this file's own handler
@@ -1161,7 +1162,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, retailer_id, retailer_notified: sent, notification_error: !sent });
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1553,6 +1554,19 @@ async function handleOwnerAction(action, req, res, body) {
       retailers: rt.rows.filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug, timezone: r.timezone || null })),
       bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
       total: bk.total, complete: { bookings: bk.complete, retailers: rt.complete, venues: vn.complete }, capped: !bk.complete });
+  }
+
+  // ---- OWNER NOTIFICATIONS (2026-10-03, Codex N-1): read-only views of the notification outbox and worker health.
+  // Input is validated and the owner session verified HERE; the reads and the public row shape live in
+  // api/_owner-notifications.js. A failed required read is a 503 with retry:true, never an empty panel.
+  if (action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications') {
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const b = await bind();
+    const out = action === 'owner-notifications' ? await ownerNotificationsList(b, body)
+      : action === 'owner-notifications-summary' ? await ownerNotificationsSummary(b, body)
+      : await ownerBookingNotifications(b, body);
+    return res.status(out.status).json(out.body);
   }
 
   // ---- OWNER DIRECTORY (2026-09-29, revised per Codex OV-2/OV-3): read-only mirrors for the Retailers and Brands tabs.
