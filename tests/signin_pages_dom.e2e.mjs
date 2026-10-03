@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4174';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');
 const { chromium } = require('playwright');
-/* global document */
+/* global document, getComputedStyle */
 
 let pass = 0, fail = 0; const fails = [];
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; fails.push(name); console.log('  FAIL ' + name + (detail ? ' ' + detail : '')); } };
