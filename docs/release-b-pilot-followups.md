@@ -35,3 +35,6 @@ Welcome email for the first brands (plain text, ~150 words): `docs/pilot/brand-w
 ## Team tab: store contacts grouped by location (David, 2026-09-30)
 
 Retailer admin, Team, "Store contacts & demo notifications": today a flat list with a "Sort by Location" dropdown; Gus has many contacts, most on "All locations". Requested: group the list by location (one section per store, with an "All locations" section on top), plus a search box (name, role, email) and a store filter; a contact scoped to several stores appears under each. Same for the owner panel's mirror of the list. Read-only layout change, no data change. Not started.
+
+## Owner panel: activity feed vs. logs (David, 2026-10-03)
+The new Notifications tab is the outbox/worker view (technical). David wants a running **feed** in one place: brands signing up, retailers signing up, COIs submitted, demos booked, stores approved, newest first; and the technical outbox view moved under its own tab ("Logs" or similar). Separate round with its own handoff: needs an owner-facing event stream (read model over existing writes, no new side effects), read/unread, retention and pagination rules, and the same no-secrets output discipline as N-1. Also: the worker health line shows "Last run: ." in production because the heartbeat summary keys differ from the test fixture's; align the whitelist with the real keys.
