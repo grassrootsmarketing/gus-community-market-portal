@@ -1618,13 +1618,24 @@ window.copyCalsyncUrl = function(btn) {
 // Rows live in the DOM and are collected on save. Declared at top level because
 // saveProfile() reads them, and a scope-local helper is how we got
 // "renderCoiWidget is not defined" earlier.
+// Codex product-list (2026-10-07): each item carries what a grocery buyer orders from. Fields are optional except
+// the name; the server validates (api/_products.js) and returns the normalised list, which is what we re-render.
+const SKU_DISTRIBUTORS = [['', 'Distributor (optional)'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
 function skuRowHtml(p) {
-  const v = (x) => escapeHtml(x || '');
-  return '<div class="sku-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">'
-    + '<input class="input sku-name" placeholder="Item name" value="' + v(p.name) + '" style="flex:3;min-width:0;">'
-    + '<input class="input sku-size" placeholder="Size" value="' + v(p.size) + '" style="flex:1;min-width:70px;">'
-    + '<input class="input sku-code" placeholder="SKU / UPC" value="' + v(p.sku) + '" style="flex:1.4;min-width:90px;">'
-    + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button>'
+  const v = (x) => escapeHtml(x == null ? '' : x);
+  const sel = SKU_DISTRIBUTORS.map(o => '<option value="' + o[0] + '"' + ((p.distributor || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('');
+  const inp = (cls, ph, val, extra) => '<input class="input ' + cls + '" placeholder="' + ph + '" value="' + v(val) + '" ' + (extra || '') + '>';
+  return '<div class="sku-row" data-id="' + v(p.id) + '" style="border:1px solid rgba(15,44,23,0.12); border-radius:12px; padding:12px; margin-bottom:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">'
+    + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Item name *', p.name, 'style="flex:1;"')
+    + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
+    + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
+    + inp('sku-code', 'Your brand SKU', p.sku)
+    + inp('sku-upc', 'UPC / product barcode', p.upc, 'inputmode="numeric"')
+    + '<select class="input sku-distributor">' + sel + '</select>'
+    + inp('sku-distributor-other', 'Distributor name (if Other)', p.distributor_other)
+    + inp('sku-item-number', 'Distributor item number', p.distributor_item_number)
+    + inp('sku-case-pack', 'Units per case', Number.isInteger(p.case_pack) ? p.case_pack : '', 'inputmode="numeric"')
+    + '<div style="grid-column:1 / -1;">' + inp('sku-notes', 'Notes for the store (optional, shared with the retailer)', p.notes) + '</div>'
     + '</div>';
 }
 
@@ -1655,19 +1666,30 @@ function addSkuRow() {
   if (nameInput) nameInput.focus();
 }
 
-// Rows with no name are blank placeholders, not items - drop them silently.
+// Rows with no name are blank placeholders, not items - drop them silently. Everything else goes to the server as
+// typed; the server validates and answers with specific errors (nothing is silently dropped or truncated).
 function collectSkus() {
   const wrap = document.getElementById('skuList');
   if (!wrap) return null;
   const out = [];
   wrap.querySelectorAll('.sku-row').forEach(row => {
-    const name = (row.querySelector('.sku-name')?.value || '').trim();
+    const g = (cls) => (row.querySelector('.' + cls)?.value || '').trim();
+    const name = g('sku-name');
     if (!name) return;
-    out.push({
+    const cp = g('sku-case-pack');
+    const item = {
       name,
-      size: (row.querySelector('.sku-size')?.value || '').trim(),
-      sku: (row.querySelector('.sku-code')?.value || '').trim(),
-    });
+      size: g('sku-size'),
+      sku: g('sku-code'),
+      upc: g('sku-upc'),
+      distributor: g('sku-distributor'),
+      distributor_other: g('sku-distributor-other'),
+      distributor_item_number: g('sku-item-number'),
+      case_pack: cp === '' ? null : (/^\d+$/.test(cp) ? Number(cp) : cp),
+      notes: g('sku-notes'),
+    };
+    if (row.dataset.id) item.id = row.dataset.id;
+    out.push(item);
   });
   return out;
 }
@@ -1757,7 +1779,7 @@ function renderProducts() {
       </div>
       <div class="form-row">
         <label class="label">Items you sample</label>
-        <div class="help" style="margin:0 0 10px;">The specific products you bring to a demo. Retailers use this to make sure they have stock on hand, so be precise.</div>
+        <div class="help" style="margin:0 0 10px;">The specific products you bring to a demo. The store checks stock and arranges any order from this list, so the ordering details matter: UPC (the barcode number), the distributor you sell through, the distributor's item number, and units per case. Everything here, including notes, is shared with the retailers you book and their notification contacts. Don't put passwords, payment details, confidential pricing or personal information in it.</div>
         <div id="skuList"></div>
         <button type="button" class="btn btn-ghost" id="skuAddBtn" style="margin-top:10px;">+ Add item</button>
       </div>
@@ -2052,13 +2074,16 @@ async function saveProfile() {
     put('default_categories', 'f_default_categories', el => el.value);
     put('needs_electricity', 'f_needs_electricity', el => !!el.checked);
     const _skus = collectSkus();
-    if (_skus !== null) payload.products = _skus;
+    if (_skus !== null) { payload.products = _skus; payload.expected_updated_at = _data.profile.updated_at || null; }
     const _resp = await _brandApi('profile-update', payload);
     if (_resp && _resp.degraded) {
       const dropped = (_resp.dropped || []).join(', ');
       throw new Error('Saved, but these did not persist: ' + (dropped || 'some fields') + '. Email david@demohubhq.com.');
     }
+    delete payload.expected_updated_at;
     Object.assign(_data.profile, payload);
+    // The server's normalised list (with stable ids) and version replace what we sent (Codex P-3).
+    if (_resp && Array.isArray(_resp.products)) { _data.profile.products = _resp.products; _data.profile.updated_at = _resp.updated_at || _data.profile.updated_at; renderSkuList(_resp.products); }
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
     if (typeof renderCoiWidget === 'function') renderCoiWidget();
   } catch (err) {

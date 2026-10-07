@@ -286,7 +286,7 @@ async function run() {
   // ---- 1. Two bookings through POST /api/book -----------------------------------------------
   console.log('\n— 1: two bookable demos —');
   for (const [venue, n] of [[venueA, 30], [venueB, 31]]) {
-    const bk = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venue, demo_date: day(n), demo_time: '13:00' }, cookies: { dh_brand_session: brandCookie } }));
+    const bk = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venue, demo_date: day(n), demo_time: '13:00', product_skus: H.FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
     const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
     ok(`/api/book created booking on venue ${venue === venueA ? 'A ($7)' : 'B ($9)'}`, bk.statusCode === 200 && !!id, `${bk.statusCode} ${JSON.stringify(bk.body).slice(0, 160)}`);
     if (id) { G.bookingIds.push(id); bin.bookings.push(id); }

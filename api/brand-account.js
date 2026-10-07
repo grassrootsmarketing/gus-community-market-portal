@@ -4,6 +4,7 @@
 // Privacy: NEVER expose brand_id to retailer-side endpoints. All retailer
 // admin queries continue to filter by retailer_id only.
 
+import { validateProducts, describeErrors } from './_products.js';
 import { randomBytes, randomInt, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
 
@@ -831,7 +832,11 @@ export default async function handler(req, res) {
           } else if (k === 'needs_electricity') {
             patch[k] = !!body[k];
           } else if (k === 'products') {
-            patch[k] = Array.isArray(body[k]) ? sanitizeProducts(body[k]) : [];
+            // Codex product-list P-2/P-3: the shared validator, catalog mode. Invalid input FAILS the save; it never
+            // clears the catalog and is never dropped by a core-only retry.
+            const check = validateProducts(body[k], 'catalog');
+            if (!check.ok) return jsonResp(res, 400, { error: 'invalid_products', message: 'Check your product list: ' + describeErrors(check.errors) + '.', errors: check.errors });
+            patch[k] = check.items;
           } else {
             patch[k] = body[k] === '' ? null : body[k];
           }
@@ -855,12 +860,38 @@ export default async function handler(req, res) {
           }
         }
       }
-      // Retry without the optional columns if the full payload is rejected. A single
-      // missing/renamed column used to fail the entire save with a generic message,
-      // which is the same shape of bug that made COI uploads silently no-op.
+      // Codex product-list P-3: a catalog write is CONDITIONAL on the version the client last saw (brands.updated_at,
+      // which every profile writer sets), so two tabs cannot silently overwrite each other's additions. The client
+      // sends expected_updated_at from its loaded profile; a mismatch is 409 products_conflict carrying the current
+      // list and version, and the client keeps its draft. Without expected_updated_at a products write is refused:
+      // an unconditional full-array replacement is exactly the lost-update path this closes.
+      const savingProducts = Object.prototype.hasOwnProperty.call(patch, 'products');
+      let versionFilter = '';
+      if (savingProducts) {
+        const expected = body.expected_updated_at;
+        if (typeof expected !== 'string' || Number.isNaN(Date.parse(expected))) return jsonResp(res, 400, { error: 'products_version_required', message: 'Reload your product list and try again.' });
+        versionFilter = `&updated_at=eq.${encodeURIComponent(new Date(expected).toISOString())}`;
+      }
       const CORE_COLS = ['company_name', 'contact_name', 'phone', 'website', 'default_coi_expires', 'updated_at'];
-      let r = await sb(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      let r = await sb(`brands?id=eq.${brandId}${versionFilter}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(patch) });
       let degraded = null;
+      if (savingProducts) {
+        // No core-only retry when products are part of the save: either the whole save happened or it did not.
+        if (!r.ok) {
+          const t = await r.text().catch(() => '');
+          console.error('profile-update (products) failed for brand', brandId, t.slice(0, 200));
+          return jsonResp(res, 500, { error: 'profile_save_failed', message: 'We could not save your product list. Please try again.' });
+        }
+        const rows = await r.json().catch(() => []);
+        if (!Array.isArray(rows) || rows.length !== 1) {
+          // 0 rows: the version moved under us (or the brand is gone). Hand back the current list so the client can merge.
+          const cur = await sb(`brands?id=eq.${brandId}&select=products,updated_at`);
+          const row = cur.ok ? (await cur.json())[0] : null;
+          if (!row) return jsonResp(res, 404, { error: 'brand_not_found' });
+          return jsonResp(res, 409, { error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: row.products, updated_at: row.updated_at });
+        }
+        return jsonResp(res, 200, { ok: true, products: rows[0].products, updated_at: rows[0].updated_at });
+      }
       if (!r.ok) {
         const firstErr = await r.text().catch(() => '');
         console.error('profile-update full payload failed for brand', brandId, firstErr);
@@ -953,21 +984,7 @@ export default async function handler(req, res) {
 
     // Normalise the SKU list. Caps size and length so a brand cannot paste a novel
     // into the field or push a huge payload into every booking snapshot.
-    function sanitizeProducts(arr) {
-      const clean = [];
-      for (const raw of (Array.isArray(arr) ? arr : []).slice(0, 60)) {
-        if (!raw || typeof raw !== 'object') continue;
-        const name = String(raw.name || '').trim().slice(0, 120);
-        if (!name) continue;                       // an item with no name is not an item
-        clean.push({
-          id: String(raw.id || '').slice(0, 40) || ('p' + Math.random().toString(36).slice(2, 10)),
-          name,
-          size: String(raw.size || '').trim().slice(0, 40),
-          sku: String(raw.sku || '').trim().slice(0, 60),
-        });
-      }
-      return clean;
-    }
+    // (product sanitising moved to api/_products.js, Codex product-list P-2)
 
     // Shared expiry validation so upload and profile-save give identical, specific messages.
     function validateCoiExpiry(v) {

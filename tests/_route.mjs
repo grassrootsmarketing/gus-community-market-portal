@@ -224,3 +224,7 @@ export function summary(label) {
   return state.fail === 0;
 }
 export const uniq = (p) => `${p}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+// Codex product-list P-1 (2026-10-07): every brand-created booking must carry 1..40 selected items. Suites that
+// book as a brand send this fixture unless the case is about the rule itself.
+export const FIXTURE_PRODUCTS = Object.freeze([{ name: 'Fixture Snack', size: '4 oz', sku: 'FX-001', upc: '012345678905', distributor: 'unfi', distributor_item_number: '0001234', case_pack: 12 }]);

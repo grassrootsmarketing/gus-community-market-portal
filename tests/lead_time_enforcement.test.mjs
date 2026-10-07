@@ -1,7 +1,7 @@
 // Minimum booking lead time enforced by the server (2026-09-30): /api/book refuses any demo date earlier than
 // today + settings.advance_booking_days, counted in the store's own calendar days; nothing before today; a failed
 // settings read is 503, never a different rule. Real route against the TEST database; Stripe/Resend intercepted.
-import { callRoute, req, ok, summary, uniq, installSpy } from './_route.mjs';
+import { callRoute, req, ok, summary, uniq, installSpy, FIXTURE_PRODUCTS } from './_route.mjs';
 import { STANDARD } from './_fixture_availability.mjs';
 import { earliestBookableYmd } from '../api/book.js';
 
@@ -33,7 +33,7 @@ const tok = 'tk-' + uniq('lte'); await db('brand_account_tokens', { method: 'POS
 const brandCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: tok } }))).cookie('dh_brand_session');
 const storeToday = earliestBookableYmd(new Date(), LA, 0);
 const plus = (n) => earliestBookableYmd(new Date(), LA, n);
-const book = (date) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: date, demo_time: '11:00 AM', product: 'Test', needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
+const book = (date) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: date, demo_time: '11:00 AM', product: 'Test', product_skus: FIXTURE_PRODUCTS, needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
 const setDays = (n) => db(`settings?id=eq.${settingsId}`, { method: 'PATCH', body: JSON.stringify({ advance_booking_days: n }) });
 const created = [];
 try {

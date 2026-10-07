@@ -552,9 +552,16 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     </div>
                 </div>
                 <div class="form-group" id="bookSkuGroup" style="display:none;">
-                    <label class="form-label">Which items are you sampling?</label>
+                    <label class="form-label">Which items are you sampling? *</label>
                     <div id="bookSkuList" style="border:1px solid rgba(15,44,23,0.14); border-radius:10px; padding:6px 4px; max-height:190px; overflow-y:auto;"></div>
-                    <div style="font-size:0.78rem; color:#6b6a64; margin-top:6px;">The store uses this to make sure they have stock on hand.</div>
+                    <div id="bookSkuCapNote" style="display:none; font-size:0.78rem; color:#a14e2a; margin-top:6px;">You can select up to 40 items for one demo. Untick some to continue.</div>
+                    <div id="bookNewItems" style="margin-top:8px;"></div>
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px;">
+                        <a href="#" id="bookAddItemLink" style="font-size:0.84rem; color:var(--forest-700); text-decoration:underline;">+ Add an item not on your list</a>
+                        <label id="bookSaveItemsLabel" style="display:none; font-size:0.82rem; color:#3a3a36; align-items:center; gap:6px;"><input type="checkbox" id="bookSaveItems" checked style="width:14px;height:14px;accent-color:#2a5b32;"> Save new items to my product list</label>
+                    </div>
+                    <div style="font-size:0.78rem; color:#6b6a64; margin-top:6px;">The store checks stock and arranges any order from this list. Everything you enter here, including notes, is shared with the store you book and its notification contacts.</div>
+                    <div id="bookSkuError" style="display:none; font-size:0.84rem; color:#a14e2a; margin-top:6px;"></div>
                 </div>
                 <div class="form-group" id="bookCategoryGroup"><label class="form-label">What are you demoing? *</label>
                     <select class="form-input" id="bookCategory" style="width:100%;">
@@ -1697,25 +1704,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     const grp = document.getElementById('bookCategoryGroup');
                     if (grp && matched) grp.style.display = 'none';
                 }
-                // Their saved items, as checkboxes. Hidden entirely if they have none,
-                // so a brand who never filled this in sees no empty box.
-                (function () {
-                    const grp = document.getElementById('bookSkuGroup');
-                    const list = document.getElementById('bookSkuList');
-                    const items = Array.isArray(bp.products) ? bp.products.filter(p => p && p.name) : [];
-                    if (!grp || !list) return;
-                    if (!items.length) { grp.style.display = 'none'; list.innerHTML = ''; return; }
-                    list.innerHTML = items.map(function (p, i) {
-                        const meta = [p.size, p.sku].filter(Boolean).join(' \u00b7 ');
-                        return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
-                            + '<input type="checkbox" class="book-sku" data-i="' + i + '" checked style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
-                            + '<span style="font-size:0.9rem;color:#1c1c19;">' + _esc(p.name)
-                            + (meta ? ' <span style="color:#6b6a64;font-size:0.82rem;">' + _esc(meta) + '</span>' : '')
-                            + '</span></label>';
-                    }).join('');
-                    grp.style.display = 'block';
-                    window._bookSkuSource = items;
-                })();
+                // Their saved items as checkboxes, or an inline editor when they have none (Codex product-list P-1:
+                // every booking carries at least one selected item; this is where a first-time brand enters it).
+                _renderBookProducts(bp);
                 _updateBookCoiGate();
                 (function () {
                 })(); { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
@@ -1839,21 +1830,16 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
             const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
-            // Snapshot the chosen items. Optional by design: never block a booking on it.
-            const productSkus = (function () {
-                const src = window._bookSkuSource || [];
-                if (!src.length) return null;
-                const picked = [];
-                document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
-                    const p = src[Number(cb.dataset.i)];
-                    if (p && p.name) picked.push({ name: p.name, size: p.size || '', sku: p.sku || '' });
-                });
-                return picked.length ? picked : null;
-            })();
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
             errMsg.textContent = '';
+            // Items are required for a signed-in brand (server enforces it too: 400 products_required). Checked here so
+            // the brand sees it at this step, before the agreement and payment steps.
+            if (window._brandProfile) {
+                const sel = collectBookingProducts();
+                if (sel.error) { _showSkuError(sel.error); return; }
+            }
             if (!brandName || !contactName || !contactEmail || !contactPhone) { errMsg.textContent = 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
 
@@ -1943,23 +1929,43 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
-            // Snapshot the chosen SKUs HERE too: actuallySubmitBookings runs after the agreement
-            // step in its own scope and cannot see submitContactInfo's local productSkus. Referencing
-            // it without this threw "productSkus is not defined" and killed the booking before Stripe.
-            const productSkus = (function () {
-                const src = window._bookSkuSource || [];
-                if (!src.length) return null;
-                const picked = [];
-                document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
-                    const p = src[Number(cb.dataset.i)];
-                    if (p && p.name) picked.push({ name: p.name, size: p.size || '', sku: p.sku || '' });
-                });
-                return picked.length ? picked : null;
-            })();
             const errMsg = document.getElementById('bookErrorMsg');
             errMsg.style.display = 'none';
             errMsg.textContent = '';
             const btn = document.getElementById('bookSubmitBtn');
+            // Codex product-list P-3: ONE frozen selection for this whole submission (every demo in the cart gets the
+            // same snapshot), and the catalog is saved ONCE, before any booking request, with the version the page
+            // loaded. A failed save never says "saved" and never blocks the brand from booking with the items as typed.
+            const sel = collectBookingProducts();
+            if (sel.error) { _showSkuError(sel.error); btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book'; return; }
+            let productSkus = sel.items;
+            if (sel.save && sel.newItems.length && window._brandProfile && !window._bookSkipCatalogSave) {
+                const bp = window._brandProfile;
+                const merged = (Array.isArray(bp.products) ? bp.products : []).concat(sel.newItems);
+                let saveResp = null, saveJson = {};
+                try {
+                    saveResp = await fetch('/api/brand-account?action=profile-update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                        body: JSON.stringify({ products: merged, expected_updated_at: bp.updated_at || null }) });
+                    saveJson = await saveResp.json().catch(function () { return {}; });
+                } catch (e) { saveResp = null; }
+                if (saveResp && saveResp.ok && Array.isArray(saveJson.products)) {
+                    bp.products = saveJson.products; bp.updated_at = saveJson.updated_at || bp.updated_at;
+                    // the appended items come back normalised with ids; use those in the booking snapshot
+                    const tail = saveJson.products.slice(saveJson.products.length - sel.newItems.length);
+                    productSkus = sel.items.map(function (it) { if (it.id) return it; const m = tail.find(function (t) { return t.name === it.name && (t.size || '') === (it.size || '') && (t.upc || '') === (it.upc || ''); }); return m || it; });
+                    _renderBookProducts(bp, { keepSelection: productSkus });
+                } else {
+                    btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book';
+                    const msg = (saveJson && saveJson.message) || 'We could not save the new items to your product list.';
+                    if (saveResp && saveResp.status === 409) { _showSkuError(msg + ' Your entries are kept on this form.'); return; }
+                    errMsg.innerHTML = _esc(msg) + ' Your entries are kept. <button type="button" id="bookWithoutSaveBtn" style="margin-left:6px; font: inherit; font-size:0.85rem; padding:4px 10px; border-radius:7px; border:1px solid rgba(15,44,23,0.25); background:white; cursor:pointer;">Book without saving them</button>';
+                    errMsg.style.display = 'block';
+                    const b2 = document.getElementById('bookWithoutSaveBtn');
+                    if (b2) b2.addEventListener('click', function () { window._bookSkipCatalogSave = true; errMsg.style.display = 'none'; actuallySubmitBookings(); });
+                    return;
+                }
+            }
+            window._bookSkipCatalogSave = false;
             btn.disabled = true;
             const origLabel = window._brandProfile ? 'Confirm booking' : 'Create account & book';
             btn.textContent = cart.length > 1 ? `Booking ${cart.length} demos…` : 'Booking…';
@@ -2259,6 +2265,94 @@ function supportMailto(a) {
         // ===== Brand account auto-fill =====
         // Uses HttpOnly dh_brand_session cookie (set by /api/brand-account verify-code).
         // Server reads cookie automatically — no need to pass session_id in URL.
+        // ===== Products for this demo (Codex product-list, 2026-10-07) =====
+        // Catalog items render as checkboxes (the first 40 preselected); a brand with no items, or one adding an item
+        // for this demo, uses the inline rows. collectBookingProducts() turns both into full item objects.
+        const _DISTRIBUTORS = [['', 'Distributor (optional)'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
+        function _newItemRowHtml() {
+            const opts = _DISTRIBUTORS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
+            const inp = function (cls, ph, extra) { return '<input class="form-input ' + cls + '" placeholder="' + ph + '" ' + (extra || '') + ' style="padding:7px 9px; font-size:0.86rem;">'; };
+            return '<div class="book-new-item" style="border:1px dashed rgba(15,44,23,0.25); border-radius:10px; padding:10px; margin-bottom:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">'
+                + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Item name *') + '</div>'
+                + inp('bni-size', 'Size (12 oz jar)') + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
+                + '<select class="form-input bni-distributor" style="padding:7px 9px; font-size:0.86rem;">' + opts + '</select>'
+                + inp('bni-distributor-other', 'Distributor name (if Other)')
+                + inp('bni-item-number', 'Distributor item number') + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
+                + '<div style="grid-column:1 / -1; display:flex; justify-content:flex-end;"><button type="button" class="bni-remove" style="font: inherit; font-size:0.8rem; background:none; border:none; color:#a14e2a; cursor:pointer;">Remove</button></div>'
+                + '</div>';
+        }
+        function _addBookNewItem() {
+            const wrap = document.getElementById('bookNewItems'); if (!wrap) return;
+            wrap.insertAdjacentHTML('beforeend', _newItemRowHtml());
+            const row = wrap.lastElementChild;
+            row.querySelector('.bni-remove').addEventListener('click', function () { row.remove(); _updateSaveItemsLabel(); });
+            _updateSaveItemsLabel();
+            const n = row.querySelector('.bni-name'); if (n) n.focus();
+        }
+        function _updateSaveItemsLabel() {
+            const lbl = document.getElementById('bookSaveItemsLabel'); if (!lbl) return;
+            lbl.style.display = document.querySelectorAll('#bookNewItems .book-new-item').length ? 'flex' : 'none';
+        }
+        function _showSkuError(msg) {
+            const el = document.getElementById('bookSkuError'); if (el) { el.textContent = msg; el.style.display = 'block'; el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        function _renderBookProducts(bp, opts) {
+            const grp = document.getElementById('bookSkuGroup'), list = document.getElementById('bookSkuList'), wrap = document.getElementById('bookNewItems');
+            if (!grp || !list || !wrap) return;
+            const items = Array.isArray(bp && bp.products) ? bp.products.filter(function (p) { return p && p.name; }) : [];
+            window._bookSkuSource = items;
+            const keep = opts && Array.isArray(opts.keepSelection) ? new Set(opts.keepSelection.map(function (p) { return p.id; }).filter(Boolean)) : null;
+            list.innerHTML = items.map(function (p, i) {
+                const meta = [p.size, p.sku ? 'brand SKU ' + p.sku : '', p.upc ? 'UPC ' + p.upc : ''].filter(Boolean).join(' \u00b7 ');
+                const checked = keep ? keep.has(p.id) : i < 40;
+                return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
+                    + '<input type="checkbox" class="book-sku" data-i="' + i + '"' + (checked ? ' checked' : '') + ' style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
+                    + '<span style="font-size:0.9rem;color:#1c1c19;">' + _esc(p.name)
+                    + (meta ? ' <span style="color:#6b6a64;font-size:0.82rem;">' + _esc(meta) + '</span>' : '')
+                    + '</span></label>';
+            }).join('');
+            list.style.display = items.length ? 'block' : 'none';
+            const cap = document.getElementById('bookSkuCapNote'); if (cap) cap.style.display = items.length > 40 ? 'block' : 'none';
+            if (!(opts && opts.keepSelection)) { wrap.innerHTML = ''; if (!items.length) _addBookNewItem(); }
+            _updateSaveItemsLabel();
+            const add = document.getElementById('bookAddItemLink');
+            if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
+            const err = document.getElementById('bookSkuError'); if (err) err.style.display = 'none';
+            grp.style.display = 'block';
+        }
+        // Returns { items, newItems, save } or { error }. items are full objects (catalog fields carried through).
+        function collectBookingProducts() {
+            const src = window._bookSkuSource || [];
+            const items = [];
+            document.querySelectorAll('#bookSkuList .book-sku:checked').forEach(function (cb) {
+                const p = src[Number(cb.dataset.i)];
+                if (p && p.name) items.push(Object.assign({}, p));
+            });
+            const newItems = [];
+            const rows = document.querySelectorAll('#bookNewItems .book-new-item');
+            for (let r = 0; r < rows.length; r++) {
+                const row = rows[r];
+                const g = function (cls) { const el = row.querySelector('.' + cls); return el ? String(el.value || '').trim() : ''; };
+                const name = g('bni-name');
+                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-item-number') || g('bni-case-pack');
+                if (!name) { if (anyOther) return { error: 'Give item ' + (r + 1) + ' a name.' }; continue; }
+                const cpRaw = g('bni-case-pack');
+                let case_pack = null;
+                if (cpRaw) { if (!/^\d{1,3}$/.test(cpRaw) || Number(cpRaw) < 1) return { error: 'Units per case for ' + name + ' must be a whole number from 1 to 999.' }; case_pack = Number(cpRaw); }
+                const upc = g('bni-upc').replace(/[\s-]/g, '');
+                if (upc && !/^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/.test(upc)) return { error: 'The barcode for ' + name + ' should be 8, 12, 13 or 14 digits.' };
+                const distributor = g('bni-distributor');
+                const other = g('bni-distributor-other');
+                if (distributor === 'other' && !other) return { error: 'Name the distributor for ' + name + '.' };
+                newItems.push({ name: name, size: g('bni-size'), sku: '', upc: upc, distributor: distributor, distributor_other: distributor === 'other' ? other : '', distributor_item_number: g('bni-item-number'), case_pack: case_pack, notes: '' });
+            }
+            const all = items.concat(newItems);
+            if (!all.length) return { error: 'Select or add at least one item you will be sampling.' };
+            if (all.length > 40) return { error: 'You can select up to 40 items for one demo. Untick some to continue.' };
+            const saveEl = document.getElementById('bookSaveItems');
+            return { items: all, newItems: newItems, save: !!(saveEl && saveEl.checked) };
+        }
+
         window._brandProfile = null;
         async function loadBrandAccountSession() {
             try {

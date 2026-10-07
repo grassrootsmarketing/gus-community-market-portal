@@ -3,7 +3,7 @@
 // on any booking route and its public page says so; the owner (only) approves it, which emails the store once and
 // opens booking; code requests are limited per network and per address; the limiter fails closed.
 import crypto from 'node:crypto';
-import { callRoute, req, ok, summary, uniq, installSpy, ENV } from './_route.mjs';
+import { callRoute, req, ok, summary, uniq, installSpy, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { STANDARD } from './_fixture_availability.mjs';
 
 ENV.PUBLIC_RETAILER_SIGNUP_ENABLED = 'true'; // this suite exercises sign-up; tests/launch_flags.test.mjs proves the default-off
@@ -48,7 +48,7 @@ try {
   brandId = one(await db('brands', { method: 'POST', body: JSON.stringify({ email: brandEmail, company_name: 'Approval Brand', contact_name: 'Rep', phone: '555-0101', is_verified: true, default_coi_url: 'brands/ra.pdf', default_coi_expires: '2028-01-01', coi_verification_status: 'approved' }) })).id;
   const tok = 'tk-' + uniq('rab'); await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: brandEmail, token: tok, expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
   const brandCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: tok } }))).cookie('dh_brand_session');
-  const book = () => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: '2027-03-10', demo_time: '11:00 AM', product: 'Test', needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
+  const book = () => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: '2027-03-10', demo_time: '11:00 AM', product: 'Test', product_skus: FIXTURE_PRODUCTS, needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
   const sign = () => callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Rep Name' }, cookies: { dh_brand_session: brandCookie } }));
   const manual = () => callRoute('booking.js', req({ body: { retailer_slug: slug, brand_name: 'Walk-in Co', contact_email: 'walkin@fixture.test', venue: 'Approval Main', demo_date: '2027-03-10', demo_time: '11:00 AM' } }));
   const b1 = await book(), s1 = await sign(), m1 = await manual();

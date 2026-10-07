@@ -1,7 +1,7 @@
 // Retailer go-live gate, standalone (2026-09-30). Independent of sign-up and owner UI so it also verifies the
 // fallback artifact (hotfix/approval-gate-only, fallback/*): a pending store takes no bookings on any booking route,
 // its page data says so, an approved store passes the gate, a suspended one is refused again. Test database only.
-import { callRoute, req, ok, summary, uniq } from './_route.mjs';
+import { callRoute, req, ok, summary, uniq, FIXTURE_PRODUCTS } from './_route.mjs';
 import { STANDARD } from './_fixture_availability.mjs';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
@@ -18,7 +18,7 @@ const brandId = track('brands', one(await db('brands', { method: 'POST', body: J
 const tok = 'tk-' + uniq('gate'); await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: brandEmail, token: tok, expires_at: new Date(Date.now() + 3600e3).toISOString() }) });
 const brandCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: tok } }))).cookie('dh_brand_session');
 const setStatus = (st) => db(`retailers?id=eq.${rid}`, { method: 'PATCH', body: JSON.stringify({ verification_status: st }) });
-const book = () => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: '2027-04-14', demo_time: '11:00 AM', product: 'Test', needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
+const book = () => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_date: '2027-04-14', demo_time: '11:00 AM', product: 'Test', product_skus: FIXTURE_PRODUCTS, needs_electricity: false, contact_name: 'Rep', contact_phone: '555-0101' }, cookies: { dh_brand_session: brandCookie } }));
 const sign = () => callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Rep Name' }, cookies: { dh_brand_session: brandCookie } }));
 const manual = () => callRoute('booking.js', req({ body: { retailer_slug: slug, brand_name: 'Walk-in Co', contact_email: 'walkin@fixture.test', venue: 'Gate Main', demo_date: '2027-04-14', demo_time: '11:00 AM' } }));
 const pub = async () => (await callRoute('find-retailer.js', req({ body: { action: 'public-data', slug } }))).body;

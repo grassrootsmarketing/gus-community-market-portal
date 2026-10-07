@@ -22,6 +22,7 @@
 // (bookings.notes — the text the brand typed on the booking form; owner review notes, COI notes,
 // cancel reasons and finance notes live in other columns and are never included).
 
+import { describeItem, itemDetailsHtml } from './_products.js';
 import { link } from './_mail.js';
 import { safeZone, demoStartUtc, dateLabel, timeRangeLabel, timeLabel, relativeDayPhrase } from './_local-time.js';
 
@@ -103,6 +104,21 @@ export function demoDetailRows(ctx, { strikeOld = null } = {}) {
   return rows;
 }
 
+// Codex product-list P-4. Two layouts, chosen by the caller from the SCHEDULED offset (never from elapsed time):
+//   full     confirmation, reschedule and long-lead reminders (7+ days): stacked ordering details per item under
+//            "Products for this demo: ordering details", so the buyer can check stock and arrange any order.
+//   compact  short-lead reminders: one line per item plus where the full details live (the store admin).
+// Tolerant of legacy {name,size,sku} items and empty snapshots.
+export function productsBlockHtml(skus, { full = false, adminUrl = null } = {}) {
+  if (!skus || !skus.length) return '';
+  const head = (title, sub) => `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin:0 0 ${sub ? '4' : '8'}px;">${title}</div>${sub ? '<div style="font-size:13px;color:#6b6a64;margin:0 0 8px;">' + sub + '</div>' : ''}`;
+  const box = (inner) => `<div style="background:#f4f7ef;border:1px solid #2a5b3222;border-left:4px solid #2a5b32;border-radius:10px;padding:15px 18px;margin:0 0 22px;">${inner}</div>`;
+  if (full) return box(head('Products for this demo: ordering details', 'Check stock and arrange any needed order before the demo.') + skus.map(p => itemDetailsHtml(p, H)).join(''));
+  const items = skus.map(p => '&bull; ' + describeItem(p, H)).join('<br>');
+  const where = adminUrl ? `<div style="font-size:12px;color:#6b6a64;margin-top:8px;">Full ordering details are on this booking in your <a href="${adminUrl}" style="color:#2a5b32;">store admin</a>.</div>` : '';
+  return box(head('Products for this demo') + `<div style="font-size:14px;line-height:1.6;">${items}</div>` + where);
+}
+// Kept for callers that still import it: the compact layout.
 export function skuBoxHtml(skus) {
   if (!skus || !skus.length) return '';
   const items = skus.map(p => `&bull; ${H(p.name || '')}${p.size ? ' <span style="color:#6b6a64;">(' + H(p.size) + ')</span>' : ''}${p.sku ? ' <span style="color:#6b6a64;">SKU ' + H(p.sku) + '</span>' : ''}`).join('<br>');
@@ -127,14 +143,14 @@ ${footer || ''}
 </table></body></html>`;
 }
 
-export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, tone = 'green', footerNote }) {
+export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, tone = 'green', footerNote, productsFull = false }) {
   const retailerName = (ctx.retailer && ctx.retailer.name) || 'Your store';
   const adminUrl = b ? link(b, `/r/${encodeURIComponent((ctx.retailer && ctx.retailer.slug) || 'gus')}/admin`) : '#';
   const table = `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${rows.map(([k, v], i) => row(k, v, i === 0)).join('')}</table>`;
   const footer = `${footerNote ? `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">${footerNote}</p>` : ''}
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${H(retailerName)}</strong> listed you as a store contact for demo notifications at this location. Adjust who gets these in the admin under Team &rarr; Store contacts.</p>
 <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="${adminUrl}" style="color:#2a5b32;">Open the admin &rarr;</a></p>`;
-  return shell({ eyebrow, heading, intro, body: skuBoxHtml(skus) + table, tone, footer });
+  return shell({ eyebrow, heading, intro, body: productsBlockHtml(skus, { full: productsFull, adminUrl }) + table, tone, footer });
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +163,7 @@ export function confirmedMessage(b, ctx) {
       b, ctx, eyebrow: 'Demo confirmed', tone: 'green',
       heading: `A demo is confirmed at ${H(venueName(ctx))}.`,
       intro: `Make sure you've got enough product on hand: <strong>${H(ctx.brand_name)}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.`,
-      rows: demoDetailRows(ctx), skus: ctx.skus,
+      rows: demoDetailRows(ctx), skus: ctx.skus, productsFull: true,
     }),
   };
 }
@@ -163,7 +179,15 @@ export function reminderPhrase(ctx, now) {
   if (r.days === 7) return { eyebrow: 'Demo in 1 week', phrase: 'is one week away' };
   return { eyebrow: `Demo in ${r.days} days`, phrase: `is in ${r.days} days` };
 }
-export function reminderMessage(b, ctx, now = new Date()) {
+// Which reminder offsets carry the full ordering-details layout: anything scheduled 7 or more days out
+// (w1, d14, custom d<N> with N >= 7). Decided from the queued offset_key, never from dispatch time.
+export function offsetWantsFullProducts(offsetKey) {
+  const k = String(offsetKey || '');
+  if (k === 'w1') return true;
+  const m = /^d(\d+)$/.exec(k);
+  return !!(m && Number(m[1]) >= 7);
+}
+export function reminderMessage(b, ctx, now = new Date(), { offsetKey = null } = {}) {
   const { eyebrow, phrase } = reminderPhrase(ctx, now);
   return {
     subject: `${eyebrow}: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
@@ -171,7 +195,7 @@ export function reminderMessage(b, ctx, now = new Date()) {
       b, ctx, eyebrow, tone: 'green',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} ${phrase}.`,
       intro: `Reminder for the store team: <strong>${H(ctx.brand_name)}</strong> is demoing <strong>${H(ctx.product || 'their product')}</strong> on ${H(dayOf(ctx))}, ${H(whenOf(ctx))}.`,
-      rows: demoDetailRows(ctx), skus: ctx.skus,
+      rows: demoDetailRows(ctx), skus: ctx.skus, productsFull: offsetWantsFullProducts(offsetKey),
     }),
   };
 }
@@ -208,7 +232,7 @@ export function rescheduledMessage(b, ctx, { from } = {}) {
       b, ctx, eyebrow: 'Demo rescheduled', tone: 'clay',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} has moved.`,
       intro: `${wasLine} is now on <strong>${H(dayOfYear(ctx))}</strong>, ${H(whenOf(ctx))}. Your reminders will follow the new date.`,
-      rows: demoDetailRows(ctx, { strikeOld: hasFrom ? from : null }), skus: ctx.skus,
+      rows: demoDetailRows(ctx, { strikeOld: hasFrom ? from : null }), skus: ctx.skus, productsFull: true,
     }),
   };
 }

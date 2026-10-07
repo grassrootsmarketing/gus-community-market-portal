@@ -7,7 +7,7 @@
 // tests/live_flows.test.mjs remains as the second layer — it proves the database contract under
 // concurrency. This file proves the ROUTE: binding, cookie, CSRF, parsing, authorization,
 // and email containment, which direct PostgREST calls cannot exercise.
-import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ORIGIN, ENV } from './_route.mjs';
+import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ORIGIN, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
 
 // Release A: store-contact notices come from the 0074 outbox via api/notification-worker.js, which
@@ -234,7 +234,7 @@ let bookingId = null;
     default_coi_url: 'coi-docs/probe.pdf', default_coi_expires: future.toISOString().slice(0, 10),
     coi_verification_status: 'passed' }) });
 
-  const okBooking = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: day(1), demo_time: '10:00' }, cookies: { dh_brand_session: brandCookie } }));
+  const okBooking = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: day(1), demo_time: '10:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
   ok('booking with a verified COI succeeds', okBooking.statusCode === 200 || okBooking.statusCode === 201,
      `${okBooking.statusCode} ${JSON.stringify(okBooking.body).slice(0, 200)}`);
   bookingId = okBooking.body && (okBooking.body.booking_id || okBooking.body.id || (okBooking.body.booking && okBooking.body.booking.id));
@@ -249,7 +249,7 @@ let bookingId = null;
   // A venue belonging to a different retailer must be refused by the route.
   const otherR = track('retailers', (await db('retailers', { method: 'POST', body: JSON.stringify({ slug: uniq('oth'), name: 'Other', billing_email: `${uniq('o')}@fixture.test`, billing_tier: 'pro', billing_status: 'active' }) })).body[0].id);
   const otherV = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: otherR, name: 'Other Main', address: '9 Other St', demo_fee: 30, availability: HOURLY }) })).body[0].id);
-  const crossed = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: otherV, demo_date: day(2), demo_time: '11:00' }, cookies: { dh_brand_session: brandCookie } }));
+  const crossed = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: otherV, demo_date: day(2), demo_time: '11:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
   ok('a venue from another retailer is refused by the route', crossed.statusCode === 400 && crossed.body.error === 'invalid_venue', `${crossed.statusCode} ${JSON.stringify(crossed.body)}`);
 
   const noSession = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: day(3), demo_time: '12:00' } }));
@@ -584,7 +584,7 @@ console.log('\n— 12: COI upload -> pending -> owner review -> book —');
   ok('approval moves the brand to approved', b2[0] && b2[0].coi_verification_status === 'approved', JSON.stringify(b2[0]));
 
   const booked = await callRoute('book.js', req({
-    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(9), demo_time: '11:00' },
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayN(9), demo_time: '11:00', product_skus: FIXTURE_PRODUCTS },
     cookies: { dh_brand_session: revSess } }));
   ok('an APPROVED certificate can book', booked.statusCode === 200 || booked.statusCode === 201,
      `${booked.statusCode} ${JSON.stringify(booked.body).slice(0, 160)}`);
@@ -746,7 +746,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   const bookingIds = [];
   for (let i = 0; i < 3; i++) {
     const bk = await callRoute('book.js', req({
-      body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(21 + i), demo_time: '13:00' },
+      body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(21 + i), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS },
       cookies: { dh_brand_session: paySess } }));
     const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
     if (id) { track('bookings', id); bookingIds.push(id); }
@@ -884,7 +884,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
 
   // ---- A FRESH MISMATCHED EVENT: promotes nothing, opens exactly one case ------------------
   const mmBk = await callRoute('book.js', req({
-    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(40), demo_time: '15:00' },
+    body: { retailer_slug: retailerSlug, venue_id: venueId, demo_date: dayP(40), demo_time: '15:00', product_skus: FIXTURE_PRODUCTS },
     cookies: { dh_brand_session: paySess } }));
   const mmBookingId = mmBk.body && (mmBk.body.booking_id || mmBk.body.id || (mmBk.body.booking && mmBk.body.booking.id));
   if (mmBookingId) track('bookings', mmBookingId);

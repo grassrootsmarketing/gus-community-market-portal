@@ -430,7 +430,7 @@ async function recheckAndBuild(b, cache, row, now) {
     const ctx = buildContext({ booking, retailer, venue, brand });
     let message;
     if (row.kind === 'demo_confirmed') message = confirmedMessage(b, ctx);
-    else if (row.kind === 'reminder') message = reminderMessage(b, ctx, now);
+    else if (row.kind === 'reminder') message = reminderMessage(b, ctx, now, { offsetKey: row.offset_key });
     else if (row.kind === 'demo_cancelled') message = cancelledMessage(b, ctx, { reason: payload.cancel_reason || booking.cancel_reason || null });
     else if (row.kind === 'demo_rescheduled') {
       let from = null;

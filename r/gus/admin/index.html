@@ -2923,7 +2923,7 @@ END:VEVENT
                     <td>${escapeHtml(venueById[b.venue_id] || '—')}</td>
                     <td><strong>${escapeHtml(b.brand_name || '—')}</strong>${heldBadge}</td>
                     <td>${escapeHtml(b.contact_name || '')}${b.contact_email ? ('<div style="font-size:0.8rem;color:var(--ink-500);">' + escapeHtml(b.contact_email) + '</div>') : ''}</td>
-                    <td>${escapeHtml(b.product || '—')}${(Array.isArray(b.product_skus) && b.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + b.product_skus.filter(p => p && p.name).map(p => escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '')).join('<br>') + '</div>') : ''}</td>
+                    <td>${escapeHtml(b.product || '—')}${(Array.isArray(b.product_skus) && b.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + b.product_skus.filter(p => p && p.name).map(p => _productLineHtml(p)).join('') + '</div>') : ''}</td>
                     <td style="text-align:right; white-space:nowrap;">
                         <button class="btn btn-secondary" style="padding:6px 12px; font-size:0.85rem; margin-right:6px;" onclick="declineBooking('${b.id}')">Decline</button>
                         <button class="btn" style="padding:6px 14px; font-size:0.85rem; background:var(--forest-600); color:white;" onclick="confirmBooking('${b.id}', ${isHeld})">Confirm</button>
@@ -4568,7 +4568,15 @@ END:VEVENT
             }));
         }
 
-        function escapeHtml(s) {
+        // Codex product-list (2026-10-07): one item line for the store, with the ordering details when the brand gave them.
+// Tolerant of the legacy {name,size,sku} shape.
+function _productLineHtml(p) {
+  if (!p || !p.name) return '';
+  const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : (p.distributor_item_number ? 'item #' + escapeHtml(p.distributor_item_number) : ''), Number.isInteger(p.case_pack) ? p.case_pack + '/case' : '', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : ''].filter(Boolean).join(' &middot; ');
+  return '<div>' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.76rem;color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.76rem;color:var(--ink-500);">' + escapeHtml(p.notes) + '</div>' : '') + '</div>';
+}
+function escapeHtml(s) {
             return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
 
@@ -5299,7 +5307,7 @@ END:VEVENT
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
                 + '<td>' + escapeHtml(d.contact) + '</td>'
-                + '<td>' + escapeHtml(d.product) + ((d.product_skus && d.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + d.product_skus.filter(function(p){return p && p.name;}).map(function(p){return escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '');}).join('<br>') + '</div>') : '') + '</td>'
+                + '<td>' + escapeHtml(d.product) + ((d.product_skus && d.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + d.product_skus.filter(function(p){return p && p.name;}).map(_productLineHtml).join('') + '</div>') : '') + '</td>'
                 + '<td><span class="status-badge status-' + status + '">' + escapeHtml(d.status) + '</span>' + _coiBadgeHtml(d) + '</td>'
                 + '<td style="text-align:right; white-space:nowrap;">' + rescheduleBtn + cancelBtn + '</td>'
                 + '</tr>';

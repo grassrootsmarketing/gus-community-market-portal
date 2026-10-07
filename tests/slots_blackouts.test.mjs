@@ -18,7 +18,7 @@
 //
 // Env: SB_URL, SB_KEY, SB_REF (route harness) + SB_DB_URL (session/direct pg, test project only).
 import pg from 'pg';
-import { installSpy, callRoute, req, ok, summary, uniq } from './_route.mjs';
+import { installSpy, callRoute, req, ok, summary, uniq, FIXTURE_PRODUCTS } from './_route.mjs';
 
 const { Client } = pg;
 const STAGING_REF = 'tileejdviuvijumjeplv';
@@ -99,7 +99,7 @@ try {
   staffCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: staffTok.token } }))).cookie('dh_retailer_session');
   ok('fixtures: staff + brand sessions exist', !!staffCookie && !!brandCookie);
 
-  const book = (venue, date, time, extra = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, ...extra }, cookies: { dh_brand_session: brandCookie } }));
+  const book = (venue, date, time, extra = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, product_skus: FIXTURE_PRODUCTS, ...extra }, cookies: { dh_brand_session: brandCookie } }));
   // api/admin.js answers via send(JSON string); normalize to an object like the other routes.
   const parsed = (r) => ({ ...r, body: (typeof r.body === 'string') ? (() => { try { return JSON.parse(r.body); } catch (_) { return r.body; } })() : r.body });
   const admin = async (action, body) => parsed(await callRoute('admin.js', req({ method: 'POST', query: { action }, body, cookies: { dh_retailer_session: staffCookie } })));

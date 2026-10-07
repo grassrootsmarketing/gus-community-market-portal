@@ -17,7 +17,7 @@
 //         deadlock; a destination refusal leaves the SOURCE untouched; stale source version refused.
 //   B-08  a slot ending at/after midnight is refused by the action and by the database.
 import pg from 'pg';
-import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs';
+import { installSpy, callRoute, req, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { _resetBindingCache } from '../api/_env.js';
 
 const { Client } = pg;
@@ -116,7 +116,7 @@ try {
   staffCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: staffTok.token } }))).cookie('dh_retailer_session');
   ok('fixtures: staff + brand sessions', !!staffCookie && !!brandCookie);
 
-  const book = (venue, date, time) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time }, cookies: { dh_brand_session: brandCookie } }));
+  const book = (venue, date, time) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
   const admin = async (action, body) => parsed(await callRoute('admin.js', req({ method: 'POST', query: { action }, body, cookies: { dh_retailer_session: staffCookie } })));
   const venue = (id) => one(`SELECT id, name, availability, availability_version, max_demos_per_slot FROM venues WHERE id = $1`, [id]);
   const booking = (id) => one(`SELECT id, venue_id, demo_date::text AS demo_date, demo_time, duration_hours, status, start_at, end_at, timezone, schedule_revision FROM bookings WHERE id = $1`, [id]);
