@@ -35,3 +35,6 @@ Source: `Downloads/Vendor Demo Scheduling Process (1).pdf` (copied to `Documents
 ### If adopted
 
 Items 1 to 4 add roughly 90 words to the Layer-1 text. Applying them means: update the default text (`DEFAULT_DEMO_POLICY` is the short legacy fallback in `api/booking.js`; Gus's live text lives in `retailers.demo_policy`), re-save Gus's policy from the admin, and know that brands who already accepted keep their accepted snapshot (new bookings accept the new text). The Layer-2 master (v3, counsel review pending) already covers age/minors and identification in more formal language; no change needed there for these items.
+
+### Applied 2026-10-07
+Items 1 to 4 plus a fifth (food handler's card or permit, valid in the state where the demo takes place, carried at the demo and shown on request) are LIVE on Gus's `demo_policy` (David's SQL paste; verified from the public booking data: all five present, zero em dashes, text identical to `Documents/Codex/Demohub-Gus-Demo-Guidelines-2026-10-06.txt` except Windows line endings introduced by the SQL editor). The same five points are in the default policy for new stores (`DEFAULT_DEMO_POLICY`, both copies), deployed in `2e5d209`. The eight em dashes in the old live text were replaced at the same time. Brands who accepted earlier keep their accepted snapshot.
