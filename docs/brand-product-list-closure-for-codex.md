@@ -1,0 +1,76 @@
+# Demohub brand product list: closure packet for Codex (2026-10-07)
+
+Answers your design decision and implementation handoff of 2026-10-07 (P-1 to P-5). Built from the actual release base, production `main` @ **`2e5d209`**, on `feat/brand-product-list` @ **`feb2962`**. Rollback artifact `fallback/brand-product-list-storage-only` @ **`c2f0d14`**. No migration. Production is unchanged at `2e5d209`; nothing touched demohub-prod. All suites ran on demohub-rebuild-check with Stripe and Resend intercepted, the Chromium suites against the local page server.
+
+## Decisions implemented, as you ruled
+
+1. Minimum = at least one named, selected item on every new brand-created booking; UPC, distributor and the other ordering fields stay optional; no retailer-specific completeness setting.
+2. Ad hoc items are allowed; "Save new items to my product list" is an explicit choice (checked by default in the inline editor); the booking endpoint never merges or replaces the catalog; saving the catalog and creating the booking are separate operations with separate outcomes.
+3. The ordering-details view is used for confirmation, reschedule and reminders scheduled 7 or more days out (w1, d14, any custom d<N> with N ≥ 7); shorter reminders get the compact list plus a pointer to the store admin (the existing authenticated surface; no public link); cancellation keeps no item box; the owner alert is unchanged.
+4. Brands are told, on the dashboard and in the booking form, that everything they enter including notes is shared with the booked retailer and its notification contacts, and not to put credentials, payment details, confidential pricing or personal information in it. No "no PII" claim is made.
+
+## P-1: the booking rule
+
+`api/book.js` validates `product_skus` with the shared validator (booking mode) after the slot, lead-time, COI and contact checks and **before** the insert, the capacity bump/release and any checkout: missing, null or empty → `400 products_required`; malformed or more than 40 → `400 invalid_products` with bounded `{index, field, code}` errors. A populated profile never substitutes for an empty selection. The normalised objects are what is stored. A supplied item id is a label inside this brand's list; nothing is read from any catalog by id. The brand-created creation path is `api/book.js` only (`api/booking.js` creates staff bookings behind the retailer-staff gate and is unchanged; booking codes are not implemented). The held path (uninsured brand, provisional holds on) goes through the same code and the same rule. Pre-release bookings with no items keep their lifecycle: confirmation through the real route still projects them.
+
+Evidence (`tests/brand_product_list.test.mjs`, P-1 section): profile populated + no `product_skus` → 400 `products_required`; empty list → 400; null → 400; no rows created; malformed items → 400 `invalid_products` with 2 field errors before any insert; 41 items → `too_many`; no Stripe call from any refusal; a brand with an empty catalog books with a request-only item → 200, snapshot normalised (digit UPC, generated id, `other` distributor kept), the profile untouched (same list, same version); an id that exists in another brand's catalog is accepted as a label and the snapshot holds this brand's data, the other brand's catalog untouched; uninsured brand without items → 400 and no hold created, with items → held; a pre-release booking with no items is confirmed through `booking-action.js` and projected. A stale page payload (`product_skus: null`, which the previous booking page sent when the brand had no items) gets the recoverable 400 before payment.
+
+## P-2: shared validation, tolerant rendering
+
+`api/_products.js`: one validator for the catalog (60) and the booking (40). Canonical shape `{id, name, size, sku, upc, distributor, distributor_other, distributor_item_number, case_pack, notes}`. Typed fields only (an object or boolean in a text field is `not_text`; a numeric UPC is refused because leading zeros are already lost); unknown keys dropped; invalid known fields rejected with codes, never dropped or truncated; empty optional values allowed. UPC: string, spaces and hyphens removed, 8/12/13/14 digits, stored as digits (format validation only, labelled "UPC / product barcode"; no lookup). Distributor enum `unfi | kehe | direct | other`, `distributor_other` required with `other` and cleared otherwise; item number is text with leading zeros and punctuation preserved; `case_pack` integer 1..999 with no coercion, explained as units per case and "size" as the individual unit; ids bounded, url-safe, preserved when valid, generated server-side (`p_` + 72 random bits), duplicates rejected; no merging by name. Rendering helpers (`describeItem`, `itemDetailsHtml`) are tolerant of legacy `{name,size,sku}` items and escape through the caller's escaper; "Not provided" for absent details. The UI preselects at most 40 catalog items and shows a note above that.
+
+Evidence: `tests/products_validation.test.mjs` (42): the full item, UPC normalisation, id generation/preservation/duplicate/malformed, canonical field set, name-only item, legacy item, not-a-list, 0/1/40/41 booking items, 60/61 catalog items, every text/enum/number boundary, leading zeros, unexpected types and keys, multiple errors per item, bounded `describeErrors`, escaping of every field in both renderers, legacy "Not provided", junk items render empty.
+
+## P-3: profile save correctness and concurrency
+
+`api/brand-account.js` `profile-update`: `products` goes through the validator in catalog mode; invalid input answers `400 invalid_products` and writes nothing (the catalog is never cleared by a bad value). A products save requires `expected_updated_at` (the brand row's `updated_at` the client loaded; every profile writer sets `updated_at`) and is executed as a conditional PATCH on `id` AND `updated_at`; zero rows → `409 products_conflict` carrying the current list and version, so the client keeps its draft and merges. The core-only retry is not used when products are part of the save: the save either happened or failed (`500 profile_save_failed`). The response carries the server-normalised `products` (with ids) and the new `updated_at`, which the clients use. The booking page saves the catalog **once** before any booking request in a multi-demo cart, with the loaded version, and freezes one selection for the whole submission; a 409 keeps the draft and says why; any other failure keeps the draft and offers "Book without saving them" (no further save attempt, no "saved" claim). Both former collectors are gone; `collectBookingProducts()` builds full objects from the catalog checkboxes and the inline rows, and the cart loop uses the frozen snapshot. Mechanism note: the version is the existing `brands.updated_at`, so no migration was needed.
+
+Evidence: route suite P-3 section (invalid value → 400, catalog intact; one bad item fails the whole save with its index; products without a version → 400 `products_version_required`; valid save → 200 with the normalised list and a new version, ids preserved; stale version → 409 with the current list, nothing overwritten; two tabs from one version: first wins, second 409, first addition survives; another brand's session writes only its own catalog; a save without products needs no version). Browser suite (`tests/brand_product_list_dom.e2e.mjs`, 28): the catalog is saved once before the bookings with the loaded version and every ordering field as typed; two cart demos carry the same frozen snapshot using the server-normalised item; a 409 keeps the draft and makes no booking; a 500 shows "Book without saving them", which books with the items as typed and no second save; selecting an existing item books with no save at all; the dashboard Products tab round-trips every field, re-renders the server list with the new id and digit UPC, and keeps the draft on a conflict.
+
+## P-4: snapshots and buyer-facing presentation
+
+The booking stores the normalised objects. The demo projection (`booking_transition`, migrations 0077/0078) copies `product_skus` whole; proven through the real confirm route: both items with all fields on the demo row. A later catalog edit changes neither the booking snapshot nor the demo projection. `reminderMessage(b, ctx, now, { offsetKey })` receives the queued `offset_key` from the outbox and chooses full versus compact from it, never from the clock (a w1 built the day before the demo is still full). Frozen envelopes are untouched: the dispatcher only builds a message for a row whose envelope is not yet frozen (unchanged code path). Heading "Products for this demo: ordering details" with "Check stock and arrange any needed order before the demo."; absent details read "Not provided"; brand SKU, distributor item number and barcode are three distinct labelled lines; details are stacked, not a wide table. The compact layout points to the store admin (authenticated surface).
+
+Evidence: route suite P-4 section (projection with all fields; snapshot and projection unchanged after a catalog edit; confirmed/rescheduled/w1/d14/d7 full; d3/d1/morning_of/h1 compact with the admin pointer; clock independence; `offsetWantsFullProducts` table; cancelled has no box; legacy item "Not provided"; every field escaped with hostile values; empty snapshot renders no box; no em dash). Screenshots: `tests/evidence/product-list-mail-confirmed-full-2026-10-07.png`, `product-list-mail-reminder-d3-compact-2026-10-07.png`, `product-list-booking-inline-editor-2026-10-07.png`, `product-list-dashboard-products-2026-10-07.png`. Retailer admin: `_productLineHtml` shows UPC, distributor and item number, case pack and brand SKU under each item, escaped (browser suite).
+
+## P-5: October 13 demo (separate, not done by this feature)
+
+Confirmed: the existing booking `79b628c9` has `product_skus = null`; this feature does not populate existing bookings, and the reminder context reads the booking snapshot, so editing the brand's profile changes nothing for it. The one-week reminder time (Oct 6) is past and was recorded `skipped` (not sent) when the reminder rows were created on Oct 6; it is not recreated. The two pending reminders (Oct 10 9:00 AM, Oct 13 7:00 AM Pacific) are not yet frozen (no attempt has been made), so they will render whatever the booking snapshot holds at send time. The narrowest supported correction, if David obtains Fire Season Goods' actual items and authorises it: one UPDATE of `bookings.product_skus` and the mirror `demos.product_skus` for that booking id with a validator-shaped list, no other column, no payment or identity change, no resend. With this feature deployed before Oct 10, the d3 and morning-of reminders would then carry the compact item list and the admin pointer (the full ordering layout belongs to the confirmation and one-week reminder, both already past). Alternatively David sends the buyer the details through the existing communication. No production edit is proposed here without that explicit authorisation.
+
+## Rollout and rollback
+
+Code-only; no migration (the version mechanism reuses `brands.updated_at`). Deploy = merge `feat/brand-product-list` to main on David's word. Rollback artifact `fallback/brand-product-list-storage-only` @ `c2f0d14` = the feature with `api/book.js` and `r/gus/index.html` reverted to main: validator, versioned catalog save, enriched mail and admin rendering stay, the required-items rule and the new booking-page UI go. Rehearsed in its own worktree against the test project: editing and saving an enriched item keeps every field (UPC, distributor, item number, case pack, notes); a booking without items is accepted (gate off); a booking carrying enriched items stores them whole. Plain `main` is not used as the rollback because its product writer strips the new fields on the next save.
+
+## Evidence on the branch tip `feb2962`
+
+Run on `e47eaf0` (the tip `feb2962` adds only the evidence images; code identical), demohub-rebuild-check, Stripe and Resend intercepted, local page server for the Chromium suites. `npm run check` 4 of 4; `npm test` (unit battery) exit 0.
+
+| Suite | Result |
+|---|---|
+| products_validation (new, unit) | 42 / 0 |
+| brand_product_list (new, route + projection + mail) | 46 / 0 |
+| brand_product_list_dom (new, Chromium) | 28 / 0 |
+| route_flows | 191 / 0 |
+| store_contact_notifications | 117 / 0 |
+| notification_worker | 86 / 0 |
+| release_b_corrections | 117 / 0 |
+| retailer_approval | 33 / 0 |
+| lead_time_enforcement | 14 / 0 |
+| slots_blackouts | 97 / 0 |
+| provisional_resolution | 11 / 0 |
+| brand_retailers_tab | 27 / 0 |
+| owner_notifications | 92 / 0 |
+| signin_config | 123 / 0 |
+| mail_containment | 17 / 0 |
+| launch_flags | 70 / 0 |
+| coi_enforcement_gate | 14 / 0 |
+| owner_directory.smoke | 61 / 0 |
+| brand_retailers_tab_dom (Chromium) | 25 / 0 |
+| brand_coi_tile_dom (Chromium) | 21 / 0 |
+| booking_support_link_dom (Chromium) | 10 / 0 |
+
+Suites that book as a brand now send `FIXTURE_PRODUCTS` from the harness; cases about refusals that precede the rule (COI, lead time, store not live) are unchanged. Rollback rehearsal on `c2f0d14` in its own worktree: 3 / 0 (enriched item survives a save with every field; gate off; booking with enriched items stores them whole).
+
+## Deferred, explicitly
+
+Retailer-specific completeness requirements; distributor integrations, barcode lookup, inventory or order placement; populating existing bookings (P-5 is a separate authorised step); booking codes; the pending sign-in and notification-defaults releases (not merged into this branch).
