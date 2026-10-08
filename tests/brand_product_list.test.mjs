@@ -46,7 +46,8 @@ const B = await mkBrand('b', { products: [{ id: 'other-1', name: 'B Secret Sauce
 const C = await mkBrand('c');   // no catalog
 const book = (brand, body) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V, demo_time: '11:00 AM', product: 'Snacks', ...body }, cookies: { dh_brand_session: brand.cookie } }));
 const profile = (brand, body) => callRoute('brand-account.js', req({ body: { action: 'profile-update', ...body }, cookies: { dh_brand_session: brand.cookie } }));
-const brandRow = async (b) => one(await db(`brands?id=eq.${b.id}&select=products,updated_at`));
+const brandRow = async (b) => one(await db(`brands?id=eq.${b.id}&select=products,products_version,updated_at`));
+const data = (brand) => callRoute('brand-account.js', req({ body: { action: 'data' }, cookies: { dh_brand_session: brand.cookie } }));
 const bookingsOf = async (b) => (await db(`bookings?brand_id=eq.${b.id}&select=id,status,product_skus&order=created_at.asc`)).body || [];
 let slotDay = 5; const nextDay = () => dayP(slotDay++);
 const LEAK = /SECRET|<script|onerror/;
@@ -100,26 +101,68 @@ try {
   console.log('\n— P-3: catalog save —');
   {
     const cur = await brandRow(A);
-    const bad = await profile(A, { products: 'nope', expected_updated_at: cur.updated_at });
+    const bad = await profile(A, { products: 'nope', expected_products_version: cur.products_version });
     ok('invalid products value → 400 invalid_products, catalog NOT cleared', bad.statusCode === 400 && bad.body.error === 'invalid_products' && (await brandRow(A)).products.length === 2, JSON.stringify([bad.statusCode, bad.body]));
-    const bad2 = await profile(A, { products: [{ name: 'ok' }, { name: 'bad upc', upc: '12' }], expected_updated_at: cur.updated_at });
+    const bad2 = await profile(A, { products: [{ name: 'ok' }, { name: 'bad upc', upc: '12' }], expected_products_version: cur.products_version });
     ok('one invalid item fails the whole save with the item index, nothing written', bad2.statusCode === 400 && bad2.body.errors[0].index === 1 && (await brandRow(A)).products.length === 2);
     const nov = await profile(A, { products: [{ name: 'ok' }] });
-    ok('products without expected_updated_at → 400 products_version_required (no unconditional replace)', nov.statusCode === 400 && nov.body.error === 'products_version_required');
-    const good = await profile(A, { products: [...cur.products, { name: 'New Bar', upc: '1234-5678', distributor: 'kehe', distributor_item_number: '00099', case_pack: 24 }], expected_updated_at: cur.updated_at });
-    ok('valid save with the current version → 200 with the normalised list and a new version', good.statusCode === 200 && Array.isArray(good.body.products) && good.body.products.length === 3 && good.body.products[2].upc === '12345678' && /^p_/.test(good.body.products[2].id) && good.body.updated_at && good.body.updated_at !== cur.updated_at, JSON.stringify(good.body).slice(0, 300));
+    ok('products without expected_products_version → 400 products_version_required (no unconditional replace)', nov.statusCode === 400 && nov.body.error === 'products_version_required');
+    ok('a non-integer version is refused the same way', (await profile(A, { products: [{ name: 'ok' }], expected_products_version: '2026-10-07T12:34:56.123456+00:00' })).statusCode === 400);
+    const good = await profile(A, { products: [...cur.products, { name: 'New Bar', upc: '1234-5678', distributor: 'kehe', distributor_item_number: '00099', case_pack: 24 }], expected_products_version: cur.products_version });
+    ok('valid save with the current version → 200 with the normalised list and the persisted NEW version (exactly +1)', good.statusCode === 200 && Array.isArray(good.body.products) && good.body.products.length === 3 && good.body.products[2].upc === '12345678' && /^p_/.test(good.body.products[2].id) && good.body.products_version === cur.products_version + 1 && (await brandRow(A)).products_version === good.body.products_version, JSON.stringify(good.body).slice(0, 300));
     ok('existing ids preserved', good.body.products[0].id === 'cat-1' && good.body.products[1].id === 'cat-2');
-    const stale = await profile(A, { products: [{ id: 'cat-1', name: 'Catalog Chips' }], expected_updated_at: cur.updated_at });
-    ok('a save with the OLD version → 409 products_conflict carrying the current list and version; nothing overwritten', stale.statusCode === 409 && stale.body.error === 'products_conflict' && stale.body.products.length === 3 && stale.body.updated_at === good.body.updated_at && (await brandRow(A)).products.length === 3, JSON.stringify([stale.statusCode, stale.body && stale.body.error]));
+    const stale = await profile(A, { products: [{ id: 'cat-1', name: 'Catalog Chips' }], expected_products_version: cur.products_version });
+    ok('a save with the OLD version → 409 products_conflict carrying the current list and version; nothing overwritten', stale.statusCode === 409 && stale.body.error === 'products_conflict' && stale.body.products.length === 3 && stale.body.products_version === good.body.products_version && (await brandRow(A)).products.length === 3, JSON.stringify([stale.statusCode, stale.body && stale.body.error]));
     // two "tabs": both loaded version v; tab 1 saves, tab 2's save must conflict rather than drop tab 1's addition
-    const v = (await brandRow(C)).updated_at;
-    const t1 = await profile(C, { products: [{ name: 'Tab One Item' }], expected_updated_at: v });
-    const t2 = await profile(C, { products: [{ name: 'Tab Two Item' }], expected_updated_at: v });
-    ok('two tabs: the first save wins, the second gets 409 and the first addition survives', t1.statusCode === 200 && t2.statusCode === 409 && (await brandRow(C)).products.map(p => p.name).join() === 'Tab One Item');
-    const other = await callRoute('brand-account.js', req({ body: { action: 'profile-update', products: [{ name: 'Hijack' }], expected_updated_at: (await brandRow(B)).updated_at }, cookies: { dh_brand_session: B.cookie } }));
+    const v = (await brandRow(C)).products_version;
+    const t1 = await profile(C, { products: [{ name: 'Tab One Item' }], expected_products_version: v });
+    const t2 = await profile(C, { products: [{ name: 'Tab Two Item' }], expected_products_version: v });
+    ok('two tabs (sequential): the first save wins, the second gets 409 and the first addition survives', t1.statusCode === 200 && t2.statusCode === 409 && (await brandRow(C)).products.map(p => p.name).join() === 'Tab One Item');
+    // PL-C1: competing saves from ONE version, in parallel, against the real database: exactly one succeeds and the
+    // winner's returned version differs from the loaded one. The application clock plays no part (integer, DB-owned).
+    const v1 = (await brandRow(C)).products_version;
+    const race = await Promise.all(['R1', 'R2', 'R3', 'R4'].map(n => profile(C, { products: [{ name: 'Race ' + n }], expected_products_version: v1 })));
+    const wins = race.filter(r => r.statusCode === 200);
+    ok('PL-C1: four PARALLEL saves from one version → exactly one 200, three 409', wins.length === 1 && race.filter(r => r.statusCode === 409).length === 3, JSON.stringify(race.map(r => r.statusCode)));
+    ok('PL-C1: the winner returns version v+1 and the row holds exactly that', wins[0].body.products_version === v1 + 1 && (await brandRow(C)).products_version === v1 + 1 && (await brandRow(C)).products[0].name === wins[0].body.products[0].name);
+    // same-millisecond sequential saves still advance the version by one each (no clock involved)
+    const v2a = (await brandRow(C)).products_version;
+    const s1 = await profile(C, { products: [{ name: 'Fast One' }], expected_products_version: v2a });
+    const s2 = await profile(C, { products: [{ name: 'Fast Two' }], expected_products_version: s1.body.products_version });
+    ok('PL-C1: two back-to-back saves advance the version twice (v+1, v+2)', s1.statusCode === 200 && s2.statusCode === 200 && s1.body.products_version === v2a + 1 && s2.body.products_version === v2a + 2);
+    // a save that does not change products keeps the version; a client-sent products_version is ignored; the version never goes down
+    const vKeep = (await brandRow(C)).products_version;
+    const same = await profile(C, { products: (await brandRow(C)).products, expected_products_version: vKeep });
+    ok('PL-C1: re-saving an identical list → 200 and the version is unchanged (trigger bumps only on a change)', same.statusCode === 200 && same.body.products_version === vKeep);
+    const coreOnly = await profile(C, { phone: '555-0177', products_version: 0 });
+    ok('PL-C1: a core-fields save cannot touch or lower the version', coreOnly.statusCode === 200 && (await brandRow(C)).products_version === vKeep);
+    const staleAgain = await profile(C, { products: [{ name: 'Stale' }], expected_products_version: v1 });
+    ok('PL-C1: the version held by a loser earlier can never save again', staleAgain.statusCode === 409);
+    // the regression Codex reproduced: load through the REAL data route (microsecond timestamps and all), save immediately → success
+    const loaded = (await data(C)).body.profile;
+    const fresh = await profile(C, { products: [...(loaded.products || []), { name: 'Loaded Then Saved' }], expected_products_version: loaded.products_version });
+    ok('PL-C1: a list loaded through the data route saves immediately (no self-conflict from timestamp rounding)', fresh.statusCode === 200 && /\d{2}:\d{2}:\d{2}\.\d{6}/.test(String(loaded.updated_at)) === true || fresh.statusCode === 200, JSON.stringify([fresh.statusCode, loaded.updated_at, loaded.products_version]));
+    const other = await callRoute('brand-account.js', req({ body: { action: 'profile-update', products: [{ name: 'Hijack' }], expected_products_version: (await brandRow(B)).products_version }, cookies: { dh_brand_session: B.cookie } }));
     ok('another brand\'s session writes only its own catalog', other.statusCode === 200 && (await brandRow(A)).products.length === 3 && (await brandRow(B)).products[0].name === 'Hijack');
     const core = await profile(A, { phone: '555-0199' });
     ok('a save without products needs no version and keeps the catalog', core.statusCode === 200 && (await brandRow(A)).products.length === 3);
+  }
+
+  console.log('\n— PL-C1: a brand created by the database-side redemption path saves its list immediately —');
+  {
+    // The database-side redemption path (redeem_brand_signup) writes the brand row and its session with now(), i.e.
+    // microsecond timestamps, and the token-verify route is not involved. Reproduce exactly that state: a brand row
+    // whose timestamps are database-written (microseconds) and a session row written directly, then load through
+    // the real data route and save with the version it returned.
+    const email = `${uniq('rd')}@fixture.test`;
+    const rbId = track('brands', one(await db('brands', { method: 'POST', body: JSON.stringify({ email, company_name: 'Redeemed Co', is_verified: true, updated_at: '2026-10-07T12:34:56.123456+00:00' }) })).id);
+    const rbToken = crypto.randomUUID();
+    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: rbId, session_token: rbToken, email, expires_at: new Date(Date.now() + 36e5).toISOString() }) });
+    const rb = { cookie: rbToken };
+    const prof = (await data(rb)).body.profile;
+    ok('fixture: the loaded timestamp carries microseconds (the precision the old comparison lost)', /\.\d{6}/.test(String(prof.updated_at)), String(prof.updated_at));
+    const first = await profile(rb, { products: [{ name: 'Redeemed Item', upc: '012345678905' }], expected_products_version: prof.products_version });
+    ok('PL-C1: the first catalog save after a database-written row succeeds with the version the data route returned (0 → 1)', first.statusCode === 200 && prof.products_version === 0 && first.body.products_version === 1, JSON.stringify([first.statusCode, first.body && first.body.products_version, prof.updated_at]));
   }
 
   console.log('\n— P-4: snapshot, projection, edits do not leak into bookings —');
@@ -134,8 +177,8 @@ try {
     const demo = one(await db(`demos?booking_id=eq.${bk.body.booking_id}&select=id,product_skus`));
     ok('the demo projection copies the complete item objects (all fields, both items)', demo && Array.isArray(demo.product_skus) && demo.product_skus.length === 2 && demo.product_skus[0].upc === '012345678905' && demo.product_skus[0].case_pack === 12 && demo.product_skus[1].distributor === 'kehe', JSON.stringify(demo && demo.product_skus));
     // edit the catalog: the booking snapshot and the demo projection do not move
-    const vv = (await brandRow(A)).updated_at;
-    const ed = await profile(A, { products: cat.map(p => p.id === 'cat-1' ? { ...p, name: 'RENAMED Chips', upc: '00000000' } : p), expected_updated_at: vv });
+    const vv = (await brandRow(A)).products_version;
+    const ed = await profile(A, { products: cat.map(p => p.id === 'cat-1' ? { ...p, name: 'RENAMED Chips', upc: '00000000' } : p), expected_products_version: vv });
     ok('catalog edit saved', ed.statusCode === 200);
     const snapAfter = one(await db(`bookings?id=eq.${bk.body.booking_id}&select=product_skus`)).product_skus;
     const demoAfter = one(await db(`demos?id=eq.${demo.id}&select=product_skus`)).product_skus;

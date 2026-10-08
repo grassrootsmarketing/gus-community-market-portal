@@ -860,17 +860,20 @@ export default async function handler(req, res) {
           }
         }
       }
-      // Codex product-list P-3: a catalog write is CONDITIONAL on the version the client last saw (brands.updated_at,
-      // which every profile writer sets), so two tabs cannot silently overwrite each other's additions. The client
-      // sends expected_updated_at from its loaded profile; a mismatch is 409 products_conflict carrying the current
-      // list and version, and the client keeps its draft. Without expected_updated_at a products write is refused:
-      // an unconditional full-array replacement is exactly the lost-update path this closes.
+      // Codex product-list P-3 / PL-C1: a catalog write is CONDITIONAL on the version the client last saw. The version is
+      // brands.products_version, an integer the DATABASE owns (migration 0090: a trigger bumps it by one whenever
+      // products changes and ignores anything a client sends for it), so it is exact, never rounded, never reused and
+      // never lowered by any writer. The client sends expected_products_version from its loaded profile; a mismatch
+      // is 409 products_conflict carrying the current list and version, and the client keeps its draft. Without a
+      // version a products write is refused: an unconditional full-array replacement is the lost-update path.
       const savingProducts = Object.prototype.hasOwnProperty.call(patch, 'products');
       let versionFilter = '';
       if (savingProducts) {
-        const expected = body.expected_updated_at;
-        if (typeof expected !== 'string' || Number.isNaN(Date.parse(expected))) return jsonResp(res, 400, { error: 'products_version_required', message: 'Reload your product list and try again.' });
-        versionFilter = `&updated_at=eq.${encodeURIComponent(new Date(expected).toISOString())}`;
+        const expected = body.expected_products_version;
+        const n = typeof expected === 'number' ? expected : (typeof expected === 'string' && /^\d{1,15}$/.test(expected) ? Number(expected) : NaN);
+        if (!Number.isInteger(n) || n < 0) return jsonResp(res, 400, { error: 'products_version_required', message: 'Reload your product list and try again.' });
+        versionFilter = `&products_version=eq.${n}`;
+        delete patch.products_version;   // never client-settable (the trigger overwrites it anyway)
       }
       const CORE_COLS = ['company_name', 'contact_name', 'phone', 'website', 'default_coi_expires', 'updated_at'];
       let r = await sb(`brands?id=eq.${brandId}${versionFilter}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(patch) });
@@ -879,18 +882,20 @@ export default async function handler(req, res) {
         // No core-only retry when products are part of the save: either the whole save happened or it did not.
         if (!r.ok) {
           const t = await r.text().catch(() => '');
-          console.error('profile-update (products) failed for brand', brandId, t.slice(0, 200));
-          return jsonResp(res, 500, { error: 'profile_save_failed', message: 'We could not save your product list. Please try again.' });
+          console.error(JSON.stringify({ event: 'products_save_failed', brand_id: brandId, status: r.status, detail: t.slice(0, 120) }));
+          return jsonResp(res, 503, { error: 'profile_save_failed', retry: true, message: 'We could not save your product list. Please try again.' });
         }
-        const rows = await r.json().catch(() => []);
-        if (!Array.isArray(rows) || rows.length !== 1) {
-          // 0 rows: the version moved under us (or the brand is gone). Hand back the current list so the client can merge.
-          const cur = await sb(`brands?id=eq.${brandId}&select=products,updated_at`);
-          const row = cur.ok ? (await cur.json())[0] : null;
-          if (!row) return jsonResp(res, 404, { error: 'brand_not_found' });
-          return jsonResp(res, 409, { error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: row.products, updated_at: row.updated_at });
-        }
-        return jsonResp(res, 200, { ok: true, products: rows[0].products, updated_at: rows[0].updated_at });
+        let rows; try { rows = await r.json(); } catch (_) { rows = null; }
+        if (!Array.isArray(rows)) return jsonResp(res, 503, { error: 'profile_save_failed', retry: true, message: 'We could not save your product list. Please try again.' });
+        if (rows.length === 1) return jsonResp(res, 200, { ok: true, products: rows[0].products, products_version: rows[0].products_version, updated_at: rows[0].updated_at });
+        // 0 rows: the version moved under us (or the brand is gone). A failed re-read is a service error, never a
+        // false conflict or a false "not found"; a missing row is 404; otherwise 409 with the current list and version.
+        const cur = await sb(`brands?id=eq.${brandId}&select=products,products_version,updated_at`);
+        if (!cur.ok) return jsonResp(res, 503, { error: 'profile_save_failed', retry: true, message: 'We could not save your product list. Please try again.' });
+        let curRows; try { curRows = await cur.json(); } catch (_) { curRows = null; }
+        if (!Array.isArray(curRows)) return jsonResp(res, 503, { error: 'profile_save_failed', retry: true, message: 'We could not save your product list. Please try again.' });
+        if (!curRows.length) return jsonResp(res, 404, { error: 'brand_not_found' });
+        return jsonResp(res, 409, { error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: curRows[0].products, products_version: curRows[0].products_version, updated_at: curRows[0].updated_at });
       }
       if (!r.ok) {
         const firstErr = await r.text().catch(() => '');

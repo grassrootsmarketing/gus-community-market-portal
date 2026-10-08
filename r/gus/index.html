@@ -1945,14 +1945,30 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 let saveResp = null, saveJson = {};
                 try {
                     saveResp = await fetch('/api/brand-account?action=profile-update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                        body: JSON.stringify({ products: merged, expected_updated_at: bp.updated_at || null }) });
+                        body: JSON.stringify({ products: merged, expected_products_version: Number.isInteger(bp.products_version) ? bp.products_version : null }) });
                     saveJson = await saveResp.json().catch(function () { return {}; });
                 } catch (e) { saveResp = null; }
                 if (saveResp && saveResp.ok && Array.isArray(saveJson.products)) {
+                    // Codex PL-C2: every new item carried a draft id the validator preserves, so the saved items are matched
+                    // by IDENTITY, never by name/size/barcode (two look-alike items must stay two items). The mapping is
+                    // verified before any booking request: each draft maps to exactly one saved item and no two drafts
+                    // share an id; otherwise the draft is kept and the submission stops with a recoverable error.
+                    const byId = {}; saveJson.products.forEach(function (p) { if (p && p.id) byId[p.id] = p; });
+                    const mapped = []; const seen = {}; let bad = null;
+                    sel.items.forEach(function (it) {
+                        const m = it.id ? byId[it.id] : null;
+                        if (!m) { bad = bad || 'missing'; return; }
+                        if (seen[m.id]) { bad = bad || 'duplicate'; return; }
+                        seen[m.id] = true; mapped.push(m);
+                    });
+                    if (bad || mapped.length !== sel.items.length) {
+                        btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book';
+                        _showSkuError('Your items were saved, but we could not match them back to your selection. Reload the page and select them again; nothing has been booked.');
+                        return;
+                    }
                     bp.products = saveJson.products; bp.updated_at = saveJson.updated_at || bp.updated_at;
-                    // the appended items come back normalised with ids; use those in the booking snapshot
-                    const tail = saveJson.products.slice(saveJson.products.length - sel.newItems.length);
-                    productSkus = sel.items.map(function (it) { if (it.id) return it; const m = tail.find(function (t) { return t.name === it.name && (t.size || '') === (it.size || '') && (t.upc || '') === (it.upc || ''); }); return m || it; });
+                    if (Number.isInteger(saveJson.products_version)) bp.products_version = saveJson.products_version;
+                    productSkus = mapped;
                     _renderBookProducts(bp, { keepSelection: productSkus });
                 } else {
                     btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book';
@@ -2313,7 +2329,10 @@ function supportMailto(a) {
             }).join('');
             list.style.display = items.length ? 'block' : 'none';
             const cap = document.getElementById('bookSkuCapNote'); if (cap) cap.style.display = items.length > 40 ? 'block' : 'none';
-            if (!(opts && opts.keepSelection)) { wrap.innerHTML = ''; if (!items.length) _addBookNewItem(); }
+            // keepSelection is passed right after a successful catalog save: the drafts are now catalog items (kept
+            // selected above), so the inline rows are cleared and a retry cannot save or send them twice.
+            wrap.innerHTML = '';
+            if (!(opts && opts.keepSelection) && !items.length) _addBookNewItem();
             _updateSaveItemsLabel();
             const add = document.getElementById('bookAddItemLink');
             if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
@@ -2344,7 +2363,10 @@ function supportMailto(a) {
                 const distributor = g('bni-distributor');
                 const other = g('bni-distributor-other');
                 if (distributor === 'other' && !other) return { error: 'Name the distributor for ' + name + '.' };
-                newItems.push({ name: name, size: g('bni-size'), sku: '', upc: upc, distributor: distributor, distributor_other: distributor === 'other' ? other : '', distributor_item_number: g('bni-item-number'), case_pack: case_pack, notes: '' });
+                // a per-draft id (kept on the row so retries reuse it): the server preserves a valid id, so the saved item
+                // is found by identity afterwards (Codex PL-C2)
+                if (!row.dataset.draftId) row.dataset.draftId = 'd_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+                newItems.push({ id: row.dataset.draftId, name: name, size: g('bni-size'), sku: '', upc: upc, distributor: distributor, distributor_other: distributor === 'other' ? other : '', distributor_item_number: g('bni-item-number'), case_pack: case_pack, notes: '' });
             }
             const all = items.concat(newItems);
             if (!all.length) return { error: 'Select or add at least one item you will be sampling.' };

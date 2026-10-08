@@ -18,7 +18,7 @@ let pass = 0, fail = 0; const fails = [];
 const ok = (name, cond, detail) => { if (cond) { pass++; console.log('  ok   ' + name); } else { fail++; fails.push(name); console.log('  FAIL ' + name + (detail ? ' ' + detail : '')); } };
 const ymd = (d) => { const x = new Date(); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
 const HOSTILE = 'Chips <img src=x onerror="window.__xss=1">';
-const profileBase = { id: 'b-1', email: 'brand@fixture.test', company_name: 'DOM Brand', contact_name: 'Dom Contact', phone: '555-0100', coi_verification_status: 'approved', default_coi_url: 'brands/b-1/coi.pdf', default_coi_expires: ymd(300), default_categories: 'Snacks', updated_at: '2026-10-07T10:00:00.000Z' };
+const profileBase = { id: 'b-1', email: 'brand@fixture.test', company_name: 'DOM Brand', contact_name: 'Dom Contact', phone: '555-0100', coi_verification_status: 'approved', default_coi_url: 'brands/b-1/coi.pdf', default_coi_expires: ymd(300), default_categories: 'Snacks', updated_at: '2026-10-07T10:00:00.123456+00:00', products_version: 7 };
 const catalog = [
   { id: 'c1', name: HOSTILE, size: '5 oz', sku: 'CC-5', upc: '012345678905', distributor: 'unfi', distributor_other: '', distributor_item_number: '0007', case_pack: 12, notes: '' },
   { id: 'c2', name: 'Salsa', size: '16 oz', sku: '', upc: '', distributor: 'other', distributor_other: 'Pod Foods', distributor_item_number: '', case_pack: null, notes: 'ships chilled' },
@@ -52,7 +52,7 @@ try {
   console.log('\n— booking page: brand with NO items —');
   {
     const saved = { list: null };
-    const { ctx, page, errors, calls } = await openBooking({ ...profileBase, products: [] }, { profileUpdate: (b) => { saved.list = b.products.map((p, i) => ({ ...p, id: 'srv-' + i, upc: String(p.upc || '').replace(/\D/g, ''), notes: p.notes || '' })); return { status: 200, body: { ok: true, products: saved.list, updated_at: '2026-10-07T10:05:00.000Z' } }; } });
+    const { ctx, page, errors, calls } = await openBooking({ ...profileBase, products: [] }, { profileUpdate: (b) => { saved.list = b.products.map((p) => ({ ...p, id: p.id, upc: String(p.upc || '').replace(/\D/g, ''), notes: p.notes || '' })); return { status: 200, body: { ok: true, products: saved.list, products_version: 8, updated_at: '2026-10-07T10:05:00.000Z' } }; } });
     ok('the product block is visible with one inline editor row and no checkbox list', (await page.evaluate(() => ({ grp: getComputedStyle(document.getElementById('bookSkuGroup')).display, rows: document.querySelectorAll('#bookNewItems .book-new-item').length, list: getComputedStyle(document.getElementById('bookSkuList')).display }))).grp === 'block' && (await page.$$('#bookNewItems .book-new-item')).length === 1);
     ok('the sharing disclosure is shown', /shared with the store you book and its notification contacts/.test(await text(page, '#bookSkuGroup')));
     ok('"Save new items to my product list" is offered and checked by default', await page.evaluate(() => { const l = document.getElementById('bookSaveItemsLabel'), c = document.getElementById('bookSaveItems'); return getComputedStyle(l).display !== 'none' && c.checked; }));
@@ -70,17 +70,18 @@ try {
     await page.click('#bookSubmitBtn');
     await page.waitForFunction(() => window.__bookCalls === undefined || true, null, { timeout: 1000 }).catch(() => {});
     await page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
-    ok('the catalog was saved ONCE, before the bookings, with the loaded version', calls.profileUpdates.length === 1 && calls.profileUpdates[0].expected_updated_at === profileBase.updated_at && calls.profileUpdates[0].products.length === 1 && calls.profileUpdates[0].products[0].name === 'Granola Bar', JSON.stringify(calls.profileUpdates));
+    ok('the catalog was saved ONCE, before the bookings, with the loaded integer version (never the timestamp)', calls.profileUpdates.length === 1 && calls.profileUpdates[0].expected_products_version === 7 && !('expected_updated_at' in calls.profileUpdates[0]) && calls.profileUpdates[0].products.length === 1 && calls.profileUpdates[0].products[0].name === 'Granola Bar', JSON.stringify(calls.profileUpdates));
+    ok('the new item carried a draft id (identity for the mapping back)', /^d_[a-z0-9]+$/.test(calls.profileUpdates[0].products[0].id || ''), JSON.stringify(calls.profileUpdates[0].products[0].id));
     ok('the saved item carries every ordering field as typed (UPC digits, other distributor, item number, case pack as a number)', (() => { const p = calls.profileUpdates[0].products[0]; return p.upc === '012345678905' && p.distributor === 'other' && p.distributor_other === 'Pod Foods' && p.distributor_item_number === '00042' && p.case_pack === 24 && p.size === '1.4 oz'; })(), JSON.stringify(calls.profileUpdates[0] && calls.profileUpdates[0].products));
     ok('two bookings were requested (one per cart demo)', calls.bookings.length === 2, String(calls.bookings.length));
-    ok('both bookings carry the SAME frozen snapshot, using the server-normalised item (id srv-0)', calls.bookings.length === 2 && JSON.stringify(calls.bookings[0].product_skus) === JSON.stringify(calls.bookings[1].product_skus) && calls.bookings[0].product_skus[0].id === 'srv-0' && calls.bookings[0].product_skus[0].case_pack === 24, JSON.stringify(calls.bookings.map(b => b.product_skus)));
+    ok('both bookings carry the SAME frozen snapshot, mapped by identity to the server-normalised item', calls.bookings.length === 2 && JSON.stringify(calls.bookings[0].product_skus) === JSON.stringify(calls.bookings[1].product_skus) && calls.bookings[0].product_skus[0].id === calls.profileUpdates[0].products[0].id && calls.bookings[0].product_skus[0].case_pack === 24 && calls.bookings[0].product_skus[0].upc === '012345678905', JSON.stringify(calls.bookings.map(b => b.product_skus)));
     ok('no page errors', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }
 
   console.log('\n— booking page: brand WITH items —');
   {
-    const { ctx, page, errors, calls } = await openBooking({ ...profileBase, products: catalog }, { profileUpdate: () => ({ status: 200, body: { ok: true, products: catalog, updated_at: 'x' } }) });
+    const { ctx, page, errors, calls } = await openBooking({ ...profileBase, products: catalog }, { profileUpdate: () => ({ status: 200, body: { ok: true, products: catalog, products_version: 8, updated_at: 'x' } }) });
     const boxes = await page.$$eval('#bookSkuList .book-sku', els => els.map(e => e.checked));
     ok('both catalog items are listed and pre-checked; no inline row is open', boxes.length === 2 && boxes.every(Boolean) && (await page.$$('#bookNewItems .book-new-item')).length === 0);
     ok('the hostile item name is rendered as text (no injected element)', (await page.$$('#bookSkuList img')).length === 0 && (await page.evaluate(() => window.__xss)) === undefined && /Chips <img src=x/.test(await text(page, '#bookSkuList')));
@@ -108,7 +109,7 @@ try {
 
   console.log('\n— booking page: catalog save conflict keeps the draft; failed save offers booking without saving —');
   {
-    const { ctx, page, calls } = await openBooking({ ...profileBase, products: [] }, { profileUpdate: () => ({ status: 409, body: { error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: [{ id: 'z', name: 'Elsewhere' }], updated_at: 'v2' } }) });
+    const { ctx, page, calls } = await openBooking({ ...profileBase, products: [] }, { profileUpdate: () => ({ status: 409, body: { error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: [{ id: 'z', name: 'Elsewhere' }], products_version: 9, updated_at: 'v2' } }) });
     await page.fill('#bookNewItems .bni-name', 'Draft Item');
     await page.click('#bookSubmitBtn');
     await page.waitForFunction(() => /changed somewhere else/.test((document.getElementById('bookSkuError') || {}).innerText || ''), null, { timeout: 10000 });
@@ -121,8 +122,43 @@ try {
     ok('500: a "Book without saving them" choice appears and nothing says saved', /could not save/.test(await text(s2.page, '#bookErrorMsg')) && s2.calls.bookings.length === 0);
     await s2.page.click('#bookWithoutSaveBtn');
     await s2.page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
-    ok('choosing it books with the item as typed, with no further save attempt', s2.calls.profileUpdates.length === 1 && s2.calls.bookings.length === 2 && s2.calls.bookings[0].product_skus[0].name === 'Draft Two' && !s2.calls.bookings[0].product_skus[0].id, JSON.stringify([s2.calls.profileUpdates.length, s2.calls.bookings.map(b => b.product_skus)]));
+    ok('choosing it books with the item as typed (its draft id, no server id), with no further save attempt', s2.calls.profileUpdates.length === 1 && s2.calls.bookings.length === 2 && s2.calls.bookings[0].product_skus[0].name === 'Draft Two' && /^d_/.test(s2.calls.bookings[0].product_skus[0].id), JSON.stringify([s2.calls.profileUpdates.length, s2.calls.bookings.map(b => b.product_skus)]));
     await s2.ctx.close();
+  }
+
+  console.log('\n— PL-C2: two look-alike new items stay two items with their own ordering details —');
+  {
+    const saved = { list: null, calls: 0 };
+    const { ctx, page, calls } = await openBooking({ ...profileBase, products: catalog }, { profileUpdate: (b) => { saved.calls++; saved.list = b.products.map((p) => ({ ...p, upc: String(p.upc || '').replace(/\D/g, ''), notes: p.notes || '' })); return { status: 200, body: { ok: true, products: saved.list, products_version: 8, updated_at: 'x' } }; }, book: (body) => body.demo_date === ymd(20) ? { status: 200, body: { ok: true, booking_id: 'bk-ok', next: 'checkout' } } : { status: 409, body: { error: 'slot_full' } } });
+    await page.evaluate(() => document.querySelectorAll('#bookSkuList .book-sku').forEach(c => { c.checked = false; }));
+    await page.click('#bookAddItemLink'); await page.click('#bookAddItemLink');
+    const rows = await page.$$('#bookNewItems .book-new-item');
+    await rows[0].$eval('.bni-name', e => { e.value = 'Sampler'; }); await rows[0].$eval('.bni-size', e => { e.value = '12 oz'; }); await rows[0].$eval('.bni-item-number', e => { e.value = '111'; }); await rows[0].$eval('.bni-case-pack', e => { e.value = '6'; }); await rows[0].$eval('.bni-distributor', e => { e.value = 'unfi'; });
+    await rows[1].$eval('.bni-name', e => { e.value = 'Sampler'; }); await rows[1].$eval('.bni-size', e => { e.value = '12 oz'; }); await rows[1].$eval('.bni-item-number', e => { e.value = '222'; }); await rows[1].$eval('.bni-case-pack', e => { e.value = '12'; }); await rows[1].$eval('.bni-distributor', e => { e.value = 'kehe'; });
+    await page.click('#bookSubmitBtn');
+    await page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
+    const sent = calls.bookings[0] && calls.bookings[0].product_skus;
+    ok('PL-C2: both look-alike items are saved with DISTINCT draft ids', saved.list && saved.list.length === 4 && saved.list[2].id !== saved.list[3].id && /^d_/.test(saved.list[2].id), JSON.stringify(saved.list && saved.list.slice(2).map(p => p.id)));
+    ok('PL-C2: the booking snapshot holds two items with different ids and each its OWN details (111/6/UNFI and 222/12/KeHE)', Array.isArray(sent) && sent.length === 2 && sent[0].id !== sent[1].id && sent[0].distributor_item_number === '111' && sent[0].case_pack === 6 && sent[0].distributor === 'unfi' && sent[1].distributor_item_number === '222' && sent[1].case_pack === 12 && sent[1].distributor === 'kehe', JSON.stringify(sent));
+    ok('PL-C2: both cart demos carry the identical snapshot', JSON.stringify(calls.bookings[0].product_skus) === JSON.stringify(calls.bookings[1].product_skus));
+    // one booking failed (slot_full): retry must not save the catalog again nor append duplicates; the selection survives the rerender
+    const errText = await text(page, '#bookErrorMsg');
+    ok('PL-C2: a failed booking shows the server reason and keeps the form (no success)', /slot_full|Some bookings failed/.test(errText), errText);
+    ok('PL-C2: after the save the inline rows are gone and the saved items are the selection (no second copy to re-save)', (await page.$$('#bookNewItems .book-new-item')).length === 0);
+    // a failed attempt clears the typed signature (existing behaviour); the brand signs again before retrying
+    await page.evaluate(() => { window._pendingSignedName = 'Dom Contact'; });
+    await page.click('#bookSubmitBtn');
+    await page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
+    const checkedNow = await page.$$eval('#bookSkuList .book-sku', els => els.filter(e => e.checked).length);
+    ok('PL-C2: retry after the failure: no second catalog save, the two saved items stay selected (and only they), no duplicates in the snapshot', saved.calls === 1 && checkedNow === 2 && calls.bookings.length === 4 && calls.bookings[2].product_skus.length === 2 && new Set(calls.bookings[2].product_skus.map(p => p.id)).size === 2, JSON.stringify([saved.calls, checkedNow, calls.bookings.slice(2).map(b => b.product_skus.map(p => p.id))]));
+    await ctx.close();
+    // malformed save response (ids missing): the draft is kept and nothing is booked
+    const s3 = await openBooking({ ...profileBase, products: [] }, { profileUpdate: (b) => ({ status: 200, body: { ok: true, products: b.products.map(p => ({ name: p.name })), products_version: 8 } }) });
+    await s3.page.fill('#bookNewItems .bni-name', 'Unmapped');
+    await s3.page.click('#bookSubmitBtn');
+    await s3.page.waitForFunction(() => /could not match them back/.test((document.getElementById('bookSkuError') || {}).innerText || ''), null, { timeout: 10000 });
+    ok('PL-C2: a save response without ids → recoverable error, draft kept, no booking requested', (await s3.page.inputValue('#bookNewItems .bni-name')) === 'Unmapped' && s3.calls.bookings.length === 0);
+    await s3.ctx.close();
   }
 
   console.log('\n— booking page: a server refusal (products_required / invalid_products) is shown, nothing proceeds to payment —');
@@ -146,9 +182,9 @@ try {
       if (/action=data/.test(u)) return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, profile: { ...profileBase, products: catalog }, demos: [], contacts: [], pending_bookings: [] }) });
       if (/action=profile-update/.test(u)) {
         updates.push(body);
-        if (state.mode === 'conflict') return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: catalog, updated_at: 'v9' }) });
+        if (state.mode === 'conflict') return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'products_conflict', message: 'Your product list changed somewhere else (another tab or device). Reload to see the latest list, then re-apply your edits.', products: catalog, products_version: 9, updated_at: 'v9' }) });
         const normalised = (body.products || []).map((p, i) => ({ ...p, id: p.id || 'new-' + i, upc: String(p.upc || '').replace(/\D/g, '') }));
-        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, products: normalised, updated_at: '2026-10-07T11:00:00.000Z' }) });
+        return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, products: normalised, products_version: 8, updated_at: '2026-10-07T11:00:00.000Z' }) });
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) });
     });
@@ -165,7 +201,7 @@ try {
     await newRow.$eval('.sku-name', (e) => { e.value = 'New Bar'; }); await newRow.$eval('.sku-upc', (e) => { e.value = '1234-5678'; }); await newRow.$eval('.sku-case-pack', (e) => { e.value = '6'; });
     await page.click('#saveProfileBtn');
     await page.waitForFunction(() => document.querySelectorAll('#skuList .sku-row').length === 3 && document.querySelectorAll('#skuList .sku-row')[2].dataset.id === 'new-2', null, { timeout: 10000 });
-    ok('save sends the version and the full items (case_pack as a number); the server-normalised list (new id, digit UPC) is re-rendered', updates.length === 1 && updates[0].expected_updated_at === profileBase.updated_at && updates[0].products[2].case_pack === 6 && updates[0].products[2].upc === '1234-5678' && (await page.$$eval('#skuList .sku-row', els => els[2].querySelector('.sku-upc').value)) === '12345678', JSON.stringify(updates[0] && updates[0].products[2]));
+    ok('save sends the integer version and the full items (case_pack as a number); the server-normalised list (new id, digit UPC) is re-rendered', updates.length === 1 && updates[0].expected_products_version === 7 && !('expected_updated_at' in updates[0]) && updates[0].products[2].case_pack === 6 && updates[0].products[2].upc === '1234-5678' && (await page.$$eval('#skuList .sku-row', els => els[2].querySelector('.sku-upc').value)) === '12345678', JSON.stringify(updates[0] && updates[0].products[2]));
     state.mode = 'conflict';
     await newRow.$eval('.sku-name', (e) => { e.value = 'New Bar edited'; }).catch(() => {});
     await page.$$eval('#skuList .sku-row', els => { els[2].querySelector('.sku-name').value = 'New Bar edited'; });

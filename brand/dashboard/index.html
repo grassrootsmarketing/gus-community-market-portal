@@ -2074,16 +2074,16 @@ async function saveProfile() {
     put('default_categories', 'f_default_categories', el => el.value);
     put('needs_electricity', 'f_needs_electricity', el => !!el.checked);
     const _skus = collectSkus();
-    if (_skus !== null) { payload.products = _skus; payload.expected_updated_at = _data.profile.updated_at || null; }
+    if (_skus !== null) { payload.products = _skus; payload.expected_products_version = Number.isInteger(_data.profile.products_version) ? _data.profile.products_version : null; }
     const _resp = await _brandApi('profile-update', payload);
     if (_resp && _resp.degraded) {
       const dropped = (_resp.dropped || []).join(', ');
       throw new Error('Saved, but these did not persist: ' + (dropped || 'some fields') + '. Email david@demohubhq.com.');
     }
-    delete payload.expected_updated_at;
+    delete payload.expected_products_version;
     Object.assign(_data.profile, payload);
-    // The server's normalised list (with stable ids) and version replace what we sent (Codex P-3).
-    if (_resp && Array.isArray(_resp.products)) { _data.profile.products = _resp.products; _data.profile.updated_at = _resp.updated_at || _data.profile.updated_at; renderSkuList(_resp.products); }
+    // The server's normalised list (with stable ids) and version replace what we sent (Codex P-3 / PL-C1).
+    if (_resp && Array.isArray(_resp.products)) { _data.profile.products = _resp.products; if (Number.isInteger(_resp.products_version)) _data.profile.products_version = _resp.products_version; _data.profile.updated_at = _resp.updated_at || _data.profile.updated_at; renderSkuList(_resp.products); }
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
     if (typeof renderCoiWidget === 'function') renderCoiWidget();
   } catch (err) {
