@@ -1,7 +1,6 @@
 // api/book.js — F5-05 secure booking endpoint. Composes the proven engines:
 // identity from the SESSION (not a typed email), COI must be VERIFIED, slot capacity enforced
 // by the DB trigger, server owns tenant/brand/amount. Replaces the anonymous email-based booking.
-import { validateProducts, describeErrors } from './_products.js';
 import { requireBrandSession } from './_booking-identity.js';
 import { coiCovered } from './_coi-coverage.js';
 import { FLAGS } from './_flags.js';
@@ -94,25 +93,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'contact_required', reason: 'missing_contact_name_or_phone' });
   }
 
-  // 3c) Codex product-list P-1: every brand-created booking carries 1..40 validated selected items. An empty or
-  // missing selection is refused (never silently filled from the profile); malformed data is refused with bounded
-  // field errors. This runs BEFORE the insert, the capacity bump and any checkout, and reads nothing else: a
-  // supplied item id is a label inside this brand's own list, never a key into another brand's catalog.
-  if (body.product_skus === undefined || body.product_skus === null || (Array.isArray(body.product_skus) && body.product_skus.length === 0)) {
-    return res.status(400).json({ error: 'products_required', message: 'Select at least one item you will be sampling. The store uses it to make sure your product is on the shelf.' });
-  }
-  const productCheck = validateProducts(body.product_skus, 'booking');
-  if (!productCheck.ok) {
-    const code = productCheck.errors.some(e => e.code === 'required' && e.field === 'items') ? 'products_required' : 'invalid_products';
-    return res.status(400).json({ error: code, message: code === 'products_required' ? 'Select at least one item you will be sampling.' : 'Check the items you selected: ' + describeErrors(productCheck.errors) + '.', errors: productCheck.errors });
-  }
-  const productSnapshot = productCheck.items;
-
   // 4) create the booking — server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
     demo_date: body.demo_date, demo_time: slot.time, duration_hours: slot.hours,
-    product: (body.product||null), notes: (body.notes||null), product_skus: productSnapshot,
+    product: (body.product||null), notes: (body.notes||null), product_skus: (body.product_skus||null),
     needs_electricity: needsElectricity,
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
