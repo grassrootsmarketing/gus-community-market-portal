@@ -207,7 +207,7 @@
         td { padding: 14px 16px; border-top: 1px solid var(--sand-200); font-size: 0.95rem; }
         /* Dense data tables: each cell stays on ONE line (no squishing an email into 3 lines or a
            phone broken at every hyphen), the table sizes to its content, and it scrolls horizontally
-           inside the card when it's wider than the card — never clips. On a wide desktop it fills the
+           inside the card when it's wider than the card, never clips. On a wide desktop it fills the
            card with room to spare; on a narrow window it scrolls. */
         /* Cells stay single-line so columns never squeeze into two-line names/emails; the admin container
            is 1440px and cell padding is 16px so every current table fits at desktop width, and the
@@ -781,37 +781,37 @@
                     <ol id="onboardingChecklist" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;">
                         <li data-step="locations" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your store locations</strong> — <span style="color:var(--ink-500);">the addresses brands book demos at.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your store locations</strong>: <span style="color:var(--ink-500);">the addresses brands book demos at.</span></span>
                             <a onclick="onboardingGo('storesSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Add locations →</a>
                         </li>
                         <li data-step="hours" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Set your store hours</strong> — <span style="color:var(--ink-500);">so brands only book slots you staff.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Set your store hours</strong>: <span style="color:var(--ink-500);">so brands only book slots you staff.</span></span>
                             <a onclick="onboardingGo('settingsSection','availabilityCard')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Set hours →</a>
                         </li>
                         <li data-step="team" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add a contact per location</strong> — <span style="color:var(--ink-500);">who gets demo alerts for each store (defaults to you).</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add a contact per location</strong>: <span style="color:var(--ink-500);">who gets demo alerts for each store (defaults to you).</span></span>
                             <a onclick="onboardingGo('teamSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Add contacts →</a>
                         </li>
                         <li data-step="logo" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your logo</strong> — <span style="color:var(--ink-500);">brands see it on your booking page.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Add your logo</strong>: <span style="color:var(--ink-500);">brands see it on your booking page.</span></span>
                             <a onclick="onboardingGo('settingsSection')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Upload →</a>
                         </li>
                         <li data-step="policies" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Customize your policies</strong> — <span style="color:var(--ink-500);">cancellation + demo conduct that brands sign.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Customize your policies</strong>: <span style="color:var(--ink-500);">cancellation + demo conduct that brands sign.</span></span>
                             <a onclick="onboardingGo('settingsSection','policiesBlock')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Edit →</a>
                         </li>
                         <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong> — <span style="color:var(--ink-500);">receive payouts from Stripe.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong>: <span style="color:var(--ink-500);">receive payouts from Stripe.</span></span>
                             <a onclick="onboardingGo('billingSection','payoutsCard')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Connect →</a>
                         </li>
                         <li data-step="link" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
-                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Share your booking link</strong> — <span style="color:var(--ink-500);">brand partners book through it.</span></span>
+                            <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Share your booking link</strong>: <span style="color:var(--ink-500);">brand partners book through it.</span></span>
                             <button type="button" onclick="copyScheduleLinkHeader(this)" style="background:transparent; border:none; font-size:0.8rem; color:var(--forest-700); font-weight:600; cursor:pointer; padding:0; white-space:nowrap;">Copy link →</button>
                         </li>
                     </ol>
@@ -1015,7 +1015,7 @@
 
                             <!-- Max per slot: property of the location, sits below the picker -->
                             <div style="display:flex; align-items:center; gap:10px; margin-top:12px; padding:8px 12px; background:#f9f7f2; border-radius:8px;">
-                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); flex:1; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot <span data-tooltip="How many brands can book the same time slot at this location. Whole number, 1 or more — larger stores that host several demos at once can set a higher number." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <label class="form-label" for="availabilityMaxPerSlot" style="margin:0; font-size:0.82rem; font-weight:600; color:var(--forest-900); flex:1; display:inline-flex; align-items:center; gap:6px;">Max demos per time slot <span data-tooltip="How many brands can book the same time slot at this location. Whole number, 1 or more. Larger stores that host several demos at once can set a higher number." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
                                 <!-- F-08: venues.max_demos_per_slot is NOT NULL + CHECK (>= 1). Whole numbers >= 1 only; there is no unlimited value. -->
                                 <input type="number" id="availabilityMaxPerSlot" min="1" step="1" inputmode="numeric" value="1" placeholder="1" aria-describedby="availabilityStatus" onchange="scheduleAutoSave()" style="width:90px; padding:6px 8px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem; font-family:inherit; background-color:#fff; text-align:center;">
                             </div>
@@ -1035,7 +1035,7 @@
                         </svg>
                         <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">
                             <strong style="color:#a14e2a;">Almost set up.</strong>
-                            <span id="policySetupCalloutText"> Your demo conduct policy + cancellation policy are still on the default template. Brands sign these at their first booking — make sure they match how your store actually runs.</span>
+                            <span id="policySetupCalloutText"> Your demo conduct policy + cancellation policy are still on the default template. Brands sign these at their first booking. Make sure they match how your store actually runs.</span>
                         </div>
                     </div>
                     <div class="settings-card" id="bookingPrefsCard">
@@ -1047,7 +1047,7 @@
                                 <input type="radio" name="approvalMode" value="auto" id="approvalAuto" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="onApprovalModeChange()">
                                 <div style="flex:1;">
                                     <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Automatic approval <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">DEFAULT</span></div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Every demo request is confirmed automatically. Brands get an instant confirmation email — no manual step in your inbox.</div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Every demo request is confirmed automatically. Brands get an instant confirmation email, with no manual step in your inbox.</div>
                                 </div>
                             </label>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:16px;">
@@ -1079,15 +1079,15 @@
                         </div>
                     </div>
 <div class="settings-card">
-                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default — customize</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
+                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default (customize)</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">What you expect from brands during the demo &mdash; setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout. <strong>Two options:</strong> type it below, or upload your existing PDF (e.g. an Erewhon-style guidelines doc).</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">What you expect from brands during the demo: setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout. <strong>Two options:</strong> type it below, or upload your existing PDF (e.g. an Erewhon-style guidelines doc).</div>
 
                             <!-- PDF uploaded state (hidden by default, shown when demo_policy_url exists) -->
                             <div id="demoPolicyPdfCard" style="display:none; align-items:center; gap:14px; padding:14px 16px; background:linear-gradient(135deg, #f4f8f0 0%, #eef4e5 100%); border:1.5px solid var(--forest-200, #c8d4c1); border-radius:10px; margin-bottom:10px;">
                                 <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--forest-800, #2a5b32)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
                                 <div style="flex:1; min-width:0;">
-                                    <div style="font-size:0.78rem; font-weight:700; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.05em;">Uploaded — brands see this</div>
+                                    <div style="font-size:0.78rem; font-weight:700; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.05em;">Uploaded: brands see this</div>
                                     <div id="demoPolicyFileName" style="font-size:0.95rem; font-weight:600; color:var(--forest-900); margin-top:2px; word-break:break-all;">demo-policy.pdf</div>
                                     <a id="demoPolicyPdfViewLink" href="#" target="_blank" rel="noopener" style="font-size:0.82rem; color:var(--forest-700); font-weight:600; text-decoration:underline; text-underline-offset:2px;">View PDF &rarr;</a>
                                 </div>
@@ -1104,7 +1104,7 @@
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700, #2a5b32)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                                 <div style="flex:1; min-width:0;">
                                     <div style="font-size:0.9rem; font-weight:600; color:var(--forest-900);">Prefer to upload a PDF?</div>
-                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">Most retailers already have a PDF policy doc — upload it and brands will see that instead of the text.</div>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">Most retailers already have a PDF policy doc, so upload it and brands will see that instead of the text.</div>
                                 </div>
                                 <label for="demoPolicyPdfInput" style="cursor:pointer; background:var(--forest-900, #1f4a26); color:#fff; padding:9px 16px; border-radius:8px; font-size:0.85rem; font-weight:600; white-space:nowrap;"><span id="demoPolicyUploadLabel">Upload PDF instead</span></label>
                                 <input type="file" id="demoPolicyPdfInput" accept="application/pdf,.pdf" onchange="uploadDemoPolicyPdf(this)" style="display:none;">
@@ -1124,7 +1124,7 @@
                          management. This card previously sat orphaned between Demos and Brand
                          Contacts, where nobody managing their team would look for it. -->
                     <div class="settings-card" data-tab="teamSection">
-                        <div class="settings-card-header"><h3>Store contacts &amp; demo notifications<button type="button" class="section-info" aria-label="What is this section?" title="Who gets notified about confirmed demos at each location — the person ordering product and hosting events at that store. They don't sign in; they just get the confirmation, reminders, and any cancel/reschedule notices. Scope each contact to one location, several, or leave all boxes unchecked for every location." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
+                        <div class="settings-card-header"><h3>Store contacts &amp; demo notifications<button type="button" class="section-info" aria-label="What is this section?" title="Who gets notified about confirmed demos at each location: the person ordering product and hosting events at that store. They don't sign in; they just get the confirmation, reminders, and any cancel/reschedule notices. Scope each contact to one location, several, or leave all boxes unchecked for every location." style="background:none; border:none; padding:0 0 0 6px; cursor:help; color:var(--ink-500); display:inline-flex; align-items:center; vertical-align:middle;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></button></h3>
                             <div class="toolbar-controls" style="display:flex; gap:8px; align-items:center;">
                                 <select class="sort-select" id="internalContactSort" onchange="renderContacts('internal')">
                                     <option value="venue">Sort by Location</option>
@@ -1135,11 +1135,11 @@
                             </div>
                         </div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong> — 1 week, 3 days, 1 day, the morning of (7 am), 1 hour, or a custom lead time, each at 9 am in your store's time zone — plus a notice if a confirmed demo is cancelled or rescheduled. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;"><strong>Demo notifications.</strong> Each location's appointed contact is emailed when a demo at their store is <strong>confirmed</strong> (date, start and end time, location, brand, product and SKUs, whether the demo needs electricity, brand rep and phone, the brand's notes) and gets <strong>reminders before it</strong>: 1 week, 3 days, 1 day, the morning of (7 am), 1 hour, or a custom lead time, each at 9 am in your store's time zone, plus a notice if a confirmed demo is cancelled or rescheduled. Nothing is sent for bookings you haven't confirmed yet. Contacts only receive email: adding one does not create a login or give them access to this admin.</div>
                             <div class="tbl-scroll">
                             <table>
                                 <thead><tr><th style="white-space:nowrap;">Name</th><th style="white-space:nowrap;">Role</th><th style="white-space:nowrap;">Location</th><th style="white-space:nowrap;">Email</th><th style="white-space:nowrap;">Phone</th><th style="text-align:right; white-space:nowrap;">Actions</th></tr></thead>
-                                <tbody id="internalContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">No store contacts yet. Click <b>+ Add Store Contact</b> and scope each person to their location — they'll get demo alerts for that store only.</td></tr></tbody>
+                                <tbody id="internalContactsTableBody"><tr class="empty-placeholder"><td colspan="6" style="text-align:center; padding:32px 20px; color:var(--ink-500); font-size:0.9rem;">No store contacts yet. Click <b>+ Add Store Contact</b> and scope each person to their location, and they'll get demo alerts for that store only.</td></tr></tbody>
                             </table>
                             </div>
                         </div>
@@ -1148,7 +1148,7 @@
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div class="form-group">
-                                <label class="form-label" style="display:flex; align-items:center; gap:6px;">Default Demo Fee<span title="What brands pay per demo at your stores. Demohub keeps a $5 booking fee per demo — you keep the rest." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <label class="form-label" style="display:flex; align-items:center; gap:6px;">Default Demo Fee<span title="What brands pay per demo at your stores. Demohub keeps a $5 booking fee per demo, and you keep the rest." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
 
                                 <!-- Slider + numeric mirror + live cut preview -->
                                 <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px;">
@@ -1211,7 +1211,7 @@
                             </div>
                                                         <div class="form-group" id="calendarFeedGroup">
                                 <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Calendar feeds<span data-tooltip="Owners see the umbrella feed with every location. Team members can subscribe to just their own store’s calendar." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
-                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically. Share a single-location feed with team members so they only see their store. These links are private &mdash; anyone with the link can view the feed, so only share them with your team.</div>
+                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically. Share a single-location feed with team members so they only see their store. These links are private. Anyone with the link can view the feed, so only share them with your team.</div>
                                 <!-- Umbrella (all locations) -->
                                 <div style="border:1px solid rgba(15,44,23,0.08); border-radius:10px; padding:14px; margin-bottom:10px; background:var(--cream-50);">
                                     <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:8px;">
@@ -1232,7 +1232,7 @@
                                 <div id="perLocationFeeds" style="display:flex; flex-direction:column; gap:8px;">
                                     <div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>
                                 </div>
-                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can't subscribe with one click for security reasons. Copy the URL first, then click the shortcut — it opens the right settings page. Paste in the URL field there.</div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can't subscribe with one click for security reasons. Copy the URL first, then click the shortcut, which opens the right settings page. Paste in the URL field there.</div>
                             </div>
                         </div>
                     </div>
@@ -1249,7 +1249,7 @@
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0; margin-top:1px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                                 <div style="font-size:0.82rem; color:var(--forest-900); line-height:1.55;">
                                     <div style="font-weight:700; margin-bottom:4px;">Your bank info stays with Stripe.</div>
-                                    <div style="color:var(--ink-700);">Demohub never sees or stores your routing number, account number, or login credentials. Everything lives inside Stripe, PCI-DSS Level 1 certified and the same infrastructure used by Amazon, Shopify, and Instacart. You can disconnect any time — we can't view or move money on our own.</div>
+                                    <div style="color:var(--ink-700);">Demohub never sees or stores your routing number, account number, or login credentials. Everything lives inside Stripe, PCI-DSS Level 1 certified and the same infrastructure used by Amazon, Shopify, and Instacart. You can disconnect any time, and we can't view or move money on our own.</div>
                                 </div>
                             </div>
                             <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:11px 22px;font-size:0.95rem;">Connect bank for payouts &rarr;</button>
@@ -1337,7 +1337,7 @@
     <div class="modal-overlay" id="storeBulkModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
         <div class="modal" style="max-width:720px; background:white; border-radius:16px; padding:30px; width:100%; max-height:90vh; overflow-y:auto; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
             <h3 style="font-size:1.4rem; color:var(--forest-800); margin-bottom:6px; font-family:'Plus Jakarta Sans', sans-serif; font-weight:400;">Bulk upload stores</h3>
-            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:20px;">Upload a CSV of your store locations all at once. Most retailers name their stores after the neighborhood, area, or major street — e.g., "Downtown", "Westside", "Main St".</div>
+            <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:20px;">Upload a CSV of your store locations all at once. Most retailers name their stores after the neighborhood, area, or major street, e.g., "Downtown", "Westside", "Main St".</div>
 
             <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px; margin-bottom:18px;">
                 <div style="font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:8px;">CSV columns</div>
@@ -1429,7 +1429,7 @@
                             <input type="number" id="notifCustomDays" min="1" max="30" step="1" value="7" disabled style="width:60px; padding:5px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:6px; font-size:0.88rem;">
                             <span>days before</span>
                         </label>
-                        <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am (only if the demo starts later). Picking "1 day" and "Custom: 1" sends one reminder, not two. Text-message reminders are not available yet — email only.</div>
+                        <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Day-based reminders go out at 9 am in your store's time zone; the morning-of reminder at 7 am (only if the demo starts later). Picking "1 day" and "Custom: 1" sends one reminder, not two. Text-message reminders are not available yet, so it is email only.</div>
                     </div>
 
                     <div style="border-top:1px solid var(--sand-200); padding-top:12px; margin-top:12px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
@@ -1490,8 +1490,8 @@
             <div class="form-group" style="margin-bottom:14px;"><label class="form-label" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Store name</label><input type="text" class="form-input" id="storeName" placeholder="e.g., Downtown" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;"></div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label class="form-label" for="storeStreet" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">Street address</label>
-                <input type="text" class="form-input" id="storeStreet" placeholder="1301 Divisadero St — or paste full address to auto-fill" autocomplete="street-address" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
-                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:4px;">Paste a full address like "1301 Divisadero St, San Francisco, CA 94115" — we'll split it for you.</div>
+                <input type="text" class="form-input" id="storeStreet" placeholder="1301 Divisadero St, or paste the full address to auto-fill" autocomplete="street-address" style="width:100%; padding:10px 12px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit;">
+                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:4px;">Paste a full address like "1301 Divisadero St, San Francisco, CA 94115" and we'll split it for you.</div>
             </div>
             <div class="form-group" style="margin-bottom:14px; display:grid; grid-template-columns: 2fr 90px 100px; gap:8px;">
                 <div>
@@ -1501,7 +1501,7 @@
                 <div>
                     <label class="form-label" for="storeState" style="display:block; font-size:0.82rem; font-weight:600; color:var(--forest-900); margin-bottom:6px;">State</label>
                     <select id="storeState" autocomplete="address-level1" style="width:100%; padding:10px 8px; border:1.5px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.95rem; font-family:inherit; background:white; appearance:none; -webkit-appearance:none; background-image: url(&quot;data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2710%27 height=%276%27 viewBox=%270 0 10 6%27 fill=%27none%27 stroke=%27%230f2c17%27 stroke-width=%271.6%27 stroke-linecap=%27round%27 stroke-linejoin=%27round%27%3E%3Cpolyline points=%271 1 5 5 9 1%27/%3E%3C/svg%3E&quot;); background-repeat:no-repeat; background-position:right 8px center; padding-right:24px;">
-                        <option value="">—</option>
+                        <option value="">Select</option>
                         <option value="AL">AL</option>
                         <option value="AK">AK</option>
                         <option value="AZ">AZ</option>
@@ -1950,7 +1950,7 @@
                     // returns all wipe in-memory state but preserve the cookie, so this must run
                     // unconditionally on every load.
                     if (!RETAILER_SLUG_LOCAL) {
-                        console.error('No slug in URL — cannot validate session');
+                        console.error('No slug in URL, cannot validate session');
                         this.clearEmail();
                         window.location.href = '/signin';
                         return false;
@@ -2238,7 +2238,7 @@
                 html += '</div>';
                 cartContainer.innerHTML = html;
                 checkoutBtn.disabled = false;
-                checkoutBtnText.textContent = 'Pay & Confirm – $' + (cart.length * PRICE_PER_DEMO).toFixed(2);
+                checkoutBtnText.textContent = 'Pay & Confirm: $' + (cart.length * PRICE_PER_DEMO).toFixed(2);
             }
         }
         
@@ -2472,7 +2472,7 @@ END:VEVENT
         // refreshAll() populates window.state.retailer from /api/admin?action=data.
         async function initAdminData() {
             try {
-                if (!RETAILER_SLUG) { console.error('No retailer slug in URL — aborting'); window.location.href = '/signin'; return; }
+                if (!RETAILER_SLUG) { console.error('No retailer slug in URL, aborting'); window.location.href = '/signin'; return; }
                 await refreshAll();
                 const retailer = window.state.retailer;
                 if (!retailer) {
@@ -2604,7 +2604,7 @@ END:VEVENT
             fileInput.addEventListener('change', async (e) => {
                 const file = e.target.files && e.target.files[0];
                 if (!file) return;
-                if (file.size > 2 * 1024 * 1024) { DhModal.toast('Image too large — max 2MB', 'error'); e.target.value = ''; return; }
+                if (file.size > 2 * 1024 * 1024) { DhModal.toast('Image too large (max 2MB)', 'error'); e.target.value = ''; return; }
                 const reader = new FileReader();
                 reader.onload = async () => {
                     try {
@@ -2616,7 +2616,7 @@ END:VEVENT
                         const j = await r.json();
                         // The old localStorage pre-check ('Sign in again to upload a logo') is gone:
                         // whether a session exists is the server's answer, and it arrives as a 401 here.
-                        if (r.status === 401) throw new Error('Your session expired — sign in again.');
+                        if (r.status === 401) throw new Error('Your session expired. Sign in again.');
                         if (!r.ok) throw new Error(j.error || 'Upload failed');
                         renderRetailerLogo(j.logo_url);
                     } catch (err) {
@@ -2833,11 +2833,11 @@ END:VEVENT
                 const label = bankLi.querySelector('span:nth-child(2)');
                 if (label) {
                     if (status.bankNotNeeded) {
-                        label.innerHTML = '<strong>Payouts</strong> — <span style="color:var(--ink-500);">not needed while your demos are free. Charging later? Connect a bank.</span>';
+                        label.innerHTML = '<strong>Payouts</strong>: <span style="color:var(--ink-500);">not needed while your demos are free. Charging later? Connect a bank.</span>';
                         label.style.textDecoration = 'none';
                         label.style.opacity = '';
                     } else {
-                        label.innerHTML = '<strong>Connect your bank</strong> — <span style="color:var(--ink-500);">receive payouts from Stripe.</span>';
+                        label.innerHTML = '<strong>Connect your bank</strong>: <span style="color:var(--ink-500);">receive payouts from Stripe.</span>';
                         // strike/opacity for this state is owned by the main loop (status.bank)
                     }
                 }
@@ -2906,7 +2906,7 @@ END:VEVENT
         // the brand's ACTUAL compliance status — green "COI approved" once the cert is verified (so the
         // retailer knows Confirm will capture cleanly), amber "COI pending" until then.
         function pendingBookingRowHtml(b, venueById) {
-            const dateLabel = b.demo_date ? new Date(b.demo_date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+            const dateLabel = b.demo_date ? new Date(b.demo_date + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : 'n/a';
             const isHeld = b.status === 'held';
             let heldBadge = '';
             if (isHeld) {
@@ -2914,16 +2914,16 @@ END:VEVENT
                 // verification state); 'approved' means Confirm will capture cleanly.
                 const coiOk = b.coi_status === 'approved';
                 heldBadge = coiOk
-                    ? '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#e6f4ea;color:#1c7a3f;" title="Card authorized, not charged. COI approved — Confirm now captures the card.">Held &middot; COI approved</span></div>'
+                    ? '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#e6f4ea;color:#1c7a3f;" title="Card authorized, not charged. COI approved. Confirm now captures the card.">Held &middot; COI approved</span></div>'
                     : '<div style="margin-top:4px;"><span style="display:inline-block;font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;padding:2px 8px;border-radius:99px;background:#fff0e6;color:#b4531f;" title="Card authorized, not charged. Confirm charges the card once their COI is approved; decline releases the hold at $0.">Held &middot; COI pending</span></div>';
             }
             return `<tr data-booking-id="${b.id}">
                     <td>${escapeHtml(dateLabel)}</td>
-                    <td>${escapeHtml(b.demo_time || '—')}</td>
-                    <td>${escapeHtml(venueById[b.venue_id] || '—')}</td>
-                    <td><strong>${escapeHtml(b.brand_name || '—')}</strong>${heldBadge}</td>
+                    <td>${escapeHtml(b.demo_time || 'n/a')}</td>
+                    <td>${escapeHtml(venueById[b.venue_id] || 'n/a')}</td>
+                    <td><strong>${escapeHtml(b.brand_name || 'n/a')}</strong>${heldBadge}</td>
                     <td>${escapeHtml(b.contact_name || '')}${b.contact_email ? ('<div style="font-size:0.8rem;color:var(--ink-500);">' + escapeHtml(b.contact_email) + '</div>') : ''}</td>
-                    <td>${escapeHtml(b.product || '—')}${(Array.isArray(b.product_skus) && b.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + b.product_skus.filter(p => p && p.name).map(p => escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '')).join('<br>') + '</div>') : ''}</td>
+                    <td>${escapeHtml(b.product || 'n/a')}${(Array.isArray(b.product_skus) && b.product_skus.length) ? ('<div style="font-size:0.8rem;color:var(--ink-500);margin-top:3px;line-height:1.45;">' + b.product_skus.filter(p => p && p.name).map(p => escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (p.sku ? ' &middot; ' + escapeHtml(p.sku) : '')).join('<br>') + '</div>') : ''}</td>
                     <td style="text-align:right; white-space:nowrap;">
                         <button class="btn btn-secondary" style="padding:6px 12px; font-size:0.85rem; margin-right:6px;" onclick="declineBooking('${b.id}')">Decline</button>
                         <button class="btn" style="padding:6px 14px; font-size:0.85rem; background:var(--forest-600); color:white;" onclick="confirmBooking('${b.id}', ${isHeld})">Confirm</button>
@@ -2997,7 +2997,7 @@ END:VEVENT
 
         async function confirmBooking(id, isHeld) {
             const msg = isHeld
-                ? 'This is a HELD booking: confirming charges the brand\'s card (their hold is captured), emails them, and creates the demo. If their COI is not approved yet the server will refuse — approve it first.'
+                ? 'This is a HELD booking: confirming charges the brand\'s card (their hold is captured), emails them, and creates the demo. If their COI is not approved yet the server will refuse, so approve it first.'
                 : 'The brand will get a confirmation email and a demo will be created.';
             if (!(await DhModal.confirm({title:'Confirm this booking?', message: msg, ok:'Confirm booking'}))) return;
             const row = document.querySelector(`tr[data-booking-id="${id}"]`);
@@ -3011,7 +3011,7 @@ END:VEVENT
                 if (e && e.code === 'capture_succeeded_confirmation_unverified') {
                     // Codex H1: the capture happened and the booking is converging server-side — show the
                     // current status instead of leaving a stale "held" row that invites a decline.
-                    await DhModal.alert({ title: 'Payment captured — confirmation not verified yet', message: e.message });
+                    await DhModal.alert({ title: 'Payment captured, confirmation not verified yet', message: e.message });
                     try { await refreshAll(); } catch (_) {}
                 } else if (e && e.code === 'payment_outcome_unknown') {
                     // Codex R4-02: the payment MAY have completed. No "nothing was charged", no "in
@@ -3048,7 +3048,7 @@ END:VEVENT
             const prev = sel.value;
             const venues = window.state.venues || [];
             if (venues.length === 0) {
-                sel.innerHTML = '<option value="" disabled selected>No locations yet — add one below</option>';
+                sel.innerHTML = '<option value="" disabled selected>No locations yet, add one below</option>';
                 sel.disabled = true;
             } else {
                 sel.disabled = false;
@@ -3433,7 +3433,7 @@ END:VEVENT
         // Returns { ok:true, value:int } or { ok:false, error:string }. Exposed for tests/capacity_input.test.mjs.
         function parseCapacityInput(raw) {
             const s = String(raw == null ? '' : raw).trim();
-            if (s === '') return { ok: false, error: 'Max demos per time slot is required — enter a whole number of 1 or more.' };
+            if (s === '') return { ok: false, error: 'Max demos per time slot is required. Enter a whole number of 1 or more.' };
             if (!/^\d+$/.test(s)) return { ok: false, error: `Max demos per time slot must be a whole number of 1 or more (got "${s}").` };
             const n = parseInt(s, 10);
             if (!Number.isInteger(n) || n < 1) return { ok: false, error: `Max demos per time slot must be at least 1 (got "${s}"). There is no "no limit" setting.` };
@@ -3514,7 +3514,7 @@ END:VEVENT
                     // re-render; the user re-applies their edit on top of the current state.
                     _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
                     renderAvailabilityEditor();
-                    if (status) { status.textContent = 'Reloaded — this location was changed elsewhere. Check it and save again.'; status.style.color = 'var(--clay-700)'; }
+                    if (status) { status.textContent = 'Reloaded: this location was changed elsewhere. Check it and save again.'; status.style.color = 'var(--clay-700)'; }
                     return;
                 }
                 if (e && e.code === 'capacity_below_active_reservations') {
@@ -3601,7 +3601,7 @@ END:VEVENT
                 if (e && e.code === 'stale_version') {
                     _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
                     renderAvailabilityEditor();
-                    if (status) { status.textContent = 'Reloaded — this location was changed elsewhere. Check it and try again.'; status.style.color = 'var(--clay-700)'; }
+                    if (status) { status.textContent = 'Reloaded: this location was changed elsewhere. Check it and try again.'; status.style.color = 'var(--clay-700)'; }
                 } else if (e && e.code === 'slot_in_use') {
                     const where = (e.body && e.body.venue_name) ? ` at ${e.body.venue_name}` : '';
                     if (status) { status.textContent = `Not applied: upcoming demos${where} sit on a slot this would remove. Nothing was changed.`; status.style.color = 'var(--clay-700)'; }
@@ -3754,7 +3754,7 @@ END:VEVENT
             if (!body) return;
             if (!v) { body.innerHTML = ''; return; }
             if (window.state.features && window.state.features.slot_editing === false) {
-                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Demo time slots</strong> — editing is switched off right now. The saved slots still apply to bookings.</div>';
+                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Demo time slots</strong>: editing is switched off right now. The saved slots still apply to bookings.</div>';
                 return;
             }
             const cfg = DhSlots.config(v);
@@ -3780,8 +3780,8 @@ END:VEVENT
                         <div style="font-size:0.82rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em;">Demo time slots</div>
                         <span id="slotsSaveStatus" style="font-size:0.78rem; color:var(--ink-500);"></span>
                     </div>
-                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:8px;">The start times brands can pick at this location, with how long each demo runs. A slot is offered on a day only when it fits inside that day's hours above. ${cfg.defaulted ? '<strong>Using the standard slots</strong> (11 AM – 2 PM and 3 – 6 PM) until you save your own.' : ''}${_slotsDraft.invalid ? '<strong style="color:var(--clay-700);">The saved slots are invalid — fix and save.</strong>' : ''}</div>
-                    ${rows || '<div style="font-size:0.85rem; color:var(--clay-700); padding:6px 0;">No slots — brands cannot book this location until you add one.</div>'}
+                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:8px;">The start times brands can pick at this location, with how long each demo runs. A slot is offered on a day only when it fits inside that day's hours above. ${cfg.defaulted ? '<strong>Using the standard slots</strong> (11 AM – 2 PM and 3 – 6 PM) until you save your own.' : ''}${_slotsDraft.invalid ? '<strong style="color:var(--clay-700);">The saved slots are invalid. Fix and save.</strong>' : ''}</div>
+                    ${rows || '<div style="font-size:0.85rem; color:var(--clay-700); padding:6px 0;">No slots. Brands cannot book this location until you add one.</div>'}
                     <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px;">
                         <button type="button" data-act="slot-add" style="background:none; border:none; color:var(--forest-700); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:600;">+ Add slot</button>
                         <button type="button" data-act="slot-standard" style="background:none; border:none; color:var(--ink-500); font-size:0.82rem; cursor:pointer; padding:2px 0; font-weight:500;">Use standard slots</button>
@@ -3851,7 +3851,7 @@ END:VEVENT
                     _applyVenueAvailability(v.id, e.body.availability, e.body.availability_version, e.body.max_demos_per_slot);
                     _slotsDraft.venueId = null;
                     renderAvailabilityEditor();
-                    DhModal.toast('This location was changed elsewhere — reloaded. Re-apply your edit and save again.', 'error');
+                    DhModal.toast('This location was changed elsewhere, so it was reloaded. Re-apply your edit and save again.', 'error');
                 } else if (e && e.code === 'slot_in_use') {
                     show('Not saved: upcoming demos sit on a slot this change removes or shortens. Keep those slots (same start and length) or wait until those demos have run.');
                     _showAffectedBookings('These demos block the slot change', (e.body && e.body.detail && e.body.detail.affected) || []);
@@ -3884,7 +3884,7 @@ END:VEVENT
             if (!body) return;
             if (!v) { body.innerHTML = ''; return; }
             if (window.state.features && window.state.features.slot_editing === false) {
-                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Blackout dates</strong> — editing is switched off right now. Existing blocked dates still apply.</div>';
+                body.innerHTML = '<div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px; font-size:0.85rem; color:var(--ink-500);"><strong style="color:var(--forest-900);">Blackout dates</strong>: editing is switched off right now. Existing blocked dates still apply.</div>';
                 return;
             }
             const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -3909,7 +3909,7 @@ END:VEVENT
                 const hasBookings = bookedDates.has(ymd);
                 const bg = isB ? 'var(--forest-900)' : 'transparent';
                 const color = isB ? '#fff' : (past ? 'var(--sand-300)' : 'var(--forest-900)');
-                const hint = isB ? ('Blocked' + (list.some(e => e.reason) ? ': ' + list.filter(e => e.reason).map(e => e.reason).join('; ') : '') + ' — click to unblock') : (past ? '' : 'Click to block this date');
+                const hint = isB ? ('Blocked' + (list.some(e => e.reason) ? ': ' + list.filter(e => e.reason).map(e => e.reason).join('; ') : '') + '. Click to unblock') : (past ? '' : 'Click to block this date');
                 grid += `<button type="button" ${past ? 'disabled' : ''} data-ymd="${ymd}" title="${escapeHtml(hint)}" aria-pressed="${isB ? 'true' : 'false'}" style="aspect-ratio:1; border:1px solid ${isB ? 'var(--forest-900)' : 'var(--sand-200)'}; border-radius:8px; background:${bg}; color:${color}; font-size:0.85rem; font-family:inherit; cursor:${past ? 'default' : 'pointer'}; position:relative; ${isB ? 'text-decoration:line-through;' : ''}">${d}${hasBookings ? '<span title="Has upcoming demos" style="position:absolute; right:4px; top:4px; width:6px; height:6px; border-radius:50%; background:' + (isB ? '#fbd38d' : 'var(--clay-600)') + ';"></span>' : ''}</button>`;
             }
             const upcoming = entries.filter(e => e.date >= dateToYmdLocal(today)).sort((a, b) => a.date.localeCompare(b.date) || (a.group_id ? 1 : 0) - (b.group_id ? 1 : 0));
@@ -3923,7 +3923,7 @@ END:VEVENT
             body.innerHTML = `
                 <div style="padding:14px 4px 4px; border-top:1px solid var(--sand-200); margin-top:8px;">
                     <div style="font-size:0.82rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.05em; margin-bottom:4px;">Blackout dates</div>
-                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:10px;">Click a date to stop new bookings on it at this location. Demos already booked on that date stay valid — you’ll see them listed before it takes effect. Brands only see that the date is unavailable; your note stays private. A block placed for all locations is undone everywhere at once; a block placed here is undone here.</div>
+                    <div style="font-size:0.85rem; color:var(--ink-500); line-height:1.5; margin-bottom:10px;">Click a date to stop new bookings on it at this location. Demos already booked on that date stay valid, and you’ll see them listed before it takes effect. Brands only see that the date is unavailable; your note stays private. A block placed for all locations is undone everywhere at once; a block placed here is undone here.</div>
                     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
                         <input type="text" id="blackoutReason" maxlength="200" placeholder="Private note (optional), e.g. Inventory day" style="flex:1; min-width:200px; padding:7px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:6px; font-family:inherit; font-size:0.86rem;">
                         ${otherCount > 0 ? `<label style="display:inline-flex; align-items:center; gap:6px; font-size:0.84rem; color:var(--ink-700); cursor:pointer;"><input type="checkbox" id="blackoutAllVenues" style="accent-color:var(--forest-700);"> Block at all ${otherCount + 1} current locations</label>` : ''}
@@ -3990,7 +3990,7 @@ END:VEVENT
                 _slotsDraft.venueId = null;   // forces the slot editor to rebuild from the snapshot
                 renderAvailabilityEditor();
                 const st = document.getElementById('availabilityStatus');
-                if (st) { st.textContent = 'Reloaded — this location\'s hours, slots or capacity were changed elsewhere. Unsaved edits here were replaced with the saved version.'; st.style.color = 'var(--clay-700)'; }
+                if (st) { st.textContent = 'Reloaded: this location\'s hours, slots or capacity were changed elsewhere. Unsaved edits here were replaced with the saved version.'; st.style.color = 'var(--clay-700)'; }
             }
         }
         async function toggleBlackout(ymd) {
@@ -4028,7 +4028,7 @@ END:VEVENT
                 if (reasonEl) reasonEl.value = '';
                 renderBlackoutsEditor(getSelectedVenue());
                 const st = document.getElementById('blackoutStatus');
-                if (st) { st.textContent = 'Blocked ' + formatDemoDate(ymd) + (all ? ' at ' + (r.venues || []).length + ' locations' : '') + (affected ? ' — ' + affected + ' existing demo' + (affected === 1 ? '' : 's') + ' on that date remain valid.' : '.'); st.style.color = 'var(--forest-700)'; }
+                if (st) { st.textContent = 'Blocked ' + formatDemoDate(ymd) + (all ? ' at ' + (r.venues || []).length + ' locations' : '') + (affected ? ', and ' + affected + ' existing demo' + (affected === 1 ? '' : 's') + ' on that date remain valid.' : '.'); st.style.color = 'var(--forest-700)'; }
             } catch (e) {
                 if (status) { status.textContent = 'Could not block: ' + e.message; status.style.color = 'var(--clay-700)'; }
             }
@@ -4047,8 +4047,8 @@ END:VEVENT
                     // Honest wording: removing ONE entry does not unblock the date while another entry
                     // (a local block next to an all-locations one, say) still covers it here.
                     const still = target ? DhSlots.blackouts(getSelectedVenue() || v).some(e => e.date === target.date) : false;
-                    st.textContent = !r.removed ? 'That block was already gone — nothing changed.'
-                        : still ? ('Removed that block — ' + label + ' is still blocked here by another entry.')
+                    st.textContent = !r.removed ? 'That block was already gone, so nothing changed.'
+                        : still ? ('Removed that block, but ' + label + ' is still blocked here by another entry.')
                         : ('Unblocked ' + label + (groupId ? ' everywhere it was blocked together.' : '.'));
                     st.style.color = r.removed ? 'var(--forest-700)' : 'var(--ink-500)';
                 }
@@ -4219,7 +4219,7 @@ END:VEVENT
             const contacts = window.state.internalContacts || [];
             tbody.innerHTML = venues.map(v => {
                 const active = v.active !== false;
-                const fee = v.demo_fee != null ? '$' + Number(v.demo_fee).toFixed(0) : '—';
+                const fee = v.demo_fee != null ? '$' + Number(v.demo_fee).toFixed(0) : 'n/a';
                 const isSel = selected.has(v.id);
                 const mine = contacts.filter(c => Array.isArray(c.venue_ids) && c.venue_ids.includes(v.id));
                 const global = contacts.filter(c => !Array.isArray(c.venue_ids) || c.venue_ids.length === 0);
@@ -4231,7 +4231,7 @@ END:VEVENT
                 return `<tr data-store-row="${v.id}"${isSel ? ' style="background:#f4f8f0;"' : ''}>
                     <td style="text-align:center;"><input type="checkbox" data-store-check="${v.id}" onchange="toggleStoreSelection('${v.id}', this.checked)" ${isSel?'checked':''} style="width:16px; height:16px; cursor:pointer; accent-color:var(--forest-700);" /></td>
                     <td><strong>${escapeHtml(v.name)}</strong></td>
-                    <td style="color:var(--ink-500);">${escapeHtml(v.address || '—')}</td>
+                    <td style="color:var(--ink-500);">${escapeHtml(v.address || 'n/a')}</td>
                     <td style="text-align:right;">${fee}</td>
                     <td>${active ? '<span style="display:inline-block; padding:2px 10px; background:var(--forest-100); color:var(--forest-700); border-radius:99px; font-size:0.78rem; font-weight:600;">Active</span>' : '<span style="display:inline-block; padding:2px 10px; background:var(--cream-200); color:var(--ink-500); border-radius:99px; font-size:0.78rem; font-weight:600;">Paused</span>'}</td>
                     <td style="font-size:0.85rem;">${contactCell} <a onclick="openContactModal('internal', null, '${v.id}')" style="color:var(--forest-700); font-weight:700; cursor:pointer; white-space:nowrap;">+ Add</a></td>
@@ -4697,7 +4697,7 @@ END:VEVENT
         }
         function verifiedBadgeSvg(size) {
             const s = size || 14;
-            return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" style="vertical-align:-2px; margin-left:6px; flex-shrink:0;" aria-label="Verified brand"><title>Verified — compliance docs current</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+            return '<svg width="' + s + '" height="' + s + '" viewBox="0 0 24 24" style="vertical-align:-2px; margin-left:6px; flex-shrink:0;" aria-label="Verified brand"><title>Verified: compliance docs current</title><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
         }
 
         function renderContacts(type) {
@@ -4732,7 +4732,7 @@ END:VEVENT
                 let cells = '<td>' + escapeHtml(c.name) + '</td>'
                     + '<td>' + escapeHtml(c.company) + verifiedMark + agreementBadge + '</td>';
                 // Location only where it's meaningful (store contacts), and never a stray empty green pill.
-                if (cfg.showLocation) cells += '<td>' + (c.venue ? '<span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span>' : '<span style="color:var(--ink-500);">—</span>') + '</td>';
+                if (cfg.showLocation) cells += '<td>' + (c.venue ? '<span class="status-badge status-confirmed">' + escapeHtml(c.venue) + '</span>' : '<span style="color:var(--ink-500);">n/a</span>') + '</td>';
                 if (cfg.showAddress) cells += '<td>' + escapeHtml(c.address) + '</td>';
                 // Email is the one long value — let it wrap so the table fits without a scrollbar.
                 cells += '<td style="white-space:normal; word-break:break-word;">' + escapeHtml(c.email) + '</td>'
@@ -4763,7 +4763,7 @@ END:VEVENT
             const venueSel = document.getElementById('contactVenue');
             if (venueSel) {
                 const vs = (window.state.venues || []).slice().sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-                venueSel.innerHTML = '<option value="">— No specific location —</option>' +
+                venueSel.innerHTML = '<option value="">No specific location</option>' +
                     vs.map(v => `<option value="${(v.name || '').replace(/"/g, '&quot;')}">${escapeHtml(v.name || '')}</option>`).join('');
             }
             const fields = ['contactName','contactCompany','contactAddress','contactEmail','contactPhone'];
@@ -4939,7 +4939,7 @@ END:VEVENT
                 catch (e) { failed++; console.warn('prefs update failed for', c.id, e?.message || e); }
             }
             await refreshAll();
-            if (failed) DhModal.toast(`Updated ${changing.length - failed} of ${changing.length} contacts — ${failed} failed.`, 'error');
+            if (failed) DhModal.toast(`Updated ${changing.length - failed} of ${changing.length} contacts, and ${failed} failed.`, 'error');
             else DhModal.toast(`Notification settings applied to ${changing.length} store contact${changing.length === 1 ? '' : 's'}.`, 'success');
         }
 
@@ -5005,9 +5005,9 @@ END:VEVENT
         const DEMO_MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
         function formatDemoDate(iso) {
-            if (!iso) return '—';
+            if (!iso) return 'n/a';
             const d = new Date(iso + 'T00:00:00');
-            if (isNaN(d.getTime())) return '—';
+            if (isNaN(d.getTime())) return 'n/a';
             return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         }
         // ----- Demo filter state (persisted to sessionStorage) -----
@@ -5142,7 +5142,7 @@ END:VEVENT
                 sel.disabled = true; if (btn) btn.disabled = true;
                 if (note) note.textContent = res.reason === 'date_blackout' ? 'That date is blocked at this location.'
                     : res.reason === 'venue_closed' ? 'This location is closed that day.'
-                    : res.reason === 'slot_config_invalid' ? 'This location’s demo slots are misconfigured — fix them under Location availability.'
+                    : res.reason === 'slot_config_invalid' ? 'This location’s demo slots are misconfigured. Fix them under Location availability.'
                     : 'No demo slots fit this location’s hours that day.';
                 return;
             }
@@ -5190,7 +5190,7 @@ END:VEVENT
                 title: 'Cancel this demo?',
                 message: '<div>Cancel the demo with <strong>' + escapeHtml(brandName) + '</strong> on ' + escapeHtml(dateStr) + ' at ' + escapeHtml(timeStr) + '?</div>' +
                     '<div style="margin-top:12px; padding:12px 14px; background:var(--forest-50); border-radius:8px; font-size:0.85rem; color:var(--forest-900); line-height:1.5;">' +
-                        '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy — refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
+                        '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy: refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
                     '</div>',
                 ok: 'Yes, cancel demo',
                 kind: 'confirm',
@@ -5207,9 +5207,9 @@ END:VEVENT
                 // Refund copy tracks the BACKEND's exact vocabulary. A merely SUBMITTED refund is not
                 // "issued"/"completed" — the charge.refunded webhook confirms it later.
                 let refundMsg = '';
-                if (j.refund_status === 'submitted') refundMsg = ' Refund submitted to the brand — Stripe will confirm it shortly.';
+                if (j.refund_status === 'submitted') refundMsg = ' Refund submitted to the brand. Stripe will confirm it shortly.';
                 else if (j.refund_status === 'pending_manual') refundMsg = ' Refund is at your discretion per your policy.';
-                else if (j.refund_status === 'refund_failed') refundMsg = ' The refund did NOT go through — check Stripe.';
+                else if (j.refund_status === 'refund_failed') refundMsg = ' The refund did NOT go through. Check Stripe.';
                 else if (j.refund_status === 'not_paid') refundMsg = ' No charge was captured, so no refund is needed.';
                 // A partial completion — booking cancelled and any refund maybe submitted, but the calendar
                 // demo did NOT cancel — must NEVER show the normal green success toast.
@@ -5277,19 +5277,19 @@ END:VEVENT
             if (!tbody) return;
             const list = getFilteredDemos().slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
             if (list.length === 0) {
-                tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">No demos here yet — they\'ll appear as you confirm incoming bookings, or if you add them manually.</td></tr>';
+                tbody.innerHTML = '<tr class="empty-row"><td colspan="6" style="text-align:center; padding:32px 20px; color: var(--ink-500); line-height:1.5;">No demos here yet. They\'ll appear as you confirm incoming bookings, or if you add them manually.</td></tr>';
                 return;
             }
             tbody.innerHTML = list.map(d => {
                 const status = (d.status || '').toLowerCase();
                 const cancelled = status === 'cancelled' || status === 'declined';
                 const cancelBtn = cancelled
-                    ? '<span style="font-size:0.72rem; color:var(--ink-500);">—</span>'
+                    ? '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>'
                     : (d.booking_id
                         // Cancel/refund is a BOOKING operation — send booking_id, never the demo id.
                         ? '<button class="js-cancel-demo" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>'
                         // A demo with no linked booking (historical/manual) has no paid booking to refund/cancel here.
-                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">—</span>');
+                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">n/a</span>');
                 // Reschedule: propose a new date instead of cancelling (keeps the booking + payment).
                 const canResched = status === 'confirmed' && d.id;
                 const rescheduleBtn = d.reschedule_to_date
@@ -5318,7 +5318,7 @@ END:VEVENT
                     // (current COI + contact details + logo). Computed server-side in
                     // _coi-lib.js so this badge and the brand portal cannot disagree.
                     const verifiedMark = doc.verified
-                        ? '<span title="Verified brand — current COI, complete contact details and logo on file" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:0.74rem;font-weight:700;color:#2a5b32;background:#eef7f0;border:1px solid #2a5b3233;border-radius:6px;padding:2px 7px;vertical-align:middle;"><svg width="11" height="11" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>Verified</span>'
+                        ? '<span title="Verified brand: current COI, complete contact details and logo on file" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:0.74rem;font-weight:700;color:#2a5b32;background:#eef7f0;border:1px solid #2a5b3233;border-radius:6px;padding:2px 7px;vertical-align:middle;"><svg width="11" height="11" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>Verified</span>'
                         : '';
                     const exp = doc.expires ? (' &middot; expires ' + escapeHtml(String(doc.expires))) : '';
                     const v = doc.v || null;
@@ -5444,7 +5444,7 @@ END:VEVENT
                         window.state.retailer.demo_policy_filename = j.demo_policy_filename;
                     }
                     renderDemoPolicyPdfState();
-                    if (status) status.textContent = 'Uploaded ' + file.name + ' — brands will see this instead of the text.';
+                    if (status) status.textContent = 'Uploaded ' + file.name + '. Brands will see this instead of the text.';
                     DhModal.toast('Policy PDF uploaded', 'success');
                 } catch (e) {
                     if (status) status.textContent = 'Upload failed: ' + (e.message || e);
@@ -5565,7 +5565,7 @@ END:VEVENT
                 if (window._demoPolicyIsDefault) items.push('demo conduct policy');
                 if (window._cancelPolicyIsDefault) items.push('cancellation policy');
                 if (items.length) {
-                    calloutText.textContent = 'Your ' + items.join(' + ') + ' ' + (items.length === 1 ? 'is' : 'are') + ' still on the default template. Brands sign these at their first booking — make sure they match how your store actually runs.';
+                    calloutText.textContent = 'Your ' + items.join(' + ') + ' ' + (items.length === 1 ? 'is' : 'are') + ' still on the default template. Brands sign these at their first booking. Make sure they match how your store actually runs.';
                 }
             }
         }
@@ -5897,7 +5897,7 @@ END:VEVENT
             const failures = [];
             for (let i = 0; i < invites.length; i++) {
                 const inv = invites[i];
-                prog.textContent = `Sending ${i+1} of ${invites.length} — ${inv.email}…`;
+                prog.textContent = `Sending ${i+1} of ${invites.length}: ${inv.email}…`;
                 prog.style.display = 'block';
                 btn.textContent = `Sending ${i+1}/${invites.length}…`;
                 try {
@@ -6224,7 +6224,7 @@ END:VEVENT
             if (!window.Chart) {
                 ensureChartJs().then(renderMonthlyChart).catch(() => {
                     const wrap = canvas.closest('.chart-wrap');
-                    if (wrap) wrap.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:180px; padding:24px; text-align:center; color: var(--ink-500); font-size:0.85rem; line-height:1.5; font-style:italic;">Chart unavailable — check your network connection.</div>';
+                    if (wrap) wrap.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; min-height:180px; padding:24px; text-align:center; color: var(--ink-500); font-size:0.85rem; line-height:1.5; font-style:italic;">Chart unavailable. Check your network connection.</div>';
                 });
                 return;
             }
@@ -6281,7 +6281,7 @@ END:VEVENT
                     note = document.createElement('div');
                     note.className = 'chart-sample-note';
                     note.style.cssText = 'font-size:0.78rem; color:var(--ink-500); margin-top:8px; font-style:italic;';
-                    note.textContent = 'Example data — your real demos will populate this chart as bookings come in.';
+                    note.textContent = 'Example data: your real demos will populate this chart as bookings come in.';
                     chartCard.appendChild(note);
                 } else if (!allZero && note) {
                     note.remove();
@@ -6317,11 +6317,11 @@ END:VEVENT
                     if (ex < today) { status = 'expired'; label = 'Expired'; }
                     else if (ex < soon) { status = 'soon'; label = 'Expiring soon'; }
                 }
-                const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}) : '—';
+                const expiresFmt = r.expires_at ? new Date(r.expires_at + 'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'}) : 'n/a';
                 return '<tr>'
                     + '<td>' + escapeHtml(b ? (b.company || b.name) : 'Unknown') + (b && isBrandVerified(b.id) ? verifiedBadgeSvg(14) : '') + '</td>'
                     + '<td>' + escapeHtml(docLabel[r.doc_type] || r.doc_type) + '</td>'
-                    + '<td>' + escapeHtml(r.doc_number || '—') + '</td>'
+                    + '<td>' + escapeHtml(r.doc_number || 'n/a') + '</td>'
                     + '<td>' + expiresFmt + '</td>'
                     + '<td><span class="comp-badge ' + status + '"><span class="comp-dot"></span>' + label + '</span></td>'
                     + '<td><div class="row-actions"><button class="btn-icon" onclick="openComplianceModal(\'' + r.id + '\')">Edit</button><button class="btn-icon danger" onclick="deleteCompliance(\'' + r.id + '\')">Delete</button></div></td>'
@@ -6402,7 +6402,7 @@ END:VEVENT
             const currentVal = sel.value;
             sel.innerHTML = venues.length
                 ? venues.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + '</option>').join('')
-                : '<option value="">(No stores yet — add one first)</option>';
+                : '<option value="">(No stores yet, add one first)</option>';
             if (currentVal && venues.some(v => v.name === currentVal)) sel.value = currentVal;
         }
         
@@ -6536,10 +6536,10 @@ END:VEVENT
             if (_isKeepsAll()) {
                 tbody.innerHTML = demos.map(d => {
                     const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                    const v = brandsByCompany[d.company]?.venue || '—';
+                    const v = brandsByCompany[d.company]?.venue || 'n/a';
                     return '<tr><td>' + escapeHtml(dl) + (d.time ? ' &middot; ' + escapeHtml(d.time) : '') + '</td>'
-                        + '<td>' + escapeHtml(d.company || '—') + '</td>'
-                        + '<td>' + escapeHtml(d.product || '—') + '</td>'
+                        + '<td>' + escapeHtml(d.company || 'n/a') + '</td>'
+                        + '<td>' + escapeHtml(d.product || 'n/a') + '</td>'
                         + '<td>' + escapeHtml(v) + '</td>'
                         + '<td colspan="3"></td></tr>';
                 }).join('');
@@ -6547,13 +6547,13 @@ END:VEVENT
             }
             tbody.innerHTML = demos.map(d => {
                 const dateLabel = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                const venue = brandsByCompany[d.company]?.venue || '—';
+                const venue = brandsByCompany[d.company]?.venue || 'n/a';
                 const fee = parseFloat(d.demo_fee) || 0;
                 const brandPaid = fee + 5;   // brand paid demo fee + $5 booking fee
                 return '<tr>'
                     + '<td>' + escapeHtml(dateLabel) + (d.time ? ' · ' + escapeHtml(d.time) : '') + '</td>'
                     + '<td>' + escapeHtml(d.company) + '</td>'
-                    + '<td>' + escapeHtml(d.product || '—') + '</td>'
+                    + '<td>' + escapeHtml(d.product || 'n/a') + '</td>'
                     + '<td>' + escapeHtml(venue) + '</td>'
                     + '<td style="text-align:right;">$' + brandPaid.toFixed(2) + '</td>'
                     + '<td style="text-align:right; color:var(--ink-500); font-size:0.9em;">$' + (5).toFixed(2) + '</td>'
@@ -6588,7 +6588,7 @@ END:VEVENT
             let feeTotal = 0, paidTotal = 0;
             const rows = demos.map(d => {
                 const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                const venue = venueNameById[d.venue_id] || brandsByCompany[d.company]?.venue || '—';
+                const venue = venueNameById[d.venue_id] || brandsByCompany[d.company]?.venue || 'n/a';
                 const receive = parseFloat(d.demo_fee) || 0;
                 const paid = receive + PLATFORM_FEE;
                 feeTotal += PLATFORM_FEE; paidTotal += paid;
@@ -6598,7 +6598,7 @@ END:VEVENT
                     + '<td style="text-align:right;">$' + receive.toFixed(2) + '</td></tr>';
             }).join('');
 
-            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement — ' + monthLabel(ym) + ' — ' + escapeHtml(typeof getRetailerName === 'function' ? getRetailerName() : 'Demohub retailer') + '</title>'
+            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement · ' + monthLabel(ym) + ' · ' + escapeHtml(typeof getRetailerName === 'function' ? getRetailerName() : 'Demohub retailer') + '</title>'
                 + '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
                 + '<style>'
                 + 'body { font-family: \'Plus Jakarta Sans\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
@@ -6645,7 +6645,7 @@ END:VEVENT
                 + '</body></html>';
 
             const win = window.open('', '_blank');
-            if (!win) { DhModal.toast('Statement window was blocked — allow pop-ups for this site.', 'error'); return; }
+            if (!win) { DhModal.toast('Statement window was blocked. Allow pop-ups for this site.', 'error'); return; }
             win.document.open();
             win.document.write(html);
             win.document.close();
@@ -6701,7 +6701,7 @@ END:VEVENT
                     const vi = venueIndex(venue);
                     const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
                     const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
-                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ' — ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
+                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ': ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
@@ -7126,7 +7126,7 @@ END:VEVENT
                     banner.id = 'stripeReturnBanner';
                     if (connect === 'return') {
                         banner.style.cssText = 'background:#f4f8f0; border-left:4px solid #1f4a26; border-radius:8px; padding:12px 16px; margin:0 0 14px; font-size:0.9rem; color:var(--forest-800);';
-                        banner.innerHTML = '<strong>Thanks — checking your verification status with Stripe…</strong><br><span style="font-size:0.82rem; color:var(--ink-500);">This can take a few seconds. We\'ll update the card below when we hear back.</span>';
+                        banner.innerHTML = '<strong>Thanks, checking your verification status with Stripe…</strong><br><span style="font-size:0.82rem; color:var(--ink-500);">This can take a few seconds. We\'ll update the card below when we hear back.</span>';
                     } else {
                         banner.style.cssText = 'background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; padding:12px 16px; margin:0 0 14px; font-size:0.9rem; color:#a14e2a;';
                         banner.innerHTML = '<strong>Welcome back.</strong> Your onboarding session with Stripe expired. Click <b>Continue onboarding</b> below to resume where you left off.';
@@ -7431,7 +7431,7 @@ END:VEVENT
           { selector: '.big-cal-card', title: "Your demo calendar.", body: "Every confirmed demo shows here. We've put an example on today so you can see what it'll look like once brands start booking.", placement: 'top' },
           { selector: '.chart-card', title: "Trend chart.", body: "See your demo volume over the last 6 months. Fills in as you get bookings.", placement: 'top' },
           { selector: '.header-nav', title: "Preview the public side.", body: "Click 'Preview booking page' anytime to see what brands see. Share that URL with your brand partners to start filling your calendar.", placement: 'bottom' },
-          { selector: '#payoutsCard', title: "Set up your bank next.", body: "Head to Settings → Bank & payouts and connect your bank via Stripe. This is how you actually get paid — payouts drop within 2 business days of each demo, minus platform fees. Do this now so you're ready when your first booking comes in.", placement: 'top', scrollIntoView: true, skipIfHidden: true },
+          { selector: '#payoutsCard', title: "Set up your bank next.", body: "Head to Settings → Bank & payouts and connect your bank via Stripe. This is how you actually get paid. Payouts drop within 2 business days of each demo, minus platform fees. Do this now so you're ready when your first booking comes in.", placement: 'top', scrollIntoView: true, skipIfHidden: true },
         ];
         let _tourIndex = 0;
         let _activeTourSteps = [];
@@ -7709,7 +7709,7 @@ END:VEVENT
         <div style="font-size:0.92rem;color:var(--ink-500);margin-bottom:22px;">Annual plans save ~17%. Cancel anytime.</div>
         <div style="display:flex; gap:8px; margin-bottom:18px;">
           <button id="upBillMonth" class="btn btn-secondary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillMonth').classList.add('btn-primary');document.getElementById('upBillMonth').classList.remove('btn-secondary');document.getElementById('upBillYear').classList.add('btn-secondary');document.getElementById('upBillYear').classList.remove('btn-primary');window._upInterval='month';">Monthly</button>
-          <button id="upBillYear" class="btn btn-primary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillYear').classList.add('btn-primary');document.getElementById('upBillYear').classList.remove('btn-secondary');document.getElementById('upBillMonth').classList.add('btn-secondary');document.getElementById('upBillMonth').classList.remove('btn-primary');window._upInterval='year';">Yearly &mdash; save 17%</button>
+          <button id="upBillYear" class="btn btn-primary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillYear').classList.add('btn-primary');document.getElementById('upBillYear').classList.remove('btn-secondary');document.getElementById('upBillMonth').classList.add('btn-secondary');document.getElementById('upBillMonth').classList.remove('btn-primary');window._upInterval='year';">Yearly (save 17%)</button>
         </div>
         <div style="max-width:380px;margin:0 auto;">
           <div style="border:1.5px solid var(--forest-300, #cfe0cf);border-radius:12px;padding:22px;">

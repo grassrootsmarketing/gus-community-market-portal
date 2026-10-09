@@ -105,8 +105,8 @@ export default async function handler(req, res) {
       `PRODID:-//Demohub//Calendar feed//EN`,
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
-      fold('X-WR-CALNAME:' + escapeICS(`${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''} — Demos`)),
-      fold('X-WR-CALDESC:' + escapeICS(`Confirmed demos at ${retailer.name}${filteredVenueName ? ' — ' + filteredVenueName : ''}, powered by Demohub`)),
+      fold('X-WR-CALNAME:' + escapeICS(`${retailer.name}${filteredVenueName ? ' · ' + filteredVenueName : ''} · Demos`)),
+      fold('X-WR-CALDESC:' + escapeICS(`Confirmed demos at ${retailer.name}${filteredVenueName ? ' · ' + filteredVenueName : ''}, powered by Demohub`)),
       'X-WR-TIMEZONE:' + tz,
     ];
 

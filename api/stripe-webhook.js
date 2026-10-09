@@ -330,7 +330,7 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 <div style="text-align:center;margin:0 0 20px;">
 <a href="${manageBookingUrl || link(_b, '/brand/signin')}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
 </div>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email and it goes straight to the store team.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
 </table></body></html>`;

@@ -104,7 +104,7 @@ async function sbAll(path, { max = 20000, page = 1000 } = {}) {
 // cookie — which is why the two had to be separated before impersonation could be made safe.
 // -----------------------------------------------------------------------------
 
-const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h — matches the DB expiry set in owner-verify
+const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h, matches the DB expiry set in owner-verify
 const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 // Codex F-06 / FC-02. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to
 // your account." The consent rule (allow_support_access exactly true AND support_access_expires_at
@@ -272,7 +272,7 @@ async function checkRateLimitByKey(fullKey, maxPerHour) {
     else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: fullKey, window_start: windowStart, count: 1 }) });
     return { allowed: true };
   } catch (e) {
-    console.error('per-key rate limit failed — denying:', e?.message || e);
+    console.error('per-key rate limit failed, denying:', e?.message || e);
     return { allowed: false, error: 'rate_limit_unavailable' };
   }
 }
@@ -295,7 +295,7 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
   } catch (e) {
     // Fail-CLOSED for auth write paths (magic-link request, code verification):
     // an unavailable rate-limiter must NOT translate into unlimited requests.
-    console.error('admin-auth rate limit check failed — denying request:', e?.message || e);
+    console.error('admin-auth rate limit check failed, denying request:', e?.message || e);
     return { allowed: false, error: 'rate_limit_unavailable' };
   }
 }
@@ -540,7 +540,7 @@ export default async function handler(req, res) {
         for (const a of (admins || [])) {
           a.has_signed_in = seenEmails.has((a.email || '').toLowerCase());
         }
-      } catch (e) { /* non-fatal — UI just shows everyone as accepted */ }
+      } catch (e) { /* non-fatal, UI just shows everyone as accepted */ }
       return res.status(200).json({ ok: true, admins, your_email: v.email });
     }
 
@@ -745,11 +745,11 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(image || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
-      if (!m) return res.status(400).json({ error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      if (!m) return res.status(400).json({ error: 'Invalid image: must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
       const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large — max 2MB' });
+      if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large (max 2MB)' });
       const path = `retailers/${v.retailer_id}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
@@ -773,11 +773,11 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(file || '').match(/^data:(application\/pdf|image\/(?:png|jpeg));base64,(.+)$/);
-      if (!m) return res.status(400).json({ error: 'Invalid file — must be a PDF, PNG, or JPEG data URL' });
+      if (!m) return res.status(400).json({ error: 'Invalid file: must be a PDF, PNG, or JPEG data URL' });
       const mime = m[1];
       const ext = mime === 'application/pdf' ? 'pdf' : (mime === 'image/png' ? 'png' : 'jpg');
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large — max 5MB' });
+      if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 5MB)' });
       const safeName = (filename || 'demo-policy').replace(/[^a-z0-9._-]/gi, '_').slice(0, 60);
       const path = `retailers/${v.retailer_id}/demo-policy-${Date.now()}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/policy-docs/${path}?upsert=true`, {
@@ -824,7 +824,7 @@ export default async function handler(req, res) {
     // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
     if (action === 'owner-verification-queue') {
       const { status } = body || {};
-      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2, never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
       try {
@@ -963,7 +963,7 @@ export default async function handler(req, res) {
         brandNote = normalised || null;
       }
       if (decision === 'rejected' && !brandNote) {
-        return res.status(400).json({ error: 'brand_note_required', message: 'Tell the brand why the certificate was rejected — this note is emailed to them.' });
+        return res.status(400).json({ error: 'brand_note_required', message: 'Tell the brand why the certificate was rejected. This note is emailed to them.' });
       }
       // Coverage expiry is REVIEWER-owned (LG-11 removed brand self-service; the AI parser is
       // optional). An approval must carry the certificate's expiry or the brand ends up
@@ -975,7 +975,7 @@ export default async function handler(req, res) {
         }
         expiryDate = String(expiry);
         if (expiryDate <= new Date().toISOString().slice(0, 10)) {
-          return res.status(400).json({ error: 'expiry_in_past', message: 'That certificate is already expired — reject it instead.' });
+          return res.status(400).json({ error: 'expiry_in_past', message: 'That certificate is already expired. Reject it instead.' });
         }
       }
       const trimmed = notes == null ? null : String(notes).slice(0, 2000);
@@ -1057,7 +1057,7 @@ export default async function handler(req, res) {
                 const { captureHeldBooking } = await import('./_provisional.js');
                 for (const b of held) {
                   if (!autoById.get(b.retailer_id)) continue;
-                  if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered — don't charge
+                  if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered, don't charge
                   // Codex R4-02 (6) + P-1: the shared outcome contract, reported PER BOOKING. One booking's
                   // failure never stops the sweep or erases the others' results.
                   //   captured + applied      -> charged and ledgered
@@ -1102,7 +1102,7 @@ export default async function handler(req, res) {
     // ---- OWNER-VERIFY-RETAILER: approve / reject / suspend / reset ----
     if (action === 'owner-verify-retailer') {
       const { retailer_id, new_status, notes } = body || {};
-      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2, never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
       if (!['pending', 'approved', 'rejected', 'suspended'].includes(new_status)) {

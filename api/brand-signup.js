@@ -47,7 +47,7 @@ async function applyChallengeCategory(email, brandId) {
     await rest(`brands?id=eq.${encodeURIComponent(brandId)}&default_categories=is.null`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ default_categories: cat }),
     });
-  } catch (_) { /* best-effort — the Profile page remains the place to set it */ }
+  } catch (_) { /* best-effort, the Profile page remains the place to set it */ }
 }
 
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults

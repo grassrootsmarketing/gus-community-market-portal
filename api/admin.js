@@ -52,7 +52,7 @@ const TABLE_WRITE_OPS = {
   internal_contacts: new Set(['POST', 'PATCH', 'DELETE']),
   compliance_records: new Set(['POST', 'PATCH', 'DELETE']),
   venues: new Set(['POST', 'PATCH', 'DELETE']),
-  settings: new Set(['PATCH']),   // one row per retailer, created at signup — never POST/DELETE here
+  settings: new Set(['PATCH']),   // one row per retailer, created at signup, never POST/DELETE here
   retailers: new Set(['PATCH']),  // own retailer only; see RETAILER_PATCH_WHITELIST
 };
 
@@ -610,7 +610,7 @@ export default async function handler(req, res) {
         // Solo (limit=1) or Pro (limit=999). Silently allowing would create a bypass path
         // (Solo user retries during a transient DB blip and lands 2+ locations).
         // Return 503 with a clear message so client-side retries / support can diagnose.
-        console.error('venue tier check failed — denying create:', e?.message || e);
+        console.error('venue tier check failed, denying create:', e?.message || e);
         return send(res, 503, {
           error: 'tier_check_unavailable',
           message: 'Could not verify your plan just now. Try again in a moment.',

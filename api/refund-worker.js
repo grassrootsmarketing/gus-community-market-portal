@@ -111,8 +111,8 @@ const ALERT_TO = process.env.ALERT_EMAIL || 'david@demohubhq.com';
 const ENV_LABEL = process.env.VERCEL_ENV || 'unknown';
 
 function alertHtml(c) {
-  const esc = (s) => String(s == null ? '—' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  const money = c.amount != null ? `$${(c.amount / 100).toFixed(2)} ${String(c.currency || 'usd').toUpperCase()}` : '—';
+  const esc = (s) => String(s == null ? 'n/a' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const money = c.amount != null ? `$${(c.amount / 100).toFixed(2)} ${String(c.currency || 'usd').toUpperCase()}` : 'n/a';
   const row = (k, v) => `<tr><td style="padding:6px 10px;color:#6b6a64;font-size:12px;">${esc(k)}</td><td style="padding:6px 10px;font-family:monospace;font-size:12px;">${esc(v)}</td></tr>`;
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;">
 <h2 style="margin:0 0 4px;font-size:18px;">Payment exception: ${esc(c.kind)}</h2>

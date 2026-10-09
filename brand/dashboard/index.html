@@ -844,8 +844,8 @@ function heldBannerHtml(d) {
     try { deadline = new Date(d._heldExpires).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }); } catch (_) {}
   }
   const msg = d._heldUnpaid
-    ? `This slot is held but checkout was not completed &mdash; finish payment from the store's booking page to keep it.`
-    : `Your card has a temporary hold &mdash; <strong>you have not been charged</strong>. Upload your Certificate of Insurance${deadline ? ' by <strong>' + deadline + '</strong>' : ' within 24 hours'} to lock in this demo, or the hold is released automatically.`;
+    ? `This slot is held but checkout was not completed. Finish payment from the store's booking page to keep it.`
+    : `Your card has a temporary hold, and <strong>you have not been charged</strong>. Upload your Certificate of Insurance${deadline ? ' by <strong>' + deadline + '</strong>' : ' within 24 hours'} to lock in this demo, or the hold is released automatically.`;
   return `<div class="held-banner"><div style="font-weight:800;">&#9203;</div><div>${msg}${d._heldUnpaid ? '' : ' <a href="#compliance">Upload COI &rarr;</a>'}</div></div>`;
 }
 
@@ -890,7 +890,7 @@ window.respondReschedule = async function (demoId, decision, btn, proposalVersio
       throw new Error(j.message || j.error || 'Could not update.');
     }
     if (decision === 'accept') { try { dhConfettiBurst(40); } catch (_) {} }
-    await loadData(); render();   // loadData only refreshes state/nav — render() repaints the page (buttons froze on 'Moving…' without it)
+    await loadData(); render();   // loadData only refreshes state/nav, render() repaints the page (buttons froze on 'Moving…' without it)
   } catch (e) {
     if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
     alert((e && e.message) || 'Could not update. Please try again.');
@@ -998,7 +998,7 @@ function coiTileInfo(st) {
     expiring: ['Expiring soon', 'Your certificate is current but expires' + (st && st.expiryLabel ? ' ' + st.expiryLabel : ' soon') + '. Upload the renewal so your demos are not affected.'],
     expired:  ['Expired', 'Your certificate has expired. Retailers cannot confirm demos until you upload a current one.'],
     no_date:  ['Pending review', 'Your certificate is uploaded and waiting for a Demohub reviewer. Retailers can confirm your demos once it is approved.'],
-    none:     ['None on file', 'No Certificate of Insurance uploaded yet. Required before retailers will confirm your bookings — upload it in Compliance.'],
+    none:     ['None on file', 'No Certificate of Insurance uploaded yet. Required before retailers will confirm your bookings. Upload it in Compliance.'],
   };
   const hit = map[(st && st.coi)] || map.none;
   return { label: hit[0], title: hit[1] };
@@ -1007,9 +1007,9 @@ function coiTileInfo(st) {
 function coiStatusStripHtml(st) {
   const map = {
     current:  ['#eef7f0', '#2a5b32', 'Covered', 'Your certificate is current through ' + (st.expiryLabel || 'its expiry date') + '.'],
-    expiring: ['#fff8ed', '#8a6114', 'Expiring soon', 'Your certificate expires ' + (st.expiryLabel || 'soon') + ' — that is ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' away. Ask your broker for the renewal now so your demos are not affected.'],
+    expiring: ['#fff8ed', '#8a6114', 'Expiring soon', 'Your certificate expires ' + (st.expiryLabel || 'soon') + ', which is ' + st.daysLeft + ' day' + (st.daysLeft === 1 ? '' : 's') + ' away. Ask your broker for the renewal now so your demos are not affected.'],
     expired:  ['#fff3ed', '#a14e2a', 'Expired', 'Your certificate expired' + (st.expiryLabel ? ' on ' + st.expiryLabel : '') + '. Retailers cannot confirm demos until you upload a current one.'],
-    no_date:  ['#eef3f7', '#2f5b8a', 'Pending review', 'Your certificate is uploaded. A Demohub reviewer confirms it and sets its expiry — nothing needed from you. Retailers can confirm your demos once it’s approved.'],
+    no_date:  ['#eef3f7', '#2f5b8a', 'Pending review', 'Your certificate is uploaded. A Demohub reviewer confirms it and sets its expiry, so there is nothing you need to do. Retailers can confirm your demos once it’s approved.'],
     none:     ['#fff3ed', '#a14e2a', 'No certificate on file', 'Retailers cannot confirm your demos until a current COI is uploaded.'],
   };
   const [bg, fg, title, body] = map[st.coi] || map.none;
@@ -1040,7 +1040,7 @@ function updatePersistentCoiNudge() {
     <div style="display:flex; align-items:center; gap:14px; max-width:1440px; margin:0 auto; padding:0 24px;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
     <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> ${(_data && _data.provisional_holds)
-      ? `Stores require proof of insurance. You can still book — your card is only <strong>held, not charged</strong>, until your certificate is approved — but each hold lasts just 24 hours, so upload it now.`
+      ? `Stores require proof of insurance. You can still book. Your card is only <strong>held, not charged</strong>, until your certificate is approved, but each hold lasts just 24 hours, so upload it now.`
       : `Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>.`} <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
     </div>
   </div>`;
@@ -1106,7 +1106,7 @@ function renderOverview() {
     { key: 'profile', core: true, done: _contactReady, req: true, title: 'Add your contact information',
       sub: _contactReady
         ? 'Name and phone are on file. Add company, email &amp; website to complete your verified badge.'
-        : 'Retailers must be able to reach you — add your <strong>name</strong> and <strong>phone number</strong> to book. Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>.',
+        : 'Retailers must be able to reach you, so add your <strong>name</strong> and <strong>phone number</strong> to book. Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>.',
       href: '#profile', cta: 'Add details' },
     { key: 'logo', core: true, done: _logoDone, req: false, title: 'Add your brand logo', sub: 'Retailers see it on every booking page. Brands without one look unfinished.', href: '#profile', cta: 'Add logo' },
   ];
@@ -1162,7 +1162,7 @@ function renderOverview() {
       <div class="sub">Your activity across every Demohub retailer.</div>
       <div class="perf-stats">
         <div class="perf-stat"><div class="val">${demosDone.toLocaleString()}</div><div class="lbl">Demos done</div></div>
-        <div class="perf-stat"><div class="val">${completionRate == null ? '&mdash;' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
+        <div class="perf-stat"><div class="val">${completionRate == null ? 'n/a' : completionRate + '%'}</div><div class="lbl">Completion rate</div></div>
         <div class="perf-stat"><div class="val">${(demos.length / 6).toFixed(1)}</div><div class="lbl">Avg per month</div></div>
       </div>
       <div style="font-size:0.78rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:600; margin-bottom:14px;">Demos per month, last 6 months</div>
@@ -1291,7 +1291,7 @@ function renderOverview() {
   } else if (isVerified) {
     verifiedPanelHtml = `<div class="verified-panel">
       <svg width="28" height="28" viewBox="0 0 24 24" class="vbadge"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong> &mdash; worth renewing now` : ''}.` : ''}</p></div>
+      <div class="vmsg"><strong>You're verified</strong><p>Retailers see this badge next to your brand across Demohub.${_bs.expiryLabel ? ` Your COI is current through <strong>${escapeHtml(_bs.expiryLabel)}</strong>${_bs.coi === 'expiring' ? `, though that is <strong style="color:#8a6114;">only ${_bs.daysLeft} day${_bs.daysLeft === 1 ? '' : 's'} away</strong>, so it is worth renewing now` : ''}.` : ''}</p></div>
     </div>`;
   } else {
     const missing = _bs.missing;
@@ -1331,7 +1331,7 @@ function countUpStats() {
   els.forEach(function (el) {
     const raw = (el.textContent || '').trim();
     const m = raw.match(/^([^0-9-]*)(-?[0-9][0-9,]*(?:\.[0-9]+)?)(.*)$/);
-    if (!m) return;                                  // non-numeric (e.g. a dash) — leave it
+    if (!m) return;                                  // non-numeric (e.g. a dash), leave it
     const prefix = m[1], suffix = m[3];
     const target = parseFloat(m[2].replace(/,/g, ''));
     if (!isFinite(target) || target === 0) return;   // nothing to count to
@@ -1569,8 +1569,8 @@ window.openDemoDetail = function(demoId) {
   if (!demo) return;
   const ret = demo.retailers || {};
   const venue = demo.venues || {};
-  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : '—';
-  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : '—';
+  const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : 'n/a';
+  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : 'n/a';
   const logoSrc = ret.logo_url ? `<img src="${escapeHtml(ret.logo_url)}" alt="">` : DEFAULT_AVATAR_SVG;
   const content = `
     <div class="demo-detail-head">
@@ -1582,11 +1582,11 @@ window.openDemoDetail = function(demoId) {
     </div>
     <div class="demo-detail-rows">
       <div class="row"><span class="k">Date</span><span class="v">${escapeHtml(niceDate)}</span></div>
-      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || '—')}</span></div>
-      <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || '—')}</span></div>
+      <div class="row"><span class="k">Time</span><span class="v">${escapeHtml(demo.demo_time || 'n/a')}</span></div>
+      <div class="row"><span class="k">Location</span><span class="v">${escapeHtml(venue.name || 'n/a')}</span></div>
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
-      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || '—')}</span></div>
-      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || '—')}</span></span></div>
+      <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || 'n/a')}</span></div>
+      <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || 'n/a')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
   `;
@@ -1729,7 +1729,7 @@ function renderCompliance() {
         <label class="label">Certificate of Insurance</label>
         <div id="coiWidget"></div>
         <input type="file" id="coiFile" accept="application/pdf,image/jpeg,image/png,image/webp" style="display:none;">
-        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Your certificate uploads and saves on its own — retailers can view it against every demo you book.</div>
+        <div class="help" style="margin-top:8px;">PDF, JPG, PNG, or WEBP up to 10MB. Your certificate uploads and saves on its own, and retailers can view it against every demo you book.</div>
         <div class="help" style="margin-top:10px; padding:10px 12px; background:#fbf7f0; border-radius:8px; line-height:1.5;"><strong>Before uploading,</strong> check each retailer's insurance requirements with your insurer. These may include naming the retailer as certificate holder and providing evidence of additional-insured coverage. Submit the documents the retailer requires for review.</div>
       </div>
     </div>
@@ -1839,10 +1839,10 @@ function setupCoiWidget() {
       if (daysLeft !== null) {
         if (daysLeft < 0) {
           expiresText = `Expired ${new Date(p.default_coi_expires + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' })}`;
-          expiresWarn = '<svg class="coi-warn-icon expired" width="16" height="16" viewBox="0 0 24 24" aria-label="Expired"><title>COI expired — upload a new one</title><circle cx="12" cy="12" r="11" fill="#c93030"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>';
+          expiresWarn = '<svg class="coi-warn-icon expired" width="16" height="16" viewBox="0 0 24 24" aria-label="Expired"><title>COI expired: upload a new one</title><circle cx="12" cy="12" r="11" fill="#c93030"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>';
         } else if (daysLeft <= 90) {
           expiresText += ` (${daysLeft} day${daysLeft === 1 ? '' : 's'} left)`;
-          expiresWarn = `<svg class="coi-warn-icon soon" width="16" height="16" viewBox="0 0 24 24" aria-label="Expires soon"><title>COI expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'} — plan to renew</title><circle cx="12" cy="12" r="11" fill="#ed682f"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+          expiresWarn = `<svg class="coi-warn-icon soon" width="16" height="16" viewBox="0 0 24 24" aria-label="Expires soon"><title>COI expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}, plan to renew</title><circle cx="12" cy="12" r="11" fill="#ed682f"/><path d="M12 7v6M12 16.5v.5" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>`;
         }
       }
       widget.innerHTML = `<div class="coi-block">
@@ -1864,7 +1864,7 @@ function setupCoiWidget() {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <div class="lbl">Drag and drop your Certificate of Insurance, or click to browse</div>
         <div class="sub">Accepted: PDF, JPG, PNG, WEBP · up to 10MB</div>
-        <div class="sub" style="margin-top:4px; font-size:0.78rem; opacity:0.85;">On iPhone, HEIC photos are not accepted &mdash; share as JPEG or upload a screenshot.</div>
+        <div class="sub" style="margin-top:4px; font-size:0.78rem; opacity:0.85;">On iPhone, HEIC photos are not accepted, so share as JPEG or upload a screenshot.</div>
       </div>`;
     }
   }
@@ -1945,7 +1945,7 @@ function setupCoiWidget() {
           if (v.insurer) bits.push(v.insurer);
           if (v.expiry_from_document) bits.push('expires ' + v.expiry_from_document);
           _coiNotice('Certificate verified' + (bits.length ? ' (' + bits.join(', ') + ').' : '.')
-            + (j.expires ? ' We filled in the expiry date from the document — no need to type it.' : ''), 'ok');
+            + (j.expires ? ' We filled in the expiry date from the document, so there is no need to type it.' : ''), 'ok');
         } else if (v.status === 'flagged') {
           // Name the actual reason. "A couple of details" gives the brand nothing to act on.
           const FLAG_TEXT = {
@@ -2001,7 +2001,7 @@ function setupCoiWidget() {
         for (const it of dt.items) { if (it.kind === 'file') { file = it.getAsFile(); break; } }
       }
       if (!file) { _coiNotice('That did not come through as a file. Try dragging the document from a folder, or click to browse.', 'err'); return; }
-      if (dt.files && dt.files.length > 1) _coiNotice('Only one certificate at a time — using the first file.', 'err');
+      if (dt.files && dt.files.length > 1) _coiNotice('Only one certificate at a time. Using the first file.', 'err');
       handleCoiFile(file);
     });
 
@@ -2290,8 +2290,8 @@ async function renderAgreements() {
   }
   const html = agreements.map(a => {
     const ret = a.retailers || {};
-    const sigDate = a.signed_at ? new Date(a.signed_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : '—';
-    const expDate = a.expires_at ? new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+    const sigDate = a.signed_at ? new Date(a.signed_at).toLocaleDateString('en-US', { month:'long', day:'numeric', year:'numeric' }) : 'n/a';
+    const expDate = a.expires_at ? new Date(a.expires_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : 'n/a';
     // Determine status pill
     let status, statusColor, statusBg;
     if (!a.is_active) { status = 'Superseded'; statusColor = '#6b6a64'; statusBg = '#e8e6e1'; }
@@ -2346,7 +2346,7 @@ function renderAccount() {
     <div class="card">
       <h2 style="margin:0 0 6px;">Danger zone</h2>
       <div class="sub" style="margin-bottom:14px;">Need to permanently delete your brand account? Request it below and we'll erase your data within 30 days (GDPR-compliant).</div>
-      <a href="mailto:david@demohubhq.com?subject=${encodeURIComponent('Delete my brand account — ' + (p.company_name || p.email || ''))}&body=${encodeURIComponent('Please permanently delete my Demohub brand account (' + (p.email || '') + ') and erase my data.')}" style="display:inline-block; padding:10px 18px; border:1.5px solid var(--clay-700, #a14e2a); color:var(--clay-700, #a14e2a); border-radius:10px; font-weight:700; font-size:0.9rem; text-decoration:none;">Request account deletion &rarr;</a>
+      <a href="mailto:david@demohubhq.com?subject=${encodeURIComponent('Delete my brand account: ' + (p.company_name || p.email || ''))}&body=${encodeURIComponent('Please permanently delete my Demohub brand account (' + (p.email || '') + ') and erase my data.')}" style="display:inline-block; padding:10px 18px; border:1.5px solid var(--clay-700, #a14e2a); color:var(--clay-700, #a14e2a); border-radius:10px; font-weight:700; font-size:0.9rem; text-decoration:none;">Request account deletion &rarr;</a>
     </div>
   `;
 }
@@ -2633,7 +2633,7 @@ document.addEventListener('DOMContentLoaded', function() {
   fi.addEventListener('change', async function(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { alert('Image too large — max 2MB'); e.target.value = ''; return; }
+    if (file.size > 2 * 1024 * 1024) { alert('Image too large (max 2MB)'); e.target.value = ''; return; }
     const reader = new FileReader();
     reader.onload = async function() {
       try {

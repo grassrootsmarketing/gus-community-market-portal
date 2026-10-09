@@ -249,7 +249,7 @@ function renderStatusModel(payload) {
   rows.push({
     key: 'errors', name: 'API error rate', tone: tri(errors.ok),
     value: errors.ok === true ? 'Normal' : errors.ok === false ? 'Elevated' : 'Unknown',
-    detail: errors.ok === false ? 'Elevated — under review' : 'Within normal range',
+    detail: errors.ok === false ? 'Elevated, under review' : 'Within normal range',
   });
 
   const SEVERITIES = ['minor', 'major', 'maintenance'];

@@ -413,7 +413,7 @@ export default async function handler(req, res) {
       const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
       retailer = Array.isArray(retailers) ? retailers[0] : null;
     } catch (e) {
-      return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer details could not be loaded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was charged — retry in a moment.' });
+      return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer details could not be loaded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was charged. Retry in a moment.' });
     }
     if (!venue || typeof venue !== 'object' || !retailer || typeof retailer !== 'object') {
       return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer for this booking could not be found. Nothing was changed and nothing was charged.' });
@@ -435,7 +435,7 @@ export default async function handler(req, res) {
     // finishes pending -> 'confirmed' with demo + confirmation email, exactly like a paid booking.
     if (action === 'confirm' && booking.status === 'held') {
       if (booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
-        return res.status(409).json({ error: 'hold_not_authorized', message: 'The brand has not completed checkout for this hold yet — there is nothing to charge. Ask them to finish payment, or decline to free the slot.' });
+        return res.status(409).json({ error: 'hold_not_authorized', message: 'The brand has not completed checkout for this hold yet, so there is nothing to charge. Ask them to finish payment, or decline to free the slot.' });
       }
       let brandRow = null;
       try {
@@ -444,17 +444,17 @@ export default async function handler(req, res) {
       } catch (_) {}
       const cov = coiCovered(brandRow || {}, booking.demo_date);
       if (!cov.covered) {
-        return res.status(409).json({ error: 'coi_pending', reason: cov.reason, message: 'This brand\'s Certificate of Insurance is not approved yet. Approve their COI first (or decline the booking) — confirming is what charges their card.' });
+        return res.status(409).json({ error: 'coi_pending', reason: cov.reason, message: 'This brand\'s Certificate of Insurance is not approved yet. Approve their COI first (or decline the booking), because confirming is what charges their card.' });
       }
       // P0-2: verify slot capacity BEFORE capturing. Capturing first (as this route used to) meant a
       // full slot produced a charged card with no confirmed demo. If it is full now, refuse without
       // charging — the retailer declines and the brand rebooks; the 24h sweep releases the hold.
       const preCap = await slotCapacityStatus(booking);
       if (preCap.full) {
-        return res.status(409).json({ error: 'slot_at_capacity', message: `Slot is at capacity (${preCap.taken}/${preCap.cap}). Nothing was charged — decline this booking and ask the brand to pick another slot.` });
+        return res.status(409).json({ error: 'slot_at_capacity', message: `Slot is at capacity (${preCap.taken}/${preCap.cap}). Nothing was charged. Decline this booking and ask the brand to pick another slot.` });
       }
       const capd = await captureHeldBooking(booking);
-      if (capd.outcome === 'captured') capturedHeldNow = true;   // verified by Stripe's PI state — set BEFORE any later exit
+      if (capd.outcome === 'captured') capturedHeldNow = true;   // verified by Stripe's PI state, set BEFORE any later exit
       if (!capd.ok) {
         console.error('held-capture failed:', capd.outcome, capd.stage, capd.error, booking_id);
         if (capd.outcome === 'uncertain') {
@@ -464,19 +464,19 @@ export default async function handler(req, res) {
           // the 24h sweep converge the ledger; the case (if recorded) puts it in front of an operator.
           return res.status(502).json({ ok: false, action, booking_id, error: 'payment_outcome_unknown', payment_uncertain: true,
             payment_intent_id: booking.payment_intent_id,
-            message: 'The payment for this hold may have completed — Stripe did not confirm either way (' + String(capd.error || '').slice(0, 120) + '). Its status is being checked. Do NOT charge the brand again, cancel, decline or ask them to rebook on the assumption it failed — refresh in a minute and retry the confirm; it is safe to retry. '
-              + (capd.case_recorded ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
+            message: 'The payment for this hold may have completed, but Stripe did not confirm either way (' + String(capd.error || '').slice(0, 120) + '). Its status is being checked. Do NOT charge the brand again, cancel, decline or ask them to rebook on the assumption it failed. Refresh in a minute and retry the confirm; it is safe to retry. '
+              + (capd.case_recorded ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded. Contact support with this booking id.'),
             reconciliation_case_id: capd.case_id || null, reconciliation_recorded: !!capd.case_recorded });
         }
         if (capd.outcome === 'not_captured') {
           // Authoritative: Stripe's retrieved PaymentIntent is in an uncaptured state (Codex P-2: this is
           // decided by the PI, never by a refused request). Only here is "nothing was charged" true.
-          return res.status(502).json({ ok: false, action, booking_id, error: 'capture_failed', captured: false, stage: capd.stage, pi_status: capd.pi_status, message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired — nothing was charged.' });
+          return res.status(502).json({ ok: false, action, booking_id, error: 'capture_failed', captured: false, stage: capd.stage, pi_status: capd.pi_status, message: 'Stripe could not capture the held payment (' + capd.error + '). The authorization may have expired, and nothing was charged.' });
         }
         if (capd.outcome === 'not_attempted') {
           // Codex P-2: no capture request was made because the row is no longer a held, authorized
           // booking. That says nothing about the payment's history — never "nothing was charged".
-          return res.status(409).json({ ok: false, action, booking_id, error: 'capture_not_attempted', message: 'No capture was attempted: this booking is no longer a held, authorized reservation (' + capd.error + '). Refresh — another action may already have captured or released it.' });
+          return res.status(409).json({ ok: false, action, booking_id, error: 'capture_not_attempted', message: 'No capture was attempted: this booking is no longer a held, authorized reservation (' + capd.error + '). Refresh, because another action may already have captured or released it.' });
         }
         // outcome 'captured' but the ledger apply failed (Codex P-1): the brand HAS been charged. The
         // helper recorded (or honestly failed to record) the 'capture-unapplied' case; report it as the
@@ -496,7 +496,7 @@ export default async function handler(req, res) {
     if (action === 'confirm' && !capturedHeldNow) {
       const capStatus = await slotCapacityStatus(booking);
       if (capStatus.full) {
-        return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm — decline this booking and ask the brand to pick another slot.` });
+        return res.status(409).json({ error: `Slot is at capacity (${capStatus.taken}/${capStatus.cap}). Cannot confirm. Decline this booking and ask the brand to pick another slot.` });
       }
     }
 
@@ -520,7 +520,7 @@ export default async function handler(req, res) {
         reason: 'retailer_' + action, notify: false,
       });
       if (!rel.ok) {
-        return res.status(502).json({ error: 'auth_release_failed', message: 'Could not release the payment hold: ' + rel.error + '. The booking was left as-is — retry in a moment.' });
+        return res.status(502).json({ error: 'auth_release_failed', message: 'Could not release the payment hold: ' + rel.error + '. The booking was left as-is. Retry in a moment.' });
       }
       if (rel.was_captured) {
         // P0-1 interleave: the hold was CAPTURED (a concurrent confirm / COI auto-confirm) at the same
@@ -529,7 +529,7 @@ export default async function handler(req, res) {
         // declined/cancelled — the retailer can CANCEL it to refund through the tested paid-cancel path.
         return res.status(409).json({
           error: 'hold_captured',
-          message: 'This hold was just captured — the brand has been charged and the demo is confirming. Refresh the page; if you still want to reverse it, cancel the booking to refund per your policy.',
+          message: 'This hold was just captured. The brand has been charged and the demo is confirming. Refresh the page; if you still want to reverse it, cancel the booking to refund per your policy.',
         });
       }
       refundStatus = 'auth_released';
@@ -661,7 +661,7 @@ export default async function handler(req, res) {
         reconciliation_recorded: moneyMoved ? !!caseId : undefined,
         message: `This booking changed while you were working (now ${tr && tr.status_before ? tr.status_before : 'unknown'}). ` +
           (moneyMoved
-            ? (capturedHeldNow ? 'The brand\'s card WAS captured — do not decline it or ask the brand to rebook; ' : refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded — contact support with this booking id.')
+            ? (capturedHeldNow ? 'The brand\'s card WAS captured, so do not decline it or ask the brand to rebook; ' : refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded, so contact support with this booking id.')
             : 'Reload and try again.'),
       });
     }
@@ -795,7 +795,7 @@ async function capturedButUnverified(res, { booking_id, action, error, case_id =
 }
 function capturedUnverifiedResponse(res, { booking_id, action, caseId, application_unverified = false }) {
   return res.status(500).json({ ok: false, action, booking_id, error: 'capture_succeeded_confirmation_unverified', captured: true, application_unverified: application_unverified || undefined,
-    message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook — refresh the booking. '
-      + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded — contact support with this booking id.'),
+    message: 'The brand\'s card WAS captured and this booking is being confirmed, but the confirmation could not be verified just now. Do not decline it or ask the brand to rebook. Refresh the booking. '
+      + (caseId ? 'A reconciliation case was opened.' : 'The reconciliation case could NOT be recorded. Contact support with this booking id.'),
     reconciliation_case_id: caseId || null, reconciliation_recorded: !!caseId });
 }

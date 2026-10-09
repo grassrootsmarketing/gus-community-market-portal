@@ -58,5 +58,5 @@ export async function fetchBookingSnapshots(get, ids, { chunk = SNAPSHOT_CHUNK }
 export function sendFeedUnavailable(res, err) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.status(503).send('Calendar temporarily unavailable — try again in a moment. (' + ((err && err.message) || 'lookup failed') + ')');
+  res.status(503).send('Calendar temporarily unavailable. Try again in a moment. (' + ((err && err.message) || 'lookup failed') + ')');
 }

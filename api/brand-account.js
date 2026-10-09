@@ -173,14 +173,14 @@ async function sendMagicLink(email, link, isNew, code) {
   // The link and the code are credentials. If there is no provider key we send nothing and log
   // nothing — writing them to log storage is a credential leak, not a debugging aid.
   if (!_b.resendApiKey) return;
-  const subject = isNew ? 'Welcome to Demohub — verify your brand account' : 'Sign in to your Demohub brand account';
+  const subject = isNew ? 'Welcome to Demohub: verify your brand account' : 'Sign in to your Demohub brand account';
   const codeBlock = code ? `
       <div style="background:#fbf7f0;border:1.5px solid #ede3d0;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:8px;">Your sign-in code</div>
         <div style="font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div>
         <div style="font-size:12px;color:#6b6a64;margin-top:10px;">Enter this on the screen where you asked to sign in. Best on a phone, where a link can open in the wrong browser.</div>
       </div>
-      <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">— or —</p>
+      <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">or</p>
   ` : '';
   const body = `
     <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
@@ -244,7 +244,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: ${siteLink(_b, '/brand/dashboard')}\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
-  const subject = `Welcome to Demohub, ${first_name || 'there'} — one profile for every retailer`;
+  const subject = `Welcome to Demohub, ${first_name || 'there'}: one profile for every retailer`;
   return { subject, html: htmlBody, text };
 }
 
@@ -275,7 +275,7 @@ function retailerDay3Email({ first_name }) {
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- How to price demos: Most start at $30 per slot.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\n20-min walkthrough: https://calendly.com/demohubhq/walkthrough\n\nTalk soon,\nDavid\nDemohub`;
-  const subject = `${first_name || 'there'} — how's your Demohub setup going?`;
+  const subject = `${first_name || 'there'}, how's your Demohub setup going?`;
   return { subject, html: htmlBody, text };
 }
 
@@ -307,8 +307,8 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed — ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
-  const subject = `Nice — your first demo at ${retailer_name || 'your retailer'} is locked in`;
+  const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed: ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
+  const subject = `Nice, your first demo at ${retailer_name || 'your retailer'} is locked in`;
   return { subject, html: htmlBody, text };
 }
 
@@ -324,7 +324,7 @@ async function processBatched(items, batchSize, processOne) {
 
 function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_left }) {
   const subjectMap = {
-    30: `Your COI expires in 30 days — let's get ahead of it`,
+    30: `Your COI expires in 30 days, so let's get ahead of it`,
     14: `Reminder: your Demohub COI expires in 2 weeks`,
     3:  `Last call: your COI expires in ${days_left} day${days_left === 1 ? '' : 's'}`,
   };
@@ -333,7 +333,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
     14: `2 weeks until your COI expires`,
     3:  `${days_left} day${days_left === 1 ? '' : 's'} until your COI expires`,
   };
-  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: ${siteLink(_b, '/brand/dashboard#compliance')}\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
+  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: ${siteLink(_b, '/brand/dashboard#compliance')}\n3. You're done, and every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\nDemohub`;
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
@@ -348,11 +348,11 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
         <ol style="margin:0;padding-left:20px;font-size:14px;color:#3a3a36;line-height:1.7;">
           <li>Get an updated COI from your insurer (most brokers can re-issue same-day).</li>
           <li>Upload it to your profile.</li>
-          <li>You're done — every Demohub retailer sees the new doc instantly.</li>
+          <li>You're done, and every Demohub retailer sees the new doc instantly.</li>
         </ol>
       </div>
       <a href="${siteLink(_b, '/brand/dashboard#compliance')}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
-      <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email — a human reads everything.</p>
+      <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email. A human reads everything.</p>
     </div>
   </body></html>`;
   return { subject: subjectMap[tier], html, text: body };
@@ -393,12 +393,12 @@ function retailerCoiWarningEmail({ tier, retailer_name, brand_name, brand_contac
       <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Sent automatically by Demohub. You can adjust notification settings in your admin.</p>
     </div>
   </body></html>`;
-  const text = `Hi ${retailer_name || 'there'},\n\nThe COI on file for ${brand_name}${brand_contact_name ? ' (' + brand_contact_name + ')' : ''} expires on ${expires_label}.\n\n${upcoming_demo_label ? `Heads up: you have an upcoming demo with this brand on ${upcoming_demo_label}. If their COI lapses before then, you may need to reschedule.\n\n` : ''}Two things to do:\n1. Reach out to ${brand_name} and ask them to renew before expiry.\n2. Once they upload it, your admin updates automatically.\n\nOpen your compliance dashboard: ${admin_url}\n\n— Demohub`;
+  const text = `Hi ${retailer_name || 'there'},\n\nThe COI on file for ${brand_name}${brand_contact_name ? ' (' + brand_contact_name + ')' : ''} expires on ${expires_label}.\n\n${upcoming_demo_label ? `Heads up: you have an upcoming demo with this brand on ${upcoming_demo_label}. If their COI lapses before then, you may need to reschedule.\n\n` : ''}Two things to do:\n1. Reach out to ${brand_name} and ask them to renew before expiry.\n2. Once they upload it, your admin updates automatically.\n\nOpen your compliance dashboard: ${admin_url}\n\nDemohub`;
   return { subject: subjectMap[tier], html, text };
 }
 
 async function sendWelcome({ to, subject, html, text }) {
-  if (!_b.resendApiKey) { console.warn('mail provider not configured — skipping welcome to', to); return false; }
+  if (!_b.resendApiKey) { console.warn('mail provider not configured, skipping welcome to', to); return false; }
   const r = await sendMailQuietly({ from: FROM_BOOKINGS, to, replyTo: REPLY_TO, subject, html, text }, { binding: _b });
   return !!r.ok;
 }
@@ -902,11 +902,11 @@ export default async function handler(req, res) {
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const dataUrl = String(body.image || '');
       const m = dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
-      if (!m) return jsonResp(res, 400, { error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      if (!m) return jsonResp(res, 400, { error: 'Invalid image: must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
       const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large — max 2MB' });
+      if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large (max 2MB)' });
       const path = `brands/${brandId}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
@@ -1091,7 +1091,7 @@ export default async function handler(req, res) {
           const _days = Math.round((today - new Date(d.earliest_expiry + 'T00:00:00Z')) / 86400000);
           return { decision: 'block', flags: ['expired'], message: 'That certificate expired on ' + prettyDate(d.earliest_expiry)
             + (_days > 0 ? ' (' + _days + ' day' + (_days === 1 ? '' : 's') + ' ago)' : '')
-            + '. Ask your broker for the renewed certificate and upload that one — most can re-issue the same day.' };
+            + '. Ask your broker for the renewed certificate and upload that one. Most can re-issue the same day.' };
         }
       }
       // --- flags (upload still accepted) ---
@@ -1261,7 +1261,7 @@ export default async function handler(req, res) {
             const held = heldR.ok ? await heldR.json() : [];
             if (Array.isArray(held) && held.length) {
               const dl = held[0].held_expires_at ? new Date(held[0].held_expires_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : 'soon';
-              heldLine = `<p style="font-size:14px;line-height:1.5;color:#a14e2a;background:#fff3ed;border-left:4px solid #ed682f;padding:10px 14px;border-radius:8px;margin:0 0 16px;"><strong>${held.length} held booking${held.length === 1 ? '' : 's'}</strong> waiting on this approval — first hold releases <strong>${dl}</strong>.</p>`;
+              heldLine = `<p style="font-size:14px;line-height:1.5;color:#a14e2a;background:#fff3ed;border-left:4px solid #ed682f;padding:10px 14px;border-radius:8px;margin:0 0 16px;"><strong>${held.length} held booking${held.length === 1 ? '' : 's'}</strong> waiting on this approval. The first hold releases <strong>${dl}</strong>.</p>`;
             }
           } catch (_) {}
           const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1273,7 +1273,7 @@ export default async function handler(req, res) {
               + `<h2 style="font-size:20px;color:#0f2c17;margin:0 0 14px;">A certificate just landed</h2>`
               + heldLine
               + `<p style="font-size:14px;line-height:1.6;margin:0 0 16px;"><strong>${esc(brandRow && brandRow.company_name)}</strong> (${esc(brandRow && brandRow.email)}) uploaded a COI.<br>`
-              + `Status: <strong>${esc(verificationStatus)}</strong> &middot; Insurer: ${esc(vdata && vdata.insurer_name || '—')} &middot; Doc expiry: ${esc(docExpiry || 'unreadable')} &middot; Flags: ${esc(flagsTxt)}</p>`
+              + `Status: <strong>${esc(verificationStatus)}</strong> &middot; Insurer: ${esc(vdata && vdata.insurer_name || 'n/a')} &middot; Doc expiry: ${esc(docExpiry || 'unreadable')} &middot; Flags: ${esc(flagsTxt)}</p>`
               + `<a href="${siteLink(_b, '/owner')}" style="display:inline-block;background:#0f2c17;color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;">Review in the owner panel &rarr;</a>`
               + `</div>`,
           }, { binding: _b });
@@ -1657,7 +1657,7 @@ export default async function handler(req, res) {
         'BEGIN:VCALENDAR', 'VERSION:2.0',
         'PRODID:-//Demohub//Brand calendar feed//EN',
         'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-        fold('X-WR-CALNAME:' + escapeICS(`${brand.company_name} — Demos`)),
+        fold('X-WR-CALNAME:' + escapeICS(`${brand.company_name} · Demos`)),
         fold('X-WR-CALDESC:' + escapeICS(`All your Demohub demos across every retailer`)),
         'X-WR-TIMEZONE:America/Los_Angeles',
       ];
@@ -1964,7 +1964,7 @@ export default async function handler(req, res) {
             const expCoiCount = Array.isArray(expiringCoi) ? expiringCoi.length : 0;
             const newBrandsCount = Array.isArray(newBrands) ? newBrands.length : 0;
             const adminUrl = siteLink(_b, `/r/${ret.slug}/admin`);
-            const subject = `${monthLabel} at ${ret.name} — ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
+            const subject = `${monthLabel} at ${ret.name}: ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
             const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">

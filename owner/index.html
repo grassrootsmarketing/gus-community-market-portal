@@ -693,7 +693,7 @@ function renderDashboard(d) {
         <button onclick="loadCoiQueue()" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Refresh</button>
       </div>
       <p style="margin:0 0 12px; color:var(--forest-700); font-size:13px;">
-        Certificates awaiting a decision. One item per brand &mdash; the brand&rsquo;s current document.
+        Certificates awaiting a decision. One item per brand, showing the brand&rsquo;s current document.
         Approving lets that brand book; rejecting does not.
       </p>
       <div id="coiLastDecision" aria-live="polite" style="margin:0 0 8px; font-size:13px; font-weight:600;"></div>
@@ -712,8 +712,8 @@ function renderDashboard(d) {
 
 // ---- Directory tabs (2026-09-29): read-only mirrors of each retailer's and each brand's account ----
 const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
-const fmtD = (iso) => { if (!iso) return '—'; const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
-const money = (n) => n == null ? '—' : '$' + Number(n).toFixed(2);
+const fmtD = (iso) => { if (!iso) return 'n/a'; const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
+const money = (n) => n == null ? 'n/a' : '$' + Number(n).toFixed(2);
 const yesno = (b) => b ? 'Yes' : 'No';
 const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { if (!exp) return '<span class="pill warn">COI approved · expiry unknown</span>'; const e = String(exp).slice(0, 10), t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); return e < today ? '<span class="pill bad">COI expired ' + fmtD(e) + '</span>' : '<span class="pill ok">COI approved · expires ' + fmtD(e) + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
 const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
@@ -778,7 +778,7 @@ async function renderRetailersTab(selectedId) {
   pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Open one to see its account as the retailer sees it (read-only).</div>'
     + '<input class="dir-search" id="retailerSearch" placeholder="Search by name or slug" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
-  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || '—') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
+  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || 'n/a') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
   draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
   if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); }); }
   if (selectedId) openRetailerProfile(selectedId);
@@ -797,13 +797,13 @@ async function openRetailerProfile(id) {
   const r = p.retailer, st = p.settings || {};
   const kv = [
     row('Booking page', link(p.booking_url, p.booking_url.replace(/^https?:\/\/(www\.)?/, ''))), row('Admin page', link(p.admin_url, p.admin_url.replace(/^https?:\/\/(www\.)?/, ''))),
-    row('Billing email', escapeHtml(r.billing_email || '—')), row('Phone', escapeHtml(r.phone || '—')), row('Plan · status', escapeHtml((r.billing_tier || '—') + ' · ' + (r.billing_status || '—'))),
-    row('Joined', fmtD(r.created_at)), row('Go-live approval', approvalPill(r, true) + (r.verification_status === 'approved' && r.verified_at ? ' <span style="font-size:0.78rem; color:var(--ink-500);">since ' + fmtD(r.verified_at) + '</span>' : '') + '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">' + statusButtons(r) + '</div>'), row('Time zone', escapeHtml(r.timezone || '—')),
-    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', slotSummary(p.venues)), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : '—'),
-    row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || '—')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
+    row('Billing email', escapeHtml(r.billing_email || 'n/a')), row('Phone', escapeHtml(r.phone || 'n/a')), row('Plan · status', escapeHtml((r.billing_tier || 'n/a') + ' · ' + (r.billing_status || 'n/a'))),
+    row('Joined', fmtD(r.created_at)), row('Go-live approval', approvalPill(r, true) + (r.verification_status === 'approved' && r.verified_at ? ' <span style="font-size:0.78rem; color:var(--ink-500);">since ' + fmtD(r.verified_at) + '</span>' : '') + '<div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">' + statusButtons(r) + '</div>'), row('Time zone', escapeHtml(r.timezone || 'n/a')),
+    row('Demo fee (retailer setting)', money(st.demo_fee)), row('Demo length', slotSummary(p.venues)), row('Minimum notice', st.advance_booking_days != null ? st.advance_booking_days + ' days' : 'n/a'),
+    row('New bookings', r.auto_confirm_bookings ? 'Confirmed automatically' : 'Reviewed by the store'), row('Cancellation mode', escapeHtml(r.cancellation_mode || 'n/a')), row('Payments', r.platform_keeps_all ? 'Demohub collects (pilot)' : (r.stripe_charges_enabled ? 'Stripe Connect enabled' : 'Stripe not connected')),
     row('Monthly summary email', yesno(r.monthly_summary_enabled)), row('Support access allowed', yesno(r.allow_support_access)), row('Demo account', yesno(r.is_demo)),
   ].join('');
-  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? '—') + '</td><td style="font-size:0.78rem;">' + (v.slots === null ? '<span style="color:#a14e2a;">invalid schedule</span>' : (v.slots || []).length ? escapeHtml((v.slots || []).map(sl => sl.start + ' · ' + sl.hours + 'h').join(', ')) + (v.slots_defaulted ? ' (defaults)' : '') : 'none') + '</td></tr>').join('');
+  const venues = (p.venues || []).map(v => '<tr><td>' + escapeHtml(v.name) + (v.active === false ? ' <span class="pill">inactive</span>' : '') + '</td><td>' + escapeHtml(v.address || '') + '</td><td class="num">' + money(v.demo_fee) + '</td><td class="num">' + (v.max_demos_per_slot ?? 'n/a') + '</td><td style="font-size:0.78rem;">' + (v.slots === null ? '<span style="color:#a14e2a;">invalid schedule</span>' : (v.slots || []).length ? escapeHtml((v.slots || []).map(sl => sl.start + ' · ' + sl.hours + 'h').join(', ')) + (v.slots_defaulted ? ' (defaults)' : '') : 'none') + '</td></tr>').join('');
   const locs = (l) => escapeHtml((Array.isArray(l) ? l : []).join(', ') || 'All locations');
   const staff = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.name || '') + (a.name ? '<br>' : '') + '<span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(a.email) + '</span></td><td>' + escapeHtml(a.role || '') + '</td><td>' + locs(a.locations) + '</td></tr>').join('');
   const notif = (c) => { const n = c.notifications || {}; const life = (n.lifecycle || []).length ? 'Emails when a demo is ' + escapeHtml(n.lifecycle.join(', ')) : 'No demo emails'; const rem = (n.reminders || []).length ? 'Reminders: ' + escapeHtml(n.reminders.join(', ')) : 'No reminders'; return life + '<br>' + rem + (c.prefs_set ? '' : ' <span style="color:var(--ink-500);">(defaults, never set)</span>'); };
@@ -833,7 +833,7 @@ async function renderBrandsTab() {
   pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + (_brandsCache.capped ? list.length + ' of ' + Number(_brandsCache.total) + ' (partial list)' : list.length) + ' signed up.' + (_brandsCache.complete.bookings === false ? ' Demo counts are partial.' : '') + ' Open one to see its profile, certificate and bookings (read-only).</div>'
     + '<input class="dir-search" id="brandSearch" placeholder="Search by company, contact or email" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Brand</th><th>Contact</th><th>Certificate</th><th class="num">Demos</th><th>Retailers</th><th>Joined</th><th></th></tr></thead><tbody id="brandRows"></tbody></table></div></div><div id="brandProfile"></div>';
-  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || '—') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || '—') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
+  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || 'n/a') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
   draw(''); document.getElementById('brandSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
   if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act=openb]'); if (b) openBrandProfile(b.dataset.bid); }); }
 }
@@ -842,12 +842,12 @@ async function openBrandProfile(id) {
   box.innerHTML = '<div class="card"><div class="sub">Loading profile…</div></div>'; box.scrollIntoView({ behavior: 'smooth', block: 'start' });
   let p; try { p = await ownerPost('owner-brand-profile', { brand_id: id }); } catch (e) { box.innerHTML = loadErr("Couldn't load this brand", e, 'brand', id); return; }
   const b = p.brand;
-  const kv = [row('Contact', escapeHtml(b.contact_name || '—')), row('Email', escapeHtml(b.email || '—')), row('Phone', escapeHtml(b.phone || '—')), row('Website', b.website ? link(/^https?:/.test(b.website) ? b.website : 'https://' + b.website, b.website) : '—'), row('Joined', fmtD(b.created_at)), row('Email verified', yesno(b.is_verified)),
-    row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires) + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? '—' : yesno(b.needs_electricity)),
-    row('Categories', escapeHtml(Array.isArray(b.default_categories) ? b.default_categories.join(', ') : (b.default_categories || '—'))), row('Products', escapeHtml(Array.isArray(b.products) ? b.products.map(x => (x && x.name) || x).join(', ').slice(0, 300) : '—'))].join('');
+  const kv = [row('Contact', escapeHtml(b.contact_name || 'n/a')), row('Email', escapeHtml(b.email || 'n/a')), row('Phone', escapeHtml(b.phone || 'n/a')), row('Website', b.website ? link(/^https?:/.test(b.website) ? b.website : 'https://' + b.website, b.website) : 'n/a'), row('Joined', fmtD(b.created_at)), row('Email verified', yesno(b.is_verified)),
+    row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires) + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? 'n/a' : yesno(b.needs_electricity)),
+    row('Categories', escapeHtml(Array.isArray(b.default_categories) ? b.default_categories.join(', ') : (b.default_categories || 'n/a'))), row('Products', escapeHtml(Array.isArray(b.products) ? b.products.map(x => (x && x.name) || x).join(', ').slice(0, 300) : 'n/a'))].join('');
   const byR = (Array.isArray(p.by_retailer) ? p.by_retailer : []).map(a => '<tr><td>' + (a.slug ? link('/r/' + a.slug, a.name) : escapeHtml(a.name)) + '</td><td class="num">' + a.total + '</td><td class="num">' + a.upcoming + '</td><td class="num">' + money(a.paid_cents / 100) + '</td></tr>').join('');
   const bk = (p.bookings || []).slice(0, 25).map(x => '<tr><td>' + escapeHtml(x.demo_date) + ' ' + escapeHtml(x.demo_time || '') + '</td><td>' + escapeHtml(x.retailer_name) + '</td><td>' + escapeHtml(x.status) + '</td><td>' + escapeHtml(x.payment_status || '') + (x.payment_status === 'paid' ? ' · ' + money(Number(x.amount_paid || 0) / 100) : '') + '</td></tr>').join('');
-  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(b.company_name || '—') + '</h2><div class="sub">Mirror of the brand\'s account. Read-only; the certificate file itself is reviewed in COI Review.</div></div>' + (b.logo_url ? '<img src="' + escapeHtml(b.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(b.company_name || 'n/a') + '</h2><div class="sub">Mirror of the brand\'s account. Read-only; the certificate file itself is reviewed in COI Review.</div></div>' + (b.logo_url ? '<img src="' + escapeHtml(b.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
     + '<div class="dir-grid"><div><h3 class="dir-h3">Profile</h3><table class="simple"><tbody>' + kv + '</tbody></table></div>'
     + '<div><h3 class="dir-h3">By retailer' + (p.rollup_complete === false ? ' (partial)' : '') + '</h3><table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th><th class="num">Upcoming</th><th class="num">Paid (booking records)</th></tr></thead><tbody>' + (byR || '<tr><td colspan="4">No bookings yet</td></tr>') + '</tbody></table>'
     + '<h3 class="dir-h3" style="margin-top:16px;">Bookings' + ' (latest ' + Math.min(25, (p.bookings || []).length) + ' of ' + Number(p.bookings_total != null ? p.bookings_total : (p.bookings || []).length) + ')' + '</h3><table class="simple"><tbody>' + (bk || '<tr><td>None</td></tr>') + '</tbody></table></div></div></div>';
@@ -1070,7 +1070,7 @@ async function renderStatusManager() {
             <div style="flex:1;">
               <div style="font-weight:700; color:var(--forest-900);">${escapeHtml(i.title)}</div>
               ${i.body ? `<div style="font-size:0.85rem; color:var(--ink-500); margin-top:4px;">${escapeHtml(i.body)}</div>` : ''}
-              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${String(i.severity || 'info').toUpperCase()} · started ${i.started_at ? new Date(i.started_at).toLocaleString() : '—'}</div>
+              <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px;">${String(i.severity || 'info').toUpperCase()} · started ${i.started_at ? new Date(i.started_at).toLocaleString() : 'n/a'}</div>
             </div>
             <button onclick="resolveIncident('${i.id}')" style="background:#2a5b32; color:white; border:none; padding:7px 14px; border-radius:7px; font-weight:600; cursor:pointer; font-size:0.85rem;">Resolve</button>
           </div>
@@ -1254,7 +1254,7 @@ async function runPendingMigrations() {
     if (!r.ok) throw new Error(j.error || 'Migration failed');
     const items = (j.results || []).map(x => {
       const color = x.status === 'applied' ? '#1f4a26' : x.status === 'failed' ? '#c93030' : '#6b6a64';
-      return '<div style="color:' + color + ';">' + x.name + ': ' + x.status + (x.error ? ' &mdash; ' + escapeHtml(x.error) : '') + '</div>';
+      return '<div style="color:' + color + ';">' + x.name + ': ' + x.status + (x.error ? ' (' + escapeHtml(x.error) + ')' : '') + '</div>';
     }).join('');
     result.innerHTML = '<div style="background:#f4f8f0; border-radius:8px; padding:12px 14px; font-family:\'SF Mono\',Menlo,monospace; font-size:0.8rem;">' + items + '</div>';
     await loadMigrationsStatus();
@@ -1295,7 +1295,7 @@ async function loadSupportTools() {
     `).join('');
     card.innerHTML = `
       <div class="card" style="margin-top:24px;">
-        <h2>Support tools — sign in as any retailer</h2>
+        <h2>Support tools: sign in as any retailer</h2>
         <div class="sub">Creates a 4-hour scoped admin session. The retailer sees the sign-in in their audit log under Settings. Use only when you need to debug or fix something.</div>
         <div class="tablewrap">
           <table class="simple">
@@ -1378,7 +1378,7 @@ function renderCoiQueue() {
   if (!_coiQueue.length) { el.innerHTML = '<p style="color:var(--forest-700);">Nothing waiting for review.</p>'; return; }
   el.innerHTML = _coiQueue.map(r => {
     const b = r.brand || {};
-    const flags = Array.isArray(r.flags) && r.flags.length ? r.flags.join(', ') : '—';
+    const flags = Array.isArray(r.flags) && r.flags.length ? r.flags.join(', ') : 'n/a';
     return `<div style="border:1px solid rgba(15,44,23,0.15); border-radius:8px; padding:12px; margin-bottom:10px;">
       <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
         <div>
@@ -1387,18 +1387,18 @@ function renderCoiQueue() {
         </div>
         <div style="font-size:12px; color:var(--forest-700); text-align:right;">
           uploaded ${_esc(String(r.created_at || '').slice(0, 16).replace('T', ' '))}<br>
-          status ${_esc(r.status || 'pending')} · expiry ${_esc(r.policy_expiry || '—')}
+          status ${_esc(r.status || 'pending')} · expiry ${_esc(r.policy_expiry || 'n/a')}
         </div>
       </div>
-      <div class="ph-no-capture" style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || '—')} · insured ${_esc(r.insured_name || '—')} · flags ${_esc(flags)}</div>
+      <div class="ph-no-capture" style="font-size:12px; color:var(--forest-700); margin-top:6px;">insurer ${_esc(r.insurer_name || 'n/a')} · insured ${_esc(r.insured_name || 'n/a')} · flags ${_esc(flags)}</div>
       <label style="display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12px; color:var(--forest-700);">
-        Policy expiry (from the certificate — required to approve; brands cannot set this themselves)
+        Policy expiry (from the certificate, required to approve; brands cannot set this themselves)
         <input type="date" id="coiExpiry-${_esc(r.id)}" value="${_esc(String(r.policy_expiry || '').slice(0, 10))}" style="padding:5px 8px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;">
       </label>
-      <label for="coiNotes-${_esc(r.id)}" style="display:block; margin-top:8px; font-size:12px; color:var(--forest-700);">Review notes (optional) — <strong>internal only</strong>; the brand never sees these.</label>
+      <label for="coiNotes-${_esc(r.id)}" style="display:block; margin-top:8px; font-size:12px; color:var(--forest-700);">Review notes (optional): <strong>internal only</strong>; the brand never sees these.</label>
       <textarea id="coiNotes-${_esc(r.id)}" maxlength="2000" placeholder="Review notes (optional, internal)" style="width:100%; margin-top:4px; padding:6px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;" rows="2"></textarea>
-      <label for="coiBrandNote-${_esc(r.id)}" style="display:block; margin-top:8px; font-size:12px; color:var(--forest-700);">Note to brand (they will see this) — <strong>emailed to the brand</strong> with the decision. Required to reject, optional to approve.</label>
-      <textarea id="coiBrandNote-${_esc(r.id)}" maxlength="1000" placeholder="e.g. The certificate names a different insured party — please upload one issued to your company." style="width:100%; margin-top:4px; padding:6px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;" rows="3"></textarea>
+      <label for="coiBrandNote-${_esc(r.id)}" style="display:block; margin-top:8px; font-size:12px; color:var(--forest-700);">Note to brand (they will see this): <strong>emailed to the brand</strong> with the decision. Required to reject, optional to approve.</label>
+      <textarea id="coiBrandNote-${_esc(r.id)}" maxlength="1000" placeholder="e.g. The certificate names a different insured party, so please upload one issued to your company." style="width:100%; margin-top:4px; padding:6px; font-family:inherit; font-size:13px; border:1px solid rgba(15,44,23,0.2); border-radius:6px;" rows="3"></textarea>
       <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
         <button onclick="viewCoiDoc('${_esc(r.id)}')" style="background:transparent; color:var(--forest-700); border:1px solid rgba(15,44,23,0.25); border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit;">View document</button>
         <button onclick="decideCoi('${_esc(r.id)}','approved')" style="background:#0f2c17; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-family:inherit; font-weight:600;">Approve</button>
@@ -1419,11 +1419,11 @@ function renderCoiPaymentWarnings(j) {
   if (!bad.length) return false;
   const line = (h) => {
     const id = _esc(h.booking_id || '?');
-    const caseTxt = h.case_recorded && h.case_id ? 'reconciliation case recorded (' + _esc(h.case_id) + ')' : '<strong>reconciliation case NOT recorded — contact support with this booking id</strong>';
-    if (h.outcome === 'captured' && h.applied === false) return '<li data-booking="' + id + '" data-outcome="captured-unapplied"><strong>Booking ' + id + ':</strong> the card <strong>WAS charged</strong> but the booking ledger could not be updated yet — do not charge again or ask the brand to rebook; ' + caseTxt + '.</li>';
-    if (h.outcome === 'uncertain') return '<li data-booking="' + id + '" data-outcome="uncertain"><strong>Booking ' + id + ':</strong> payment outcome <strong>UNKNOWN</strong> — the brand may have been charged; do not charge again, cancel or ask them to rebook; ' + caseTxt + '.</li>';
+    const caseTxt = h.case_recorded && h.case_id ? 'reconciliation case recorded (' + _esc(h.case_id) + ')' : '<strong>reconciliation case NOT recorded, so contact support with this booking id</strong>';
+    if (h.outcome === 'captured' && h.applied === false) return '<li data-booking="' + id + '" data-outcome="captured-unapplied"><strong>Booking ' + id + ':</strong> the card <strong>WAS charged</strong> but the booking ledger could not be updated yet, so do not charge again or ask the brand to rebook; ' + caseTxt + '.</li>';
+    if (h.outcome === 'uncertain') return '<li data-booking="' + id + '" data-outcome="uncertain"><strong>Booking ' + id + ':</strong> payment outcome <strong>UNKNOWN</strong>: the brand may have been charged; do not charge again, cancel or ask them to rebook; ' + caseTxt + '.</li>';
     // Codex F-2: an unprocessed entry has NO reconciliation case by construction — say so, per item.
-    return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + ') — it says nothing about whether the payment was ever captured; <strong>no reconciliation case exists for it</strong>; check the booking in the retailer admin.</li>';
+    return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + '). It says nothing about whether the payment was ever captured; <strong>no reconciliation case exists for it</strong>; check the booking in the retailer admin.</li>';
   };
   const block = '<div data-review="' + _esc(j.verification_id || '') + '"><div style="font-weight:700; margin-bottom:6px;">Payment attention needed after this COI decision</div>'
     + (j.message ? '<div style="margin-bottom:6px;">' + _esc(j.message) + '</div>' : '')
@@ -1478,7 +1478,7 @@ async function decideCoi(id, decision) {
   const brandNoteEl = document.getElementById('coiBrandNote-' + id);
   const brandNote = brandNoteEl ? brandNoteEl.value.replace(/\r\n?/g, '\n').trim().slice(0, 1000) : '';
   if (decision === 'rejected' && !brandNote) {
-    if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Write a note to the brand explaining the rejection — it is emailed to them.'; }
+    if (msg) { msg.style.color = '#8a1c1c'; msg.textContent = 'Write a note to the brand explaining the rejection. It is emailed to them.'; }
     if (brandNoteEl && brandNoteEl.focus) brandNoteEl.focus();
     return;
   }
@@ -1505,7 +1505,7 @@ async function decideCoi(id, decision) {
     // processed is shown here, per booking, with whether its reconciliation case was actually
     // recorded — and it stays on screen when the queue reloads.
     const attention = renderCoiPaymentWarnings(j);
-    const decisionText = (decision === 'approved' ? 'Approved' : 'Rejected') + (attention ? ' — payment attention needed (see above)' : '');
+    const decisionText = (decision === 'approved' ? 'Approved' : 'Rejected') + (attention ? ': payment attention needed (see above)' : '');
     if (msg) { msg.style.color = attention ? '#c25a1c' : '#0f2c17'; msg.textContent = decisionText; }
     // The queue reload below re-renders the rows (a decided item leaves the queue), which would take the
     // row's own message with it — so the last decision is also written OUTSIDE the queue body.

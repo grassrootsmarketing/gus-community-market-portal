@@ -176,7 +176,7 @@ export default async function handler(req, res) {
     const prov = await provisionVerifiedRetailer(email, pl.store_name, {
       phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
     });
-    setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
+    setSessionCookie(res, prov.session_id); // land them logged in, no token in URL
     if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
     const state = await liveState(prov.retailer_id); // read, not assumed: an existing store may already be live
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as

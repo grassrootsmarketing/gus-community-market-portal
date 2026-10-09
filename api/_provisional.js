@@ -386,10 +386,10 @@ export async function buildHoldPlacedMessage(ctxOrId) {
   try {
     const allocs = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(ctx.id || ctx.booking_id)}&select=customer_amount&limit=1`);
     amountCents = Array.isArray(allocs) && allocs[0] ? allocs[0].customer_amount : null;
-  } catch (_) { /* amount is decorative — the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
+  } catch (_) { /* amount is decorative, the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
   return {
     from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
-    subject: `Your slot is held — upload your COI within 24 hours`,
+    subject: `Your slot is held: upload your COI within 24 hours`,
     html: holdPlacedEmailHtml(ctx, b, amountCents),
   };
 }
@@ -414,7 +414,7 @@ export async function sendHoldReleasedEmail(ctxOrId, { bumped = false } = {}) {
   if (!ctx || !ctx.contact_email) return { ok: false, reason: 'no_recipient' };
   const r = await sendMailQuietly({
     from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
-    subject: bumped ? 'Your held demo slot was released — you were not charged' : 'Your 24-hour hold expired — you were not charged',
+    subject: bumped ? 'Your held demo slot was released, and you were not charged' : 'Your 24-hour hold expired, and you were not charged',
     html: holdReleasedEmailHtml(ctx, b, { bumped }),
   }, { binding: b });
   if (!r.ok) return { ok: false, reason: r.code || 'send_failed' };

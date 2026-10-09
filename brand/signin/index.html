@@ -198,7 +198,7 @@ async function _brandVerifyCode() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin', body: JSON.stringify({ default_categories: _cat }),
         });
-      } catch (_) { /* non-blocking — they can set it later in Profile */ }
+      } catch (_) { /* non-blocking, they can set it later in Profile */ }
     }
     window.location.href = '/brand/dashboard';
   } catch (e) {

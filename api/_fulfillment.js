@@ -28,7 +28,7 @@ async function sbRpc(fn, args) {
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status));
-  return j;   // RAW: claim_fulfillments returns an ARRAY — unwrapping it here silently broke the drain
+  return j;   // RAW: claim_fulfillments returns an ARRAY, unwrapping it here silently broke the drain
 }
 
 // Perform fulfilment for one claimed outbox row. Returns {done, demo_created, emails_sent, error, recorded}.

@@ -70,7 +70,7 @@ async function checkRateLimitStrict(req, bucketKey, maxPerHour) {
   } catch (e) {
     // Fail-CLOSED: on rate-limiter errors, deny the write so a Supabase blip cannot
     // become an unbounded spam window. Callers must handle 503 gracefully.
-    console.error('rate limit check failed — denying request:', e?.message || e);
+    console.error('rate limit check failed, denying request:', e?.message || e);
     return { allowed: false, current: 0, error: 'rate_limit_unavailable' };
   }
 }
@@ -105,7 +105,7 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(demo_time)}</td></tr>
 </table>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 18px;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 18px;">Need to change something? Just reply to this email and it goes straight to the store team.</p>
 ${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;margin-top:8px;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;font-weight:700;margin-bottom:6px;">Cancellation policy</div><div style="font-size:13px;line-height:1.55;color:#3a3a36;">${html(cancellationPolicy)}</div></div>` : ''}
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
@@ -147,8 +147,8 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 </td></tr>
 <tr><td style="padding:36px 40px 8px;">
 <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:12px;">Welcome to Demohub</div>
-<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 16px;">Hi ${html(greetingName)} — your Demohub brand account is set up.</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">You just booked a demo at <strong style="color:#0f2c17;">${html(retailer_name)}</strong>. That single booking created a Demohub brand account for <strong>${html(brand_name || 'your brand')}</strong> — no signup form needed.</p>
+<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 16px;">Hi ${html(greetingName)}, your Demohub brand account is set up.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">You just booked a demo at <strong style="color:#0f2c17;">${html(retailer_name)}</strong>. That single booking created a Demohub brand account for <strong>${html(brand_name || 'your brand')}</strong>, so there is no signup form to fill out.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Any time you want to see your demos, upload your Certificate of Insurance, or book at another retailer, sign in with this email address at:</p>
 <p style="margin:0 0 26px;"><a href="${html(signin_url)}" style="background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block;">Sign in to my brand portal &rarr;</a></p>
 <div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:16px 20px;border-radius:6px;margin-bottom:24px;">
@@ -159,7 +159,7 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 <li>Sign the demo conduct agreement once per retailer, not every booking</li>
 </ul>
 </div>
-<p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link — no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
+<p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link, so there is no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:22px 0 0;">Questions? Reply to this email and we\'ll actually read it.</p>
 </td></tr>
 <tr><td style="padding:20px 40px 28px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>Sent because you just booked a demo through Demohub. You can turn off these onboarding emails from your brand portal.</td></tr>
@@ -547,7 +547,7 @@ export default async function handler(req, res) {
 <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A new agreement is on file.</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong style="color:#0f2c17;">${html(brand_name || 'A brand')}</strong> just signed your demo conduct &amp; cancellation policies as part of booking. Both sides now have a record of what was agreed to.</p>
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || 'n/a')}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed by</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(signed_name)} &lt;${html(String(contact_email).toLowerCase())}&gt;</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed on</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${signedDate}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Valid through</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${expiresDate}</td></tr>
@@ -753,7 +753,7 @@ export default async function handler(req, res) {
       emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
-      if (isNewBrand && _b.resendApiKey) {   /* was RESEND_KEY — undefined here */
+      if (isNewBrand && _b.resendApiKey) {   /* was RESEND_KEY, undefined here */
         try {
           const welcomeSubj = `Your Demohub brand account is set up`;
           const welcomeHtml = brandWelcomeEmail({
