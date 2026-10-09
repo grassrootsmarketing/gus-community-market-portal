@@ -216,8 +216,8 @@ function _dhResend(linkEl, sendFn) {
   try { sendFn(); } catch(_){}
   let n = 30;
   linkEl.dataset.cooling = '1'; linkEl.style.opacity = '0.55'; linkEl.style.pointerEvents = 'none';
-  linkEl.textContent = 'Sent \u2014 resend in ' + n + 's';
-  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend code'; } else { linkEl.textContent = 'Sent \u2014 resend in ' + n + 's'; } }, 1000);
+  linkEl.textContent = 'Sent. Resend in ' + n + 's';
+  const t = setInterval(() => { n--; if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend code'; } else { linkEl.textContent = 'Sent. Resend in ' + n + 's'; } }, 1000);
 }
 const tabs = document.querySelectorAll('.tab');
 const errBox = document.getElementById('errorBox');

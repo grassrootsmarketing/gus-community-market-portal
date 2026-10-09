@@ -1912,7 +1912,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
             if (!window._brandProfile) {
                 // First-time booker: advance STRAIGHT into account creation. The sign-in modal carries
-                // over the email they typed and explains the 6-digit code \u2014 so the primary button acts,
+                // over the email they typed and explains the 6-digit code, so the primary button acts,
                 // instead of dead-ending into a small "Continue" link (pre-launch audit finding).
                 const _b = document.getElementById('bookSubmitBtn'); if (_b) { _b.disabled = false; _b.textContent = 'Create account & book'; }
                 closeContactInfoModal();

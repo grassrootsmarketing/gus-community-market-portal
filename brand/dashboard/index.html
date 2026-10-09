@@ -763,7 +763,7 @@ async function loadData() {
   if (navVerifyMark) {
     navVerifyMark.style.display = _st.verified ? 'inline-flex' : 'none';
     navVerifyMark.title = _st.verified
-      ? ('Verified brand' + (_st.expiryLabel ? ' \u2014 COI current through ' + _st.expiryLabel : ''))
+      ? ('Verified brand' + (_st.expiryLabel ? ': COI current through ' + _st.expiryLabel : ''))
       : '';
   }
   renderAvatar(navAvatar, profile.logo_url);
@@ -823,7 +823,7 @@ function markChecklistDone(key) {
   if (counter) {
     const left = coreRows.length - coreDone;
     counter.textContent = coreDone + ' of ' + coreRows.length + ' done'
-      + (left === 1 ? ' \u2014 one step from verified.' : '.');
+      + (left === 1 ? ', one step from verified.' : '.');
   }
   // Celebrate only when the brand is ACTUALLY verified, the checklist's core set is narrower
   // than getBrandStatus().verified (which also wants company/email/website), so completing the
@@ -858,7 +858,7 @@ function rescheduleBannerHtml(d) {
   const store = escapeHtml(d.retailers && d.retailers.name || 'The store');
   const toLabel = escapeHtml(_fmt(d.reschedule_to_date, d.reschedule_to_time));
   const fromLabel = escapeHtml(_fmt(d.demo_date, d.demo_time));
-  return '<div class="resched-banner" title="The store asked to move this demo to a new date. Accepting changes only the date \u2014 your booking and payment stay the same. Declining keeps the original date.">'
+  return '<div class="resched-banner" title="The store asked to move this demo to a new date. Accepting changes only the date, and your booking and payment stay the same. Declining keeps the original date.">'
     + '<div class="resched-msg"><strong>' + store + ' proposed a new date.</strong> Move from <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span> to <strong>' + toLabel + '</strong>? Your booking and payment stay the same.</div>'
     + '<div class="resched-actions">'
     // 0074: the proposal version (bookings.reschedule_proposal_version, shipped by the `data` action)
@@ -1135,7 +1135,7 @@ function renderOverview() {
   };
   const _left = _coreItems.length - _doneCount;
   const _counterLine = _left === 1
-    ? `${_doneCount} of ${_coreItems.length} done \u2014 one step from verified.`
+    ? `${_doneCount} of ${_coreItems.length} done, one step from verified.`
     : `${_doneCount} of ${_coreItems.length} done.`;
   const welcomeHtml = showWelcome ? `
     <div class="welcome" id="welcomeBanner">
@@ -1763,7 +1763,7 @@ function renderProducts() {
       </div>
       <div class="form-row">
         <label class="label">Notes for retailers <span style="font-weight:400;color:var(--ink-500);">(optional)</span></label>
-        <textarea class="textarea" id="f_default_product_info" placeholder="Anything a store should know \u2014 added to your booking notes">${escapeHtml(profile.default_product_info || '')}</textarea>
+        <textarea class="textarea" id="f_default_product_info" placeholder="Anything a store should know. It is added to your booking notes">${escapeHtml(profile.default_product_info || '')}</textarea>
       </div>
       <div class="form-row">
         <label class="label" style="display:flex; align-items:center; gap:10px; cursor:pointer; user-select:none;">
@@ -2363,15 +2363,15 @@ function renderAccount() {
     // position:relative, not sticky, sticky at z-index 9998 pinned OVER the site nav on scroll,
     // hiding the whole header for the banner's 6-second life.
     banner.style.cssText = 'position:relative;z-index:40;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
-    // held=1: this checkout placed a HOLD (card authorized, not charged) \u2014 the demo locks in once
+    // held=1: this checkout placed a HOLD (card authorized, not charged), the demo locks in once
     // the COI is uploaded + approved within 24h. Don't say "booked/confirmed" for a hold.
     if (bp.has('held')) {
       banner.style.background = 'linear-gradient(135deg,#c2601f 0%,#a14e2a 100%)';
-      banner.innerHTML = 'Your slot is held \u2014 your card has <u>not</u> been charged. Upload your COI within 24 hours to lock it in.';
+      banner.innerHTML = 'Your slot is held, and your card has <u>not</u> been charged. Upload your COI within 24 hours to lock it in.';
     } else {
       banner.textContent = n > 1
-        ? `You're booked. ${n} demos are confirmed \u2014 welcome to your dashboard.`
-        : "You're booked. Welcome to your dashboard \u2014 everything for your demo lives here.";
+        ? `You're booked. ${n} demos are confirmed. Welcome to your dashboard.`
+        : "You're booked. Welcome to your dashboard. Everything for your demo lives here.";
     }
     document.body.insertBefore(banner, document.body.firstChild);
     setTimeout(() => { banner.style.transition = 'opacity .6s ease'; banner.style.opacity = '0'; setTimeout(() => banner.remove(), 700); }, 6000);

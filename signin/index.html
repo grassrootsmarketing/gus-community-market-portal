@@ -392,11 +392,11 @@ window.resendLoginCode = function(linkEl, email, endpoint, action) {
     linkEl.dataset.cooling = '1';
     linkEl.style.opacity = '0.55';
     linkEl.style.pointerEvents = 'none';
-    linkEl.textContent = 'Code sent \u2014 resend in ' + n + 's';
+    linkEl.textContent = 'Code sent. Resend in ' + n + 's';
     const t = setInterval(() => {
         n--;
         if (n <= 0) { clearInterval(t); linkEl.dataset.cooling=''; linkEl.style.opacity=''; linkEl.style.pointerEvents=''; linkEl.textContent='Resend code'; }
-        else { linkEl.textContent = 'Code sent \u2014 resend in ' + n + 's'; }
+        else { linkEl.textContent = 'Code sent. Resend in ' + n + 's'; }
     }, 1000);
 };
 

@@ -5104,7 +5104,7 @@ END:VEVENT
                 '<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">'
                 + '<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin-bottom:8px;">Propose a new date</div>'
                 + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">Reschedule ' + escapeHtml(brandName) + '</h3>'
-                + '<p title="The brand accepts or declines from their dashboard. Nothing is charged or refunded \u2014 only the date changes." style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. Pick a new date and we\'ll ask the brand to accept it. No money moves.</p>'
+                + '<p title="The brand accepts or declines from their dashboard. Nothing is charged or refunded. Only the date changes." style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. Pick a new date and we\'ll ask the brand to accept it. No money moves.</p>'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
                 + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" onchange="reschedRenderTimes()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time</label>'
@@ -5176,7 +5176,7 @@ END:VEVENT
                 const j = await r.json().catch(function () { return {}; });
                 if (!r.ok) throw new Error(j.message || j.error || 'Could not send the proposal.');
                 const m = document.getElementById('reschedModal'); if (m) m.remove();
-                if (window.DhModal && DhModal.toast) DhModal.toast('New date proposed \u2014 the brand has been emailed.', 'success');
+                if (window.DhModal && DhModal.toast) DhModal.toast('New date proposed. The brand has been emailed.', 'success');
                 if (typeof refreshAll === 'function') refreshAll(); else location.reload();
             } catch (e) {
                 if (err) { err.textContent = (e && e.message) || 'Could not send. Try again.'; err.style.display = 'block'; }
@@ -5294,7 +5294,7 @@ END:VEVENT
                 const canResched = status === 'confirmed' && d.id;
                 const rescheduleBtn = d.reschedule_to_date
                     ? '<span title="You proposed a new date. Waiting on the brand to accept or decline." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Reschedule proposed</span>'
-                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-venue="' + escapeHtml(String(d.venue_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves \u2014 the brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
+                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-venue="' + escapeHtml(String(d.venue_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves. The brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
                 return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
