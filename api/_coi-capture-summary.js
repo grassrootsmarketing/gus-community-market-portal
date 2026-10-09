@@ -1,9 +1,9 @@
-// api/_coi-capture-summary.js — the reviewer-facing summary of what a COI approval's auto-capture
+// api/_coi-capture-summary.js, the reviewer-facing summary of what a COI approval's auto-capture
 // sweep did to each held booking (Codex P-1 / P-3, follow-up F-2, 2026-09-17).
 //
 // Pure: derives every sentence from the ACTUAL per-booking results. It never promises a
 // reconciliation case that was not recorded, and never implies one exists for an entry the sweep
-// did not process (error / not_attempted) — those have no case by construction.
+// did not process (error / not_attempted), those have no case by construction.
 //
 // holdResults: [{ booking_id, outcome, applied, case_id, case_recorded, error }]
 //   outcome 'captured' + applied true   -> charged and ledgered (clean; not mentioned)

@@ -317,7 +317,7 @@ async function loadStatus() {
     const model = renderStatusModel(j);
 
     // Active incidents (owner-posted). Public payload carries title/severity/started_at only.
-    // Every server-supplied string goes through textContent — never innerHTML.
+    // Every server-supplied string goes through textContent, never innerHTML.
     if (model.incidents.length > 0) {
       const wrap = document.createElement('div');
       wrap.style.marginBottom = '24px';

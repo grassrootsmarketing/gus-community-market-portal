@@ -129,7 +129,7 @@ function setNotice(text, kind) {
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 async function api(payload) {
-  // credentials: 'same-origin' is what authenticates the call now — the session is an HttpOnly
+  // credentials: 'same-origin' is what authenticates the call now, the session is an HttpOnly
   // cookie, so it is never in `payload` and never readable from this script.
   const r = await fetch('/api/brand-portal', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), credentials: 'same-origin' });
   const j = await r.json().catch(() => ({}));
@@ -155,7 +155,7 @@ function showDash() {
 
 function logout() {
   // Codex finding B: this used to sign the brand out by deleting the session from localStorage.
-  // There is nothing here to delete now — the session is an HttpOnly cookie, so only the server
+  // There is nothing here to delete now, the session is an HttpOnly cookie, so only the server
   // can end it, and /api/brand-portal (retired, see the 410 in the handler) has no logout action
   // to call. So this is a local view reset and the copy says exactly that rather than claiming a
   // sign-out it cannot perform.
@@ -232,7 +232,7 @@ async function init() {
     // for all of them the sign-in credential would sit in history and in outgoing Referer headers.
     history.replaceState(null, '', window.location.pathname);
     try {
-      // verify sets the HttpOnly session cookie server-side. Nothing to store here — the old
+      // verify sets the HttpOnly session cookie server-side. Nothing to store here, the old
       // localStorage write is exactly the XSS-readable copy Codex finding B is about.
       await api({ action: 'verify', token });
     } catch (e) {

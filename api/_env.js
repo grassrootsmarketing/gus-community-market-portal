@@ -1,4 +1,4 @@
-// api/_env.js — THE binding layer. Single source of truth for every external target.
+// api/_env.js, THE binding layer. Single source of truth for every external target.
 //
 // This replaces the previous _env.js, which validated that variables were non-empty and blocked one
 // hardcoded production host for code that voluntarily called assertNotProduction(). That was a
@@ -17,7 +17,7 @@
 // [R5] Target map. The ONLY place a project ref may appear in application code.
 // ---------------------------------------------------------------------------
 // Populated at R3 once the clean projects exist. Until then both are null, which means production
-// validation CANNOT pass with a placeholder — required by Codex §8.2 closing paragraph.
+// validation CANNOT pass with a placeholder, required by Codex §8.2 closing paragraph.
 export const TARGETS = {
   production: {
     projectRef: 'dkgjvsstbgnhcfboqqnd',   // R3 cutover: fresh production project (demohub-prod)
@@ -171,7 +171,7 @@ function assembleBinding(env, targets) {
 
 // ---------------------------------------------------------------------------
 // [R6][R7] Ask the database who it is. This single call also proves the URL/key pair belongs
-// together — a key from a different project cannot read this project's identity.
+// together, a key from a different project cannot read this project's identity.
 // ---------------------------------------------------------------------------
 async function verifyDatabaseIdentity(b, fetchImpl) {
   let res;

@@ -172,7 +172,7 @@ table.simple tr:last-child td { border-bottom:0; }
 .stat, .kpi-card, .card{transition:box-shadow .28s ease,transform .28s ease}
 .stat:hover, .kpi-card:hover{box-shadow:0 8px 30px rgba(15,44,23,.09)}
 @media (prefers-reduced-motion:reduce){.growth-hero,.gh-path,.gh-area,.gh-dot{animation:none!important;stroke-dashoffset:0!important;opacity:1!important}.stat:hover,.kpi-card:hover{transform:none!important}}
-/* Chart typography — use the site font everywhere (was inheriting the browser default / Inter) */
+/* Chart typography, use the site font everywhere (was inheriting the browser default / Inter) */
 .gh-chart text, .chart-svg text { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; }
 /* Growth-chart hover tooltip */
 .growth-hero .gh-chart, [data-gh-mount] { position:relative; }
@@ -288,8 +288,8 @@ async function tryVerifyToken() {
   const token = u.searchParams.get('token');
   if (!token) return false;
   // Strip the token here, before the exchange is even issued. Cleaning up after the await left
-  // an owner sign-in credential — the one that can read all platform data and impersonate any
-  // retailer — in browser history and in the Referer of anything the page loaded meanwhile.
+  // an owner sign-in credential, the one that can read all platform data and impersonate any
+  // retailer, in browser history and in the Referer of anything the page loaded meanwhile.
   history.replaceState(null, '', window.location.pathname);
   try {
     const r = await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-verify', token }), credentials: 'same-origin' });
@@ -303,7 +303,7 @@ async function tryVerifyToken() {
 
 window.ownerSignOut = async function() {
   // Only the server can end the session now, because only the server can clear the HttpOnly
-  // cookie — owner-logout deletes the row and clears every role cookie.
+  // cookie, owner-logout deletes the row and clears every role cookie.
   try { await fetch('/api/admin-auth', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ action: 'owner-logout' }), credentials: 'same-origin' }); } catch (_) {}
   window.location.href = '/owner';
 };
@@ -328,10 +328,10 @@ async function loadData() {
 
 // ----- Tiny SVG bar chart helper -----
 // Cumulative growth chart: retailers + brands accumulating month over month.
-// The whole point is the up-and-to-the-right — the network getting bigger.
+// The whole point is the up-and-to-the-right, the network getting bigger.
 // widthPx: render the viewBox at the container's real pixel width. The svg stretches to
 // width:100% with preserveAspectRatio="none", which distorts <text> glyphs whenever the
-// viewBox aspect differs from the rendered aspect — axis months and end-value numbers came
+// viewBox aspect differs from the rendered aspect, axis months and end-value numbers came
 // out visibly stretched on wide screens. Matching W to the actual width removes the skew.
 function renderGrowthChart(retailerSeries, brandSeries, widthPx) {
   const W = Math.max(360, Math.round(widthPx || 700)), H = 210, padL = 8, padR = 54, padT = 14, padB = 22;
@@ -402,7 +402,7 @@ window.addEventListener('resize', function () {
 // Wire hover on the growth chart: tooltip + vertical guide + markers at the hovered month.
 function wireGhHover() {
   // Every mounted growth chart gets hover (the Analytics one previously had cursor:pointer hit
-  // rects that did nothing — only the hero was wired). The remount replaces the mount's innerHTML,
+  // rects that did nothing, only the hero was wired). The remount replaces the mount's innerHTML,
   // so per-hit listeners die with the old nodes; only the persistent mount div needs the
   // once-guard on its mouseleave to avoid accumulating across resizes.
   document.querySelectorAll('[data-gh-mount]').forEach(wireOneGhChart);
@@ -445,7 +445,7 @@ function wireOneGhChart(chart) {
 
 // Count the headline numbers up from zero. Preserves $ prefix and , grouping.
 function ownerCountUp() {
-  // Reduced-motion users still need the VALUES — the markup ships 0-placeholders and this
+  // Reduced-motion users still need the VALUES, the markup ships 0-placeholders and this
   // function is the only writer, so bailing out showed "0 on Demohub" to anyone with the
   // OS accessibility setting on. Skip the animation, never the number.
   const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -685,7 +685,7 @@ function renderDashboard(d) {
     <div class="tab-pane" data-pane="analytics" id="analyticsPane"></div>
     <div class="tab-pane" data-pane="billing" id="billingPane"></div>
     <div class="tab-pane" data-pane="status" id="statusPane"></div>
-    <!-- COI pane lives INSIDE .container like its siblings — it once sat at the end of body,
+    <!-- COI pane lives INSIDE .container like its siblings, it once sat at the end of body,
          outside the container, which rendered it full-bleed with no max-width or gutters. -->
     <div class="tab-pane" data-pane="coi">
       <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px;">
@@ -1306,7 +1306,7 @@ async function loadSupportTools() {
       </div>
     `;
     // Delegated: apostrophes in retailer names ("Gus's…") used to blow up inline-onclick string
-    // args — data attributes survive any name.
+    // args, data attributes survive any name.
     card.querySelectorAll('.imp-btn').forEach(btn => btn.addEventListener('click', () =>
       doImpersonate(btn.dataset.rid, btn.dataset.rname)));
   } catch (e) {
@@ -1325,7 +1325,7 @@ async function doImpersonate(retailer_id, retailer_name) {
     });
     const j = await r.json();
     if (!r.ok) { alert('Could not sign in: ' + (j.error || 'unknown error')); return; }
-    // Open the impersonated admin in a new tab — keeps the owner panel available
+    // Open the impersonated admin in a new tab, keeps the owner panel available
     window.open(j.admin_url, '_blank');
   } catch (e) {
     alert('Network error: ' + e.message);
@@ -1334,14 +1334,14 @@ async function doImpersonate(retailer_id, retailer_name) {
 
 
 // ---------------------------------------------------------------------------
-// COI Review — Codex v6-FINAL B3.
+// COI Review, Codex v6-FINAL B3.
 //
 // The three owner actions existed in api/admin-auth.js and in tests, and nothing in the
 // product called them. A review path an operator cannot reach is not a launch path, and
 // asking David to hand-craft authenticated API requests is not an operational answer.
 //
 // Deliberately minimal, and deliberately inside the existing owner panel and its existing
-// session — no second admin app, no second auth system.
+// session, no second admin app, no second auth system.
 //
 // The signed document URL is opened and discarded. It is never written to localStorage,
 // never put in the address bar, and never stored on the element, because it grants
@@ -1422,7 +1422,7 @@ function renderCoiPaymentWarnings(j) {
     const caseTxt = h.case_recorded && h.case_id ? 'reconciliation case recorded (' + _esc(h.case_id) + ')' : '<strong>reconciliation case NOT recorded, so contact support with this booking id</strong>';
     if (h.outcome === 'captured' && h.applied === false) return '<li data-booking="' + id + '" data-outcome="captured-unapplied"><strong>Booking ' + id + ':</strong> the card <strong>WAS charged</strong> but the booking ledger could not be updated yet, so do not charge again or ask the brand to rebook; ' + caseTxt + '.</li>';
     if (h.outcome === 'uncertain') return '<li data-booking="' + id + '" data-outcome="uncertain"><strong>Booking ' + id + ':</strong> payment outcome <strong>UNKNOWN</strong>: the brand may have been charged; do not charge again, cancel or ask them to rebook; ' + caseTxt + '.</li>';
-    // Codex F-2: an unprocessed entry has NO reconciliation case by construction — say so, per item.
+    // Codex F-2: an unprocessed entry has NO reconciliation case by construction, say so, per item.
     return '<li data-booking="' + id + '" data-outcome="' + _esc(h.outcome) + '"><strong>Booking ' + id + ':</strong> this approval could not process its hold (' + _esc(h.error || h.outcome) + '). It says nothing about whether the payment was ever captured; <strong>no reconciliation case exists for it</strong>; check the booking in the retailer admin.</li>';
   };
   const block = '<div data-review="' + _esc(j.verification_id || '') + '"><div style="font-weight:700; margin-bottom:6px;">Payment attention needed after this COI decision</div>'
@@ -1464,7 +1464,7 @@ async function decideCoi(id, decision) {
   const notes = notesEl ? notesEl.value.slice(0, 2000) : null;
   // The reviewer is the ONLY trusted writer of the coverage expiry (LG-11 removed brand
   // self-service; the AI parser is optional). Approval without a date would leave the brand
-  // "approved but never covered" — the exact trap found in the first provisional-holds smoke.
+  // "approved but never covered", the exact trap found in the first provisional-holds smoke.
   const expEl = document.getElementById('coiExpiry-' + id);
   const expiry = expEl ? expEl.value : '';
   if (decision === 'approved' && !expiry) {
@@ -1503,12 +1503,12 @@ async function decideCoi(id, decision) {
     // Codex P-3: a successful COI decision is NOT proof that every payment it triggered completed.
     // Any hold that was charged-but-not-ledgered, has an unknown payment outcome, or could not be
     // processed is shown here, per booking, with whether its reconciliation case was actually
-    // recorded — and it stays on screen when the queue reloads.
+    // recorded, and it stays on screen when the queue reloads.
     const attention = renderCoiPaymentWarnings(j);
     const decisionText = (decision === 'approved' ? 'Approved' : 'Rejected') + (attention ? ': payment attention needed (see above)' : '');
     if (msg) { msg.style.color = attention ? '#c25a1c' : '#0f2c17'; msg.textContent = decisionText; }
     // The queue reload below re-renders the rows (a decided item leaves the queue), which would take the
-    // row's own message with it — so the last decision is also written OUTSIDE the queue body.
+    // row's own message with it, so the last decision is also written OUTSIDE the queue body.
     const last = document.getElementById('coiLastDecision');
     if (last) { last.style.color = attention ? '#c25a1c' : '#0f2c17'; last.textContent = 'Last decision: ' + decisionText; }
     loadCoiQueue();

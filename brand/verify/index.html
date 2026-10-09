@@ -29,7 +29,7 @@ a { display:inline-block; margin-top:20px; padding:10px 22px; background:#0f2c17
   const token = params.get('t');
   // Codex finding B: strip the token from the address bar the instant it is captured, before the
   // exchange below is even started. Doing it after the await would leave a single-use sign-in
-  // credential in browser history — and in the Referer of any subresource — for as long as the
+  // credential in browser history, and in the Referer of any subresource, for as long as the
   // request took. window.location.pathname keeps us on this page with no query string.
   history.replaceState(null, '', window.location.pathname);
   const box = document.getElementById('box');

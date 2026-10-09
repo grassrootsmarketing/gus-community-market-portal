@@ -160,7 +160,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
     .page-hero-wrap .hero { padding:36px 20px 60px !important; }
     .page-hero-wrap .hero h1 { font-size:clamp(2.2rem, 9vw, 3.4rem) !important; }
 }
-/* Recognized-user path hides the 2-card grid, leaving only a small "Continue" card — shrink the
+/* Recognized-user path hides the 2-card grid, leaving only a small "Continue" card, shrink the
    hero so that card sits near the top instead of below a massive empty upper space. */
 .page-hero-wrap.compact .hero { padding:34px 24px 40px !important; }
 .page-hero-wrap.compact .hero h1 { font-size:clamp(2.2rem, 4vw, 3.2rem) !important; margin-bottom:10px !important; }
@@ -358,10 +358,10 @@ wireForm({
   extraFields: [{ id: 'brandCompany', key: 'company_name' }, { id: 'brandContact', key: 'contact_name' }]
 });
 
-// Brand sign-in vs sign-up. Default is email-only SIGN-IN — a returning brand enters nothing but its
+// Brand sign-in vs sign-up. Default is email-only SIGN-IN, a returning brand enters nothing but its
 // email. The brand/company + name fields belong only to a NEW brand setting up its profile, and are
-// revealed on demand (footer toggle or the #signup hash). This keeps returning logins from seeing —
-// and being confused by — fields they've already filled.
+// revealed on demand (footer toggle or the #signup hash). This keeps returning logins from seeing,
+// and being confused by, fields they've already filled.
 function setBrandMode(mode) {
   const extra = document.getElementById('brandExtra');
   const btn = document.getElementById('brandBtn');
@@ -400,7 +400,7 @@ window.resendLoginCode = function(linkEl, email, endpoint, action) {
     }, 1000);
 };
 
-// Enter submits the code — the form's default button is disabled post-send, which suppresses
+// Enter submits the code, the form's default button is disabled post-send, which suppresses
 // implicit submission, so Enter in the code field silently did nothing.
 ['retailerCode', 'brandCode'].forEach(id => {
     const el = document.getElementById(id);
@@ -445,7 +445,7 @@ window.verifyLoginCode = async function(side) {
         }
         // Store session + redirect
         // Session_id is now carried in an HttpOnly cookie set by the server.
-        // We no longer stash it in localStorage — that was the XSS-exfiltrable path.
+        // We no longer stash it in localStorage, that was the XSS-exfiltrable path.
         if (side === 'brand') {
             window.location.href = '/brand/dashboard';
         } else {
@@ -511,7 +511,7 @@ window.verifyRecognizedCode = async function() {
             btn.textContent = 'Verify code →';
             return;
         }
-        // HttpOnly cookie carries the session — no localStorage write.
+        // HttpOnly cookie carries the session, no localStorage write.
         if (role === 'brand') {
             window.location.href = '/brand/dashboard';
         } else {

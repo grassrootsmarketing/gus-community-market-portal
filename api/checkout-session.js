@@ -1,4 +1,4 @@
-// api/checkout-session.js — RETIRED (LG-08). The unbound multi-booking checkout is replaced by
+// api/checkout-session.js, RETIRED (LG-08). The unbound multi-booking checkout is replaced by
 // /api/checkout (session-bound, per-booking ownership guard, Stripe idempotency). This path is closed
 // so it cannot be called directly to spawn parallel/unauthorized charges.
 export default async function handler(req, res) {

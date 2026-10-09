@@ -1,4 +1,4 @@
-// /api/admin-auth — Retailer admin authentication.
+// /api/admin-auth, Retailer admin authentication.
 //   POST { action: "login",  email, retailer_slug }      → emails magic link if email matches billing_email
 //   POST { action: "verify", token }                      → sets dh_retailer_session cookie
 //   POST { action: "data",   retailer_slug }              → returns { ok, email, retailer_id }
@@ -26,13 +26,13 @@ import { signedCoiUrl } from './_coi-storage.js';
 import { listAction as ownerNotificationsList, summaryAction as ownerNotificationsSummary, bookingAction as ownerBookingNotifications } from './_owner-notifications.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
-// binding is resolved lazily by bind() — the exported guards work even when this file's own handler
+// binding is resolved lazily by bind(), the exported guards work even when this file's own handler
 // was not the entry point. _b is what the in-handler storage calls read.
 let _b = null;
 async function bind() { _b = await getBinding(); return _b; }
 
 // R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin
-// — never from client-controllable forwarded-host headers. The origin comes from the validated
+//, never from client-controllable forwarded-host headers. The origin comes from the validated
 // binding (siteLink), so it can never default to production from a preview deployment.
 
 // R2-05: viewer-role staff accounts are read-only. Uses the shared sb() helper (throws on error,
@@ -49,7 +49,7 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// UUID format guard — protects against Postgres "invalid input syntax for type uuid" errors
+// UUID format guard, protects against Postgres "invalid input syntax for type uuid" errors
 // when callers pass garbage values like "fake" in session_id or other UUID params.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
@@ -87,21 +87,21 @@ async function sbAll(path, { max = 20000, page = 1000 } = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Session transport — api/_cookies.js is the single implementation.
+// Session transport, api/_cookies.js is the single implementation.
 //
 // Codex finding B. This file previously carried its own copy of the cookie helpers, and so did
-// api/admin.js, api/booking-action.js and api/brand-account.js — four hand-rolled copies of the
+// api/admin.js, api/booking-action.js and api/brand-account.js, four hand-rolled copies of the
 // same attribute string. api/booking.js and api/refund-booking.js parsed the cookie with an
 // inline regex instead. Four copies plus two regexes is six places for one of them to drift.
 //
 // TWO ROLES ARE NOW DISTINCT COOKIES:
-//   dh_retailer_session — retailer staff, and the session an owner assumes when impersonating
-//   dh_owner_session    — the platform owner
+//   dh_retailer_session, retailer staff, and the session an owner assumes when impersonating
+//   dh_owner_session   , the platform owner
 // Before this change the owner panel carried its session in the QUERY STRING (see owner-data,
 // owner-logout, owner-list-retailers, owner-impersonate below), so the credential for the account
 // that can read all platform data and impersonate any retailer was landing in browser history,
-// Referer headers and Vercel's access logs. Impersonation then wrote dh_session — the retailer
-// cookie — which is why the two had to be separated before impersonation could be made safe.
+// Referer headers and Vercel's access logs. Impersonation then wrote dh_session, the retailer
+// cookie, which is why the two had to be separated before impersonation could be made safe.
 // -----------------------------------------------------------------------------
 
 const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h, matches the DB expiry set in owner-verify
@@ -109,7 +109,7 @@ const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 // Codex F-06 / FC-02. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to
 // your account." The consent rule (allow_support_access exactly true AND support_access_expires_at
 // strictly in the future) and the session window (min(4h cap, remaining consent)) used to be
-// computed HERE, in JS, between three separate PostgREST requests — so the consent read was stale
+// computed HERE, in JS, between three separate PostgREST requests, so the consent read was stale
 // by the time the session was inserted, and the audit row depended on a compensating delete.
 // Both now live in the database function support_session_create() (migration 0072), which checks
 // consent under a row lock and mints the session and its audit row in ONE transaction. This file
@@ -127,7 +127,7 @@ function setSessionCookie(res, sessionId, maxAgeSeconds = RETAILER_SESSION_MAX_A
 
 function clearSessionCookie(res) { clearRoleCookie(res, 'retailer'); }
 
-// Retailer/staff session. Cookie only — no body, no query string.
+// Retailer/staff session. Cookie only, no body, no query string.
 function getSessionIdFromReq(req, _body) {
   return getSessionToken(req, 'retailer');
 }
@@ -157,14 +157,14 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
 }
 
 // Strict retailer-staff check for MUTATIONS (P0-1): valid session + LIVE membership + allowed role.
-// retailer_admins has no disabled flag — a removed staffer's row is deleted, so absence == removed.
+// retailer_admins has no disabled flag, a removed staffer's row is deleted, so absence == removed.
 export async function verifyRetailerStaff(session_id, retailerId, allowedRoles = ['owner', 'admin', 'manager']) {
   const s = await verifyAdminSession(session_id, retailerId);
   if (!s.ok) return { ok: false, status: 401, error: s.error };
-  // P0-1B: EXACT normalized-email identity (never ILIKE — `_`/`%` are SQL wildcards and legal in
+  // P0-1B: EXACT normalized-email identity (never ILIKE, `_`/`%` are SQL wildcards and legal in
   // email local parts). email_normalized is UNIQUE per (retailer_id, email_normalized) via 0025.
   // Venue-scope model (P0-1C, Model 2): owner/admin/manager are RETAILER-WIDE mutating roles;
-  // only viewer may be venue-scoped and viewer cannot mutate — so no per-venue check is needed on
+  // only viewer may be venue-scoped and viewer cannot mutate, so no per-venue check is needed on
   // this mutation path. The P0-8 authz cutover enforces "no scoped mutating membership" at write time.
   const en = String(s.email || '').trim().toLowerCase();
   let rows;
@@ -201,7 +201,7 @@ export async function requireRetailerMembership(session_id, expectedRetailerId =
 }
 
 function generateLoginCode() {
-  // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
+  // 6-digit numeric code, zero-padded, cryptographically random, not Math.random.
   const n = randomInt(0, 1000000);
   return String(n).padStart(6, '0');
 }
@@ -280,7 +280,7 @@ async function checkRateLimitByKey(fullKey, maxPerHour) {
 async function checkRateLimit(req, bucketKey, maxPerHour) {
   try {
     // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
-    // the one Vercel appends. Never trust cf-connecting-ip here — we are not behind Cloudflare,
+    // the one Vercel appends. Never trust cf-connecting-ip here, we are not behind Cloudflare,
     // so it is purely attacker-supplied and was a complete rate-limit bypass.
     const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
     const ip = req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
@@ -313,7 +313,7 @@ export default async function handler(req, res) {
   try { await bind(); } catch (e) { return sendBindingFailure(res, e); }
 
   // Codex finding B: every action on this route is a POST that either creates a session or acts
-  // under one, so the same-origin check belongs here — once, before any action dispatch, before
+  // under one, so the same-origin check belongs here, once, before any action dispatch, before
   // the body is read. api/_session.js exported a checkOrigin() helper that no route ever called;
   // this is that control actually wired in. No exemption: this route has no webhook and no cron.
   if (!requireSameOrigin(req, res, _b)) return;
@@ -366,7 +366,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ---- EMAIL-LOGIN: send magic link(s) by email only — auto-routes to right retailer(s) ----
+    // ---- EMAIL-LOGIN: send magic link(s) by email only, auto-routes to right retailer(s) ----
     if (action === 'email-login') {
       const rl = await checkRateLimit(req, 'admin-email-login', 30);
       if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
@@ -493,7 +493,7 @@ export default async function handler(req, res) {
       const v = await requireRetailerMembership(session_id, retailer.id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       // The opportunistic "authenticated via body, so upgrade them to a cookie" branch is gone
-      // with the body path itself — a cookie is now the only way to have got here.
+      // with the body path itself, a cookie is now the only way to have got here.
       return res.status(200).json({ ok: true, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
     }
 
@@ -513,7 +513,7 @@ export default async function handler(req, res) {
     // This action existed to accept a session_id from a request body and hand back an HttpOnly
     // cookie, so pages holding a session in localStorage could migrate. Codex finding B: remove
     // the legacy compatibility paths, there is no real user data to preserve. Keeping it would
-    // have preserved exactly the primitive the rest of this change removes — an endpoint that
+    // have preserved exactly the primitive the rest of this change removes, an endpoint that
     // accepts a session secret from a request body. The localStorage writes that fed it are
     // deleted from r/gus/admin/index.html and brand/verify/index.html in the same commit.
 
@@ -560,7 +560,7 @@ export default async function handler(req, res) {
       // Phase E: Solo tier is single-admin. Team invites require Pro.
       try {
         // settings has no billing_tier column and never has, so the "settings first, then
-        // retailers" precedence this used to implement could not have worked — the first query
+        // retailers" precedence this used to implement could not have worked, the first query
         // 400s on an unknown column and the catch swallows it, meaning EVERY retailer read as
         // 'solo' and every team invite was refused with plan_upgrade_required.
         // Migration 0054 removed the identical fiction from enforce_venue_limit(). retailers is
@@ -707,7 +707,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ---- TEAM-UPDATE-SCOPE: Phase D — set which venues a viewer can see ----
+    // ---- TEAM-UPDATE-SCOPE: Phase D, set which venues a viewer can see ----
     if (action === 'team-update-scope') {
       const { admin_id, venue_ids } = body || {};
       const session_id = getSessionIdFromReq(req, body);
@@ -819,7 +819,7 @@ export default async function handler(req, res) {
     }
 
     // ============================================================
-    // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
+    // OWNER PANEL, restricted to allowlist (david@demohubhq.com)
     // ============================================================
     // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
     if (action === 'owner-verification-queue') {
@@ -836,7 +836,7 @@ export default async function handler(req, res) {
     }
 
     // ========================================================================
-    // OWNER COI REVIEW — Codex v6 launch blocker.
+    // OWNER COI REVIEW, Codex v6 launch blocker.
     //
     // Before these three actions existed, an uploaded certificate could not be approved by
     // anyone: AI verification is off for the closed launch, so a real upload lands
@@ -909,7 +909,7 @@ export default async function handler(req, res) {
 
         // Codex v6-FINAL B1/B2: view the bytes belonging to THIS verification, and refuse
         // anything that is not the brand's current reviewable document. Previously this
-        // signed whatever path the record held, which — while uploads shared one path —
+        // signed whatever path the record held, which, while uploads shared one path,
         // meant viewing an old record displayed the newest bytes.
         if (rec.removed_at) return res.status(410).json({ error: 'removed', message: 'That certificate was removed by the brand.' });
         if (rec.superseded_at) return res.status(409).json({ error: 'superseded', message: 'A newer certificate has been uploaded. Review that one instead.' });
@@ -945,7 +945,7 @@ export default async function handler(req, res) {
       // event the brand is emailed from. It is therefore validated as brand-facing plain text:
       //   * optional on approve, REQUIRED on reject (a brand told "no" must be told why);
       //   * trimmed, at most 1000 characters;
-      //   * nothing is stripped or rewritten — control characters other than newlines are REFUSED,
+      //   * nothing is stripped or rewritten, control characters other than newlines are REFUSED,
       //     so what the owner typed is exactly what the brand reads (CRLF is normalised to LF).
       let brandNote = null;
       if (brand_note != null) {
@@ -989,7 +989,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ p_verification_id: verification_id, p_decision: decision,
                                  p_reviewer: owner.email, p_notes: trimmed,
                                  // P0-4: the reviewer-confirmed expiry commits inside the review
-                                 // transaction (0067). No separate best-effort PATCH — the decision
+                                 // transaction (0067). No separate best-effort PATCH, the decision
                                  // and the coverage date it is about can no longer disagree.
                                  p_expiry: expiryDate,
                                  // Release A §6: the note to the brand commits in the same
@@ -1025,9 +1025,9 @@ export default async function handler(req, res) {
         }
         let row = null; try { const j = JSON.parse(txt); row = Array.isArray(j) ? j[0] : j; } catch (_) {}
         // Provisional holds: an APPROVED COI resolves this brand's held bookings on AUTO-CONFIRM
-        // retailers — capture each hold now (charge -> confirmed + demo + emails via the shared
+        // retailers, capture each hold now (charge -> confirmed + demo + emails via the shared
         // pipeline). Manual-confirm retailers keep the hold until they confirm in their inbox
-        // (confirm is what captures there). Best-effort: a capture hiccup never fails the review —
+        // (confirm is what captures there). Best-effort: a capture hiccup never fails the review,
         // the booking simply stays held and the retailer/sweep path picks it up.
         let capturedHolds = 0, capturedUnappliedHolds = 0, uncertainHolds = 0, uncapturedHolds = 0, captureErrors = 0; const captureCases = []; const holdResults = [];
         if (decision === 'approved') {
@@ -1035,7 +1035,7 @@ export default async function handler(req, res) {
             const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
             const brandId = Array.isArray(vRows) && vRows[0] ? vRows[0].brand_id : null;
             // P0-4: brands.default_coi_expires is now written INSIDE review_coi_verification (0067),
-            // in the same transaction as the decision — the separate best-effort PATCH that used to
+            // in the same transaction as the decision, the separate best-effort PATCH that used to
             // live here is gone. The per-date coverage read below therefore sees the reviewer's date.
             if (brandId) {
               const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id,demo_date`) || [];
@@ -1043,7 +1043,7 @@ export default async function handler(req, res) {
                 const retailerIds = [...new Set(held.map(b => b.retailer_id))];
                 const rRows = await sb(`retailers?id=in.(${retailerIds.map(encodeURIComponent).join(',')})&select=id,auto_confirm_bookings`) || [];
                 const autoById = new Map(rRows.map(r => [r.id, !!r.auto_confirm_bookings]));
-                // Re-read the brand's COI fields for the per-date coverage check — approving THIS
+                // Re-read the brand's COI fields for the per-date coverage check, approving THIS
                 // certificate doesn't mean it covers every held demo's date (a cert can expire
                 // before a far-future booking). Capture only demos the approved COI actually covers,
                 // matching the manual-confirm path's coiCovered gate. Uncovered holds wait for a
@@ -1092,7 +1092,7 @@ export default async function handler(req, res) {
           capture_cases: captureCases.length ? captureCases : undefined,
           holds: holdResults.length ? holdResults : undefined,
           // Codex F-2: every sentence is derived from the actual per-booking results (a case is never
-          // promised for an entry that has none) — see api/_coi-capture-summary.js and its unit test.
+          // promised for an entry that has none), see api/_coi-capture-summary.js and its unit test.
           message: (await import('./_coi-capture-summary.js')).coiCaptureSummary(holdResults).message });
       } catch (e) {
         return res.status(500).json({ error: 'review_failed' });
@@ -1233,7 +1233,7 @@ async function ensureOwnerRetailerId() {
 }
 
 function randomToken(n = 32) {
-  // Use Node's crypto — throw if unavailable rather than fall back to Math.random,
+  // Use Node's crypto, throw if unavailable rather than fall back to Math.random,
   // which is a predictable PRNG unsuitable for auth tokens.
   const buf = randomBytes(n);
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1309,7 +1309,7 @@ async function computeOwnerMetrics() {
   const demosDeltaPct = demosLastMonth === 0 ? (demosThisMonth > 0 ? 100 : 0) : Math.round(((demosThisMonth - demosLastMonth) / demosLastMonth) * 100);
 
   // Real tiers are solo/pro/enterprise (solo = free). Only ACTIVE paid subscriptions count toward
-  // MRR — a comped Pro retailer (pro tier, no active subscription) is not recurring revenue.
+  // MRR, a comped Pro retailer (pro tier, no active subscription) is not recurring revenue.
   const tierCounts = { solo: 0, pro: 0, enterprise: 0 };
   let mrrSubs = 0, paidRetailers = 0;
   retailers.forEach(r => {
@@ -1412,7 +1412,7 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-login') {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
-    // DH-14: rate-limit before doing any work or sending mail — otherwise a caller can drain the
+    // DH-14: rate-limit before doing any work or sending mail, otherwise a caller can drain the
     // Resend quota and flood the owner inbox. Uniform 200 either way to avoid leaking the cap.
     const rlOwnerIp = await checkRateLimit(req, 'owner-login-ip', 10);
     const rlOwnerEmail = await checkRateLimitByKey('owner-login-email:' + email.slice(0, 64), 10);
@@ -1447,7 +1447,7 @@ async function handleOwnerAction(action, req, res, body) {
         }
       }
     }
-    // Always return the same opaque response — never a token, link, or diagnostics.
+    // Always return the same opaque response, never a token, link, or diagnostics.
     // (A previous debug branch returned a valid owner login link to any caller.)
     return res.status(200).json({ ok: true });
   }
@@ -1477,7 +1477,7 @@ async function handleOwnerAction(action, req, res, body) {
   }
 
   // Parallel to owner-verify but keyed on the 6-digit code (consistent with the retailer admin
-  // login). Same 2x OWNER_EMAILS allowlist check, same 12h owner session + owner cookie — so the
+  // login). Same 2x OWNER_EMAILS allowlist check, same 12h owner session + owner cookie, so the
   // owner can type the code instead of clicking the magic link, which works in any window/device.
   if (action === 'owner-verify-code') {
     const email = String(body.email || '').trim().toLowerCase();
@@ -1525,7 +1525,7 @@ async function handleOwnerAction(action, req, res, body) {
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
   // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
-  // field lists only — never session, token, password-hash or feed-key columns. Lists are capped and say so.
+  // field lists only, never session, token, password-hash or feed-key columns. Lists are capped and say so.
   // ---- OWNER CALENDAR (2026-09-29, revised per Codex OV-2/OV-3/OV-4): every retailer's demo bookings for one date
   // range, read-only. Input is validated BEFORE any database access: real calendar dates, an inclusive span of at most
   // 62 days (both ends counted), a canonical UUID. Any failed read is a 503, never an empty calendar. Every list is paged
@@ -1725,7 +1725,7 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-end-impersonation') {
     // The session being ended is the IMPERSONATED retailer session, from the retailer cookie.
     // The owner cookie is deliberately left alone so the owner lands back on the owner panel
-    // still signed in — previously there was no owner cookie to preserve.
+    // still signed in, previously there was no owner cookie to preserve.
     const sid = getSessionIdFromReq(req, body);
     let summaryRow = null;
     let retailerInfo = null;
@@ -1805,7 +1805,7 @@ async function handleOwnerAction(action, req, res, body) {
 
   // ---- SUPPORT-ACCESS-TOGGLE: retailer flips their own allow_support_access flag ----
   // ON sets a 24-hour auto-expire. OFF clears expires_at, blocks future impersonation AND ends every
-  // active support session (audit row stamped ended_at, admin_sessions row deleted) — all inside
+  // active support session (audit row stamped ended_at, admin_sessions row deleted), all inside
   // support_access_set() (0072), under the same retailer row lock support_session_create() takes, so
   // an impersonation racing the OFF is either revoked by it or refused after it.
   if (action === 'support-access-toggle') {

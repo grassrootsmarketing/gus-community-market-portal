@@ -196,7 +196,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .catpicker .pill button:hover { color:white; }
 .catpicker .search { flex:1; min-width:110px; border:none; outline:none; font-family:inherit; font-size:0.88rem; padding:5px 4px; background:transparent; color:var(--ink-900); }
 .catpicker .dropdown { position:absolute; top:calc(100% + 5px); left:0; right:0; background:white; border:1.5px solid rgba(15,44,23,0.12); border-radius:8px; max-height:220px; overflow-y:auto; z-index:20; box-shadow:0 8px 24px rgba(15,44,23,0.08); display:none; }
-/* Rounded scrolling containers: square scrollbar tracks cut the corner radius — thin rounded
+/* Rounded scrolling containers: square scrollbar tracks cut the corner radius, thin rounded
    thumb on a transparent track keeps corners symmetrical. */
 .catpicker .dropdown, .nav-mobile-drawer { scrollbar-width:thin; scrollbar-color:rgba(15,44,23,0.3) transparent; }
 .catpicker .dropdown::-webkit-scrollbar, .nav-mobile-drawer::-webkit-scrollbar { width:10px; }
@@ -393,7 +393,7 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .btn:not(:disabled):hover{ transform:translateY(-1px); filter:brightness(1.03); }
 .btn:not(:disabled):active{ transform:translateY(0) scale(.97); }
 
-/* cards: gentle hover elevation (shadow only — no layout shift) */
+/* cards: gentle hover elevation (shadow only, no layout shift) */
 .card{ transition:box-shadow .28s ease; }
 .card:hover{ box-shadow:0 8px 30px rgba(15,44,23,.08); }
 
@@ -595,7 +595,7 @@ const navName = document.getElementById('navName');
 
 // Auth is cookie-based (HttpOnly dh_brand_session set at signup/booking). There is no local
 // signed-in flag to consult: loadData() asks the server and only redirects to sign-in when that
-// check actually returns 401. This is also the post-payment "straight to dashboard" behaviour —
+// check actually returns 401. This is also the post-payment "straight to dashboard" behaviour,
 // a brand who just signed up during booking holds the cookie and nothing else.
 
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -680,7 +680,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
 const CATEGORY_OPTIONS = ['Beverages','Coffee & tea','Wine, beer & spirits','Snacks & chips','Chocolate & candy','Bakery & bread','Cereal & breakfast','Pantry & dry goods','Sauces, oils & condiments','Spices & seasonings','Dairy & cheese','Plant-based & vegan','Frozen','Produce','Meat & seafood','Prepared foods & deli','Health, supplements & wellness','Protein, bars & energy','Personal care & beauty','Pet supplies','Home & household','Baby & kids','CBD & hemp','Other'];
 
 // Parse a stored category string. New data is '; '-joined; legacy data was ', '-joined even
-// though four options CONTAIN commas — so comma fragments are greedily re-merged against the
+// though four options CONTAIN commas, so comma fragments are greedily re-merged against the
 // known option list ("Wine" + "beer & spirits" -> "Wine, beer & spirits"). Unknown leftovers
 // are kept as-is (free-text tolerance).
 function parseCategoryList(raw) {
@@ -712,7 +712,7 @@ async function loadData() {
   try {
     const r = await fetch('/api/brand-account?action=data', { credentials: 'same-origin' });
     if (r.status === 401) {
-        // Ask the server to clear the cookie (best-effort) — it is the only party that can.
+        // Ask the server to clear the cookie (best-effort), it is the only party that can.
         try { fetch('/api/brand-account?action=logout', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}', credentials: 'same-origin' }); } catch(_){}
         window.location.href = '/brand/signin'; return;
     }
@@ -780,7 +780,7 @@ function switchTab(name, opts) {
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   render();
   // History: user-initiated tab switches PUSH (so Back walks tabs instead of leaving the
-  // dashboard — same fix the retailer admin got); hashchange/popstate-driven renders replace.
+  // dashboard, same fix the retailer admin got); hashchange/popstate-driven renders replace.
   if (window.location.hash !== '#' + name) {
     if (opts && opts.fromHash) history.replaceState(null, '', '#' + name);
     else history.pushState(null, '', '#' + name);
@@ -804,7 +804,7 @@ function render() {
 }
 
 // ===== Overview =====
-// Wave 8: persistent COI nudge — shown on every tab when COI is missing or expired.
+// Wave 8: persistent COI nudge, shown on every tab when COI is missing or expired.
 // Brands legally can't book demos without a current COI; the more visible the nudge, the better.
 // Tick a single setup-checklist row in place. The checklist is built inside the main
 // dashboard render, so there is no cheap way to re-render just it; this updates the DOM
@@ -825,7 +825,7 @@ function markChecklistDone(key) {
     counter.textContent = coreDone + ' of ' + coreRows.length + ' done'
       + (left === 1 ? ' \u2014 one step from verified.' : '.');
   }
-  // Celebrate only when the brand is ACTUALLY verified — the checklist's core set is narrower
+  // Celebrate only when the brand is ACTUALLY verified, the checklist's core set is narrower
   // than getBrandStatus().verified (which also wants company/email/website), so completing the
   // list used to fire "You're verified" confetti while the page still said "Almost verified".
   if (coreRows.length && coreDone === coreRows.length
@@ -991,7 +991,7 @@ function getBrandStatus(profile) {
 // red when it has lapsed. Shown on Compliance and reused on Overview.
 // Overview "COI status" tile. Reads the SAME state as the Compliance strip (getBrandStatus().coi) so the
 // two can never disagree: a certificate that is uploaded but not yet reviewed is "Pending review", not
-// "No" (Codex pilot follow-up B, 2026-09-19). Display only — approval, capture and expiry are server-side.
+// "No" (Codex pilot follow-up B, 2026-09-19). Display only, approval, capture and expiry are server-side.
 function coiTileInfo(st) {
   const map = {
     current:  ['Current', 'Your Certificate of Insurance is on file and current. Retailers require this for every booking.'],
@@ -1070,7 +1070,7 @@ function renderOverview() {
   }
   demos.forEach(d => { if (!d.demo_date) return; const k = d.demo_date.slice(0,7); if (monthBuckets[k]) monthBuckets[k].count++; });
   const maxMonthCount = Math.max(1, ...monthKeys.map(k => monthBuckets[k].count));
-  // Demos completed/confirmed across every retailer — a more motivating headline for a brand than
+  // Demos completed/confirmed across every retailer, a more motivating headline for a brand than
   // the dollars they've spent.
   const demosDone = demos.filter(d => d.status === 'completed' || d.status === 'confirmed').length;
   const finishedCount = demos.filter(d => ['completed','cancelled','declined'].includes(d.status)).length;
@@ -1092,14 +1092,14 @@ function renderOverview() {
     return b.demoCount - a.demoCount || a.name.localeCompare(b.name);
   });
 
-  // Setup checklist — checks off as the brand completes each item (COI is required to book).
+  // Setup checklist, checks off as the brand completes each item (COI is required to book).
   const welcomeDismissedKey = 'demohub_brand_welcome_dismissed_' + (profile.id || 'none');
   const _st = getBrandStatus(profile);
   const _coiDone = _st.coiOk;
   const _profileDone = _st.profileDone;
   const _logoDone = _st.hasLogo;
   // Booking requires only name + phone (reachability). Website/company complete the verified badge
-  // but don't block booking — so the "required to book" state tracks name + phone, not full profile.
+  // but don't block booking, so the "required to book" state tracks name + phone, not full profile.
   const _contactReady = !(_st.profileMissing||[]).includes('your name') && !(_st.profileMissing||[]).includes('phone number');
   const _checkItems = [
     { key: 'coi', core: true, done: _coiDone, req: true, title: 'Upload your Certificate of Insurance', sub: "Stores require proof of insurance before you can demo. Upload it once and every retailer you book with can see it.", href: '#compliance', cta: 'Upload COI' },
@@ -1933,7 +1933,7 @@ function setupCoiWidget() {
         renderCoiWidget();
         // The top banner and setup checklist read from _data.profile but were only
         // rendered once on load, so they kept saying "no COI on file" after a successful
-        // upload. Refresh both here — and the whole tab: the Compliance card's status strip is
+        // upload. Refresh both here, and the whole tab: the Compliance card's status strip is
         // baked at render time and contradicted the widget until a full repaint.
         if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
         if (typeof render === 'function') render();
@@ -2141,7 +2141,7 @@ document.body.addEventListener('click', (e) => {
   }
 });
 
-// Team management — list members, invite, role change, remove
+// Team management, list members, invite, role change, remove
 async function renderTeam() {
   main.innerHTML = '<div class="card"><div class="sub">Loading team…</div></div>';
   let result;
@@ -2249,7 +2249,7 @@ window.removeTeamMember = async function(memberId, email) {
   }
 };
 
-// Account tab — real settings + sign out
+// Account tab, real settings + sign out
 // ===== Agreements (Wave 5: demo conduct contracts) =====
 async function renderAgreements() {
   const main = document.getElementById('mainContent');
@@ -2360,7 +2360,7 @@ function renderAccount() {
     if (!bp.has('booked')) return;
     const n = parseInt(bp.get('booked'), 10) || 0;
     const banner = document.createElement('div');
-    // position:relative, not sticky — sticky at z-index 9998 pinned OVER the site nav on scroll,
+    // position:relative, not sticky, sticky at z-index 9998 pinned OVER the site nav on scroll,
     // hiding the whole header for the banner's 6-second life.
     banner.style.cssText = 'position:relative;z-index:40;background:linear-gradient(135deg,#3a7142 0%,#2a5b32 100%);color:#fff;padding:14px 20px;text-align:center;font-weight:700;font-size:0.95rem;box-shadow:0 2px 12px rgba(15,44,23,0.25);';
     // held=1: this checkout placed a HOLD (card authorized, not charged) \u2014 the demo locks in once
@@ -2382,7 +2382,7 @@ function renderAccount() {
 // ===== Bootstrap =====
 loadData()
   .then(() => {
-    // fromHash: the initial render REPLACES history (no phantom entry), matching the admin fix —
+    // fromHash: the initial render REPLACES history (no phantom entry), matching the admin fix,
     // otherwise the first Back press on a fresh load was eaten by a pushed '#overview'.
     switchTab(window.location.hash.replace(/^#/, '') || 'overview', { fromHash: true });
     setTimeout(() => { if (window.maybeStartBrandTour) window.maybeStartBrandTour(); }, 400);

@@ -1,13 +1,13 @@
-// /api/admin — Server-side proxy for admin CRUD operations on Supabase tables.
+// /api/admin, Server-side proxy for admin CRUD operations on Supabase tables.
 // Uses the service_role key (bypasses RLS).
 // Requires a valid admin session_id; verifies the session is for the same retailer
 // that owns the row being touched.
 //
 // Query params:
-//   table=<allowed-table>       — required
-//   id=<uuid>                   — required for PATCH/DELETE
+//   table=<allowed-table>      , required
+//   id=<uuid>                  , required for PATCH/DELETE
 // Body (for POST/PATCH): JSON; must include retailer_id for POST.
-// The session arrives ONLY in the dh_retailer_session cookie — never as ?session_id=, which is
+// The session arrives ONLY in the dh_retailer_session cookie, never as ?session_id=, which is
 // what this route used to document and accept (Codex finding B).
 
 import { getBinding, sendBindingFailure } from './_env.js';
@@ -22,15 +22,15 @@ let _b = null;
 // P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
 // needs to write, and only with the operations those tables actually use from the UI. `bookings`
 // and `demos` were removed here: nothing in the frontend writes them through this proxy, yet their
-// presence let a manager/admin session PATCH workflow-sensitive fields directly —
+// presence let a manager/admin session PATCH workflow-sensitive fields directly,
 //   * booking `status` (release-bypass: flip a held booking to 'cancelled' so the provisional sweep
 //     stops selecting it while the Stripe authorization and card hold remain live), and
 //   * `coi_waived_at`/`coi_waived_by` (forge a COI waiver decision + actor a manager may not make).
 // The global SERVER_OWNED_FIELDS denylist stripped payment columns but NOT these, so the fix is to
 // deny the tables outright. Booking reads still flow through the authenticated `action=data`
 // response below; every booking mutation (confirm/decline/cancel/refund/release/reschedule) and
-// every COI-waiver change must go through their dedicated routes (booking-action.js — the canonical
-// confirm/decline/cancel/refund path — refund-review.js, and coi-status.js), which carry the
+// every COI-waiver change must go through their dedicated routes (booking-action.js, the canonical
+// confirm/decline/cancel/refund path, refund-review.js, and coi-status.js), which carry the
 // correct role and state gates.
 const ALLOWED_TABLES = new Set([
   'brand_contacts',
@@ -69,12 +69,12 @@ const RETAILER_PATCH_WHITELIST = new Set([
   'monthly_summary_enabled',
   'branding',
   // Release A: the store's IANA zone drives reminder times and calendar feeds. Validated below
-  // (isValidZone) — an invalid value is refused, never silently defaulted.
+  // (isValidZone), an invalid value is refused, never silently defaulted.
   'timezone',
 ]);
 
 // DH-05: fields the DB/Stripe own. The generic proxy must never let a tenant client write
-// these — they are set only by verified Stripe webhooks and server jobs. Stripped from every
+// these, they are set only by verified Stripe webhooks and server jobs. Stripped from every
 // POST/PATCH body below regardless of table.
 const SERVER_OWNED_FIELDS = new Set([
   'payment_status','payment_intent_id','stripe_session_id','checkout_session_id',
@@ -90,12 +90,12 @@ const SERVER_OWNED_FIELDS = new Set([
 ]);
 
 // Codex final-launch B: explicit per-table CLIENT-WRITABLE allowlists for the contact tables. Any key
-// not listed — brand_id, retailer_id (server-pinned), id, timestamps, COI/relationship/ownership
-// fields — is server-owned and is DISCARDED from a client write, never forwarded to Supabase.
+// not listed, brand_id, retailer_id (server-pinned), id, timestamps, COI/relationship/ownership
+// fields, is server-owned and is DISCARDED from a client write, never forwarded to Supabase.
 const CLIENT_WRITABLE_FIELDS = {
   brand_contacts:    new Set(['name', 'company', 'venue', 'address', 'email', 'phone', 'notes']),
   internal_contacts: new Set(['name', 'role', 'venue', 'email', 'phone', 'notes', 'venue_ids', 'notification_prefs']),
-  // Codex F-02: compliance_records had NO allowlist, so a tenant could write any column — including
+  // Codex F-02: compliance_records had NO allowlist, so a tenant could write any column, including
   // the coi_warn_* cron cursors and timestamps. brand_contact_id IS client-writable (linking a
   // document to a contact is the feature) but is additionally verified below to belong to the
   // session's retailer; the same-tenant composite FK from migration 0071 backs that check in the DB.
@@ -115,12 +115,12 @@ async function sb(path, opts = {}) {
   return json;
 }
 
-// UUID format guard — prevents Postgres "invalid input syntax for type uuid" errors
+// UUID format guard, prevents Postgres "invalid input syntax for type uuid" errors
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
 // -----------------------------------------------------------------------------
-// Session transport — api/_cookies.js is the single implementation (Codex finding B). This file's
+// Session transport, api/_cookies.js is the single implementation (Codex finding B). This file's
 // own copy of the attribute string and the retired dh_session name are gone; the local setter went
 // with the "authenticated via body, so upgrade them to a cookie" branch it existed to serve.
 // parseCookies survives as a thin alias because the impersonation MARKER cookie (dh_support) is
@@ -129,7 +129,7 @@ function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 const parseCookies = readCookies;
 
 // Level 3: increment support_sessions.writes_count if this request runs under an
-// impersonation session (detected by dh_support marker cookie). Fire-and-forget —
+// impersonation session (detected by dh_support marker cookie). Fire-and-forget,
 // wrapped so it can never throw into the caller's path.
 async function bumpSupportWriteCounter(req, session_id) {
   try {
@@ -149,8 +149,8 @@ async function bumpSupportWriteCounter(req, session_id) {
   } catch (_) { /* never throws into the write path */ }
 }
 
-// Cookie only. The body/query fallbacks this used to try — including a JSON.parse of the request
-// body purely to fish out session_id — meant every generic-proxy call could carry the credential
+// Cookie only. The body/query fallbacks this used to try, including a JSON.parse of the request
+// body purely to fish out session_id, meant every generic-proxy call could carry the credential
 // in its URL, and this route can write any allowed table.
 function getSessionIdFromReq(req) {
   return getSessionToken(req, 'retailer');
@@ -197,7 +197,7 @@ async function callerMembership(retailerId, email) {
 
 
 // ---------------------------------------------------------------------------
-// Venue plan limit — MIRRORS supabase/migrations/0021_ws1-venue-limit-trigger-migration.sql
+// Venue plan limit, MIRRORS supabase/migrations/0021_ws1-venue-limit-trigger-migration.sql
 // ---------------------------------------------------------------------------
 // The database trigger enforce_venue_limit() is AUTHORITATIVE. These two helpers exist only so a
 // user hits a friendly 402 instead of a raw constraint error. Any change to the tier→limit table
@@ -209,7 +209,7 @@ const TIER_LIMITS = { pro: 999, enterprise: 1000 };        // everything else =>
 // 999 = practical-unlimited, matching the advertised Pro contract ("Unlimited stores") and
 // the existing convention in admin-auth.js ADMIN_CAP and signup.js's venueCount clamp.
 // MUST equal the value in migration 0052's enforce_venue_limit(). Changing one alone
-// reintroduces a silent cliff — 0021 had pro=10 while pricing promised unlimited.
+// reintroduces a silent cliff, 0021 had pro=10 while pricing promised unlimited.
 const INACTIVE_BILLING = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
 
 async function getVenueLimitForRetailer(retailerId) {
@@ -244,13 +244,13 @@ export default async function handler(req, res) {
 
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
-  // Codex finding B: this is the generic service-role proxy — one POST/PATCH/DELETE here can write
+  // Codex finding B: this is the generic service-role proxy, one POST/PATCH/DELETE here can write
   // any allowed table. Checked before the session is read and before any table is touched. No
   // exemption applies: every method this route serves is cookie-authenticated.
   if (!requireSameOrigin(req, res, _b)) return;
 
   const { table, id } = req.query || {};
-  // === Session check — cookie only ===
+  // === Session check, cookie only ===
   const session_id = getSessionIdFromReq(req);
   const session = await verifySession(session_id);
   if (!session) return send(res, 401, { error: 'Invalid or missing admin session' });
@@ -323,11 +323,11 @@ export default async function handler(req, res) {
         }
       } catch (_) { /* non-fatal: badge falls back to "COI pending" */ }
 
-      // Enrich brand contacts with the brand's REAL COI status — but ONLY for brands with a
+      // Enrich brand contacts with the brand's REAL COI status, but ONLY for brands with a
       // SERVER-PROVEN relationship to THIS retailer: a brand_id that appears on one of this
       // retailer's own booking rows (brand_id is set by the server at booking time; bookings are
       // already retailer-scoped by the query above). Codex final-launch B: the previous version
-      // matched on the contact's client-supplied brand_id and fell back to a GLOBAL email lookup —
+      // matched on the contact's client-supplied brand_id and fell back to a GLOBAL email lookup,
       // a cross-retailer oracle (plant a contact carrying another brand's id or email, read its COI
       // state back). A manually-entered contact with no booking here gets NO coi fields at all, and
       // nothing in the response distinguishes "unknown brand" from "brand exists elsewhere".
@@ -350,7 +350,7 @@ export default async function handler(req, res) {
       const settingsObj = Array.isArray(settingsArr) ? (settingsArr[0] || null) : null;
 
       if (callerIsViewer) {
-        // Codex final-launch C: a VIEWER gets a role-specific MINIMAL payload built on the server —
+        // Codex final-launch C: a VIEWER gets a role-specific MINIMAL payload built on the server,
         // only its permitted venues and the calendar/booking display fields for them. NO retailer-wide
         // brand contacts, staff contacts, compliance records, settings internals, feed key, notes, or
         // contact PII. (A viewer with an empty venue scope is store-wide read-only for the calendar,
@@ -478,8 +478,8 @@ export default async function handler(req, res) {
         return send(res, 200, { ok: true, venues: list, added: list.reduce((n, r) => n + (r.added || 0), 0), removed: list.reduce((n, r) => n + (r.removed || 0), 0) });
       }
       if (action === 'availability-apply-all') {
-        // Codex B-06: ONE version-checked operation — the source's own edit (hours / slots /
-        // capacity) and the copy to every other venue — all venues locked in id order first.
+        // Codex B-06: ONE version-checked operation, the source's own edit (hours / slots /
+        // capacity) and the copy to every other venue, all venues locked in id order first.
         const { source_venue_id, expected_version, schedule, slots, reset_slots, max_demos_per_slot } = body;
         if (!isUuid(source_venue_id)) return send(res, 400, { error: 'invalid_venue_id' });
         if (!Number.isInteger(expected_version) || expected_version < 0) return send(res, 400, { error: 'expected_version_required', message: 'Send the source availability_version you loaded.' });
@@ -491,7 +491,7 @@ export default async function handler(req, res) {
         if (max_demos_per_slot !== undefined && max_demos_per_slot !== null && !(Number.isInteger(max_demos_per_slot) && max_demos_per_slot >= 1)) {
           return send(res, 400, { error: 'invalid_capacity', message: 'Max demos per time slot must be a whole number of 1 or more.' });
         }
-        // Codex R4: with editing OFF the copy is hours + capacity only — every destination keeps its
+        // Codex R4: with editing OFF the copy is hours + capacity only, every destination keeps its
         // own slot list and the source's persisted slots are not propagated.
         const rows = await rpc('venue_availability_apply_all', {
           p_retailer_id: rid, p_source_venue_id: source_venue_id, p_expected_version: expected_version,
@@ -625,15 +625,15 @@ export default async function handler(req, res) {
 
   // Codex F-02: compliance_records tenant integrity + input validation, on EVERY create and update.
   //
-  //  * brand_contact_id — the FK only proved the contact EXISTED, not that it belonged to the
+  //  * brand_contact_id, the FK only proved the contact EXISTED, not that it belonged to the
   //    session's retailer, so Retailer A could file a compliance record against Retailer B's contact
   //    (and the enforcement/warning jobs, which followed that link, then acted on B's behalf). The
   //    contact must now resolve under BOTH its id AND the session's retailer_id. A contact that belongs
   //    to another tenant and a contact that does not exist get the IDENTICAL 404 {error:'not_found'}
-  //    — the response must not be an existence oracle for other tenants' contact ids. Non-UUID values
+  //   , the response must not be an existence oracle for other tenants' contact ids. Non-UUID values
   //    are rejected first with one uniform 400 (never reach Postgres, never differ by value).
   //    Migration 0071 backs this with a composite FK so no other writer can violate it either.
-  //  * file_url — stored and later rendered as a link. null/'' -> null; anything else must parse as
+  //  * file_url, stored and later rendered as a link. null/'' -> null; anything else must parse as
   //    an http(s) URL with no attribute-breakout characters (same rule as retailers.logo_url).
   if (table === 'compliance_records' && ['POST', 'PATCH', 'PUT'].includes(req.method)) {
     let body;
@@ -678,7 +678,7 @@ export default async function handler(req, res) {
   }
 
   // Store contacts: notification_prefs drives which emails a contact gets and WHEN reminders are
-  // scheduled (api/notification-worker.js reads it through api/_notification-prefs.js — the ONE
+  // scheduled (api/notification-worker.js reads it through api/_notification-prefs.js, the ONE
   // normalizer). A malformed object is refused at the write (400 invalid_notification_prefs), and a
   // valid one is stored in its NORMALIZED form so the row, the UI and the worker agree: offsets in
   // the w1/d3/d1/d<N>/morning_of/h1 vocabulary, equivalent choices collapsed (custom 1 day + "1 day"
@@ -711,11 +711,11 @@ export default async function handler(req, res) {
 
   // Release B: venues.availability is edited ONLY through the availability actions above (merged
   // keys, version check, reservation guard). A whole-blob PATCH from stale client state is refused.
-  // POST (new venue) may still carry an initial availability — the 0075 guard validates it.
+  // POST (new venue) may still carry an initial availability, the 0075 guard validates it.
   if (table === 'venues' && ['PATCH', 'PUT'].includes(req.method)) {
     try {
       const b = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-      // Codex B-06: capacity participates in the version check too — it is saved only through the
+      // Codex B-06: capacity participates in the version check too, it is saved only through the
       // availability actions, never by a generic PATCH that ignores availability_version.
       if (b && typeof b === 'object' && ['availability', 'availability_version', 'max_demos_per_slot'].some(k => Object.prototype.hasOwnProperty.call(b, k))) {
         return send(res, 400, { error: 'use_availability_actions', message: 'Hours, slots, blackouts and capacity are saved through the availability actions, not a venue PATCH.' });
@@ -743,7 +743,7 @@ export default async function handler(req, res) {
       }
       // compliance_records: the daily cron's COI warn cursors are server-owned (any client copy was
       // just stripped above). Reset them on create, and on any expiry change so the new expires_at
-      // starts a fresh 30/14/3-day warning cycle. Placed AFTER the allowlist on purpose — the
+      // starts a fresh 30/14/3-day warning cycle. Placed AFTER the allowlist on purpose, the
       // allowlist would otherwise discard these server-set nulls along with the client's.
       if (table === 'compliance_records' && (req.method === 'POST' || Object.prototype.hasOwnProperty.call(b, 'expires_at'))) {
         b.coi_warn_30_sent_at = null;

@@ -1,4 +1,4 @@
-// api/provisional-sweep.js — the 24h provisional-hold expiry sweep (docs/provisional-holds.md
+// api/provisional-sweep.js, the 24h provisional-hold expiry sweep (docs/provisional-holds.md
 // phase 4). Cron every 15 min behind CRON_SECRET (same auth pattern as refund-worker).
 //
 // For each 'held' booking past held_expires_at:
@@ -36,7 +36,7 @@ async function sb(path, opts = {}) {
 
 // Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
 // as brand-account.js's daily cron. The public status route judges each cron_name by its latest
-// completed row (only when provisional holds are enabled — an intentionally-off feature must not
+// completed row (only when provisional holds are enabled, an intentionally-off feature must not
 // degrade production). Codex F-03: 'succeeded' only when every due booking was handled without error;
 // any per-booking release/expiry error writes 'failed' (summary.partial=true) and returns 500.
 // Best-effort: a heartbeat failure must never fail the sweep itself.
@@ -80,7 +80,7 @@ export default async function handler(req, res) {
         if (b.payment_status === 'authorized' && b.payment_intent_id) {
           const r = await releaseHeldBooking(b, { target: 'expired', reason: 'hold_expired_24h', notify: true });
           // P0-1: releaseHeldBooking may discover the hold was captured out from under the sweep (a
-          // confirm landed at the same tick). It converges to PAID and reports was_captured — that is
+          // confirm landed at the same tick). It converges to PAID and reports was_captured, that is
           // NOT an expiry and NOT an error; the booking is correctly paid, so just record and move on.
           if (r.ok && r.was_captured) { out.captured_at_expiry = (out.captured_at_expiry || 0) + 1; }
           else if (r.ok) out.released++;
@@ -107,7 +107,7 @@ export default async function handler(req, res) {
     }
     console.log('provisional-sweep:', JSON.stringify(out));
     // F-03 run verdict: 'succeeded' iff out.errors === 0 (no per-booking release/expiry error).
-    // Otherwise a SEPARATE 'failed' row with summary.partial=true and a 500 — the bookings that
+    // Otherwise a SEPARATE 'failed' row with summary.partial=true and a 500, the bookings that
     // errored are still 'held' and the next tick retries them, but this run was not clean.
     if (out.errors === 0) {
       await heartbeat('succeeded', startMs, out);
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ ...out, error: 'partial_failure', first_error: firstError });
   } catch (e) {
     console.error('provisional-sweep failed:', (e && e.message) || e);
-    // A SEPARATE 'failed' row — never a rewrite of the last success (rows are append-only).
+    // A SEPARATE 'failed' row, never a rewrite of the last success (rows are append-only).
     await heartbeat('failed', startMs, { ...out, ok: false, error: String((e && e.message) || e).slice(0, 500) });
     return res.status(500).json({ ok: false, error: String((e && e.message) || e) });
   }

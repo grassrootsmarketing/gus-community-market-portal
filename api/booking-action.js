@@ -1,5 +1,5 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
-// /api/booking-action — Admin confirms, declines, or cancels a booking.
+// /api/booking-action, Admin confirms, declines, or cancels a booking.
 // On confirm: flips bookings.status to 'confirmed', creates a demos row, emails the brand.
 // On decline: flips bookings.status to 'declined', emails the brand.
 // On cancel: flips bookings.status to 'cancelled', refunds via Stripe if paid,
@@ -63,7 +63,7 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error so a transient DB
 // blip never locks out the primary owner (who has no retailer_admins row).
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
+// (dead auth helper removed, all authorization goes through _retailer-auth.js)
 
 // (R10-P1-8) The legacy bookingRefundCents() amount-or-full-refund helper was removed: refund
 // amounts now come exclusively from the immutable allocation via refund_reserve_cas, so no code
@@ -78,7 +78,7 @@ function daysUntilDemo(demo_date) {
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// UUID format guard — prevents Postgres "invalid input syntax for type uuid" errors
+// UUID format guard, prevents Postgres "invalid input syntax for type uuid" errors
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
 
@@ -166,7 +166,7 @@ async function sb(path, opts = {}) {
 // One authoritative model: venue.max_demos_per_slot vs the count of demos already CONFIRMED/COMPLETED
 // in that exact slot. Returns { full, taken, cap }. Callers charge only when !full.
 //
-// NOTE (holds-ON hardening still owed): a pre-capture JS count is not fully race-proof — two
+// NOTE (holds-ON hardening still owed): a pre-capture JS count is not fully race-proof, two
 // simultaneous confirms can both read taken<cap and both proceed. The eval asks for this reservation
 // to move into a locking DB RPC (see docs/provisional-holds.md → "capacity lease"). That is required
 // before provisional holds are enabled; with the flag OFF no held capture path runs. This reorder
@@ -181,8 +181,8 @@ async function slotCapacityStatus(booking) {
 
 // -----------------------------------------------------------------------------
 // Codex finding B: this file's third hand-rolled copy of the cookie helpers is deleted outright
-// rather than re-pointed at api/_cookies.js. getSessionIdFromReq() here had no call site at all —
-// authorization already runs through _retailer-auth.js, which now reads the cookie itself — so the
+// rather than re-pointed at api/_cookies.js. getSessionIdFromReq() here had no call site at all,
+// authorization already runs through _retailer-auth.js, which now reads the cookie itself, so the
 // only live remnant was the opportunistic set-cookie in the handler, and that is meaningless once
 // the cookie is the only place a session can have come from. Nothing left to keep a name for.
 // -----------------------------------------------------------------------------
@@ -228,7 +228,7 @@ async function handleReschedulePropose(req, res, body) {
   // 0074: the proposal is written on demos (reschedule_to_*) AND versioned on the booking
   // (bookings.reschedule_proposal_version += 1) in ONE transaction. The brand's accept/decline must
   // quote the version returned here; a stale tab or a superseded proposal is refused by the RPC.
-  // A demo with no booking (legacy row) cannot be versioned and cannot be moved atomically — refused.
+  // A demo with no booking (legacy row) cannot be versioned and cannot be moved atomically, refused.
   let proposal;
   try {
     const rows = await sbRpc('propose_reschedule', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: proposedTime });
@@ -325,7 +325,7 @@ async function reserveAndRefund(booking, retailer, actor, reason, opName) {
   });
   if (r.ok) {
     // Converge the ledger now via the VERIFIED apply RPC (idempotent with the later charge.refunded
-    // webhook + the worker). Never flips the booking to 'refunded' here — only a verified success does.
+    // webhook + the worker). Never flips the booking to 'refunded' here, only a verified success does.
     try {
       await sbRpc('apply_refund_event', {
         p_refund_id: r.refund_id, p_status: (r.refund && r.refund.status) || 'pending',
@@ -353,12 +353,12 @@ export default async function handler(req, res) {
 
   // Codex finding B: confirm / decline / cancel / reschedule all mutate a booking, and cancel can
   // move money out via Stripe. Checked once here, before the body is parsed and before any action
-  // dispatch. No exemption applies: this route has no webhook and no cron path — the refund events
+  // dispatch. No exemption applies: this route has no webhook and no cron path, the refund events
   // it depends on arrive at api/stripe-webhook.js, which is exempt on its own signature check.
   if (!requireSameOrigin(req, res, _b)) return;
 
-  // Codex R4-02: the payment-outcome context lives OUTSIDE the main try so that every exit — the
-  // named error paths below AND the outer catch — reports what happened to the brand's money:
+  // Codex R4-02: the payment-outcome context lives OUTSIDE the main try so that every exit, the
+  // named error paths below AND the outer catch, reports what happened to the brand's money:
   //   capturedHeldNow  = this request's capture is VERIFIED (Stripe's PI is 'succeeded').
   // An uncertain capture never reaches the code after the capture block (it returns at once), and a
   // definitive "not captured" is the only case that may say "nothing was charged".
@@ -379,7 +379,7 @@ export default async function handler(req, res) {
     if (!isUuid(booking_id)) return res.status(400).json({ error: 'Invalid booking_id' });
     ctxBookingId = booking_id; ctxAction = action;
 
-    // === Session check — cookie only, via the shared retailer guard ===
+    // === Session check, cookie only, via the shared retailer guard ===
     const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
     if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
     const session = { retailer_id: _auth.retailer_id, email: _auth.email };
@@ -392,7 +392,7 @@ export default async function handler(req, res) {
     const booking = Array.isArray(bookings) ? bookings[0] : null;
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     // Provisional holds: a 'held' booking (auth placed, not captured) can be confirmed (captures
-    // the payment — COI must be approved first), declined, or cancelled (releases the hold, $0).
+    // the payment, COI must be approved first), declined, or cancelled (releases the hold, $0).
     if (action === 'cancel') {
       if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
@@ -402,8 +402,8 @@ export default async function handler(req, res) {
     }
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
 
-    // Codex R4-02 (1): everything this action NEEDS beyond the booking row — the venue (name, fee),
-    // the retailer (cancellation mode, ...) and a valid demo fee for a confirm — is read and validated
+    // Codex R4-02 (1): everything this action NEEDS beyond the booking row, the venue (name, fee),
+    // the retailer (cancellation mode, ...) and a valid demo fee for a confirm, is read and validated
     // HERE, before any money moves. A failed, empty or malformed read is refused with nothing changed
     // and nothing charged; there are no unguarded reads between a capture and its protections.
     let venue = null, retailer = null;
@@ -428,7 +428,7 @@ export default async function handler(req, res) {
     }
 
     // ===== Confirming a HELD booking = capture the authorization first =====
-    // Requires the auth to exist AND the brand's COI to be approved — capture is the moment the
+    // Requires the auth to exist AND the brand's COI to be approved, capture is the moment the
     // brand is actually charged, and the whole point of the hold is "no charge until insured".
     // Capture -> apply_verified_payment (sync; the webhook replay is idempotent) -> outbox drain
     // promotes held -> 'pending' + sends the payment email; the normal confirm flow below then
@@ -448,7 +448,7 @@ export default async function handler(req, res) {
       }
       // P0-2: verify slot capacity BEFORE capturing. Capturing first (as this route used to) meant a
       // full slot produced a charged card with no confirmed demo. If it is full now, refuse without
-      // charging — the retailer declines and the brand rebooks; the 24h sweep releases the hold.
+      // charging, the retailer declines and the brand rebooks; the 24h sweep releases the hold.
       const preCap = await slotCapacityStatus(booking);
       if (preCap.full) {
         return res.status(409).json({ error: 'slot_at_capacity', message: `Slot is at capacity (${preCap.taken}/${preCap.cap}). Nothing was charged. Decline this booking and ask the brand to pick another slot.` });
@@ -475,7 +475,7 @@ export default async function handler(req, res) {
         }
         if (capd.outcome === 'not_attempted') {
           // Codex P-2: no capture request was made because the row is no longer a held, authorized
-          // booking. That says nothing about the payment's history — never "nothing was charged".
+          // booking. That says nothing about the payment's history, never "nothing was charged".
           return res.status(409).json({ ok: false, action, booking_id, error: 'capture_not_attempted', message: 'No capture was attempted: this booking is no longer a held, authorized reservation (' + capd.error + '). Refresh, because another action may already have captured or released it.' });
         }
         // outcome 'captured' but the ledger apply failed (Codex P-1): the brand HAS been charged. The
@@ -484,8 +484,8 @@ export default async function handler(req, res) {
         return await capturedButUnverified(res, { booking_id, action, error: 'apply:' + String(capd.error || 'failed'), case_id: capd.case_id || null, case_recorded: capd.case_recorded === true, application_unverified: true });
       }
       // Codex H1: NO read-back and NO guessed state after the capture. The transition below judges the
-      // CURRENT row under lock — pending -> confirmed, or already_applied when the capture-side
-      // auto-confirm got there first — and capacity was verified BEFORE the capture, so the post-capture
+      // CURRENT row under lock, pending -> confirmed, or already_applied when the capture-side
+      // auto-confirm got there first, and capacity was verified BEFORE the capture, so the post-capture
       // re-check is skipped: it would count this booking's own demo and call a charged, confirmed
       // booking a capacity failure.
       booking.payment_status = 'paid';
@@ -511,7 +511,7 @@ export default async function handler(req, res) {
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
     // Provisional holds: declining/cancelling a held booking with a live authorization RELEASES the
-    // hold (cancel the PI — $0 charged, $0 Stripe fee), never refunds. The RPC inside flips the
+    // hold (cancel the PI, $0 charged, $0 Stripe fee), never refunds. The RPC inside flips the
     // booking to declined/cancelled; the email below carries the "never charged" copy.
     const wasAuthorized = booking.status === 'held' && booking.payment_status === 'authorized' && booking.payment_intent_id;
     if ((action === 'decline' || action === 'cancel') && wasAuthorized) {
@@ -526,7 +526,7 @@ export default async function handler(req, res) {
         // P0-1 interleave: the hold was CAPTURED (a concurrent confirm / COI auto-confirm) at the same
         // instant as this decline/cancel. releaseHeldBooking converged the ledger to PAID rather than
         // expiring a charged booking. Refuse this action instead of marking a paid booking
-        // declined/cancelled — the retailer can CANCEL it to refund through the tested paid-cancel path.
+        // declined/cancelled, the retailer can CANCEL it to refund through the tested paid-cancel path.
         return res.status(409).json({
           error: 'hold_captured',
           message: 'This hold was just captured. The brand has been charged and the demo is confirming. Refresh the page; if you still want to reverse it, cancel the booking to refund per your policy.',
@@ -607,7 +607,7 @@ export default async function handler(req, res) {
       console.error('booking_transition failed for', booking_id, '-', (e && e.message) || e);
       let caseId = null;
       // Money moved before this point: a refund/release for cancel/decline, or the CAPTURE for a held
-      // confirm (Codex H1). Either way an operator must converge the booking — record it once.
+      // confirm (Codex H1). Either way an operator must converge the booking, record it once.
       if (action !== 'confirm' || capturedHeldNow) {
         try {
           const _c = await sbRpc('_open_case', {
@@ -666,7 +666,7 @@ export default async function handler(req, res) {
       });
     }
     // Codex C2-A: reason 'already_applied' = this action's terminal state was ALREADY in place when
-    // the transition ran — the authorization release above did it (held cancel/decline), the
+    // the transition ran, the authorization release above did it (held cancel/decline), the
     // capture-side auto-confirm did it (held confirm), or a concurrent identical request did. The
     // transition converged the audited fields and the projection; the outcome is a truthful
     // success. Emails: still due when THIS request did the provider-side work (release/capture);
@@ -708,7 +708,7 @@ export default async function handler(req, res) {
     //     transition above fires trg_booking_notification_events (0074), which writes the
     //     demo_confirmed / demo_cancelled event in the SAME transaction; api/notification-worker.js
     //     fans it out to every in-scope contact with the matching preference and sends with retries.
-    //     A decline of a pending/held booking writes no event — contacts were never told about it.
+    //     A decline of a pending/held booking writes no event, contacts were never told about it.
 
     // 3) Send email (best-effort)
     let emailOk = false;
@@ -760,7 +760,7 @@ export default async function handler(req, res) {
     });
   } catch (e) {
     // Codex R4-02 (2)/(3): an unexpected exception AFTER a verified capture is still a captured
-    // booking — report it as such and record the deduplicated case; never a generic 500 that reads
+    // booking, report it as such and record the deduplicated case; never a generic 500 that reads
     // like "nothing happened".
     if (capturedHeldNow && ctxBookingId) {
       console.error('booking-action failed after a verified capture for', ctxBookingId, '-', (e && e.message) || e);
@@ -776,7 +776,7 @@ export default async function handler(req, res) {
 async function capturedButUnverified(res, { booking_id, action, error, case_id = null, case_recorded = undefined, application_unverified = false }) {
   let caseId = case_id;
   // Codex P-1: when the helper already attempted its own deduplicated case and could not record it
-  // (database unavailable), a second attempt here would most likely fail the same way — try once more,
+  // (database unavailable), a second attempt here would most likely fail the same way, try once more,
   // but never claim a case exists unless an id came back.
   if (!caseId) {
     try {

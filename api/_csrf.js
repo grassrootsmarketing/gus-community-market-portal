@@ -1,15 +1,15 @@
-// api/_csrf.js — same-origin enforcement for every cookie-authenticated mutation.
+// api/_csrf.js, same-origin enforcement for every cookie-authenticated mutation.
 //
 // Codex finding B: a `checkOrigin()` helper already existed in api/_session.js and NO handler
 // called it. Same shape as the binding guard nothing invoked and the static rules that could not
-// see — a control that exists, reads as protection, and is not wired to anything.
+// see, a control that exists, reads as protection, and is not wired to anything.
 //
 // WHY THIS IS NEEDED AT ALL, given SameSite=Lax cookies:
 //   * Lax is a good default but not a complete defence. It permits cross-site top-level GETs,
 //     and browsers differ on edge cases (redirect chains, some older versions treat certain
 //     POST navigations leniently).
-//   * Lax says nothing about SAME-SITE-but-different-origin requests. A sibling origin —
-//     another subdomain, or a preview deployment on the same registrable domain — is same-site,
+//   * Lax says nothing about SAME-SITE-but-different-origin requests. A sibling origin,
+//     another subdomain, or a preview deployment on the same registrable domain, is same-site,
 //     so its requests carry the cookie. Codex specifically required sibling-origin denial.
 // So the cookie attribute and this check defend different things and both are required.
 //
@@ -37,7 +37,7 @@ export function checkSameOrigin(req, binding) {
   const method = String(req.method || 'GET').toUpperCase();
   if (SAFE_METHODS.has(method)) return { ok: true, reason: 'safe_method' };
 
-  // link() THROWS BindingError when siteOrigin is unset — it does not return a falsy value.
+  // link() THROWS BindingError when siteOrigin is unset, it does not return a falsy value.
   // Letting that propagate would turn a missing configuration into an unhandled 500 from inside
   // whatever handler called us, instead of the controlled denial this function is supposed to
   // produce. Fail closed, and say so.
@@ -47,7 +47,7 @@ export function checkSameOrigin(req, binding) {
 
   const h = req.headers || {};
 
-  // 1. Fetch metadata — browser-set, not script-settable.
+  // 1. Fetch metadata, browser-set, not script-settable.
   const fetchSite = String(h['sec-fetch-site'] || '').toLowerCase();
   if (fetchSite) {
     if (fetchSite === 'same-origin') return { ok: true, reason: 'sec_fetch_site' };
@@ -69,7 +69,7 @@ export function checkSameOrigin(req, binding) {
     return { ok: false, reason: 'referer_mismatch' };
   }
 
-  // Nothing to judge by. Deny — this is a mutation.
+  // Nothing to judge by. Deny, this is a mutation.
   return { ok: false, reason: 'no_origin_evidence' };
 }
 
@@ -89,7 +89,7 @@ export function requireSameOrigin(req, res, binding) {
 }
 
 // The ONLY permitted exemptions, per Codex: requests authenticated by a signature or a shared
-// secret rather than by a cookie. These carry no cookie, so CSRF does not apply to them —
+// secret rather than by a cookie. These carry no cookie, so CSRF does not apply to them,
 // but they must prove identity another way, which their own handlers already enforce.
 //
 // Named explicitly so adding an exemption is a visible, reviewable act.

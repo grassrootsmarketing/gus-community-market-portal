@@ -1,4 +1,4 @@
-// api/_signin-config.js — sign-in configuration readiness (Codex S-1, 2026-10-03).
+// api/_signin-config.js, sign-in configuration readiness (Codex S-1, 2026-10-03).
 //
 // The code-based sign-in flows (brand sign-in/sign-up via api/brand-signup.js, retailer sign-up via
 // api/retailer-signup.js) answer every request with the same generic reply so an attacker cannot learn whether an

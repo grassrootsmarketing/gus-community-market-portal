@@ -1,4 +1,4 @@
-// /api/seed-demo — Seeds the live demo tenant (Harvest Lane Market).
+// /api/seed-demo, Seeds the live demo tenant (Harvest Lane Market).
 // Idempotent: safe to call multiple times, will only create rows if missing.
 // Also supports ?reset=true to wipe & re-seed, called by a nightly Vercel cron.
 //
@@ -169,7 +169,7 @@ async function seed(retailerId, opts = {}) {
     }),
   }).catch(e => console.warn('settings insert:', (e && e.message) || e));
 
-  // Team (internal contacts) — with scoped venue IDs on Marcus
+  // Team (internal contacts), with scoped venue IDs on Marcus
   const marcusVenues = createdVenues.filter(v => v.name === 'Riverside' || v.name === 'Depot District').map(v => v.id);
   for (const t of DEMO_TEAM) {
     await sb('internal_contacts', {
@@ -185,7 +185,7 @@ async function seed(retailerId, opts = {}) {
     }).catch(e => console.warn('team insert:', (e && e.message) || e));
   }
 
-  // Brand contacts (7 fictional brands) — capture ids so COIs can link via brand_contact_id
+  // Brand contacts (7 fictional brands), capture ids so COIs can link via brand_contact_id
   const brandContactIdByCompany = new Map();
   for (const b of DEMO_BRANDS) {
     const row = await sb('brand_contacts', {
@@ -201,7 +201,7 @@ async function seed(retailerId, opts = {}) {
     if (Array.isArray(row) && row[0]) brandContactIdByCompany.set(b, row[0].id);
   }
 
-  // Compliance records (COIs — one current, one expiring in 14 days for the tour visual)
+  // Compliance records (COIs, one current, one expiring in 14 days for the tour visual)
   const soon = new Date(); soon.setDate(soon.getDate() + 14);
   const later = new Date(); later.setDate(later.getDate() + 180);
   const isoDate = d => d.toISOString().slice(0, 10);
@@ -256,7 +256,7 @@ export default async function handler(req, res) {
   // Auth: the SEED_SECRET (manual calls) OR a real Vercel cron identity. DH-07: the bare
   // x-vercel-cron header is client-spoofable, so it is NO LONGER sufficient on its own. Vercel
   // signs genuine cron invocations with `Authorization: Bearer <CRON_SECRET>` once CRON_SECRET
-  // is set in the project env — that is what we trust here.
+  // is set in the project env, that is what we trust here.
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
   const cronSecret = process.env.CRON_SECRET;
   const isVercelCron = !!cronSecret && (req.headers['authorization'] || '') === 'Bearer ' + cronSecret;

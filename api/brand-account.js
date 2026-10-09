@@ -58,7 +58,7 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limit — fail-closed. Denies on DB errors so a Supabase blip cannot
+// Rate limit, fail-closed. Denies on DB errors so a Supabase blip cannot
 // NOTE: these are OUR abuse controls, not Resend's quota. /login is unauthenticated and sends
 // email to any address submitted, so an uncapped endpoint lets anyone inbox-bomb a stranger.
 // Per-EMAIL caps are the real control; per-IP caps are deliberately loose because mobile
@@ -67,14 +67,14 @@ async function sb(path, opts = {}) {
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
-  // Vercel's. cf-connecting-ip is NOT trusted — we are not behind Cloudflare, so it is
+  // Vercel's. cf-connecting-ip is NOT trusted, we are not behind Cloudflare, so it is
   // purely attacker-supplied and previously let every rate limit be bypassed.
   const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
   return req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
 }
 
 // Rate limit keyed ONLY on the given identifier (no IP). This is the unspoofable cap on
-// login-code guesses per account — the IP-appended checkRateLimit below cannot provide it.
+// login-code guesses per account, the IP-appended checkRateLimit below cannot provide it.
 async function checkRateLimitByKey(fullKey, maxPerHour) {
   try {
     const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
@@ -110,12 +110,12 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
 }
 
 // -----------------------------------------------------------------------------
-// Session transport — api/_cookies.js is the single implementation.
+// Session transport, api/_cookies.js is the single implementation.
 //
 // Codex finding B. This file used to carry its own copy of the cookie attribute string and its
 // own cookie parser, and so did api/admin-auth.js, api/admin.js and api/booking-action.js. Four
-// hand-rolled copies of one security-critical string is four chances for one of them to drift —
-// a dropped Secure, a stray Domain — with nothing that would notice. The wrappers below keep the
+// hand-rolled copies of one security-critical string is four chances for one of them to drift,
+// a dropped Secure, a stray Domain, with nothing that would notice. The wrappers below keep the
 // local names so every existing call site in this file is unchanged, but the attributes, the
 // cookie name and the parsing now come from one place.
 // -----------------------------------------------------------------------------
@@ -127,7 +127,7 @@ function setBrandSessionCookie(res, token) {
 function clearBrandSessionCookie(res) { clearRoleCookie(res, 'brand'); }
 
 // -----------------------------------------------------------------------------
-// Password hashing (Node stdlib scrypt — no npm dependency).
+// Password hashing (Node stdlib scrypt, no npm dependency).
 // Storage format: <salt_hex>$<hash_hex>. Salt is 16 bytes, hash is 64 bytes.
 // scrypt cost params are Node defaults (N=16384, r=8, p=1).
 // -----------------------------------------------------------------------------
@@ -171,7 +171,7 @@ function getBrandSessionFromReq(req, _body) {
 }
 async function sendMagicLink(email, link, isNew, code) {
   // The link and the code are credentials. If there is no provider key we send nothing and log
-  // nothing — writing them to log storage is a credential leak, not a debugging aid.
+  // nothing, writing them to log storage is a credential leak, not a debugging aid.
   if (!_b.resendApiKey) return;
   const subject = isNew ? 'Welcome to Demohub: verify your brand account' : 'Sign in to your Demohub brand account';
   const codeBlock = code ? `
@@ -417,14 +417,14 @@ export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   // Codex finding B: the same-origin gate for every state-changing request on this route.
-  // api/_session.js exported a checkOrigin() helper that no handler ever called — a control that
+  // api/_session.js exported a checkOrigin() helper that no handler ever called, a control that
   // read as protection and was wired to nothing. This is that check actually invoked: once, after
   // the binding (the expected origin is derived from the validated binding, never from a
   // client-controllable forwarded-host header) and before the body is read or any session looked
   // up. SameSite=Lax alone does not cover this: a sibling subdomain is same-site, so its POSTs
   // still carry the cookie, and _csrf.js rejects those.
   // The daily cron arrives as a GET (vercel.json crons) and authenticates with CRON_SECRET rather
-  // than a cookie, so it needs no exemption — GET is a safe method here.
+  // than a cookie, so it needs no exemption, GET is a safe method here.
   if (!requireSameOrigin(req, res, _b)) return;
 
   const body = await readBody(req);
@@ -503,9 +503,9 @@ export default async function handler(req, res) {
     }
 
     if (action === 'signup') {
-      // RETIRED — Codex finding A. This handler was the one the UI actually called, and it
+      // RETIRED, Codex finding A. This handler was the one the UI actually called, and it
       // PATCHed an existing brand's profile, inserted a brands row, inserted a brand_members
-      // owner row, and issued a session — all BEFORE the caller proved they controlled the
+      // owner row, and issued a session, all BEFORE the caller proved they controlled the
       // email address. That made it a profile-takeover primitive: "sign up" as a passwordless
       // brand and overwrite its company name, contact and phone.
       //
@@ -553,7 +553,7 @@ export default async function handler(req, res) {
           }),
         ]);
         const link = siteLink(_b, `/brand/verify?t=${token}`);
-        // Fire-and-forget email — don't block response on Resend latency
+        // Fire-and-forget email, don't block response on Resend latency
         sendMagicLink(member.email, link, false, code).catch(e => console.warn('brand login email failed:', e?.message || e));
       }
       // Always return ok:true to prevent email enumeration
@@ -633,7 +633,7 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
       });
-      // Codex finding B: cookie only — the session_token that used to be in this body was read by
+      // Codex finding B: cookie only, the session_token that used to be in this body was read by
       // brand/verify and written to localStorage. Cookie not set means no session, so fail loudly.
       if (!sessionToken) return jsonResp(res, 500, { error: 'Could not start session' });
       setBrandSessionCookie(res, sessionToken);
@@ -656,7 +656,7 @@ export default async function handler(req, res) {
         // "upload your COI" state instead of a blank page.
         sb(`bookings?brand_id=eq.${brandId}&or=(and(status.eq.pending,payment_status.eq.paid),status.eq.held)&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,payment_status,held_expires_at,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
-      // select=* above is deliberate — the client reads fifteen-odd columns and enumerating them
+      // select=* above is deliberate, the client reads fifteen-odd columns and enumerating them
       // here is how one silently goes missing later. But `*` on brands also ships password_hash
       // and cal_feed_token straight into the browser, so they are stripped on the way out.
       // A denylist, not an allowlist: a new column reaching the client is a bug we can see,
@@ -681,7 +681,7 @@ export default async function handler(req, res) {
       const demos = await readList(demosR, 'demos');
       // 0074: a pending reschedule proposal is versioned on the BOOKING (reschedule_proposal_version);
       // the dashboard's Accept/Decline must quote it. demos has no FK to bookings, so it cannot be
-      // embedded — one side query for the demos that carry a proposal.
+      // embedded, one side query for the demos that carry a proposal.
       try {
         const withProposal = (Array.isArray(demos) ? demos : []).filter(d => d && d.reschedule_to_date && d.booking_id);
         if (withProposal.length) {
@@ -730,7 +730,7 @@ export default async function handler(req, res) {
       // ONE database transaction (0074 accept_reschedule / decline_reschedule): the bookings row is
       // the authoritative schedule (capacity is enforced there by the 0070 move trigger), demos is
       // its projection, the proposal is consumed, the demo_rescheduled event is written and stale
-      // reminders are retired — or none of it happens. This route no longer PATCHes demos, and the
+      // reminders are retired, or none of it happens. This route no longer PATCHes demos, and the
       // store-contact "rescheduled" mail is produced by the outbox worker from that event.
       const rpcName = decision === 'accept' ? 'accept_reschedule' : 'decline_reschedule';
       let verdict = null;
@@ -818,9 +818,9 @@ export default async function handler(req, res) {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      // DH-03: 'default_coi_url' intentionally NOT allowlisted — a COI URL is only ever set by the
+      // DH-03: 'default_coi_url' intentionally NOT allowlisted, a COI URL is only ever set by the
       // verified upload handler, never self-declared through a profile save.
-      // LG-11: 'default_coi_expires' removed — a brand must NOT be able to self-extend the coverage
+      // LG-11: 'default_coi_expires' removed, a brand must NOT be able to self-extend the coverage
       // date used by the booking gate. Expiry is server-owned, set only by the verified upload flow.
       const allowed = ['company_name', 'contact_name', 'phone', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
       const patch = { updated_at: new Date().toISOString() };
@@ -1177,7 +1177,7 @@ export default async function handler(req, res) {
 
       // The document's own expiry is authoritative when we could read one; the value the
       // brand typed is the fallback. This was defined in the block replaced below and is
-      // restored here — check-undefined caught its absence before anything ran.
+      // restored here, check-undefined caught its absence before anything ran.
       const effectiveExpiry = docExpiry || expChk.value || null;
 
       // ATOMIC FINALIZATION -- Codex v6-FINAL B1.
@@ -1249,8 +1249,8 @@ export default async function handler(req, res) {
       } catch (_) {}
 
       // Owner ping: a certificate just LANDED (durably finalized above). With manual review as
-      // the only approval path — and the 24h provisional-hold clock running for uninsured
-      // bookings — an unnoticed queue item can cost a brand their slot. Best-effort: a mail
+      // the only approval path, and the 24h provisional-hold clock running for uninsured
+      // bookings, an unnoticed queue item can cost a brand their slot. Best-effort: a mail
       // hiccup must never fail the upload the brand was just told succeeded.
       try {
         const OWNER_NOTIFY = 'david@demohubhq.com';
@@ -1346,7 +1346,7 @@ export default async function handler(req, res) {
         }
       } catch (_) { /* the queue remains; a drain failure is not a removal failure */ }
 
-      // 200 means coverage has ended and the bytes are accounted for — either deleted now
+      // 200 means coverage has ended and the bytes are accounted for, either deleted now
       // or durably queued. It does not claim deletion has completed.
       return jsonResp(res, 200, { ok: true, purged, cleanup_pending: stillPending });
     }
@@ -1448,7 +1448,7 @@ export default async function handler(req, res) {
 
     // ---- SET-PASSWORD: claim the account by setting a password ----
     // Two entry points: (a) authenticated brand (session cookie) setting first password,
-    // (b) unauthenticated brand who just paid and knows their email — but we require
+    // (b) unauthenticated brand who just paid and knows their email, but we require
     // that a valid session already exist. The confirmation-page flow creates a session
     // BEFORE prompting for password via a one-time signed token in the ?paid= redirect.
     // For safety in this pass we only accept authenticated calls.
@@ -1488,7 +1488,7 @@ export default async function handler(req, res) {
       const rlAccount = await checkRateLimitByKey('brand-login-pw-account:' + email.slice(0, 64), 50);
       if (!rlAccount.allowed) return jsonResp(res, rlAccount.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlAccount.error || 'too_many_requests', message: 'Too many attempts for this account. Try again later.' });
       // Look up brand by email (via brand_members which is the shareable auth surface).
-      // EXACT match — attacker-supplied email; a wildcard would resolve an arbitrary account.
+      // EXACT match, attacker-supplied email; a wildcard would resolve an arbitrary account.
       const lookupR = await sb(`brand_members?email=eq.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
       let member = (await lookupR.json())[0];
       let storedHash = member && member.brands && member.brands.password_hash;
@@ -1505,7 +1505,7 @@ export default async function handler(req, res) {
         }
       }
       if (!storedHash) {
-        // Don't reveal whether the email exists — return generic error
+        // Don't reveal whether the email exists, return generic error
         return jsonResp(res, 401, { error: 'Invalid email or password' });
       }
       const ok = await verifyPassword(password, storedHash);
@@ -1540,7 +1540,7 @@ export default async function handler(req, res) {
 
     // ---- COOKIE-MIGRATE: REMOVED (Codex finding B) ----
     // This action existed only to lift a session out of localStorage and into the HttpOnly cookie,
-    // and to do that it had to accept a session secret in a request body — the precise intake this
+    // and to do that it had to accept a session secret in a request body, the precise intake this
     // finding requires gone. It also kept that intake permanently reachable and made it useful:
     // anyone holding a stolen or logged token could post it here and be handed a valid cookie for
     // it, which is a session-fixation primitive dressed up as a migration.
@@ -1599,7 +1599,7 @@ export default async function handler(req, res) {
 
     // P0-7: revoke every calendar URL for this brand (e.g. the link leaked).
     if (action === 'cal_revoke') {
-      // Codex finding B: cookie only — was body.session_token with an inline cookie fallback.
+      // Codex finding B: cookie only, was body.session_token with an inline cookie fallback.
       const sessionToken = getBrandSessionFromReq(req, body);
       const brandId = await verifySession(sessionToken);
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
@@ -1622,11 +1622,11 @@ export default async function handler(req, res) {
       const escapeICS = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
       const fold = (line) => { const out = []; for (let i = 0; i < line.length; i += 73) out.push((i === 0 ? '' : ' ') + line.slice(i, i + 73)); return out.join('\r\n'); };
       // Release A: the demo's start instant is demo_date + demo_time resolved in the RETAILER's zone by
-      // the shared helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. Unparseable time ->
+      // the shared helper (api/_local-time.js), correct PDT/PST, no fixed UTC-8. Unparseable time ->
       // the feed's 11:00 default; an unresolvable date (impossible / DST gap) drops the entry.
       const { demoStartUtc: _demoStartUtc, safeZone: _safeZone } = await import('./_local-time.js');
       const parseDemoTime = (dateStr, timeStr, tz) => (dateStr ? _demoStartUtc(dateStr, timeStr, tz, { lenientTime: true }) : null);
-      // P0-7: the feed accepts ONLY a dedicated, revocable calendar token — never a login session
+      // P0-7: the feed accepts ONLY a dedicated, revocable calendar token, never a login session
       // token. A calendar URL gets pasted into Google/Apple Calendar and shared with colleagues, so
       // it must not be usable as an account credential.
       const UUID_RE_CAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

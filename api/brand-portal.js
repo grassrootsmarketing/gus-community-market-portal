@@ -1,4 +1,4 @@
-// /api/brand-portal — Brand-side auth + data fetch.
+// /api/brand-portal, Brand-side auth + data fetch.
 // Actions:
 //   POST { action: "login",  email, retailer_slug }  → emails a magic link
 //   POST { action: "verify", token }                  → sets dh_brand_session cookie
@@ -26,7 +26,7 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limit — fail-closed. Prevents magic-link email spam / token brute force.
+// Rate limit, fail-closed. Prevents magic-link email spam / token brute force.
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // cf-connecting-ip is attacker-supplied (not behind Cloudflare); x-real-ip is Vercel-set,
@@ -148,7 +148,7 @@ export default async function handler(req, res) {
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
       if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
-      // Role 'brand', not 'retailer': every signal in this file is brand-side — brand_tokens,
+      // Role 'brand', not 'retailer': every signal in this file is brand-side, brand_tokens,
       // brand_sessions, brand_contacts, the /b/<slug>/ portal path, and a magic-link email that
       // says "view your demos at <retailer>". The retailer_slug here scopes WHICH retailer's demos
       // a brand contact may see; it does not make the caller retailer staff.
@@ -156,7 +156,7 @@ export default async function handler(req, res) {
       // CAVEAT, recorded because reviving this route without reading it would break sign-in:
       // dh_brand_session is validated elsewhere (api/_booking-identity.js, api/brand-account.js)
       // against brand_account_sessions.session_token, while this route mints a row in the DIFFERENT
-      // brand_sessions table. The mismatch fails closed — the token simply does not resolve — but it
+      // brand_sessions table. The mismatch fails closed, the token simply does not resolve, but it
       // would evict a live booking session. The right fix on revival is to issue a
       // brand_account_sessions token here, not to give this dead route a fourth cookie name.
       setSessionCookie(res, 'brand', session.session_id);

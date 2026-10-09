@@ -1,9 +1,9 @@
-// api/coi-file.js — WO-3 / Codex P0-6: private, authorised access to COI documents.
+// api/coi-file.js, WO-3 / Codex P0-6: private, authorised access to COI documents.
 //
 // Previously the upload handler stored a PUBLIC storage URL
 // (`/storage/v1/object/public/coi-docs/...`) in brands.default_coi_url. A Certificate of Insurance
 // contains the brand's legal entity, address, policy numbers and limits. Storing a public URL means
-// (a) if the bucket is public, every COI is readable by anyone who ever sees the link — no login —
+// (a) if the bucket is public, every COI is readable by anyone who ever sees the link, no login,
 // and (b) if the bucket is private, the stored link is simply broken.
 //
 // This endpoint is the ONLY way to read a COI. It authenticates the caller, checks they are entitled
@@ -12,7 +12,7 @@
 //
 // Who may view a brand's COI:
 //   * the brand itself (brand session), and
-//   * retailer staff (owner/admin/manager) who have a booking from that brand — the retailer needs
+//   * retailer staff (owner/admin/manager) who have a booking from that brand, the retailer needs
 //     the certificate to let the demo happen, but only for brands actually coming to their store.
 import { requireRetailerMembership } from './_retailer-auth.js';
 
@@ -63,7 +63,7 @@ export default async function handler(req, res) {
   // (a) the brand viewing its own certificate.
   // Codex finding B: this accepted ?session_token= as an alternative to the cookie. A COI link is
   // exactly the kind of URL that gets forwarded, bookmarked and pasted into a support ticket, so a
-  // session in its query string outlives the page it was minted for — in browser history, in access
+  // session in its query string outlives the page it was minted for, in browser history, in access
   // logs, and in the Referer sent to whatever the signed URL redirects to. Cookie only.
   const brandSession = getSessionToken(req, 'brand');
   if (brandSession) {

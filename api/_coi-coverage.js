@@ -1,4 +1,4 @@
-// api/_coi-coverage.js — F5-12 / LG-11b: COI coverage requires a TRUSTED verification state,
+// api/_coi-coverage.js, F5-12 / LG-11b: COI coverage requires a TRUSTED verification state,
 // not merely a URL + a user-influenced expiry date. A brand is "covered" for a demo only when:
 //   (a) a certificate is on file (default_coi_url), AND
 //   (b) its expiry is on/after the demo date, AND

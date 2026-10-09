@@ -1,4 +1,4 @@
-// api/_session.js — F5-06: session/membership/CSRF/owner hardening.
+// api/_session.js, F5-06: session/membership/CSRF/owner hardening.
 // - a session is only valid if the member STILL has a live membership (removal takes effect);
 // - removing/downgrading a member revokes their sessions immediately;
 // - owner authority requires an owner-shaped session, not just an allowlisted email;
@@ -53,12 +53,12 @@ export async function verifyAdminSessionStrict(sessionId) {
 }
 
 // CSRF: REMOVED. This file used to export checkOrigin(allowedOrigins) and NOT ONE route called
-// it — the control existed, read as protection, and was wired to nothing. api/_csrf.js replaces
+// it, the control existed, read as protection, and was wired to nothing. api/_csrf.js replaces
 // it with requireSameOrigin(), which is invoked by every cookie-authenticated route and covered by
 // tests/session_transport.test.mjs.
 //
 // It is deleted rather than kept alongside the working version for two reasons. A second CSRF
 // helper in the tree is something a future change can reach for, and this one was weaker: it
 // consulted only Origin and Referer, ignored Sec-Fetch-Site, took its allowlist as an argument
-// (so each caller could pass a different one), and derived the expected origin from nothing —
+// (so each caller could pass a different one), and derived the expected origin from nothing,
 // meaning a caller passing a list containing a sibling subdomain would have accepted it.

@@ -331,7 +331,7 @@ function initCatPicker({ pickerEl, searchEl, dropdownEl, hiddenEl, options, init
   const selected = new Set(initial);
   let activeIdx = 0;
 
-  // '; ' — four options contain commas, so a comma join corrupted them on the next parse.
+  // '; ', four options contain commas, so a comma join corrupted them on the next parse.
   function syncHidden() { hiddenEl.value = Array.from(selected).join('; '); }
   function renderPills() {
     pickerEl.querySelectorAll('.pill').forEach(p => p.remove());

@@ -385,7 +385,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     <div class="view client" id="clientView">
         <div class="main-scroll">
             <div class="container">
-                <!-- Escape hatch: the booking view had NO route back to the location list — a brand
+                <!-- Escape hatch: the booking view had NO route back to the location list, a brand
                      who clicked the wrong store was stranded (only fix was a full reload). -->
                 <div style="padding:18px 0 0;"><a onclick="showView('landing')" style="cursor:pointer; color:var(--forest-700); font-weight:700; font-size:0.88rem; text-decoration:none;">&larr; All locations</a></div>
                 <!-- Client-view twin of the landing sign-in strip. renderBrandAuthUi() has always
@@ -725,7 +725,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         }
 
         // A signed-in brand booking WITHOUT an approved COI while provisional holds are on:
-        // allowed to proceed — card is held (authorized), not charged, 24h to get approved.
+        // allowed to proceed, card is held (authorized), not charged, 24h to get approved.
         function _provisionalBooking() {
             return !!window._provisionalHolds && !!window._brandProfile && !_brandCoiOk();
         }
@@ -780,14 +780,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const ok = signedIn ? _brandCoiOk() : true;   // not signed in yet: signup happens first
             grp.style.display = (signedIn && !ok) ? 'block' : 'none';
             // The static "held, not charged" notice is for brands the hold actually applies to.
-            // A covered brand is charged immediately — showing it to them was a false payment claim.
+            // A covered brand is charged immediately, showing it to them was a false payment claim.
             const notice = document.getElementById('bookCoiNotice');
             // This notice is provisional-holds language ("card held, not charged, 24h"). With holds OFF
             // it's false and contradicts the pending panel, so only show it when holds are actually on.
             if (notice) notice.style.display = ((signedIn && ok) || !window._provisionalHolds) ? 'none' : '';
             if (signedIn && !ok && window._provisionalHolds) {
                 // Provisional path: the uploader stays visible (uploading now is still the best
-                // move) but booking is NOT blocked — explain the hold instead.
+                // move) but booking is NOT blocked, explain the hold instead.
                 _renderCoiCard(_coiCardState(), true);
                 return true;
             }
@@ -803,7 +803,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const f = document.getElementById('bookCoiFile');
                 if (f) f.click();
             }
-            // Venue cards/pills carry data-venue instead of inline onclick — venue names with
+            // Venue cards/pills carry data-venue instead of inline onclick, venue names with
             // apostrophes ("Gus's …") made the generated handler a SyntaxError-dead click.
             const vEl = e.target && e.target.closest ? e.target.closest('[data-venue]') : null;
             if (vEl && typeof selectLocation === 'function') selectLocation(vEl.dataset.venue);
@@ -820,7 +820,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             return d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6);
         }
         // Backspacing onto a hyphen would delete the separator, which the reformat below
-        // immediately puts back — so the key appears dead until pressed twice. Stepping the
+        // immediately puts back, so the key appears dead until pressed twice. Stepping the
         // caret over the hyphen first makes the browser delete the digit the user meant.
         document.addEventListener('keydown', function (e) {
             const el = e.target;
@@ -832,7 +832,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const el = e.target;
             if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return;
             // Count digits left of the caret, reformat, then put the caret back after that
-            // many digits — otherwise inserting mid-number throws the cursor to the end.
+            // many digits, otherwise inserting mid-number throws the cursor to the end.
             const wanted = _phoneDigits(el.value.slice(0, el.selectionStart || 0)).length;
             el.value = _phoneFormat(_phoneDigits(el.value));
             let pos = 0, seen = 0;
@@ -994,7 +994,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         function retailerAvatarHtml(retailer, size, opts) {
             opts = opts || {};
             let url = retailer && retailer.logo_url;
-            // Treat ui-avatars.com URLs as placeholders — those are auto-generated initials images,
+            // Treat ui-avatars.com URLs as placeholders, those are auto-generated initials images,
             // not real uploaded logos. Fall through to our own no-logo treatment.
             if (url && /^https?:\/\/ui-avatars\.com\//i.test(url)) url = null;
             const name = (retailer && retailer.name) || 'D';
@@ -1002,13 +1002,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const bg = opts.bg || window._brandGradient || 'linear-gradient(135deg, var(--forest-800) 0%, var(--forest-700) 50%, var(--forest-900) 100%)';
             const radius = opts.radius || '10px 10px 0 0';
             // WITH LOGO: show full-height branded hero (140px for regular cards, smaller for compact).
-            // This is the "premium branding" treatment — retailers with an uploaded logo get real estate.
+            // This is the "premium branding" treatment, retailers with an uploaded logo get real estate.
             if (url) {
                 const pad = size >= 100 ? '18px' : size >= 60 ? '10px' : '6px';
                 return `<div style="width:100%;height:100%;background:${bg};display:flex;align-items:center;justify-content:center;padding:${pad};border-radius:${radius};box-sizing:border-box;"><img src="${url.replace(/"/g,'&quot;')}" alt="${name.replace(/"/g,'&quot;')}" style="max-width:100%;max-height:100%;object-fit:contain;display:block;"></div>`;
             }
             // WITHOUT LOGO for LARGE cards (hero blocks): repeated giant initials look bad when every card
-            // shares the same retailer. Render a thin accent bar (~28px) — subtle brand anchor without shouting.
+            // shares the same retailer. Render a thin accent bar (~28px), subtle brand anchor without shouting.
             // For SMALL avatars (size < 50, e.g. compact list rows), still show a proper initials circle since
             // there's only ONE per row, not one on every card.
             if (opts.forceInitials || size < 50) {
@@ -1075,7 +1075,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const retailerName = (retailer && retailer.name) || 'Loading…';
             const demoFee = (window.state.settings && window.state.settings.demo_fee) || 30;
             if (venues.length === 0) {
-                // ALWAYS show the brand-facing 'Booking coming soon' — this is the LIVE page.
+                // ALWAYS show the brand-facing 'Booking coming soon', this is the LIVE page.
                 // Retailer-mode nudges are handled by the sticky preview banner at the top of the page.
                 const rNameEsc = retailerName.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
                 grid.innerHTML = '<div style="grid-column:1/-1; padding:56px 32px; text-align:center; background:white; border-radius:16px;">' +
@@ -1085,7 +1085,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 _renderPreviewBanner();
                 return;
             }
-            // Locations exist — clear any preview banner
+            // Locations exist, clear any preview banner
             _renderPreviewBanner();
             // Wave 7 (#66) , adaptive layout based on venue count:
             //   ≤6  → roomy 3-col grid (default)
@@ -1219,7 +1219,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             showView('client');
             selectedDate = null;
             // A stale time selection from the previous venue/date could bypass the availability
-            // gate — clear it whenever context changes.
+            // gate, clear it whenever context changes.
             selectedTime = null; selectedHours = null; selectedSlotLabel = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
             const lbl = document.getElementById('selectedDateLabel'); if (lbl) lbl.textContent = '';
@@ -1231,7 +1231,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
 
         // Renders the location-switcher pill row inside the booking view. Lets a brand
         // jump between venues without losing their cart. Hidden entirely if there's only
-        // one venue (single-location retailer — no need to switch).
+        // one venue (single-location retailer, no need to switch).
         function renderLocationSwitcher() {
             const wrap = document.getElementById('locationSwitcherWrap');
             const inner = document.getElementById('locationSwitcher');
@@ -1291,7 +1291,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
 
         // ===== Release B: demo slots + blackouts (browser mirror of api/_slots.js; the server and the
-        // database are the authority — this only decides what to OFFER on screen) =====
+        // database are the authority, this only decides what to OFFER on screen) =====
         const DEFAULT_SLOTS = [{ start: '11:00', hours: 3 }, { start: '15:00', hours: 3 }];
         function slotMinutesJs(s) {
             if (s == null) return null;
@@ -1433,7 +1433,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const status = (d.status || '').toLowerCase();
                 if (status !== 'confirmed' && status !== 'completed') return false;
                 if (d.demo_date !== dateStr) return false;
-                // Release B: compare by resolved minute — "11:00", "11:00 AM" and "11:00 am" are one slot.
+                // Release B: compare by resolved minute, "11:00", "11:00 AM" and "11:00 am" are one slot.
                 if (slotMinutesJs(d.demo_time) !== slotMinutesJs(slotTime)) return false;
                 if (d.venue_id && d.venue_id !== venueId) return false;
                 return true;
@@ -1451,7 +1451,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
 
         // Release B: render the location's configured slots for the selected date (labels and
         // length come from the configuration), then mark capacity. Nothing here is trusted by the
-        // server — /api/book resolves the slot again and the database enforces it under lock.
+        // server, /api/book resolves the slot again and the database enforces it under lock.
         function renderTimeSlots() {
             const list = document.getElementById('timeSlotsList');
             if (!list) return;
@@ -1560,7 +1560,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
 
             // Check if this location already has a booking on this day.
-            // LOCAL date string — toISOString() is UTC and shifted the booked day for any
+            // LOCAL date string, toISOString() is UTC and shifted the booked day for any
             // user at a positive UTC offset (Europe/Asia booked the day BEFORE they picked).
             const dateStr = dateToYmd(selectedDate);
             const existsOnDay = cart.find(item => item.dateStr === dateStr && item.location === currentLocation);
@@ -1603,7 +1603,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             
             cartCount.textContent = cart.length;
             demoCount.textContent = cart.length;
-            // Price each demo by its OWN venue fee — this MUST match what the server charges
+            // Price each demo by its OWN venue fee, this MUST match what the server charges
             // (checkout-session.js bills per booking.venue.demo_fee). Using the retailer-level
             // settings.demo_fee here caused a display-vs-charge mismatch (page said $10, card hit $30).
             const _pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
@@ -1625,7 +1625,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const platLine = document.getElementById('platformFeeLine');
             const subEl = document.getElementById('subtotalPrice');
             const trustLine = document.getElementById('paymentTrustLine');
-            // Hide the separate platform-fee line — bundled into per-demo price now
+            // Hide the separate platform-fee line, bundled into per-demo price now
             if (platLine) platLine.style.display = 'none';
             if (cart.length > 0) {
                 if (subLine) subLine.style.display = '';
@@ -1725,7 +1725,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {
-                // NOT SIGNED IN: hard gate — require account creation (password)
+                // NOT SIGNED IN: hard gate, require account creation (password)
                 if (pwGroup) pwGroup.style.display = '';
                 if (title) title.textContent = 'Create your account & book';
                 if (subtitle) subtitle.textContent = "Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.";
@@ -1859,8 +1859,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
 
             // COI gate. Convenience only - api/booking enforces this server-side, so a
             // console-edited page still cannot book uninsured.
-            // Contact info (name + phone) required to book — mirrors the server gate in api/book.js.
-            // Auto-fill the brand profile from what they typed here — a first-time booker shouldn't have
+            // Contact info (name + phone) required to book, mirrors the server gate in api/book.js.
+            // Auto-fill the brand profile from what they typed here, a first-time booker shouldn't have
             // to separately go edit their profile. Fills only blank fields; the server still gates on
             // name + phone, so this can't bypass the requirement, only satisfy it from the form.
             if (window._brandProfile) {
@@ -1870,7 +1870,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (!((bp.contact_name)||'').trim() && contactName) patch.contact_name = contactName;
                 if (!((bp.phone)||'').trim() && contactPhone) patch.phone = contactPhone;
                 // Remember the category too, so "What are you demoing?" is asked once and then pre-filled
-                // (and hidden) on every later booking — it was only ever stored on the booking row.
+                // (and hidden) on every later booking, it was only ever stored on the booking row.
                 if (!((bp.default_categories)||'').trim() && product) patch.default_categories = product;
                 if (Object.keys(patch).length) {
                     try {
@@ -1896,7 +1896,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 return;
             }
-            // Provisional (insurance-pending) bookings check out one at a time — the hold and its
+            // Provisional (insurance-pending) bookings check out one at a time, the hold and its
             // release act on the whole payment, so a held booking never shares a cart (server
             // enforces this too: provisional_checkout_single_only).
             if (_provisionalBooking() && cart.length > 1) {
@@ -1969,7 +1969,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const successBookingIds = [];
             // The typed demo-conduct signature must actually be RECORDED. /api/book (session
             // endpoint) ignores signed_name, so the signature was silently discarded and the
-            // agreement modal reappeared forever. Best-effort: a hiccup here never blocks booking —
+            // agreement modal reappeared forever. Best-effort: a hiccup here never blocks booking,
             // agreement-check will simply re-prompt next time.
             if (window._pendingSignedName) {
                 try {
@@ -1979,7 +1979,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     });
                 } catch (_) { /* re-prompted next visit */ }
             }
-            // PERF: fire all booking requests in parallel — 3-slot cart used to take 3× sequential
+            // PERF: fire all booking requests in parallel, 3-slot cart used to take 3× sequential
             // waits (~4-6s total). Now they complete in parallel, and the checkout redirect fires
             // as soon as the slowest one returns.
             const _venueIdByName = new Map((((window.state && window.state.venues) || [])).map(v => [v.name, v.id]));
@@ -2055,7 +2055,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         window.location.assign(checkoutJson.url);
                         return; // stop here; brand comes back to /r/{slug}/?paid=1
                     }
-                    // Stripe path unavailable — do NOT show a 'Confirmed' state. Show a clear
+                    // Stripe path unavailable, do NOT show a 'Confirmed' state. Show a clear
                     // 'pending payment' state instead. Bookings on the server are already in
                     // pending_payment status (see api/booking.js), so we're just telling the user.
                     if (checkoutJson.skip) {
@@ -2090,7 +2090,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
 
         // Modal shown when payment collection couldn't complete (Stripe not connected on retailer
-        // side, checkout endpoint errored, etc.). Booking IS in the DB but pending payment —
+        // side, checkout endpoint errored, etc.). Booking IS in the DB but pending payment,
         // retailer will follow up. Very different visual language from "Confirmed!"
         function showPendingPaymentModal(count, reason, email) {
             document.getElementById('contactInfoModal').classList.remove('active');
@@ -2228,7 +2228,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // ===== Password gate =====
         // Codex finding B: openPasswordModal / closePasswordModal / submitPassword removed. They
         // compared a typed value against the literal 'testpass' and recorded the result as an
-        // 'adminUnlocked' sessionStorage flag — a browser-side "am I signed in" decision, which is
+        // 'adminUnlocked' sessionStorage flag, a browser-side "am I signed in" decision, which is
         // exactly what this change removes. Nothing called them and there is no #passwordModal in
         // the markup, so they were dead, but a hardcoded password check shipped in a page reads
         // like a real control to whoever audits it next. Access control is the server session.
@@ -2258,7 +2258,7 @@ function supportMailto(a) {
 
         // ===== Brand account auto-fill =====
         // Uses HttpOnly dh_brand_session cookie (set by /api/brand-account verify-code).
-        // Server reads cookie automatically — no need to pass session_id in URL.
+        // Server reads cookie automatically, no need to pass session_id in URL.
         window._brandProfile = null;
         async function loadBrandAccountSession() {
             try {
@@ -2273,7 +2273,7 @@ function supportMailto(a) {
                     if (j && j.profile) {
                         window._brandProfile = j.profile;
                     }
-                    // Provisional holds (24h escrow): when on, an unverified-COI brand may book —
+                    // Provisional holds (24h escrow): when on, an unverified-COI brand may book,
                     // card is AUTHORIZED (held), not charged, with 24h to get the COI approved.
                     window._provisionalHolds = !!(j && j.provisional_holds);
                 }
@@ -2397,18 +2397,18 @@ function supportMailto(a) {
 
         async function initSupabase() {
             // Best-effort: create Supabase client if lib is available. It's not strictly required
-            // for the public page — refreshAll goes through /api/find-retailer which is fetch-only.
+            // for the public page, refreshAll goes through /api/find-retailer which is fetch-only.
             try {
                 if (false) {  // supabase-js removed: booking page never queries it directly (all reads go through /api)
                     sb = null;
                 }
             } catch (e) { console.warn('Supabase init warning:', e); }
-            // Always run refreshAll — it uses fetch, not the Supabase JS client
+            // Always run refreshAll, it uses fetch, not the Supabase JS client
             await refreshAll();
         }
 
         async function refreshAll() {
-            // Guard removed — refreshAll works without sb, and RETAILER_ID gets set below from find-retailer response
+            // Guard removed, refreshAll works without sb, and RETAILER_ID gets set below from find-retailer response
             // Privacy Phase 0: single sanitized public endpoint replaces 8 anon table reads.
             // /api/find-retailer?action=public-data returns ONLY public-safe fields
             // (no PII , no contact emails, phones, names, no compliance docs, no internal staff).
@@ -2538,8 +2538,8 @@ function supportMailto(a) {
             try { showFirstBookableMonth(); } catch (_) {}
         }
 
-        // (The legacy embedded contact-management block — CONTACT_CONFIGS, loadContacts,
-        // renderContacts, openContactModal, saveContact, deleteContact — was deleted. It was a
+        // (The legacy embedded contact-management block, CONTACT_CONFIGS, loadContacts,
+        // renderContacts, openContactModal, saveContact, deleteContact, was deleted. It was a
         // stale copy of the retailer admin's code with NO #contactModal markup on this page, so it
         // was unreachable, and it lacked the admin copy's placeholder/venue-select fixes. The live
         // implementation is r/gus/admin/index.html only.)

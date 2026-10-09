@@ -1,4 +1,4 @@
-// /api/cal?slug={retailer-slug} — Read-only iCalendar feed (RFC 5545) of all confirmed
+// /api/cal?slug={retailer-slug}, Read-only iCalendar feed (RFC 5545) of all confirmed
 // demos at a retailer. Subscribe in Google Calendar / Apple Calendar / Outlook.
 //
 // URL pattern: https://demohubhq.com/api/cal?slug=gus
@@ -34,7 +34,7 @@ function fold(line) {
 }
 
 // The demo's start instant: demo_date + demo_time resolved in the RETAILER's zone by the shared
-// helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. A missing/unparseable time keeps the
+// helper (api/_local-time.js), correct PDT/PST, no fixed UTC-8. A missing/unparseable time keeps the
 // feed's long-standing 11:00 default; a date that cannot be resolved (impossible date, DST gap) is
 // dropped from the feed rather than guessed.
 import { fetchBookingSnapshots, sendFeedUnavailable } from './_occurrence.js';
@@ -82,7 +82,7 @@ export default async function handler(req, res) {
     const venueById = {};
     (venues || []).forEach(v => { venueById[v.id] = v; });
 
-    // Phase F: venue filter — accept UUID or exact venue name (case-insensitive)
+    // Phase F: venue filter, accept UUID or exact venue name (case-insensitive)
     let filteredVenueName = null;
     if (venueParam) {
       const wantId = /^[0-9a-f-]{36}$/i.test(venueParam) ? venueParam : null;
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
         filteredVenueName = match.name;
         demos = (demos || []).filter(d => d.venue_id === match.id);
       } else {
-        // Venue param supplied but no match — return empty calendar rather than 404
+        // Venue param supplied but no match, return empty calendar rather than 404
         demos = [];
       }
     }
@@ -127,7 +127,7 @@ export default async function handler(req, res) {
     (demos || []).forEach(d => {
       const snap = d.booking_id ? snapById.get(d.booking_id) : null;
       // Reconstruction is for a demo with NO linked booking, or a linked booking that genuinely has
-      // no snapshot (legacy) — both established by a SUCCESSFUL read above.
+      // no snapshot (legacy), both established by a SUCCESSFUL read above.
       const start = snap ? snap.start_at : parseDemoTime(d.demo_date, d.demo_time, tz);
       if (!start || Number.isNaN(start.getTime())) return;
       const durHours = d.duration_hours || 3;
@@ -158,7 +158,7 @@ export default async function handler(req, res) {
     const body = lines.join('\r\n') + '\r\n';
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `inline; filename="${slug}-demos.ics"`);
-    // Light caching — calendar apps poll every few hours
+    // Light caching, calendar apps poll every few hours
     res.setHeader('Cache-Control', 'public, max-age=900');
     res.status(200).send(body);
   } catch (e) {

@@ -1,4 +1,4 @@
-// api/_retailer-live.js — retailer go-live gate (2026-09-30).
+// api/_retailer-live.js, retailer go-live gate (2026-09-30).
 //
 // A retailer takes bookings only once Demohub has approved it: retailers.verification_status = 'approved'.
 // The column comes from 0056 (NOT NULL, DEFAULT 'pending', CHECK pending|approved|rejected|suspended), so a

@@ -1,4 +1,4 @@
-// /api/booking — Vercel serverless function
+// /api/booking, Vercel serverless function
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
@@ -43,7 +43,7 @@ async function svcCall(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limiting — fail-closed (denies on DB errors to prevent abuse during blips)
+// Rate limiting, fail-closed (denies on DB errors to prevent abuse during blips)
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // cf-connecting-ip is attacker-supplied (not behind Cloudflare); x-real-ip is Vercel-set,
@@ -112,7 +112,7 @@ ${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed
 </table></body></html>`;
 }
 
-// Wave 9: error log — best-effort write to error_log on any 5xx return.
+// Wave 9: error log, best-effort write to error_log on any 5xx return.
 // Caller uses logError(req, e, status). Never throws.
 async function logError(req, status, message, stack) {
   if (!_b.serviceKey) return;
@@ -187,7 +187,7 @@ async function createBrandMagicLink(brand_id, email) {
 }
 
 
-// (isRetailerAdminRequest removed — the strict retailer-staff gate above already authenticated the caller)
+// (isRetailerAdminRequest removed, the strict retailer-staff gate above already authenticated the caller)
 // R2/Codex 3.1: an orphan `}` sat here. createBrandMagicLink() closes on the line above, so this
 // brace closed nothing and made the whole module unparseable as ESM. node --check accepted it
 // (script goal); native `import()` did not. /api/booking has therefore been a dead route.
@@ -202,7 +202,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
-  // Codex finding B: both actions on this route are cookie-authenticated POSTs — agreement-check
+  // Codex finding B: both actions on this route are cookie-authenticated POSTs, agreement-check
   // reads the brand session, and booking creation requires a retailer staff session. Checked here,
   // before the body is parsed. No exemption applies: no webhook, no cron.
   if (!requireSameOrigin(req, res, _b)) return;
@@ -211,7 +211,7 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
     // ---- Agreement check (folded in to stay under Vercel function cap) ----
-    // Public — called by the booking page before submit to decide whether to show
+    // Public, called by the booking page before submit to decide whether to show
     // the demo-conduct modal. Returns { has_active, needs_re_sign, reason, policies }.
     if (body?.action === 'agreement-check') {
       const { retailer_slug: rs } = body;
@@ -233,7 +233,7 @@ export default async function handler(req, res) {
         demohub_tos_version: DEMOHUB_TOS_VERSION,
         demohub_tos_url: DEMOHUB_TOS_URL,
       };
-      // Brand-specific status requires the AUTHENTICATED brand session — never a submitted email,
+      // Brand-specific status requires the AUTHENTICATED brand session, never a submitted email,
       // so this endpoint can't be used to enumerate which emails have accounts/agreements.
       const _bAuth = await requireBrandSession(req, body);
       if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
@@ -249,7 +249,7 @@ export default async function handler(req, res) {
     }
 
     // ---- Agreement SIGN (session-authenticated) ----
-    // The booking page moved to the secure /api/book endpoint, which ignores signed_name — so the
+    // The booking page moved to the secure /api/book endpoint, which ignores signed_name, so the
     // typed signature from the demo-conduct modal was silently discarded and the modal reappeared
     // on every visit. This captures it for the AUTHENTICATED brand, mirroring the legacy in-booking
     // capture (supersede prior + immutable snapshot + hash).
@@ -332,7 +332,7 @@ export default async function handler(req, res) {
     {
       // Codex finding B: the staff session was read here by a private regex over the raw Cookie
       // header, with a body.session_id fallback behind it. A per-file regex is a per-file rename
-      // hazard — this one still spelled the retired dh_session — so the shared reader is the only
+      // hazard, this one still spelled the retired dh_session, so the shared reader is the only
       // way in now, and the body fallback is gone with it.
       const _sid = getSessionToken(req, 'retailer');
       // P0-1 (strict): valid session + LIVE membership + booking-capable role (blocks viewer/removed).
@@ -378,7 +378,7 @@ export default async function handler(req, res) {
     const demoDurationHours = slotRes.hours;
 
     // Auto-link to a brand account if email matches an existing brand
-    // (cross-retailer brand profiles — the brand sees this in /brand/dashboard)
+    // (cross-retailer brand profiles, the brand sees this in /brand/dashboard)
     let brandId = null;
     let isNewBrand = false;  // flipped when we create the brand row on first booking
     try {
@@ -434,7 +434,7 @@ export default async function handler(req, res) {
     // If the brand provided a typed signature in the booking payload, lock it in.
     // For first-time brands (no brand row yet) we minimally create one so we have a
     // foreign key target for the agreement. Bookings continue regardless if any of
-    // this fails — agreement is best-effort, the booking is the primary action.
+    // this fails, agreement is best-effort, the booking is the primary action.
     const DEMO_POLICY = retailer.demo_policy || DEFAULT_DEMO_POLICY;
     const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
     if (signed_name && String(signed_name).trim().length >= 2 && _b.serviceKey) {
@@ -489,7 +489,7 @@ export default async function handler(req, res) {
           }
 
           // Wave 7: email the brand a receipt of what they just signed.
-          // Best-effort — does not block the booking flow if Resend is unavailable.
+          // Best-effort, does not block the booking flow if Resend is unavailable.
           try {
             if (_b.resendApiKey && Array.isArray(newAgreement) && newAgreement[0]) {
               const a = newAgreement[0];
@@ -573,7 +573,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Insert booking row — MUST use SERVICE_KEY to bypass RLS on bookings table.
+    // Insert booking row, MUST use SERVICE_KEY to bypass RLS on bookings table.
     // Anonymous inserts are blocked by design; this endpoint acts as the trusted
     // proxy for public brand booking submissions.
     if (!_b.serviceKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
@@ -610,7 +610,7 @@ export default async function handler(req, res) {
           }
         }
       } catch (err) {
-        // R2-02: fail CLOSED. A read outage must not let an uninsured brand pay/book — that is
+        // R2-02: fail CLOSED. A read outage must not let an uninsured brand pay/book, that is
         // exactly the state this gate exists to stop. Block with a transient "try again" message
         // instead of silently marking the brand covered.
         console.error('COI gate read failed, blocking booking (fail-closed):', err && err.message);
@@ -732,7 +732,7 @@ export default async function handler(req, res) {
       // Generate a magic link so the "Manage your booking" CTA in the email lands the brand
       // authenticated in their portal. Fire-and-forget; if it fails, email still sends.
       // Only send the "booking received" email now for free / auto-confirm bookings.
-      // Fee-based bookings are 'pending_payment' — their confirmation email is sent by the
+      // Fee-based bookings are 'pending_payment', their confirmation email is sent by the
       // Stripe webhook AFTER payment succeeds, so an unpaid/abandoned booking never emails.
       const magicLinkPromise = awaitingPayment ? Promise.resolve(null) : createBrandMagicLink(brandId, contact_email);
       if (!awaitingPayment) magicLinkPromise.then(magicLink => {
@@ -777,13 +777,13 @@ export default async function handler(req, res) {
       }
       // (removed) An `if (!emailOk)` branch inspected a non-existent `emailResp`. emailOk is set
       // true unconditionally above and the confirmation send is fire-and-forget, so the branch was
-      // unreachable — and referenced an undefined identifier if it ever had run.
+      // unreachable, and referenced an undefined identifier if it ever had run.
     }
 
 
     // ===== Store contacts (internal_contacts) =====
     // Product decision (owner, 2026-09): store contacts are NOT told when a brand merely books or
-    // pays — the old "New demo scheduled" alert that lived here (Wave 8) is gone. They hear about a
+    // pays, the old "New demo scheduled" alert that lived here (Wave 8) is gone. They hear about a
     // demo when it is CONFIRMED. When this route inserts an already-confirmed booking (a free venue
     // on an auto-confirm retailer), trg_booking_notification_events (0074) writes the demo_confirmed
     // event in the insert's own transaction and api/notification-worker.js sends the notices. No

@@ -1,4 +1,4 @@
-// /api/signup — Self-serve retailer onboarding.
+// /api/signup, Self-serve retailer onboarding.
 // Creates a new retailer row, generates a unique slug, seeds default venues,
 // settings, and a starter availability schedule. Returns the new admin URL.
 // Uses service_role.
@@ -175,14 +175,14 @@ export default async function handler(req, res) {
     const rlSignupEmail = await checkRateLimitByKey('signup-email:' + String(billing_email).toLowerCase().slice(0, 64), 5);
     if (!rlSignupEmail.allowed) return res.status(429).json({ error: rlSignupEmail.error === 'rate_limit_unavailable' ? 'rate_limit_unavailable' : 'too_many_requests', message: 'Too many signups for this email. Try again later.' });
 
-    // Normalize email once — DB has a unique index on lower(billing_email)
+    // Normalize email once, DB has a unique index on lower(billing_email)
     const normalizedEmail = billing_email.toLowerCase().trim();
 
     // ===== Single-profile-per-email enforcement =====
     // 1a) Already registered as a retailer?
     try {
       // sb() returns parsed JSON directly (not a Response). Calling .json() again would
-      // throw and get swallowed by the catch — hiding the friendly "sign in instead" path.
+      // throw and get swallowed by the catch, hiding the friendly "sign in instead" path.
       const dupRows = await sb(`retailers?billing_email=eq.${encodeURIComponent(normalizedEmail)}&select=id,slug&limit=1`);
       if (Array.isArray(dupRows) && dupRows.length > 0) {
         return res.status(409).json({
@@ -195,7 +195,7 @@ export default async function handler(req, res) {
 
     // 1b) Already registered as a brand?
     try {
-      // Same fix — sb() returns parsed JSON, never call .json() on it.
+      // Same fix, sb() returns parsed JSON, never call .json() on it.
       const dupBRows = await sb(`brands?email=eq.${encodeURIComponent(normalizedEmail)}&select=id&limit=1`);
       if (Array.isArray(dupBRows) && dupBRows.length > 0) {
         return res.status(409).json({
@@ -284,7 +284,7 @@ export default async function handler(req, res) {
     let signupCode = null;
     try {
       // Generate a 6-digit code so signup email + fallback can include it.
-      // Use crypto.randomInt — Math.random is a predictable PRNG.
+      // Use crypto.randomInt, Math.random is a predictable PRNG.
       const n = randomInt(0, 1000000);
       signupCode = String(n).padStart(6, '0');
       let tokens;
@@ -336,7 +336,7 @@ export default async function handler(req, res) {
         const r = await sendMailQuietly({ from: FROM_ADDRESS, to: billing_email, replyTo: REPLY_TO, subject: built.subject, html: built.html, text: built.text }, { binding: _b });
         emailOk = r.ok;
         if (emailOk) {
-          // Stamp welcome_day0_sent_at. Wrap in try/catch — if the migration hasn't run yet,
+          // Stamp welcome_day0_sent_at. Wrap in try/catch, if the migration hasn't run yet,
           // don't blow up signup. PostgREST will return 400 on unknown column; swallow it.
           try {
             await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {

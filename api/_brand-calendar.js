@@ -1,4 +1,4 @@
-// api/_brand-calendar.js — F5-22 / LG-04: calendar feed uses a dedicated revocable token, not
+// api/_brand-calendar.js, F5-22 / LG-04: calendar feed uses a dedicated revocable token, not
 // the brand session. Resolving a feed by this token grants ONLY calendar read; it is never a session.
 import crypto from 'node:crypto';
 import { getBinding } from './_env.js';

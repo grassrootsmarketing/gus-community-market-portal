@@ -1,4 +1,4 @@
-// api/fulfill-booking.js — R12-P0-2: the single shared fulfilment worker step.
+// api/fulfill-booking.js, R12-P0-2: the single shared fulfilment worker step.
 //
 // Both the webhook (immediately after payment) and the cron (recovery) drive fulfilment through
 // this one endpoint, so there is exactly ONE implementation of "create the demo + send the emails".
