@@ -8,7 +8,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-const REPLY_TO = 'david@demohubhq.com';
+const REPLY_TO = 'bookings@demohubhq.com';
 
 function slugify(s) {
   return String(s || '')

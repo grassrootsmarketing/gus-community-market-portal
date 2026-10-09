@@ -160,7 +160,7 @@ async function sendResendEmail({ to, subject, html }) {
   let b = null;
   try { b = await bind(); } catch (e) { return { ok: false, reason: (e && e.code) || 'binding_invalid' }; }
   if (!b.resendApiKey) return { ok: false, reason: 'not_configured_or_no_to' };
-  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html }, { binding: b });
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'bookings@demohubhq.com', subject, html }, { binding: b });
   // _mail.js does not surface the provider message id; success/failure is still reported faithfully.
   return { ok: !!r.ok, id: null, reason: r.ok ? null : (r.code || null) };
 }

@@ -388,7 +388,7 @@ export async function buildHoldPlacedMessage(ctxOrId) {
     amountCents = Array.isArray(allocs) && allocs[0] ? allocs[0].customer_amount : null;
   } catch (_) { /* amount is decorative, the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
   return {
-    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
+    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'bookings@demohubhq.com',
     subject: `Your slot is held: upload your COI within 24 hours`,
     html: holdPlacedEmailHtml(ctx, b, amountCents),
   };
@@ -401,7 +401,7 @@ export async function sendHoldPlacedEmail(ctxOrId, { idempotencyKey = null, froz
   const msg = (frozen && frozen.to && frozen.subject && frozen.html) ? frozen : await buildHoldPlacedMessage(ctxOrId);
   if (!msg) return { ok: false, reason: 'no_recipient' };
   const r = await sendMailQuietly({
-    from: msg.from || FROM_ADDRESS, to: msg.to, replyTo: msg.replyTo || 'david@demohubhq.com',
+    from: msg.from || FROM_ADDRESS, to: msg.to, replyTo: msg.replyTo || 'bookings@demohubhq.com',
     subject: msg.subject, html: msg.html,
   }, { binding: b, ...(idempotencyKey ? { idempotencyKey } : {}) });
   if (!r.ok) throw new Error('email_failed:hold_placed:' + (r.code || 'unknown'));
@@ -413,7 +413,7 @@ export async function sendHoldReleasedEmail(ctxOrId, { bumped = false } = {}) {
   const ctx = (typeof ctxOrId === 'string' || !ctxOrId.venues) ? await bookingCtx(typeof ctxOrId === 'string' ? ctxOrId : ctxOrId.id) : ctxOrId;
   if (!ctx || !ctx.contact_email) return { ok: false, reason: 'no_recipient' };
   const r = await sendMailQuietly({
-    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
+    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'bookings@demohubhq.com',
     subject: bumped ? 'Your held demo slot was released, and you were not charged' : 'Your 24-hour hold expired, and you were not charged',
     html: holdReleasedEmailHtml(ctx, b, { bumped }),
   }, { binding: b });

@@ -256,7 +256,7 @@ async function handleReschedulePropose(req, res, body) {
     const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
     const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
     await sendMailQuietly({
-      from: FROM_ADDRESS, to: brandEmail, replyTo: 'david@demohubhq.com',
+      from: FROM_ADDRESS, to: brandEmail, replyTo: 'bookings@demohubhq.com',
       subject: `${retailerName} proposed a new date for your demo`,
       html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
     }, { binding: _b });
@@ -725,7 +725,7 @@ export default async function handler(req, res) {
         subject = `Your ${retailer?.name || 'demo'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       }
-      const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'david@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+      const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
       emailOk = r.ok;
     }
 

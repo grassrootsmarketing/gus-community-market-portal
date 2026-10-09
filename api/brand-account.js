@@ -21,7 +21,7 @@ let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
 const FROM_BOOKINGS = 'Demohub <bookings@demohubhq.com>';
-const REPLY_TO = 'david@demohubhq.com';
+const REPLY_TO = 'bookings@demohubhq.com';
 
 function jsonResp(res, status, body) {
   res.setHeader('Content-Type', 'application/json');
@@ -787,7 +787,7 @@ export default async function handler(req, res) {
           const line = decision === 'accept'
             ? `${escapeText(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeText(String(movedTo.date))}${movedTo.time ? ' at ' + escapeText(String(movedTo.time)) : ''}</strong>.`
             : `${escapeText(brandName)} declined the new date, so their demo stays on <strong>${escapeText(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeText(String(demo.demo_time)) : ''}</strong>.`;
-          await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'david@demohubhq.com', subject,
+          await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'bookings@demohubhq.com', subject,
             html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">Demohub</p></div>` }, { binding: _b });
         } catch (_) {}
       }

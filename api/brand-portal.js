@@ -121,7 +121,7 @@ export default async function handler(req, res) {
         const token = Array.isArray(tokens) ? tokens[0]?.token : null;
         const link = siteLink(_b, `/b/${retailer_slug}/?token=${encodeURIComponent(token)}`);
         if (_b.resendApiKey && token) {
-          await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }, { binding: _b });
+          await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'bookings@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }, { binding: _b });
         }
       }
       // Always respond 200 to prevent email enumeration

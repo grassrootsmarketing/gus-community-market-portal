@@ -359,7 +359,7 @@ export default async function handler(req, res) {
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const link = siteLink(_b, `/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`);
           if (_b.resendApiKey && token) {
-            await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
+            await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'bookings@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
           }
         }
       }
@@ -402,7 +402,7 @@ export default async function handler(req, res) {
             if (!token) continue;
             const link = siteLink(_b, `/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`);
             if (_b.resendApiKey) {
-              await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
+              await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'bookings@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
             }
           }
         }
@@ -635,7 +635,7 @@ export default async function handler(req, res) {
           await sendMailQuietly({
             from: FROM_ADDRESS,
             to: normalizedEmail,
-            replyTo: 'david@demohubhq.com',
+            replyTo: 'bookings@demohubhq.com',
             subject: `${v.email} invited you to ${retailer.name} on Demohub`,
             html: invitationEmail({ retailerName: retailer.name, roleName, link, code, inviterEmail: v.email }),
           }, { binding: _b });
@@ -1402,7 +1402,7 @@ async function sendLiveNotice(row) {
   try {
     const b1 = await bind(); const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const pub = siteLink(b1, '/r/' + row.slug), adm = siteLink(b1, '/r/' + row.slug + '/admin');
-    const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: row.billing_email, replyTo: 'david@demohubhq.com', subject: 'Your Demohub booking page is live',
+    const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: row.billing_email, replyTo: 'bookings@demohubhq.com', subject: 'Your Demohub booking page is live',
       html: '<p>Demohub has approved <strong>' + esc(row.name) + '</strong>. Brands can now book demos on your booking page, once your locations and hours are set up.</p><p>Booking page: <a href="' + esc(pub) + '">' + esc(pub) + '</a><br>Admin: <a href="' + esc(adm) + '">' + esc(adm) + '</a></p><p>Questions? Email david@demohubhq.com.</p>' }, { binding: b1 });
     return !!sent && sent.ok !== false;
   } catch (_) { return false; }
@@ -1439,7 +1439,7 @@ async function handleOwnerAction(action, req, res, body) {
       if (token) {
         const link = siteLink(_b, `/owner?token=${encodeURIComponent(token)}`);
         if (_b.resendApiKey) {
-          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link, code) }, { binding: _b });
+          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'bookings@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link, code) }, { binding: _b });
           diag.resend_ok = !!r.ok;
           if (!r.ok) diag.resend_error = r.code || 'mail_send_failed';
         } else {
@@ -1775,7 +1775,7 @@ async function handleOwnerAction(action, req, res, body) {
         sendMailQuietly({
           from: 'Demohub <support@demohubhq.com>',
           to: retailerInfo.billing_email,
-          replyTo: 'david@demohubhq.com',
+          replyTo: 'bookings@demohubhq.com',
           subject: `Demohub support just accessed ${retailerInfo.name}`,
           html,
         }, { binding: _b }).catch(e => console.warn('support summary email failed:', e?.message || e));

@@ -525,7 +525,7 @@ export default async function handler(req, res) {
               await sendMailQuietly({
                 from: FROM_ADDRESS,
                 to: String(contact_email).toLowerCase(),
-                replyTo: 'david@demohubhq.com',
+                replyTo: 'bookings@demohubhq.com',
                 subject: subj,
                 html: htmlBody,
               }, { binding: _b });
@@ -560,7 +560,7 @@ export default async function handler(req, res) {
                 await sendMailQuietly({
                   from: FROM_ADDRESS,
                   to: RETAILER_BILLING_EMAIL,
-                  replyTo: 'david@demohubhq.com',
+                  replyTo: 'bookings@demohubhq.com',
                   subject: retailerSubj,
                   html: retailerHtmlBody,
                 }, { binding: _b });
@@ -739,7 +739,7 @@ export default async function handler(req, res) {
         sendMailQuietly({
           from: FROM_ADDRESS,
           to: contact_email,
-          replyTo: 'david@demohubhq.com',
+          replyTo: 'bookings@demohubhq.com',
           subject: `Your demo booking at ${RETAILER_NAME}`,
           html: emailBody({
             contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel,
@@ -766,7 +766,7 @@ export default async function handler(req, res) {
           sendMailQuietly({
             from: FROM_ADDRESS,
             to: contact_email,
-            replyTo: 'david@demohubhq.com',
+            replyTo: 'bookings@demohubhq.com',
             subject: welcomeSubj,
             html: welcomeHtml,
           }, { binding: _b }).catch(e => console.warn('brand welcome email failed:', e?.message || e));

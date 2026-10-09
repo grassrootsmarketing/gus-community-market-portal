@@ -26,7 +26,7 @@ import { link } from './_mail.js';
 import { safeZone, demoStartUtc, dateLabel, timeRangeLabel, timeLabel, relativeDayPhrase } from './_local-time.js';
 
 export const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-export const REPLY_TO = 'david@demohubhq.com';
+export const REPLY_TO = 'bookings@demohubhq.com';
 const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export function H(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }

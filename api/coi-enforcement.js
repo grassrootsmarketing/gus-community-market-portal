@@ -35,7 +35,7 @@ async function sb(path, opts = {}) {
 
 async function sendEmail({ to, subject, htmlBody }) {
   if (!_b.resendApiKey || !to) return { ok: false };
-  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
   return r.ok ? { ok: true } : { ok: false, error: r.code };
 }
 
