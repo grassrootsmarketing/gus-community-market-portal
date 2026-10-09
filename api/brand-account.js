@@ -223,7 +223,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -255,7 +255,7 @@ function retailerDay3Email({ first_name }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -288,7 +288,7 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -337,7 +337,7 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
-        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
         <div style="font-weight:800;font-size:18px;letter-spacing:-0.04em;color:#0f2c17;">demohub</div>
       </div>
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.025em;color:#0f2c17;margin:0 0 14px;line-height:1.2;">${headlineMap[tier]}</h1>
@@ -375,7 +375,7 @@ function retailerCoiWarningEmail({ tier, retailer_name, brand_name, brand_contac
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
-        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
         <div style="font-weight:800;font-size:18px;letter-spacing:-0.04em;color:#0f2c17;">demohub</div>
       </div>
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.025em;color:#0f2c17;margin:0 0 14px;line-height:1.2;">${headlineMap[tier]}</h1>
@@ -1969,7 +1969,7 @@ export default async function handler(req, res) {
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
 <td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
