@@ -1,12 +1,12 @@
-// api/_flags.js — closed-launch feature gates and kill switches.
+// api/_flags.js, closed-launch feature gates and kill switches.
 //
 // Gate 0 rule: the operator probe must report the REAL effective runtime surface. A flag that no
-// route consumes is worse than no flag — it manufactures false confidence. So every value returned
+// route consumes is worse than no flag, it manufactures false confidence. So every value returned
 // by flagSnapshot() below is either (a) enforced by a named consumer, or (b) explicitly labelled as
 // derived/hard-coded state rather than a control.
 //
 // Codex G0-C3/G0-v2-3: kill switches require the LITERAL string "true" (case/whitespace variants rejected). Unset, empty, misspelled or malformed
-// values DISABLE the operation. This is a deliberate change from availability-first defaults — the
+// values DISABLE the operation. This is a deliberate change from availability-first defaults, the
 // closed launch prefers a hard stop over an accidentally-open surface, and it makes the packet's
 // "malformed configuration cannot widen the surface" statement actually true.
 //
@@ -22,7 +22,7 @@
 //                                                         retailer-signup request AND verify, before quotas)
 //   notificationWorker    NOTIFICATION_WORKER_ENABLED     api/notification-worker.js (200 disabled) +   false
 //                                                         api/find-retailer.js (job required only when on)
-//   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
+//   connectedCheckout     (no env control, hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
 // DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
@@ -50,7 +50,7 @@ export const FLAGS = {
   // Release B: per-location demo-slot and blackout EDITING (api/admin.js availability actions that
   // carry a slot list, the blackout action, and the admin editors). Off = existing configurations
   // keep being enforced and read, hours/capacity autosave still works, but no new slot/blackout
-  // intake — the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
+  // intake, the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
   // compatible rollback once custom slots exist.
   // Read at request time (getter) rather than at module load: the kill switch is still the literal
   // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
@@ -72,7 +72,7 @@ export function coiEnforcementMode() {
 }
 
 // EFFECTIVE COI automation state: the Boolean launch flag AND the mode must both permit work.
-// If the launch flag is not exactly "true", the answer is 'off' no matter what the mode says —
+// If the launch flag is not exactly "true", the answer is 'off' no matter what the mode says,
 // so a stray COI_ENFORCEMENT_MODE=live cannot cancel or refund anything.
 export function coiEnforcementEffective() {
   if (!FLAGS.coiAutoEnforcement) return 'off';

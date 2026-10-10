@@ -1,8 +1,8 @@
-// api/_slots.js — Release B (Codex §7/§8): ONE reading of a venue's demo-slot configuration,
+// api/_slots.js, Release B (Codex §7/§8): ONE reading of a venue's demo-slot configuration,
 // weekday hours and blackout dates, shared by every server writer (/api/book, staff bookings,
 // reschedule proposals) and by the public projection. Mirrors the SQL functions in migration 0075
 // (venue_slots_config / venue_day_windows / venue_blackout_dates / venue_slot_offered); the
-// DATABASE is the authority — booking_slot_resolve() re-runs this check under the venue lock — and
+// DATABASE is the authority, booking_slot_resolve() re-runs this check under the venue lock, and
 // this module exists so a route can refuse early with a precise 400 and never write a spelling,
 // length or end time the browser chose.
 //
@@ -124,7 +124,7 @@ export function blackoutDates(availability) {
 }
 
 // Whole-blob validation (Codex B-02): a malformed schedule/slots/blackouts structure means NOTHING is
-// bookable — it is never treated as "absent". Mirrors venue_availability_validate() (0075/0076).
+// bookable, it is never treated as "absent". Mirrors venue_availability_validate() (0075/0076).
 //   { ok: true } | { ok: false, error }
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function validateAvailability(availability) {
@@ -208,7 +208,7 @@ export function resolveRequestedSlot(availability, ymd, timeStr, tz) {
   }
   const local = resolveLocalTime({ ...d, hour: Math.floor(min / 60), minute: min % 60 }, safeZone(tz));
   if (!local.ok) return { ok: false, reason: 'invalid_local_time', detail: local.error };
-  // Codex R6: the WHOLE interval must sit on one side of any clock change — elapsed duration and the
+  // Codex R6: the WHOLE interval must sit on one side of any clock change, elapsed duration and the
   // wall clock would otherwise disagree (a "3-hour" slot ending at 04:30 after spring-forward
   // overlaps the next slot; a fall-back span shows a wrong local end). Mirrors booking_interval_ok().
   if (intervalSpansTransition(local.date, slot.hours, tz)) return { ok: false, reason: 'invalid_local_time', detail: 'spans_transition' };

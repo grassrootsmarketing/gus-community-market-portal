@@ -1,4 +1,4 @@
-// api/_cookies.js — session transport. Cookies only, one per role.
+// api/_cookies.js, session transport. Cookies only, one per role.
 //
 // Codex finding B. Before this, sessions were returned in JSON bodies, accepted from query
 // strings and request bodies, and stored in localStorage by page JavaScript. Each of those is a
@@ -9,7 +9,7 @@
 //
 // THREE SEPARATE COOKIES, deliberately. Codex required that owner and impersonated-retailer
 // sessions not share one cookie. If they did, an owner impersonating a retailer would overwrite
-// their own session — and worse, a retailer-scoped session sitting in the owner cookie would be
+// their own session, and worse, a retailer-scoped session sitting in the owner cookie would be
 // read by owner-only code paths as if it were an owner. Distinct names make that impossible to
 // express rather than merely unlikely.
 //
@@ -52,7 +52,7 @@ export function clearSessionCookie(res, role) {
   appendSetCookie(res, `${COOKIE[role]}=; ${BASE_ATTRS}; Max-Age=0`);
 }
 
-// Clearing every role at once — used by logout so an impersonation session cannot outlive it.
+// Clearing every role at once, used by logout so an impersonation session cannot outlive it.
 export function clearAllSessionCookies(res) {
   for (const role of ROLES) clearSessionCookie(res, role);
 }
@@ -74,7 +74,7 @@ export function readCookies(req) {
 // THE ONLY way a handler should obtain a session secret.
 //
 // Deliberately does NOT fall back to req.body or req.query. Codex finding B requires the legacy
-// compatibility paths gone, and there is no real user data to preserve — so a transitional
+// compatibility paths gone, and there is no real user data to preserve, so a transitional
 // "accept either" mode would only serve to keep the insecure path alive indefinitely.
 export function getSessionToken(req, role) {
   assertRole(role);

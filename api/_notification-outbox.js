@@ -1,4 +1,4 @@
-// api/_notification-outbox.js — the notification outbox worker's internals (Codex Release A).
+// api/_notification-outbox.js, the notification outbox worker's internals (Codex Release A).
 //
 // THE MODEL (migration 0074). Database triggers write notification_events IN THE TRANSACTION that
 // changes state: a booking reaching 'confirmed' (manual confirm, auto-confirm on payment, fulfilment
@@ -6,7 +6,7 @@
 // reschedule (accept_reschedule RPC), and a COI decision (review_coi_verification). Nothing in the
 // request path sends store-contact or COI-decision mail any more. This module turns those events
 // into notification_deliveries (one row per recipient, or per reminder offset per recipient per
-// occurrence), and then sends them — claim, recheck, freeze, send, record — so that:
+// occurrence), and then sends them, claim, recheck, freeze, send, record, so that:
 //
 //   * a crash anywhere leaves a durable row that the next run finishes (never a lost lifecycle mail);
 //   * two workers cannot both send the same row (claim_token + lease; completion is a compare-and-set
@@ -27,14 +27,14 @@
 // CLOCK. Every function takes `now` (a Date) so tests drive DST edges, catch-up expiry and lease
 // takeover deterministically. The HTTP route (api/notification-worker.js) never accepts a clock.
 //
-// DATABASE ACCESS is PostgREST with the service key, in bounded batches (limit/offset loops — never
+// DATABASE ACCESS is PostgREST with the service key, in bounded batches (limit/offset loops, never
 // the 1000-row default page). The claim is a single filtered UPDATE (one SQL statement, so each row
 // is claimed by exactly one worker); ownership is then re-read by claim_token.
 //
 // REMINDER SCHEDULE (api/_local-time.js reminderWindow): w1/d3/d1/d<N> at 09:00 local on the earlier
 // calendar day; morning_of at 07:00 local only if the demo starts later; h1 = start - 60 min.
 // expires_at = due + 2h (h1: +30 min), never later than the start. A reminder whose due_at is already
-// past when it is FIRST scheduled is inserted as skipped 'due_before_scheduling' — first rollout and
+// past when it is FIRST scheduled is inserted as skipped 'due_before_scheduling', first rollout and
 // late opt-ins never produce a backlog burst, and the decision is visible in the table.
 
 import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
@@ -148,7 +148,7 @@ async function loadOne(b, cache, table, id, select = '*') {
   m.set(id, row);
   return row;
 }
-// Fresh (uncached) read — used by the dispatch recheck, which must see the CURRENT state.
+// Fresh (uncached) read, used by the dispatch recheck, which must see the CURRENT state.
 async function loadFresh(b, table, id, select = '*') {
   if (!id) return null;
   const rows = await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`);
@@ -363,12 +363,12 @@ export async function scheduleReminders(b, { now = new Date(), batch = DEFAULTS.
 export function claimFilter(nowIso) {
   return `due_at=lte.${enc(nowIso)}&or=(and(status.eq.pending,claim_token.is.null),and(status.eq.failed,next_attempt_at.lte.${nowIso}),and(status.eq.unknown,next_attempt_at.lte.${nowIso}),and(status.eq.claimed,lease_until.lt.${nowIso}))`;
 }
-// CLAIM PROTOCOL (PostgREST cannot do UPDATE ... LIMIT — verified against the test project: a
-// `limit` on PATCH is ignored — so the batch bound is a SELECT and atomicity is the filtered UPDATE):
+// CLAIM PROTOCOL (PostgREST cannot do UPDATE ... LIMIT, verified against the test project: a
+// `limit` on PATCH is ignored, so the batch bound is a SELECT and atomicity is the filtered UPDATE):
 //   1. SELECT up to `batch` claimable ids (oldest due first).
 //   2. UPDATE those ids WITH THE SAME CLAIMABILITY FILTER, setting status/claim_token/lease. One SQL
 //      statement: under READ COMMITTED a concurrent worker that picked the same ids blocks on the row
-//      lock and re-evaluates the WHERE on the committed version — which is now claimed by us — so it
+//      lock and re-evaluates the WHERE on the committed version, which is now claimed by us, so it
 //      updates zero of them. Exactly one winner per row.
 //   3. SELECT rows carrying OUR token. Ownership is what the database says, never what we asked for.
 export async function claimDue(b, { now, batch, claimToken }) {
@@ -500,10 +500,10 @@ async function recheckAndBuild(b, cache, row, now) {
 // Send one claimed row. Returns 'accepted' | 'skipped' | 'failed' | 'unknown' | 'lost'.
 // Codex R4-03 B: delivery uncertainty lives in the frozen envelope (outside the immutable provider
 // fields to/subject/html), NOT in the lease/work status that claimDue rewrites. A row is uncertain when
-//   * a previous attempt got no usable answer (uncertain:true — provider unreachable, aborted, or an
+//   * a previous attempt got no usable answer (uncertain:true, provider unreachable, aborted, or an
 //     unverifiable acknowledgment), or
 //   * a previous attempt was marked as starting (attempting_at) and never settled (crash mid-send), or
-//   * the envelope predates this contract (legacy: no 'uncertain' field) — handled conservatively.
+//   * the envelope predates this contract (legacy: no 'uncertain' field), handled conservatively.
 // Only a verified acceptance clears it; a later definite rejection cannot.
 export function uncertaintyOf(frozen) {
   if (!frozen || typeof frozen !== 'object') return { uncertain: false, reason: null };
@@ -542,7 +542,7 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
     if (priorAttempt) {
       // Codex R4-03 A: the eligibility decision comes BEFORE any provider call. Resend deduplicates a
       // key for 24h only; a re-send outside that window (or with no trustworthy first-attempt time to
-      // measure it from) could be a duplicate. Such work is terminal — surfaced for an operator — with
+      // measure it from) could be a duplicate. Such work is terminal, surfaced for an operator, with
       // ZERO provider calls, and it keeps its uncertainty ('unknown' when a send may have gone out).
       const firstAttemptMs = Date.parse(String(frozen.attempted_at || ''));
       // Codex N-1: the send must COMPLETE inside the provider's dedupe window, so the request budget
@@ -559,7 +559,7 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
         return { outcome: status, final: true, reason: terminal, calls: 0 };
       }
       // Codex R4-03 B: mark THIS attempt durably before the send. A crash between here and the settle
-      // leaves attempting_at newer than settled_at — which the next claim reads as uncertain.
+      // leaves attempting_at newer than settled_at, which the next claim reads as uncertain.
       frozen = { ...frozen, uncertain: history.uncertain, attempting_at: attemptIso };
       await cas(b, row, token, { frozen_payload: frozen, updated_at: attemptIso });
       // Codex N-1: the stamp itself took time (a slow database await can cross the cutoff). Re-read the
@@ -642,7 +642,7 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
 }
 
 // ---------------------------------------------------------------------------
-// 4. METRICS — backlog and oldest pending age are reported separately from liveness.
+// 4. METRICS, backlog and oldest pending age are reported separately from liveness.
 // ---------------------------------------------------------------------------
 export async function collectMetrics(b, { now = new Date() } = {}) {
   const nowIso = enc(now.toISOString());
@@ -667,11 +667,11 @@ export async function collectMetrics(b, { now = new Date() } = {}) {
 // ---------------------------------------------------------------------------
 // One worker run. ok = every step ran without error and every attempted send was accepted or
 // skipped by design. A failed/unknown send, a lost lease, a failed enqueue or read, or a failed
-// completion record all make the run NOT ok — the route writes a 'failed' heartbeat and answers 500.
+// completion record all make the run NOT ok, the route writes a 'failed' heartbeat and answers 500.
 // ---------------------------------------------------------------------------
 export async function runWorker(b, { now = new Date(), mailer = sendMail, budgets = {} } = {}) {
   // Codex R4-03 A: the run clock is fixed at start (for the audit line); each dispatch attempt reads a
-  // clock that advances with real elapsed time from it — a long run cannot re-send under a decision
+  // clock that advances with real elapsed time from it, a long run cannot re-send under a decision
   // made minutes ago.
   const startedRealMs = Date.now();
   const clock = () => new Date(now.getTime() + (Date.now() - startedRealMs));

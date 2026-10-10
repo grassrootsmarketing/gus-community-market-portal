@@ -1,5 +1,5 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
-// /api/stripe — Subscription management for retailers.
+// /api/stripe, Subscription management for retailers.
 // Actions: subscribe, portal, cancel, status
 //
 // Auth: requires a valid admin session_id (verifies retailer scope).
@@ -74,15 +74,15 @@ async function stripe(method, path, body) {
   return json;
 }
 
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
+// (dead auth helper removed, all authorization goes through _retailer-auth.js)
 
 // -----------------------------------------------------------------------------
 // Codex finding B: the local cookie helpers are deleted, not re-pointed. This route's only reader
 // fed the opportunistic set-cookie below, and authorization itself goes through _retailer-auth.js,
-// which now reads dh_retailer_session directly — so there is no remaining consumer of a session
+// which now reads dh_retailer_session directly, so there is no remaining consumer of a session
 // value in this file, and the body/query fallback that used to sit behind the cookie is gone.
 // (The `session_id` in the subscribe response further down is a STRIPE CHECKOUT session id, not an
-// auth session — it is public by design and deliberately untouched.)
+// auth session, it is public by design and deliberately untouched.)
 // -----------------------------------------------------------------------------
 
 // ----- price/product lookup (cached in-memory per cold start) -----
@@ -102,7 +102,7 @@ async function getPriceForTier(tier, interval) {
 // ----- handler -----
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
 // accounts exist yet; failing closed would risk locking out the owner).
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
+// (dead auth helper removed, all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
   try {
@@ -117,7 +117,7 @@ export default async function handler(req, res) {
     try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
     // Codex finding B: every action here starts, cancels or resyncs a billing subscription for the
-    // caller's retailer. Checked before the session is read. No exemption applies — Stripe reaches
+    // caller's retailer. Checked before the session is read. No exemption applies, Stripe reaches
     // this platform through api/stripe-webhook.js, never through this route.
     if (!requireSameOrigin(req, res, _b)) return;
 

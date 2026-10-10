@@ -1,7 +1,7 @@
-// api/_mail.js — the ONLY way this application sends email.
+// api/_mail.js, the ONLY way this application sends email.
 //
 // Codex finding C: api/_env.js already parsed EMAIL_ALLOWLIST and returned emailMode /
-// emailAllowlist / siteOrigin — and nothing consumed any of them. 24 call sites across 11 files
+// emailAllowlist / siteOrigin, and nothing consumed any of them. 24 call sites across 11 files
 // called api.resend.com directly with a key read straight from process.env, and built links from
 // a hardcoded production host.
 //
@@ -11,17 +11,17 @@
 //
 // RULES ENFORCED HERE, NOT BY CONVENTION:
 //   * every recipient is checked against the bound emailMode before any network call
-//   * in a non-production target, a non-allowlisted address CANNOT receive mail — the message is
+//   * in a non-production target, a non-allowlisted address CANNOT receive mail, the message is
 //     rewritten to the sink and the intended recipient is recorded in the subject and body
 //   * production requires the explicit real-email gate (enforced in _env.js) AND a provider key
-//   * a missing provider key throws. It never logs the code, link or token it was carrying —
+//   * a missing provider key throws. It never logs the code, link or token it was carrying,
 //     "no key, so print the magic link to the console" is a credential leak into log storage
 //   * links are built from the bound origin via link(), never from a hardcoded host
 //   * opts.idempotencyKey is forwarded as Resend's Idempotency-Key header (documented dedupe window:
 //     24 hours) so the notification outbox can retry a send without a duplicate email; the caller
 //     freezes the exact payload it first sent under that key and never reuses the key for another
 //   * opts.timeoutMs bounds the provider call; a timeout or network failure is reported as
-//     mail_provider_unreachable — the request MAY have reached the provider, which is a different
+//     mail_provider_unreachable, the request MAY have reached the provider, which is a different
 //     outcome from a definite rejection (mail_send_failed) and callers must treat it as unknown
 
 import { getBinding, link, BindingError } from './_env.js';
@@ -40,7 +40,7 @@ function asList(to) {
 }
 
 // ---------------------------------------------------------------------------
-// Containment decision. Pure — testable without a network.
+// Containment decision. Pure, testable without a network.
 // ---------------------------------------------------------------------------
 export function planDelivery(binding, recipients) {
   const list = asList(recipients);
@@ -59,7 +59,7 @@ export function planDelivery(binding, recipients) {
     return { mode: 'sink', to: list, redirected: false, intended: list };
   }
 
-  // The sink is the first allowlist entry — an address the operator explicitly nominated.
+  // The sink is the first allowlist entry, an address the operator explicitly nominated.
   const sink = [...allow][0];
   return { mode: 'sink', to: [sink], redirected: true, intended: list };
 }
@@ -93,7 +93,7 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
     finalHtml = banner + (html || '');
   }
 
-  // Codex R4-03 C: ONE deadline for the whole exchange — request, headers AND body. The timer is
+  // Codex R4-03 C: ONE deadline for the whole exchange, request, headers AND body. The timer is
   // cleared in the outermost finalisation only, after the response is fully consumed and classified.
   // Body reads are raced against the deadline so a fetch implementation that ignores the signal for
   // body streams cannot leave a send pending past its advertised bound.
@@ -127,7 +127,7 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
       }),
     });
   } catch (e) {
-    // No response: the request may or may not have reached the provider. Report that honestly —
+    // No response: the request may or may not have reached the provider. Report that honestly,
     // never as a definite failure. No payload in the log.
     console.error('MAIL_PROVIDER_UNREACHABLE', JSON.stringify({ target: binding.targetName, mode: plan.mode, aborted: aborted(), stage: 'request' }));
     throw new MailError('mail_provider_unreachable', { aborted: aborted(), stage: 'request' });
@@ -135,7 +135,7 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
 
   if (!res.ok) {
     // Error headers: the provider REFUSED (definite). A stalled or unreadable error body cannot turn
-    // that into a hang or a success — it settles within the bound with the status as the detail.
+    // that into a hang or a success, it settles within the bound with the status as the detail.
     let detail = `HTTP ${res.status}`;
     try { const j = await bounded(res.json()); detail = (j && j.message) || detail; }
     catch (_) { detail += aborted() ? ' (error body stalled past the deadline)' : ' (error body unreadable)'; }
@@ -169,7 +169,7 @@ export async function sendMail({ to, subject, html, text, replyTo, from }, opts 
 }
 
 // Best-effort variant for genuinely non-blocking notifications (staff alerts, welcome nudges).
-// Still goes through every containment check — "best effort" governs error handling, never
+// Still goes through every containment check, "best effort" governs error handling, never
 // whether the allowlist applies.
 export async function sendMailQuietly(msg, opts = {}) {
   try { return await sendMail(msg, opts); }

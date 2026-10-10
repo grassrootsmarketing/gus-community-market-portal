@@ -1,4 +1,4 @@
-// api/refund-review.js — R12-P0-4: authenticated operator resolution of a stuck refund.
+// api/refund-review.js, R12-P0-4: authenticated operator resolution of a stuck refund.
 //
 // A parked refund holds a reservation because Stripe MIGHT already have issued the refund. Only a
 // human who has actually looked can decide. This endpoint does the looking for them (server-side,
@@ -57,12 +57,12 @@ export default async function handler(req, res) {
   if (!STRIPE_SECRET_KEY) return res.status(500).json({ error: 'server_not_configured' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   // Codex finding B, CSRF wiring: adopt/replace resolve a parked refund and can release a reservation or mint a new one.
-  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // Checked before the session is read. No exemption applies, this route is cookie-authenticated
   // and carries neither a Stripe signature nor a CRON_SECRET.
   if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
 
-  // owner/admin only — a manager or viewer may not move money
+  // owner/admin only, a manager or viewer may not move money
   const auth = await requireRetailerMembership(req, body, null, ['owner', 'admin']);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
     const reqRows = await sbGet(`refund_requests?parent_operation_id=eq.${encodeURIComponent(op.id)}&select=id,attempt_version,status,amount,stripe_refund_id,last_error,attempts&order=attempt_version.desc`);
     const latest = Array.isArray(reqRows) ? reqRows[0] : null;
 
-    // always look Stripe up — this is the evidence the decision rests on
+    // always look Stripe up, this is the evidence the decision rests on
     const look = grp.stripe_payment_intent_id && latest
       ? await stripeFindRefund(grp.stripe_payment_intent_id, latest.id)
       : { ok: false, error: 'no_payment_intent_or_request' };
@@ -105,7 +105,7 @@ export default async function handler(req, res) {
     }
 
     if (action === 'replace') {
-      // refuse unless Stripe conclusively has no matching refund — prevents double-refunding
+      // refuse unless Stripe conclusively has no matching refund, prevents double-refunding
       if (!look.ok) return res.status(502).json({ error: 'stripe_lookup_failed', detail: look.error });
       if (look.match) return res.status(409).json({ error: 'stripe_refund_exists', stripe_refund_id: look.match.id, hint: 'use action=adopt' });
       const r = await sbRpc('resolve_refund_replace', { p_op_key: opKey, p_operator: auth.email, p_retailer_id: auth.retailer_id, p_evidence: evidence });

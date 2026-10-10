@@ -1,4 +1,4 @@
-// api/checkout.js — combined-charge checkout backed by the payment ledger (0029).
+// api/checkout.js, combined-charge checkout backed by the payment ledger (0029).
 // checkout_claim_group() atomically verifies ownership + payable state, snapshots an IMMUTABLE
 // per-demo allocation, and (via UNIQUE booking_id) makes concurrent double-checkout impossible.
 // One Stripe Checkout Session per payment group; the durable group id is the Stripe idempotency key.
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
   if (!STRIPE) return res.status(500).json({ error: 'STRIPE_SECRET_KEY not configured' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
   // Codex finding B, CSRF wiring: this route claims a payment group and opens a Stripe Checkout Session.
-  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // Checked before the session is read. No exemption applies, this route is cookie-authenticated
   // and carries neither a Stripe signature nor a CRON_SECRET.
   if (!requireSameOrigin(req, res, _b)) return;
   let body = {}; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) {}
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
 
     // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
-    // the whole PaymentIntent, so a held booking can never share a Session with anything else —
+    // the whole PaymentIntent, so a held booking can never share a Session with anything else,
     // mixed or multi-booking held carts are rejected, and manual capture is applied ONLY to a held
     // cart (verified brands keep the immediate charge even with the flag on).
     const heldCount = bookings.filter(b => b.status === 'held').length;
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
     }
     // Flag-off rollback guard: if PROVISIONAL_HOLDS_ENABLED is flipped off while a 'held' booking
     // exists, checking it out here would take the IMMEDIATE-charge path (no capture_method=manual),
-    // charging the card in full — but apply_verified_payment then freezes the group (a held+unpaid
+    // charging the card in full, but apply_verified_payment then freezes the group (a held+unpaid
     // booking is not flippable), so the customer is charged with no demo. Refuse instead; the hold
     // can only ever settle through the capture/release paths, which don't gate on the flag.
     if (provisionalCart && !FLAGS.provisionalHolds) {
@@ -131,7 +131,7 @@ export default async function handler(req, res) {
       customer_email: bookings[0].contact_email || undefined,
       'metadata[payment_group_id]': gid,
       'metadata[retailer_id]': retailerId,
-      // R11-P0-5: do NOT put booking UUIDs in metadata — 14+ ids exceed Stripe's 500-char value
+      // R11-P0-5: do NOT put booking UUIDs in metadata, 14+ ids exceed Stripe's 500-char value
       // limit and break checkout for large carts. Fulfilment resolves allocations from the ledger
       // by payment_group_id; only a non-sensitive count is kept for at-a-glance dashboards.
       'metadata[booking_count]': String(bookings.length),
@@ -143,7 +143,7 @@ export default async function handler(req, res) {
     // Provisional holds (24h escrow): AUTHORIZE now, capture on confirm/verify within 24h, cancel on
     // expiry. 24h < Stripe's ~7-day auth window, so a manual-capture hold is safe. Gated behind
     // PROVISIONAL_HOLDS_ENABLED; off = immediate charge (current launch behavior). See
-    // docs/provisional-holds.md. Manual capture applies ONLY to a held (unverified-COI) cart —
+    // docs/provisional-holds.md. Manual capture applies ONLY to a held (unverified-COI) cart,
     // verified brands are charged immediately exactly as before.
     if (FLAGS.provisionalHolds && provisionalCart) {
       params['payment_intent_data[capture_method]'] = 'manual';

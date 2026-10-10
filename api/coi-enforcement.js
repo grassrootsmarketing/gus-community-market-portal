@@ -1,4 +1,4 @@
-// /api/coi-enforcement.js — hourly COI enforcement cron (work order Phase 3).
+// /api/coi-enforcement.js, hourly COI enforcement cron (work order Phase 3).
 // Sends reminders + final warnings, and auto-cancels + refunds demos whose brand has no
 // current COI by the 72h cutoff. Ships behind COI_ENFORCEMENT_MODE (off by default) so it
 // does NOTHING until explicitly enabled after the Phase 1 migration is applied.
@@ -35,7 +35,7 @@ async function sb(path, opts = {}) {
 
 async function sendEmail({ to, subject, htmlBody }) {
   if (!_b.resendApiKey || !to) return { ok: false };
-  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
   return r.ok ? { ok: true } : { ok: false, error: r.code };
 }
 
@@ -107,7 +107,7 @@ async function refundBooking(booking, keepsAll) {
 //
 // Codex F-02: this used to read compliance_records GLOBALLY and match the joined contact by email
 // alone, so a record filed by Retailer A (against any contact carrying the brand's email) counted as
-// coverage — or as an unreadable "unknown" certificate that suppresses cancellation — for a Retailer B
+// coverage, or as an unreadable "unknown" certificate that suppresses cancellation, for a Retailer B
 // booking. A compliance record is a retailer's own paperwork about a brand; it is scoped to the
 // booking's retailer_id here, and migration 0071 guarantees the joined contact belongs to that same
 // retailer. A missing/invalid retailerId is treated as unreadable (fail-safe skip), never as "no
@@ -134,14 +134,14 @@ async function notifyStaff(_booking) { /* outbox-driven (0074) */ }
 export default async function handler(req, res) {
   // ---- auth ----
   // DH-07: require a signed cron identity in EVERY environment. Never fall back to trusting the
-  // presence of x-vercel-cron (client-spoofable). If CRON_SECRET is unset, deny — enforcement
+  // presence of x-vercel-cron (client-spoofable). If CRON_SECRET is unset, deny, enforcement
   // stays inert rather than becoming a header-triggerable refund/cancel engine.
   const secret = process.env.CRON_SECRET;
   const authOk = !!secret && (req.headers['authorization'] || '') === 'Bearer ' + secret;
   if (!authOk) return res.status(401).json({ error: 'unauthorized' });
 
   // G0-C1 dual gate: the launch flag AND the mode must both permit work. If
-  // COI_AUTO_ENFORCEMENT_ENABLED is not exactly "true", this worker does nothing at all — a stray
+  // COI_AUTO_ENFORCEMENT_ENABLED is not exactly "true", this worker does nothing at all, a stray
   // COI_ENFORCEMENT_MODE=live can no longer cancel bookings or move money. The effective state is
   // computed by the SAME parser the operator probe reports, so the two can never disagree.
   if (!FLAGS.coiAutoEnforcement) {
@@ -239,7 +239,7 @@ export default async function handler(req, res) {
           await sb(`bookings?id=eq.${encodeURIComponent(b.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled', cancelled_at: now.toISOString(), cancel_reason: 'coi_missing' }) });
           log.cancels++;
           // 1b) store contacts: the demo is off the schedule whether or not the refund below succeeds
-          //     (b.status is the PRE-cancel status read above — only a confirmed demo was announced).
+          //     (b.status is the PRE-cancel status read above, only a confirmed demo was announced).
           await notifyStaff(b);
           // 2) refund (idempotency-keyed; keeps-all branch). Let charge.refunded webhook set payment_status/refunded_at.
           const keepsAll = !!(r.platform_keeps_all);

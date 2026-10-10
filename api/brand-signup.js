@@ -1,6 +1,6 @@
-// api/brand-signup.js — F5-04: verified brand account creation / passwordless-claim.
+// api/brand-signup.js, F5-04: verified brand account creation / passwordless-claim.
 // Kills the takeover hole: you can only set a password + get a session for an email AFTER
-// proving you own it. An account that ALREADY has a password can never be "claimed" — that
+// proving you own it. An account that ALREADY has a password can never be "claimed", that
 // path is login only. Password format matches the existing login (<salt_hex>$<hash_hex>, scrypt).
 
 import crypto from 'node:crypto';
@@ -21,7 +21,7 @@ function rest(path, opts = {}) {
 }
 
 // Set the HttpOnly brand-session cookie (matches brand-account.js) so a verified brand is
-// immediately signed in for booking — no token handling in page JS.
+// immediately signed in for booking, no token handling in page JS.
 // Codex finding B: "matches brand-account.js" was a promise kept by hand, in a duplicated
 // attribute string. Delegated, so the name and attributes have one definition.
 function setBrandCookie(res, token) {
@@ -31,7 +31,7 @@ function setBrandCookie(res, token) {
 // The signup card's single primary category rides the challenge payload exactly like the name and
 // phone do, and is applied ONCE at redeem, only when the brand has none yet. Previously it was
 // persisted by a page-side follow-up call after the code was accepted, which only ran on one of the
-// two signup surfaces — so the booking form kept asking "What are you demoing?" on every booking.
+// two signup surfaces, so the booking form kept asking "What are you demoing?" on every booking.
 function cleanCategory(v) {
   const s = String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, 80);
   return s || null;
@@ -47,7 +47,7 @@ async function applyChallengeCategory(email, brandId) {
     await rest(`brands?id=eq.${encodeURIComponent(brandId)}&default_categories=is.null`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ default_categories: cat }),
     });
-  } catch (_) { /* best-effort — the Profile page remains the place to set it */ }
+  } catch (_) { /* best-effort, the Profile page remains the place to set it */ }
 }
 
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
@@ -57,9 +57,9 @@ function hashPassword(password) {
   return salt.toString('hex') + '$' + dk.toString('hex');
 }
 
-// Core: create or claim a brand — ONLY called after email verification succeeds.
+// Core: create or claim a brand, ONLY called after email verification succeeds.
 // Returns { ok, reason? , brand_id, session_token }.
-// RETIRED — Codex finding A: exactly one canonical provisioning path. Everything this used to do
+// RETIRED, Codex finding A: exactly one canonical provisioning path. Everything this used to do
 // now happens inside redeem_brand_signup() (migration 0053) as one transaction. Kept as a throwing
 // stub rather than deleted so any forgotten caller fails loudly instead of silently taking a
 // second, unreviewed route to the same tables.
@@ -74,13 +74,13 @@ async function _retired_provisionOrClaimVerifiedBrand(email, password, profile =
   const existing = rows[0] || null;
 
   if (existing && existing.password_hash) {
-    // Active account already exists — do NOT let anyone re-claim it. This is the takeover guard.
+    // Active account already exists, do NOT let anyone re-claim it. This is the takeover guard.
     return { ok: false, reason: 'account_exists_login_instead' };
   }
   const password_hash = hashPassword(password);
   let brandId;
   if (existing) {
-    // legitimate claim of a passwordless row — now verified
+    // legitimate claim of a passwordless row, now verified
     await rest(`brands?id=eq.${existing.id}`, { method: 'PATCH', body: JSON.stringify({ password_hash, is_verified: true, updated_at: new Date().toISOString() }) });
     brandId = existing.id;
   } else {
@@ -221,7 +221,7 @@ export default async function handler(req, res) {
     if (!ipOk || !emOk) return res.status(429).json({ error: 'too_many_attempts' });
 
     // ONE round trip does all of: match the code, consume the challenge, provision the brand,
-    // create the owner membership, and issue the session — in a single transaction that claims
+    // create the owner membership, and issue the session, in a single transaction that claims
     // the challenge row FOR UPDATE. Codex finding A required atomicity here; previously a crash
     // between consume and provision left the code spent and the brand absent, and N parallel
     // guesses could all read the same pre-increment attempt count.

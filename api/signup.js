@@ -1,4 +1,4 @@
-// /api/signup — Self-serve retailer onboarding.
+// /api/signup, Self-serve retailer onboarding.
 // Creates a new retailer row, generates a unique slug, seeds default venues,
 // settings, and a starter availability schedule. Returns the new admin URL.
 // Uses service_role.
@@ -8,7 +8,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-const REPLY_TO = 'david@demohubhq.com';
+const REPLY_TO = 'bookings@demohubhq.com';
 
 function slugify(s) {
   return String(s || '')
@@ -64,7 +64,7 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
   } catch (e) {
     // Fail-CLOSED: signup is an unauthenticated write; an unavailable rate-limiter
     // must not translate into unlimited retailer creation.
-    console.error('signup rate limit check failed — denying request:', e?.message || e);
+    console.error('signup rate limit check failed, denying request:', e?.message || e);
     return { allowed: false, current: 0, error: 'rate_limit_unavailable' };
   }
 }
@@ -111,7 +111,7 @@ function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -131,8 +131,8 @@ function retailerDay0Email({ first_name, admin_url, public_booking_url }) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nWelcome to Demohub. Your admin is live and waiting for you here: ${admin_url}\n\nI built this for retailers like you — independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.\n\nFour things to get you set up:\n\n1. Set your hours and demo windows for each store, so brands can only book inside slots you actually staff. (Settings → Locations.)\n2. Add your team contacts — the manager, the floor lead, anyone who needs the demo schedule. (Settings → Team.)\n3. Sync your calendar so confirmed demos show up next to everything else on your week. (Settings → Calendar feed.)\n4. Share your booking link with the brands you already work with: ${public_booking_url}\n\nIf you get stuck or want a walkthrough, just hit reply — I read every email myself. We'll be in touch in a few days to check in.\n\nWelcome aboard,\nDavid\nDemohub`;
-  const subject = `Welcome to Demohub, ${first_name || 'there'} — let's get your store set up`;
+  const text = `Hi ${first_name || 'there'},\n\nWelcome to Demohub. Your admin is live and waiting for you here: ${admin_url}\n\nI built this for retailers like you: independent grocers and specialty shops who'd rather spend Friday on the floor than chasing demo schedules in a spreadsheet. The whole platform is one place to confirm bookings, track COI expirations, and run every location you operate.\n\nFour things to get you set up:\n\n1. Set your hours and demo windows for each store, so brands can only book inside slots you actually staff. (Settings → Locations.)\n2. Add your team contacts: the manager, the floor lead, anyone who needs the demo schedule. (Settings → Team.)\n3. Sync your calendar so confirmed demos show up next to everything else on your week. (Settings → Calendar feed.)\n4. Share your booking link with the brands you already work with: ${public_booking_url}\n\nIf you get stuck or want a walkthrough, just hit reply. I read every email myself. We'll be in touch in a few days to check in.\n\nWelcome aboard,\nDavid\nDemohub`;
+  const subject = `Welcome to Demohub, ${first_name || 'there'}: let's get your store set up`;
   return { subject, html: htmlBody, text };
 }
 
@@ -175,14 +175,14 @@ export default async function handler(req, res) {
     const rlSignupEmail = await checkRateLimitByKey('signup-email:' + String(billing_email).toLowerCase().slice(0, 64), 5);
     if (!rlSignupEmail.allowed) return res.status(429).json({ error: rlSignupEmail.error === 'rate_limit_unavailable' ? 'rate_limit_unavailable' : 'too_many_requests', message: 'Too many signups for this email. Try again later.' });
 
-    // Normalize email once — DB has a unique index on lower(billing_email)
+    // Normalize email once, DB has a unique index on lower(billing_email)
     const normalizedEmail = billing_email.toLowerCase().trim();
 
     // ===== Single-profile-per-email enforcement =====
     // 1a) Already registered as a retailer?
     try {
       // sb() returns parsed JSON directly (not a Response). Calling .json() again would
-      // throw and get swallowed by the catch — hiding the friendly "sign in instead" path.
+      // throw and get swallowed by the catch, hiding the friendly "sign in instead" path.
       const dupRows = await sb(`retailers?billing_email=eq.${encodeURIComponent(normalizedEmail)}&select=id,slug&limit=1`);
       if (Array.isArray(dupRows) && dupRows.length > 0) {
         return res.status(409).json({
@@ -191,11 +191,11 @@ export default async function handler(req, res) {
           signin_url: '/signin?email=' + encodeURIComponent(normalizedEmail),
         });
       }
-    } catch (_) { /* if lookup fails, fall through — unique index will still block */ }
+    } catch (_) { /* if lookup fails, fall through, unique index will still block */ }
 
     // 1b) Already registered as a brand?
     try {
-      // Same fix — sb() returns parsed JSON, never call .json() on it.
+      // Same fix, sb() returns parsed JSON, never call .json() on it.
       const dupBRows = await sb(`brands?email=eq.${encodeURIComponent(normalizedEmail)}&select=id&limit=1`);
       if (Array.isArray(dupBRows) && dupBRows.length > 0) {
         return res.status(409).json({
@@ -284,7 +284,7 @@ export default async function handler(req, res) {
     let signupCode = null;
     try {
       // Generate a 6-digit code so signup email + fallback can include it.
-      // Use crypto.randomInt — Math.random is a predictable PRNG.
+      // Use crypto.randomInt, Math.random is a predictable PRNG.
       const n = randomInt(0, 1000000);
       signupCode = String(n).padStart(6, '0');
       let tokens;
@@ -336,7 +336,7 @@ export default async function handler(req, res) {
         const r = await sendMailQuietly({ from: FROM_ADDRESS, to: billing_email, replyTo: REPLY_TO, subject: built.subject, html: built.html, text: built.text }, { binding: _b });
         emailOk = r.ok;
         if (emailOk) {
-          // Stamp welcome_day0_sent_at. Wrap in try/catch — if the migration hasn't run yet,
+          // Stamp welcome_day0_sent_at. Wrap in try/catch, if the migration hasn't run yet,
           // don't blow up signup. PostgREST will return 400 on unknown column; swallow it.
           try {
             await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {

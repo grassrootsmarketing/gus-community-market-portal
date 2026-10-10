@@ -22,7 +22,7 @@ let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
 const FROM_BOOKINGS = 'Demohub <bookings@demohubhq.com>';
-const REPLY_TO = 'david@demohubhq.com';
+const REPLY_TO = 'bookings@demohubhq.com';
 
 function jsonResp(res, status, body) {
   res.setHeader('Content-Type', 'application/json');
@@ -59,7 +59,7 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limit — fail-closed. Denies on DB errors so a Supabase blip cannot
+// Rate limit, fail-closed. Denies on DB errors so a Supabase blip cannot
 // NOTE: these are OUR abuse controls, not Resend's quota. /login is unauthenticated and sends
 // email to any address submitted, so an uncapped endpoint lets anyone inbox-bomb a stranger.
 // Per-EMAIL caps are the real control; per-IP caps are deliberately loose because mobile
@@ -68,14 +68,14 @@ async function sb(path, opts = {}) {
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
-  // Vercel's. cf-connecting-ip is NOT trusted — we are not behind Cloudflare, so it is
+  // Vercel's. cf-connecting-ip is NOT trusted, we are not behind Cloudflare, so it is
   // purely attacker-supplied and previously let every rate limit be bypassed.
   const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
   return req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
 }
 
 // Rate limit keyed ONLY on the given identifier (no IP). This is the unspoofable cap on
-// login-code guesses per account — the IP-appended checkRateLimit below cannot provide it.
+// login-code guesses per account, the IP-appended checkRateLimit below cannot provide it.
 async function checkRateLimitByKey(fullKey, maxPerHour) {
   try {
     const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
@@ -111,12 +111,12 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
 }
 
 // -----------------------------------------------------------------------------
-// Session transport — api/_cookies.js is the single implementation.
+// Session transport, api/_cookies.js is the single implementation.
 //
 // Codex finding B. This file used to carry its own copy of the cookie attribute string and its
 // own cookie parser, and so did api/admin-auth.js, api/admin.js and api/booking-action.js. Four
-// hand-rolled copies of one security-critical string is four chances for one of them to drift —
-// a dropped Secure, a stray Domain — with nothing that would notice. The wrappers below keep the
+// hand-rolled copies of one security-critical string is four chances for one of them to drift,
+// a dropped Secure, a stray Domain, with nothing that would notice. The wrappers below keep the
 // local names so every existing call site in this file is unchanged, but the attributes, the
 // cookie name and the parsing now come from one place.
 // -----------------------------------------------------------------------------
@@ -128,7 +128,7 @@ function setBrandSessionCookie(res, token) {
 function clearBrandSessionCookie(res) { clearRoleCookie(res, 'brand'); }
 
 // -----------------------------------------------------------------------------
-// Password hashing (Node stdlib scrypt — no npm dependency).
+// Password hashing (Node stdlib scrypt, no npm dependency).
 // Storage format: <salt_hex>$<hash_hex>. Salt is 16 bytes, hash is 64 bytes.
 // scrypt cost params are Node defaults (N=16384, r=8, p=1).
 // -----------------------------------------------------------------------------
@@ -172,16 +172,16 @@ function getBrandSessionFromReq(req, _body) {
 }
 async function sendMagicLink(email, link, isNew, code) {
   // The link and the code are credentials. If there is no provider key we send nothing and log
-  // nothing — writing them to log storage is a credential leak, not a debugging aid.
+  // nothing, writing them to log storage is a credential leak, not a debugging aid.
   if (!_b.resendApiKey) return;
-  const subject = isNew ? 'Welcome to Demohub — verify your brand account' : 'Sign in to your Demohub brand account';
+  const subject = isNew ? 'Welcome to Demohub: verify your brand account' : 'Sign in to your Demohub brand account';
   const codeBlock = code ? `
       <div style="background:#fbf7f0;border:1.5px solid #ede3d0;border-radius:12px;padding:20px 24px;margin:0 0 24px;text-align:center;">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.12em;color:#a14e2a;margin-bottom:8px;">Your sign-in code</div>
         <div style="font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div>
         <div style="font-size:12px;color:#6b6a64;margin-top:10px;">Enter this on the screen where you asked to sign in. Best on a phone, where a link can open in the wrong browser.</div>
       </div>
-      <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">— or —</p>
+      <p style="font-size:14px;color:#6b6a64;margin:0 0 14px;text-align:center;">or</p>
   ` : '';
   const body = `
     <div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
@@ -224,7 +224,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -245,7 +245,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nYou're in. Your ${brand_name || 'your brand'} brand profile is live: ${siteLink(_b, '/brand/dashboard')}\n\nHere's the idea: you fill out your info once, and that profile follows you to every Demohub retailer.\n\nTwo things to do now:\n1. Upload your COI (Profile -> Compliance).\n2. Fill in the rest of your profile (Profile -> Contact + Product).\n\nFree forever for brands. Always.\n\nWelcome,\nDavid\nDemohub`;
-  const subject = `Welcome to Demohub, ${first_name || 'there'} — one profile for every retailer`;
+  const subject = `Welcome to Demohub, ${first_name || 'there'}: one profile for every retailer`;
   return { subject, html: htmlBody, text };
 }
 
@@ -256,7 +256,7 @@ function retailerDay3Email({ first_name }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -276,7 +276,7 @@ function retailerDay3Email({ first_name }) {
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
   const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- How to price demos: Most start at $30 per slot.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\n20-min walkthrough: https://calendly.com/demohubhq/walkthrough\n\nTalk soon,\nDavid\nDemohub`;
-  const subject = `${first_name || 'there'} — how's your Demohub setup going?`;
+  const subject = `${first_name || 'there'}, how's your Demohub setup going?`;
   return { subject, html: htmlBody, text };
 }
 
@@ -289,7 +289,7 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -308,8 +308,8 @@ function brandFirstDemoEmail({ first_name, retailer_name, demo_date }) {
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed — ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
-  const subject = `Nice — your first demo at ${retailer_name || 'your retailer'} is locked in`;
+  const text = `Hi ${first_name || 'there'},\n\nYour first Demohub demo is confirmed: ${retailer_name || 'your retailer'} on ${demo_date || ''}. Congrats.\n\n- Round out your product categories.\n- Check your COI expiration date.\n- Sync your demos to your calendar.\n\nCheers,\nDavid\nDemohub`;
+  const subject = `Nice, your first demo at ${retailer_name || 'your retailer'} is locked in`;
   return { subject, html: htmlBody, text };
 }
 
@@ -325,7 +325,7 @@ async function processBatched(items, batchSize, processOne) {
 
 function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_left }) {
   const subjectMap = {
-    30: `Your COI expires in 30 days — let's get ahead of it`,
+    30: `Your COI expires in 30 days, so let's get ahead of it`,
     14: `Reminder: your Demohub COI expires in 2 weeks`,
     3:  `Last call: your COI expires in ${days_left} day${days_left === 1 ? '' : 's'}`,
   };
@@ -334,11 +334,11 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
     14: `2 weeks until your COI expires`,
     3:  `${days_left} day${days_left === 1 ? '' : 's'} until your COI expires`,
   };
-  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: ${siteLink(_b, '/brand/dashboard#compliance')}\n3. You're done — every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\n— Demohub`;
+  const body = `Hi ${first_name || 'there'},\n\nQuick heads-up: the Certificate of Insurance on your ${brand_name || 'brand'} Demohub profile expires on ${expires_label}.\n\nRetailers can't accept new demos from brands with an expired COI, and your verified badge disappears the moment it lapses. Take a minute now and you're set:\n\n1. Get an updated COI from your insurer (most brokers can re-issue same-day).\n2. Upload it to your profile: ${siteLink(_b, '/brand/dashboard#compliance')}\n3. You're done, and every Demohub retailer sees the new doc instantly.\n\nQuestions? Just reply to this email.\n\nDemohub`;
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
-        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
         <div style="font-weight:800;font-size:18px;letter-spacing:-0.04em;color:#0f2c17;">demohub</div>
       </div>
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.025em;color:#0f2c17;margin:0 0 14px;line-height:1.2;">${headlineMap[tier]}</h1>
@@ -349,11 +349,11 @@ function coiWarningEmail({ tier, first_name, brand_name, expires_label, days_lef
         <ol style="margin:0;padding-left:20px;font-size:14px;color:#3a3a36;line-height:1.7;">
           <li>Get an updated COI from your insurer (most brokers can re-issue same-day).</li>
           <li>Upload it to your profile.</li>
-          <li>You're done — every Demohub retailer sees the new doc instantly.</li>
+          <li>You're done, and every Demohub retailer sees the new doc instantly.</li>
         </ol>
       </div>
       <a href="${siteLink(_b, '/brand/dashboard#compliance')}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;font-weight:700;font-size:15px;text-decoration:none;">Upload new COI &rarr;</a>
-      <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email — a human reads everything.</p>
+      <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Questions? Just reply to this email. A human reads everything.</p>
     </div>
   </body></html>`;
   return { subject: subjectMap[tier], html, text: body };
@@ -376,7 +376,7 @@ function retailerCoiWarningEmail({ tier, retailer_name, brand_name, brand_contac
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#fbf7f0;font-family:'Plus Jakarta Sans',-apple-system,sans-serif;">
     <div style="max-width:560px;margin:0 auto;padding:40px 24px;">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:32px;">
-        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+        <svg width="32" height="32" viewBox="0 0 72 72"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
         <div style="font-weight:800;font-size:18px;letter-spacing:-0.04em;color:#0f2c17;">demohub</div>
       </div>
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.025em;color:#0f2c17;margin:0 0 14px;line-height:1.2;">${headlineMap[tier]}</h1>
@@ -394,12 +394,12 @@ function retailerCoiWarningEmail({ tier, retailer_name, brand_name, brand_contac
       <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:28px 0 0;">Sent automatically by Demohub. You can adjust notification settings in your admin.</p>
     </div>
   </body></html>`;
-  const text = `Hi ${retailer_name || 'there'},\n\nThe COI on file for ${brand_name}${brand_contact_name ? ' (' + brand_contact_name + ')' : ''} expires on ${expires_label}.\n\n${upcoming_demo_label ? `Heads up: you have an upcoming demo with this brand on ${upcoming_demo_label}. If their COI lapses before then, you may need to reschedule.\n\n` : ''}Two things to do:\n1. Reach out to ${brand_name} and ask them to renew before expiry.\n2. Once they upload it, your admin updates automatically.\n\nOpen your compliance dashboard: ${admin_url}\n\n— Demohub`;
+  const text = `Hi ${retailer_name || 'there'},\n\nThe COI on file for ${brand_name}${brand_contact_name ? ' (' + brand_contact_name + ')' : ''} expires on ${expires_label}.\n\n${upcoming_demo_label ? `Heads up: you have an upcoming demo with this brand on ${upcoming_demo_label}. If their COI lapses before then, you may need to reschedule.\n\n` : ''}Two things to do:\n1. Reach out to ${brand_name} and ask them to renew before expiry.\n2. Once they upload it, your admin updates automatically.\n\nOpen your compliance dashboard: ${admin_url}\n\nDemohub`;
   return { subject: subjectMap[tier], html, text };
 }
 
 async function sendWelcome({ to, subject, html, text }) {
-  if (!_b.resendApiKey) { console.warn('mail provider not configured — skipping welcome to', to); return false; }
+  if (!_b.resendApiKey) { console.warn('mail provider not configured, skipping welcome to', to); return false; }
   const r = await sendMailQuietly({ from: FROM_BOOKINGS, to, replyTo: REPLY_TO, subject, html, text }, { binding: _b });
   return !!r.ok;
 }
@@ -418,14 +418,14 @@ export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   // Codex finding B: the same-origin gate for every state-changing request on this route.
-  // api/_session.js exported a checkOrigin() helper that no handler ever called — a control that
+  // api/_session.js exported a checkOrigin() helper that no handler ever called, a control that
   // read as protection and was wired to nothing. This is that check actually invoked: once, after
   // the binding (the expected origin is derived from the validated binding, never from a
   // client-controllable forwarded-host header) and before the body is read or any session looked
   // up. SameSite=Lax alone does not cover this: a sibling subdomain is same-site, so its POSTs
   // still carry the cookie, and _csrf.js rejects those.
   // The daily cron arrives as a GET (vercel.json crons) and authenticates with CRON_SECRET rather
-  // than a cookie, so it needs no exemption — GET is a safe method here.
+  // than a cookie, so it needs no exemption, GET is a safe method here.
   if (!requireSameOrigin(req, res, _b)) return;
 
   const body = await readBody(req);
@@ -504,9 +504,9 @@ export default async function handler(req, res) {
     }
 
     if (action === 'signup') {
-      // RETIRED — Codex finding A. This handler was the one the UI actually called, and it
+      // RETIRED, Codex finding A. This handler was the one the UI actually called, and it
       // PATCHed an existing brand's profile, inserted a brands row, inserted a brand_members
-      // owner row, and issued a session — all BEFORE the caller proved they controlled the
+      // owner row, and issued a session, all BEFORE the caller proved they controlled the
       // email address. That made it a profile-takeover primitive: "sign up" as a passwordless
       // brand and overwrite its company name, contact and phone.
       //
@@ -554,7 +554,7 @@ export default async function handler(req, res) {
           }),
         ]);
         const link = siteLink(_b, `/brand/verify?t=${token}`);
-        // Fire-and-forget email — don't block response on Resend latency
+        // Fire-and-forget email, don't block response on Resend latency
         sendMagicLink(member.email, link, false, code).catch(e => console.warn('brand login email failed:', e?.message || e));
       }
       // Always return ok:true to prevent email enumeration
@@ -634,7 +634,7 @@ export default async function handler(req, res) {
         method: 'PATCH',
         body: JSON.stringify({ is_verified: true, updated_at: new Date().toISOString() }),
       });
-      // Codex finding B: cookie only — the session_token that used to be in this body was read by
+      // Codex finding B: cookie only, the session_token that used to be in this body was read by
       // brand/verify and written to localStorage. Cookie not set means no session, so fail loudly.
       if (!sessionToken) return jsonResp(res, 500, { error: 'Could not start session' });
       setBrandSessionCookie(res, sessionToken);
@@ -657,7 +657,7 @@ export default async function handler(req, res) {
         // "upload your COI" state instead of a blank page.
         sb(`bookings?brand_id=eq.${brandId}&or=(and(status.eq.pending,payment_status.eq.paid),status.eq.held)&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,payment_status,held_expires_at,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
-      // select=* above is deliberate — the client reads fifteen-odd columns and enumerating them
+      // select=* above is deliberate, the client reads fifteen-odd columns and enumerating them
       // here is how one silently goes missing later. But `*` on brands also ships password_hash
       // and cal_feed_token straight into the browser, so they are stripped on the way out.
       // A denylist, not an allowlist: a new column reaching the client is a bug we can see,
@@ -682,7 +682,7 @@ export default async function handler(req, res) {
       const demos = await readList(demosR, 'demos');
       // 0074: a pending reschedule proposal is versioned on the BOOKING (reschedule_proposal_version);
       // the dashboard's Accept/Decline must quote it. demos has no FK to bookings, so it cannot be
-      // embedded — one side query for the demos that carry a proposal.
+      // embedded, one side query for the demos that carry a proposal.
       try {
         const withProposal = (Array.isArray(demos) ? demos : []).filter(d => d && d.reschedule_to_date && d.booking_id);
         if (withProposal.length) {
@@ -731,7 +731,7 @@ export default async function handler(req, res) {
       // ONE database transaction (0074 accept_reschedule / decline_reschedule): the bookings row is
       // the authoritative schedule (capacity is enforced there by the 0070 move trigger), demos is
       // its projection, the proposal is consumed, the demo_rescheduled event is written and stale
-      // reminders are retired — or none of it happens. This route no longer PATCHes demos, and the
+      // reminders are retired, or none of it happens. This route no longer PATCHes demos, and the
       // store-contact "rescheduled" mail is produced by the outbox worker from that event.
       const rpcName = decision === 'accept' ? 'accept_reschedule' : 'decline_reschedule';
       let verdict = null;
@@ -788,7 +788,7 @@ export default async function handler(req, res) {
           const line = decision === 'accept'
             ? `${escapeText(brandName)} accepted your proposed date. Their demo is now on <strong>${escapeText(String(movedTo.date))}${movedTo.time ? ' at ' + escapeText(String(movedTo.time)) : ''}</strong>.`
             : `${escapeText(brandName)} declined the new date, so their demo stays on <strong>${escapeText(String(demo.demo_date))}${demo.demo_time ? ' at ' + escapeText(String(demo.demo_time)) : ''}</strong>.`;
-          await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'david@demohubhq.com', subject,
+          await sendMailQuietly({ from: FROM_BOOKINGS, to: retailerEmail, replyTo: 'bookings@demohubhq.com', subject,
             html: `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;max-width:520px;margin:0 auto;padding:24px;"><p style="font-size:15px;line-height:1.6;">${line}</p><p style="font-size:13px;color:#6b6a64;">Demohub</p></div>` }, { binding: _b });
         } catch (_) {}
       }
@@ -819,9 +819,9 @@ export default async function handler(req, res) {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
       const brandId = await verifySession(sessionToken);
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      // DH-03: 'default_coi_url' intentionally NOT allowlisted — a COI URL is only ever set by the
+      // DH-03: 'default_coi_url' intentionally NOT allowlisted, a COI URL is only ever set by the
       // verified upload handler, never self-declared through a profile save.
-      // LG-11: 'default_coi_expires' removed — a brand must NOT be able to self-extend the coverage
+      // LG-11: 'default_coi_expires' removed, a brand must NOT be able to self-extend the coverage
       // date used by the booking gate. Expiry is server-owned, set only by the verified upload flow.
       const allowed = ['company_name', 'contact_name', 'phone', 'default_product_info', 'default_categories', 'website', 'notification_prefs', 'needs_electricity', 'products'];
       const patch = { updated_at: new Date().toISOString() };
@@ -938,11 +938,11 @@ export default async function handler(req, res) {
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const dataUrl = String(body.image || '');
       const m = dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
-      if (!m) return jsonResp(res, 400, { error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      if (!m) return jsonResp(res, 400, { error: 'Invalid image: must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
       const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large — max 2MB' });
+      if (bytes.length > 2 * 1024 * 1024) return jsonResp(res, 400, { error: 'Image too large (max 2MB)' });
       const path = `brands/${brandId}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
@@ -1113,7 +1113,7 @@ export default async function handler(req, res) {
           const _days = Math.round((today - new Date(d.earliest_expiry + 'T00:00:00Z')) / 86400000);
           return { decision: 'block', flags: ['expired'], message: 'That certificate expired on ' + prettyDate(d.earliest_expiry)
             + (_days > 0 ? ' (' + _days + ' day' + (_days === 1 ? '' : 's') + ' ago)' : '')
-            + '. Ask your broker for the renewed certificate and upload that one — most can re-issue the same day.' };
+            + '. Ask your broker for the renewed certificate and upload that one. Most can re-issue the same day.' };
         }
       }
       // --- flags (upload still accepted) ---
@@ -1199,7 +1199,7 @@ export default async function handler(req, res) {
 
       // The document's own expiry is authoritative when we could read one; the value the
       // brand typed is the fallback. This was defined in the block replaced below and is
-      // restored here — check-undefined caught its absence before anything ran.
+      // restored here, check-undefined caught its absence before anything ran.
       const effectiveExpiry = docExpiry || expChk.value || null;
 
       // ATOMIC FINALIZATION -- Codex v6-FINAL B1.
@@ -1271,8 +1271,8 @@ export default async function handler(req, res) {
       } catch (_) {}
 
       // Owner ping: a certificate just LANDED (durably finalized above). With manual review as
-      // the only approval path — and the 24h provisional-hold clock running for uninsured
-      // bookings — an unnoticed queue item can cost a brand their slot. Best-effort: a mail
+      // the only approval path, and the 24h provisional-hold clock running for uninsured
+      // bookings, an unnoticed queue item can cost a brand their slot. Best-effort: a mail
       // hiccup must never fail the upload the brand was just told succeeded.
       try {
         const OWNER_NOTIFY = 'david@demohubhq.com';
@@ -1283,7 +1283,7 @@ export default async function handler(req, res) {
             const held = heldR.ok ? await heldR.json() : [];
             if (Array.isArray(held) && held.length) {
               const dl = held[0].held_expires_at ? new Date(held[0].held_expires_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Los_Angeles', timeZoneName: 'short' }) : 'soon';
-              heldLine = `<p style="font-size:14px;line-height:1.5;color:#a14e2a;background:#fff3ed;border-left:4px solid #ed682f;padding:10px 14px;border-radius:8px;margin:0 0 16px;"><strong>${held.length} held booking${held.length === 1 ? '' : 's'}</strong> waiting on this approval — first hold releases <strong>${dl}</strong>.</p>`;
+              heldLine = `<p style="font-size:14px;line-height:1.5;color:#a14e2a;background:#fff3ed;border-left:4px solid #ed682f;padding:10px 14px;border-radius:8px;margin:0 0 16px;"><strong>${held.length} held booking${held.length === 1 ? '' : 's'}</strong> waiting on this approval. The first hold releases <strong>${dl}</strong>.</p>`;
             }
           } catch (_) {}
           const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -1295,7 +1295,7 @@ export default async function handler(req, res) {
               + `<h2 style="font-size:20px;color:#0f2c17;margin:0 0 14px;">A certificate just landed</h2>`
               + heldLine
               + `<p style="font-size:14px;line-height:1.6;margin:0 0 16px;"><strong>${esc(brandRow && brandRow.company_name)}</strong> (${esc(brandRow && brandRow.email)}) uploaded a COI.<br>`
-              + `Status: <strong>${esc(verificationStatus)}</strong> &middot; Insurer: ${esc(vdata && vdata.insurer_name || '—')} &middot; Doc expiry: ${esc(docExpiry || 'unreadable')} &middot; Flags: ${esc(flagsTxt)}</p>`
+              + `Status: <strong>${esc(verificationStatus)}</strong> &middot; Insurer: ${esc(vdata && vdata.insurer_name || 'n/a')} &middot; Doc expiry: ${esc(docExpiry || 'unreadable')} &middot; Flags: ${esc(flagsTxt)}</p>`
               + `<a href="${siteLink(_b, '/owner')}" style="display:inline-block;background:#0f2c17;color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;">Review in the owner panel &rarr;</a>`
               + `</div>`,
           }, { binding: _b });
@@ -1368,7 +1368,7 @@ export default async function handler(req, res) {
         }
       } catch (_) { /* the queue remains; a drain failure is not a removal failure */ }
 
-      // 200 means coverage has ended and the bytes are accounted for — either deleted now
+      // 200 means coverage has ended and the bytes are accounted for, either deleted now
       // or durably queued. It does not claim deletion has completed.
       return jsonResp(res, 200, { ok: true, purged, cleanup_pending: stillPending });
     }
@@ -1470,7 +1470,7 @@ export default async function handler(req, res) {
 
     // ---- SET-PASSWORD: claim the account by setting a password ----
     // Two entry points: (a) authenticated brand (session cookie) setting first password,
-    // (b) unauthenticated brand who just paid and knows their email — but we require
+    // (b) unauthenticated brand who just paid and knows their email, but we require
     // that a valid session already exist. The confirmation-page flow creates a session
     // BEFORE prompting for password via a one-time signed token in the ?paid= redirect.
     // For safety in this pass we only accept authenticated calls.
@@ -1510,7 +1510,7 @@ export default async function handler(req, res) {
       const rlAccount = await checkRateLimitByKey('brand-login-pw-account:' + email.slice(0, 64), 50);
       if (!rlAccount.allowed) return jsonResp(res, rlAccount.error === 'rate_limit_unavailable' ? 503 : 429, { error: rlAccount.error || 'too_many_requests', message: 'Too many attempts for this account. Try again later.' });
       // Look up brand by email (via brand_members which is the shareable auth surface).
-      // EXACT match — attacker-supplied email; a wildcard would resolve an arbitrary account.
+      // EXACT match, attacker-supplied email; a wildcard would resolve an arbitrary account.
       const lookupR = await sb(`brand_members?email=eq.${encodeURIComponent(email)}&select=brand_id,email,brands(password_hash)`);
       let member = (await lookupR.json())[0];
       let storedHash = member && member.brands && member.brands.password_hash;
@@ -1527,7 +1527,7 @@ export default async function handler(req, res) {
         }
       }
       if (!storedHash) {
-        // Don't reveal whether the email exists — return generic error
+        // Don't reveal whether the email exists, return generic error
         return jsonResp(res, 401, { error: 'Invalid email or password' });
       }
       const ok = await verifyPassword(password, storedHash);
@@ -1562,7 +1562,7 @@ export default async function handler(req, res) {
 
     // ---- COOKIE-MIGRATE: REMOVED (Codex finding B) ----
     // This action existed only to lift a session out of localStorage and into the HttpOnly cookie,
-    // and to do that it had to accept a session secret in a request body — the precise intake this
+    // and to do that it had to accept a session secret in a request body, the precise intake this
     // finding requires gone. It also kept that intake permanently reachable and made it useful:
     // anyone holding a stolen or logged token could post it here and be handed a valid cookie for
     // it, which is a session-fixation primitive dressed up as a migration.
@@ -1621,7 +1621,7 @@ export default async function handler(req, res) {
 
     // P0-7: revoke every calendar URL for this brand (e.g. the link leaked).
     if (action === 'cal_revoke') {
-      // Codex finding B: cookie only — was body.session_token with an inline cookie fallback.
+      // Codex finding B: cookie only, was body.session_token with an inline cookie fallback.
       const sessionToken = getBrandSessionFromReq(req, body);
       const brandId = await verifySession(sessionToken);
       if (!brandId) return res.status(401).json({ error: 'sign_in_required' });
@@ -1644,11 +1644,11 @@ export default async function handler(req, res) {
       const escapeICS = (s) => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
       const fold = (line) => { const out = []; for (let i = 0; i < line.length; i += 73) out.push((i === 0 ? '' : ' ') + line.slice(i, i + 73)); return out.join('\r\n'); };
       // Release A: the demo's start instant is demo_date + demo_time resolved in the RETAILER's zone by
-      // the shared helper (api/_local-time.js) — correct PDT/PST, no fixed UTC-8. Unparseable time ->
+      // the shared helper (api/_local-time.js), correct PDT/PST, no fixed UTC-8. Unparseable time ->
       // the feed's 11:00 default; an unresolvable date (impossible / DST gap) drops the entry.
       const { demoStartUtc: _demoStartUtc, safeZone: _safeZone } = await import('./_local-time.js');
       const parseDemoTime = (dateStr, timeStr, tz) => (dateStr ? _demoStartUtc(dateStr, timeStr, tz, { lenientTime: true }) : null);
-      // P0-7: the feed accepts ONLY a dedicated, revocable calendar token — never a login session
+      // P0-7: the feed accepts ONLY a dedicated, revocable calendar token, never a login session
       // token. A calendar URL gets pasted into Google/Apple Calendar and shared with colleagues, so
       // it must not be usable as an account credential.
       const UUID_RE_CAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1679,7 +1679,7 @@ export default async function handler(req, res) {
         'BEGIN:VCALENDAR', 'VERSION:2.0',
         'PRODID:-//Demohub//Brand calendar feed//EN',
         'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
-        fold('X-WR-CALNAME:' + escapeICS(`${brand.company_name} — Demos`)),
+        fold('X-WR-CALNAME:' + escapeICS(`${brand.company_name} · Demos`)),
         fold('X-WR-CALDESC:' + escapeICS(`All your Demohub demos across every retailer`)),
         'X-WR-TIMEZONE:America/Los_Angeles',
       ];
@@ -1986,12 +1986,12 @@ export default async function handler(req, res) {
             const expCoiCount = Array.isArray(expiringCoi) ? expiringCoi.length : 0;
             const newBrandsCount = Array.isArray(newBrands) ? newBrands.length : 0;
             const adminUrl = siteLink(_b, `/r/${ret.slug}/admin`);
-            const subject = `${monthLabel} at ${ret.name} — ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
+            const subject = `${monthLabel} at ${ret.name}: ${demosCount} demo${demosCount === 1 ? '' : 's'}, $${totalFees.toFixed(0)} in fees`;
             const htmlBody = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
 <td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>

@@ -1,4 +1,4 @@
-// api/_owner-notifications.js — owner Notifications panel reads (Codex N-1, design review 2026-10-03).
+// api/_owner-notifications.js, owner Notifications panel reads (Codex N-1, design review 2026-10-03).
 //
 // READ-ONLY. Three owner-authenticated actions in api/admin-auth.js call into here:
 //   owner-notifications          one bounded, paginated LIST of deliveries: scheduled | overdue | attention | accepted

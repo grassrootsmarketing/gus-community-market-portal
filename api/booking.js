@@ -1,4 +1,4 @@
-// /api/booking — Vercel serverless function
+// /api/booking, Vercel serverless function
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
@@ -43,7 +43,7 @@ async function svcCall(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limiting — fail-closed (denies on DB errors to prevent abuse during blips)
+// Rate limiting, fail-closed (denies on DB errors to prevent abuse during blips)
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // cf-connecting-ip is attacker-supplied (not behind Cloudflare); x-real-ip is Vercel-set,
@@ -70,7 +70,7 @@ async function checkRateLimitStrict(req, bucketKey, maxPerHour) {
   } catch (e) {
     // Fail-CLOSED: on rate-limiter errors, deny the write so a Supabase blip cannot
     // become an unbounded spam window. Callers must handle 503 gracefully.
-    console.error('rate limit check failed — denying request:', e?.message || e);
+    console.error('rate limit check failed, denying request:', e?.message || e);
     return { allowed: false, current: 0, error: 'rate_limit_unavailable' };
   }
 }
@@ -89,7 +89,7 @@ function emailBody({ contact_name, brand_name, product, venue, demo_date, demo_t
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td>
 <td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
@@ -105,14 +105,14 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Date</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(dateLabel)}</td></tr>
 <tr><td style="padding:14px 18px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Time</td><td style="padding:14px 18px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(demo_time)}</td></tr>
 </table>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 18px;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0 0 18px;">Need to change something? Just reply to this email and it goes straight to the store team.</p>
 ${cancellationPolicy ? `<div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:14px 18px;border-radius:6px;margin-top:8px;"><div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#a14e2a;font-weight:700;margin-bottom:6px;">Cancellation policy</div><div style="font-size:13px;line-height:1.55;color:#3a3a36;">${html(cancellationPolicy)}</div></div>` : ''}
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
-// Wave 9: error log — best-effort write to error_log on any 5xx return.
+// Wave 9: error log, best-effort write to error_log on any 5xx return.
 // Caller uses logError(req, e, status). Never throws.
 async function logError(req, status, message, stack) {
   if (!_b.serviceKey) return;
@@ -140,15 +140,15 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td>
 <td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
 <tr><td style="padding:36px 40px 8px;">
 <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:12px;">Welcome to Demohub</div>
-<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 16px;">Hi ${html(greetingName)} — your Demohub brand account is set up.</h1>
-<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">You just booked a demo at <strong style="color:#0f2c17;">${html(retailer_name)}</strong>. That single booking created a Demohub brand account for <strong>${html(brand_name || 'your brand')}</strong> — no signup form needed.</p>
+<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 16px;">Hi ${html(greetingName)}, your Demohub brand account is set up.</h1>
+<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">You just booked a demo at <strong style="color:#0f2c17;">${html(retailer_name)}</strong>. That single booking created a Demohub brand account for <strong>${html(brand_name || 'your brand')}</strong>, so there is no signup form to fill out.</p>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 22px;">Any time you want to see your demos, upload your Certificate of Insurance, or book at another retailer, sign in with this email address at:</p>
 <p style="margin:0 0 26px;"><a href="${html(signin_url)}" style="background:#0f2c17;color:white;padding:14px 24px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block;">Sign in to my brand portal &rarr;</a></p>
 <div style="background:#fbf7f0;border-left:3px solid #ed682f;padding:16px 20px;border-radius:6px;margin-bottom:24px;">
@@ -159,7 +159,7 @@ function brandWelcomeEmail({ contact_name, brand_name, retailer_name, signin_url
 <li>Sign the demo conduct agreement once per retailer, not every booking</li>
 </ul>
 </div>
-<p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link — no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
+<p style="font-size:14px;line-height:1.6;color:#6b6a64;margin:0 0 6px;">Signing in is a magic link, so there is no password to remember. Just enter this email and we\'ll send you a one-tap link.</p>
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:22px 0 0;">Questions? Reply to this email and we\'ll actually read it.</p>
 </td></tr>
 <tr><td style="padding:20px 40px 28px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>Sent because you just booked a demo through Demohub. You can turn off these onboarding emails from your brand portal.</td></tr>
@@ -187,7 +187,7 @@ async function createBrandMagicLink(brand_id, email) {
 }
 
 
-// (isRetailerAdminRequest removed — the strict retailer-staff gate above already authenticated the caller)
+// (isRetailerAdminRequest removed, the strict retailer-staff gate above already authenticated the caller)
 // R2/Codex 3.1: an orphan `}` sat here. createBrandMagicLink() closes on the line above, so this
 // brace closed nothing and made the whole module unparseable as ESM. node --check accepted it
 // (script goal); native `import()` did not. /api/booking has therefore been a dead route.
@@ -202,7 +202,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
-  // Codex finding B: both actions on this route are cookie-authenticated POSTs — agreement-check
+  // Codex finding B: both actions on this route are cookie-authenticated POSTs, agreement-check
   // reads the brand session, and booking creation requires a retailer staff session. Checked here,
   // before the body is parsed. No exemption applies: no webhook, no cron.
   if (!requireSameOrigin(req, res, _b)) return;
@@ -211,7 +211,7 @@ export default async function handler(req, res) {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
 
     // ---- Agreement check (folded in to stay under Vercel function cap) ----
-    // Public — called by the booking page before submit to decide whether to show
+    // Public, called by the booking page before submit to decide whether to show
     // the demo-conduct modal. Returns { has_active, needs_re_sign, reason, policies }.
     if (body?.action === 'agreement-check') {
       const { retailer_slug: rs } = body;
@@ -233,7 +233,7 @@ export default async function handler(req, res) {
         demohub_tos_version: DEMOHUB_TOS_VERSION,
         demohub_tos_url: DEMOHUB_TOS_URL,
       };
-      // Brand-specific status requires the AUTHENTICATED brand session — never a submitted email,
+      // Brand-specific status requires the AUTHENTICATED brand session, never a submitted email,
       // so this endpoint can't be used to enumerate which emails have accounts/agreements.
       const _bAuth = await requireBrandSession(req, body);
       if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
@@ -249,7 +249,7 @@ export default async function handler(req, res) {
     }
 
     // ---- Agreement SIGN (session-authenticated) ----
-    // The booking page moved to the secure /api/book endpoint, which ignores signed_name — so the
+    // The booking page moved to the secure /api/book endpoint, which ignores signed_name, so the
     // typed signature from the demo-conduct modal was silently discarded and the modal reappeared
     // on every visit. This captures it for the AUTHENTICATED brand, mirroring the legacy in-booking
     // capture (supersede prior + immutable snapshot + hash).
@@ -332,7 +332,7 @@ export default async function handler(req, res) {
     {
       // Codex finding B: the staff session was read here by a private regex over the raw Cookie
       // header, with a body.session_id fallback behind it. A per-file regex is a per-file rename
-      // hazard — this one still spelled the retired dh_session — so the shared reader is the only
+      // hazard, this one still spelled the retired dh_session, so the shared reader is the only
       // way in now, and the body fallback is gone with it.
       const _sid = getSessionToken(req, 'retailer');
       // P0-1 (strict): valid session + LIVE membership + booking-capable role (blocks viewer/removed).
@@ -378,7 +378,7 @@ export default async function handler(req, res) {
     const demoDurationHours = slotRes.hours;
 
     // Auto-link to a brand account if email matches an existing brand
-    // (cross-retailer brand profiles — the brand sees this in /brand/dashboard)
+    // (cross-retailer brand profiles, the brand sees this in /brand/dashboard)
     let brandId = null;
     let isNewBrand = false;  // flipped when we create the brand row on first booking
     try {
@@ -434,7 +434,7 @@ export default async function handler(req, res) {
     // If the brand provided a typed signature in the booking payload, lock it in.
     // For first-time brands (no brand row yet) we minimally create one so we have a
     // foreign key target for the agreement. Bookings continue regardless if any of
-    // this fails — agreement is best-effort, the booking is the primary action.
+    // this fails, agreement is best-effort, the booking is the primary action.
     const DEMO_POLICY = retailer.demo_policy || DEFAULT_DEMO_POLICY;
     const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
     if (signed_name && String(signed_name).trim().length >= 2 && _b.serviceKey) {
@@ -489,7 +489,7 @@ export default async function handler(req, res) {
           }
 
           // Wave 7: email the brand a receipt of what they just signed.
-          // Best-effort — does not block the booking flow if Resend is unavailable.
+          // Best-effort, does not block the booking flow if Resend is unavailable.
           try {
             if (_b.resendApiKey && Array.isArray(newAgreement) && newAgreement[0]) {
               const a = newAgreement[0];
@@ -500,7 +500,7 @@ export default async function handler(req, res) {
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
 <td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -525,7 +525,7 @@ export default async function handler(req, res) {
               await sendMailQuietly({
                 from: FROM_ADDRESS,
                 to: String(contact_email).toLowerCase(),
-                replyTo: 'david@demohubhq.com',
+                replyTo: 'bookings@demohubhq.com',
                 subject: subj,
                 html: htmlBody,
               }, { binding: _b });
@@ -538,7 +538,7 @@ export default async function handler(req, res) {
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
-<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
+<td style="padding-right:12px;vertical-align:middle;"><svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg></td>
 <td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -547,7 +547,7 @@ export default async function handler(req, res) {
 <h1 style="font-family:Georgia,serif;font-size:24px;font-weight:500;line-height:1.25;color:#0f2c17;margin:0 0 12px;">A new agreement is on file.</h1>
 <p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong style="color:#0f2c17;">${html(brand_name || 'A brand')}</strong> just signed your demo conduct &amp; cancellation policies as part of booking. Both sides now have a record of what was agreed to.</p>
 <table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">
-<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || '—')}</td></tr>
+<tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;">Brand</td><td style="padding:12px 16px;text-align:right;font-weight:600;color:#0f2c17;font-size:14px;">${html(brand_name || 'n/a')}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed by</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${html(signed_name)} &lt;${html(String(contact_email).toLowerCase())}&gt;</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Signed on</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${signedDate}</td></tr>
 <tr><td style="padding:12px 16px;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;font-weight:600;border-top:1px solid #ede3d0;">Valid through</td><td style="padding:12px 16px;text-align:right;color:#0f2c17;font-size:14px;border-top:1px solid #ede3d0;">${expiresDate}</td></tr>
@@ -560,7 +560,7 @@ export default async function handler(req, res) {
                 await sendMailQuietly({
                   from: FROM_ADDRESS,
                   to: RETAILER_BILLING_EMAIL,
-                  replyTo: 'david@demohubhq.com',
+                  replyTo: 'bookings@demohubhq.com',
                   subject: retailerSubj,
                   html: retailerHtmlBody,
                 }, { binding: _b });
@@ -573,7 +573,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // Insert booking row — MUST use SERVICE_KEY to bypass RLS on bookings table.
+    // Insert booking row, MUST use SERVICE_KEY to bypass RLS on bookings table.
     // Anonymous inserts are blocked by design; this endpoint acts as the trusted
     // proxy for public brand booking submissions.
     if (!_b.serviceKey) return res.status(500).json({ error: 'SUPABASE_SERVICE_KEY not configured' });
@@ -610,7 +610,7 @@ export default async function handler(req, res) {
           }
         }
       } catch (err) {
-        // R2-02: fail CLOSED. A read outage must not let an uninsured brand pay/book — that is
+        // R2-02: fail CLOSED. A read outage must not let an uninsured brand pay/book, that is
         // exactly the state this gate exists to stop. Block with a transient "try again" message
         // instead of silently marking the brand covered.
         console.error('COI gate read failed, blocking booking (fail-closed):', err && err.message);
@@ -732,14 +732,14 @@ export default async function handler(req, res) {
       // Generate a magic link so the "Manage your booking" CTA in the email lands the brand
       // authenticated in their portal. Fire-and-forget; if it fails, email still sends.
       // Only send the "booking received" email now for free / auto-confirm bookings.
-      // Fee-based bookings are 'pending_payment' — their confirmation email is sent by the
+      // Fee-based bookings are 'pending_payment', their confirmation email is sent by the
       // Stripe webhook AFTER payment succeeds, so an unpaid/abandoned booking never emails.
       const magicLinkPromise = awaitingPayment ? Promise.resolve(null) : createBrandMagicLink(brandId, contact_email);
       if (!awaitingPayment) magicLinkPromise.then(magicLink => {
         sendMailQuietly({
           from: FROM_ADDRESS,
           to: contact_email,
-          replyTo: 'david@demohubhq.com',
+          replyTo: 'bookings@demohubhq.com',
           subject: `Your demo booking at ${RETAILER_NAME}`,
           html: emailBody({
             contact_name, brand_name, product, venue, demo_date, demo_time, dateLabel,
@@ -753,7 +753,7 @@ export default async function handler(req, res) {
       emailOk = true;
       // First-booking welcome email: sent alongside the booking confirmation
       // only when THIS booking created the brand row (isNewBrand=true). Best-effort.
-      if (isNewBrand && _b.resendApiKey) {   /* was RESEND_KEY — undefined here */
+      if (isNewBrand && _b.resendApiKey) {   /* was RESEND_KEY, undefined here */
         try {
           const welcomeSubj = `Your Demohub brand account is set up`;
           const welcomeHtml = brandWelcomeEmail({
@@ -766,7 +766,7 @@ export default async function handler(req, res) {
           sendMailQuietly({
             from: FROM_ADDRESS,
             to: contact_email,
-            replyTo: 'david@demohubhq.com',
+            replyTo: 'bookings@demohubhq.com',
             subject: welcomeSubj,
             html: welcomeHtml,
           }, { binding: _b }).catch(e => console.warn('brand welcome email failed:', e?.message || e));
@@ -777,13 +777,13 @@ export default async function handler(req, res) {
       }
       // (removed) An `if (!emailOk)` branch inspected a non-existent `emailResp`. emailOk is set
       // true unconditionally above and the confirmation send is fire-and-forget, so the branch was
-      // unreachable — and referenced an undefined identifier if it ever had run.
+      // unreachable, and referenced an undefined identifier if it ever had run.
     }
 
 
     // ===== Store contacts (internal_contacts) =====
     // Product decision (owner, 2026-09): store contacts are NOT told when a brand merely books or
-    // pays — the old "New demo scheduled" alert that lived here (Wave 8) is gone. They hear about a
+    // pays, the old "New demo scheduled" alert that lived here (Wave 8) is gone. They hear about a
     // demo when it is CONFIRMED. When this route inserts an already-confirmed booking (a free venue
     // on an auto-confirm retailer), trg_booking_notification_events (0074) writes the demo_confirmed
     // event in the insert's own transaction and api/notification-worker.js sends the notices. No

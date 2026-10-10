@@ -12,8 +12,8 @@ import { publicAvailability } from './_slots.js';
 let _b = null;
 
 // Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
-// ANY job and called "<25h old" healthy — so the daily job masked a dead 15-minute worker. Each job
-// is judged by its OWN heartbeat rows. Codex F-03: the LATEST COMPLETED row governs — a job is
+// ANY job and called "<25h old" healthy, so the daily job masked a dead 15-minute worker. Each job
+// is judged by its OWN heartbeat rows. Codex F-03: the LATEST COMPLETED row governs, a job is
 // healthy iff that row is 'succeeded' AND fresh (within maxAgeMin). A 'failed' row written after a
 // fresh success flips the job unhealthy until a later 'succeeded' recovers it; 'started' rows (the
 // daily job writes one before its final row) are ignored when picking the latest completed outcome.
@@ -54,7 +54,7 @@ async function cronJobHealth(job) {
   h.ok = fresh && !!lastCompleted && lastCompleted.outcome === 'succeeded';
   // A job that is intentionally off is reported healthy so it cannot degrade production.
   if (!h.required) h.ok = true;
-  // Release A: the outbox backlog is reported SEPARATELY from liveness (internal shape only — the
+  // Release A: the outbox backlog is reported SEPARATELY from liveness (internal shape only, the
   // public projection below stays {ok, required}). backlog_ok = no delivery has been due for more
   // than 60 minutes without being sent. A run can be alive and still be falling behind.
   if (job.backlog && h.required) {
@@ -106,7 +106,7 @@ export default async function handler(req, res) {
   else if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
 
   try {
-    // ---- ACTION: status — health snapshot for /status page (anonymous) ----
+    // ---- ACTION: status, health snapshot for /status page (anonymous) ----
     if (action === 'status') {
       const checks = { db: { ok: false, ms: null }, cron: { ok: false, jobs: {} }, errors: { last_24h: 0 } };
       const startMs = Date.now();
@@ -167,7 +167,7 @@ export default async function handler(req, res) {
       if (hasMajor) status = 'outage';
       else if (hasMinor || !allChecksOk) status = 'degraded';
       // DH-21: expose only coarse public health. Drop latency ms, error counts, cron durations,
-      // and incident bodies — those are operator telemetry, not for an anonymous endpoint.
+      // and incident bodies, those are operator telemetry, not for an anonymous endpoint.
       // Per-job cron health stays coarse too: ok + required per job, never ages/outcomes/summaries.
       const publicJobs = {};
       for (const job of CRON_JOBS) {
@@ -184,7 +184,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, status, checks: publicChecks, incidents: publicIncidents, checked_at: new Date().toISOString() });
     }
 
-    // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
+    // ---- ACTION: public-data, sanitized read for /r/{slug} booking page ----
     if (action === 'public-data') {
       if (!_b.serviceKey) return res.status(500).json({ error: 'service key not configured' });
       // Whitelist of safe retailer columns. Explicitly excludes: billing_email,
@@ -205,12 +205,12 @@ export default async function handler(req, res) {
       const venueCols = 'id,name,address,availability,max_demos_per_slot,display_order,demo_fee';
       const venues = await sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=${venueCols}&order=display_order`, true);
 
-      // Capacity snapshot from bookings + demos — venue_id + demo_date + demo_time + status only,
+      // Capacity snapshot from bookings + demos, venue_id + demo_date + demo_time + status only,
       // NO contact info / email / phone / brand name. Pure aggregate input for slot capacity calc.
       const bookings = await sb(`bookings?retailer_id=eq.${encodeURIComponent(rid)}&select=venue_id,demo_date,demo_time,status`, true);
       const demos = await sb(`demos?retailer_id=eq.${encodeURIComponent(rid)}&select=venue_id,demo_date,demo_time,status`, true);
 
-      // Settings: a few safe public fields (advance booking, demo fee — for display)
+      // Settings: a few safe public fields (advance booking, demo fee, for display)
       const settingsAll = await sb(`settings?retailer_id=eq.${encodeURIComponent(rid)}&select=demo_fee,demo_duration,advance_booking_days&limit=1`, true);
       const settings = Array.isArray(settingsAll) ? (settingsAll[0] || null) : null;
 

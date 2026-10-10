@@ -1,4 +1,4 @@
-// api/_coi-policy.js — THE canonical COI decision. One rule, every consumer.
+// api/_coi-policy.js, THE canonical COI decision. One rule, every consumer.
 // ============================================================================
 // Codex v6 systemic finding: Demohub had TWO definitions of a valid certificate, and
 // live routes disagreed about the same document.
@@ -8,13 +8,13 @@
 //
 // Consumed by live code as:
 //   api/book.js            strict    (public brand booking)
-//   api/booking.js         lenient   (retailer staff manual booking) — and it does not
+//   api/booking.js         lenient   (retailer staff manual booking), and it does not
 //                                     even SELECT coi_verification_status
 //   api/coi-status.js      lenient   (retailer status view, verified-brand display)
 //   api/coi-enforcement.js lenient   (whether a booking has coverage)
 //
 // So the same certificate could be refused at the public booking route and accepted by
-// staff booking, enforcement and the retailer's own status screen — and brandVerifiedState()
+// staff booking, enforcement and the retailer's own status screen, and brandVerifiedState()
 // would render a brand as "verified" while its document sat pending, flagged or REJECTED.
 //
 // THE CANONICAL RULE, for the closed launch:
@@ -30,8 +30,8 @@
 // WHY 'unknown' IS KEPT AS A DISTINCT STATE, and why it is not 'covered':
 //   A certificate whose expiry we cannot read is not proof of insurance, but neither is it
 //   proof of absence. Cancelling and refunding someone's demo because our own parsing failed
-//   would be its own defect. So the three-state distinction survives — it is the CONSUMER's
-//   licence to warn rather than cancel — but 'unknown' is not coverage and cannot book.
+//   would be its own defect. So the three-state distinction survives, it is the CONSUMER's
+//   licence to warn rather than cancel, but 'unknown' is not coverage and cannot book.
 //
 // This module is pure. No I/O, no fetch, no environment. It decides on the data it is
 // handed, which is what makes the policy matrix test able to feed identical states through
@@ -50,7 +50,7 @@ export function isApprovedStatus(status) {
 // The single decision. Returns a structured verdict rather than a boolean so callers can
 // render an accurate reason without re-deriving one and drifting apart again.
 //
-//   covered : boolean  — may this brand be booked / counted as insured for demoDate?
+//   covered : boolean , may this brand be booked / counted as insured for demoDate?
 //   state   : 'covered' | 'not_verified' | 'expired' | 'unknown' | 'missing' | 'waived'
 //   reason  : short machine-readable string, safe to log
 export function coiDecision(brand, coiRecords, demoDate, opts = {}) {
@@ -77,7 +77,7 @@ export function coiDecision(brand, coiRecords, demoDate, opts = {}) {
 
   // VERIFICATION STATUS IS CHECKED BEFORE EXPIRY, deliberately.
   // A rejected certificate with a valid expiry date must not report 'expired' or
-  // 'covered' — it must report that it was rejected. The lenient rule never reached this
+  // 'covered', it must report that it was rejected. The lenient rule never reached this
   // question at all, which is how a rejected document could count as coverage.
   const status = norm(b.coi_verification_status);
   if (!isApprovedStatus(status)) {

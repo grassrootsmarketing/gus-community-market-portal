@@ -1,4 +1,4 @@
-// api/retailer-signup.js — F5-03: verified, transactional self-serve retailer signup.
+// api/retailer-signup.js, F5-03: verified, transactional self-serve retailer signup.
 // Flow: request a code (proves email ownership) -> verify the code -> ONLY THEN provision a
 // free Solo retailer + owner membership + session. No account/session before email proof.
 // Paid tiers (pro/enterprise) are a separate upgrade; signup always creates a free Solo store.
@@ -43,7 +43,7 @@ async function uniqueSlug(base) {
   return `${base}-${Date.now().toString(36)}`;
 }
 
-// The provisioning step — runs only after email is proven. Exported so it's testable.
+// The provisioning step, runs only after email is proven. Exported so it's testable.
 export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
   const e = String(email).trim().toLowerCase();
   const phone = opts.phone ? String(opts.phone).trim().slice(0, 40) : null;
@@ -122,7 +122,7 @@ async function notifyOwnerOfSignup(email, pl, prov) {
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   // Closed-launch envelope: public self-service retailer signup is OFF unless explicitly enabled.
-  // Fails closed — an unset flag keeps it disabled.
+  // Fails closed, an unset flag keeps it disabled.
   if (!FLAGS.publicRetailerSignup) {
     return res.status(403).json({ error: 'public_signup_disabled',
       message: 'Demohub is invite-only right now. Email david@demohubhq.com to get your store set up.' });
@@ -176,11 +176,11 @@ export default async function handler(req, res) {
     const prov = await provisionVerifiedRetailer(email, pl.store_name, {
       phone: pl.phone, contactName: pl.contact_name, storeCount: Number.isFinite(+pl.store_count) ? +pl.store_count : null,
     });
-    setSessionCookie(res, prov.session_id); // land them logged in — no token in URL
+    setSessionCookie(res, prov.session_id); // land them logged in, no token in URL
     if (!prov.already) await notifyOwnerOfSignup(email, pl, prov);
     const state = await liveState(prov.retailer_id); // read, not assumed: an existing store may already be live
     // The session leaves this process ONLY as the Set-Cookie above. It used to be in this body as
-    // well, where page script could read it and put it in localStorage — the cookie was HttpOnly
+    // well, where page script could read it and put it in localStorage, the cookie was HttpOnly
     // and the copy beside it was not, which cancelled the point of the cookie.
     // provisionVerifiedRetailer() still returns session_id: that is a server-side value consumed
     // one line up and never serialised.

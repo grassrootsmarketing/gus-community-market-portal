@@ -1,4 +1,4 @@
-// api/_verify.js — F5-02: race-safe email-ownership verification.
+// api/_verify.js, F5-02: race-safe email-ownership verification.
 // create a challenge (hashed 6-digit code, 30-min expiry) and consume it exactly once.
 // The consume is a conditional UPDATE (consumed_at IS NULL) so two concurrent redeems
 // cannot both succeed. No account/session is issued until consume() returns ok.
@@ -8,10 +8,10 @@ import crypto from 'node:crypto';
 import { getBinding } from './_env.js';
 
 // Codex finding A: the pepper had two fallbacks, and both were disqualifying.
-//   process.env.CRON_SECRET  — reuses one secret for two unrelated purposes, so rotating the
+//   process.env.CRON_SECRET , reuses one secret for two unrelated purposes, so rotating the
 //                              cron secret silently invalidates every outstanding login code,
 //                              and a cron-secret leak becomes a code-forgery capability.
-//   'dev-pepper'             — a public constant in a public repository. With it, anyone can
+//   'dev-pepper'            , a public constant in a public repository. With it, anyone can
 //                              compute a valid code hash for any email offline.
 // Now required, with a length floor. Missing or weak configuration means codes cannot be
 // issued or verified at all, which is the correct failure for an auth primitive.
@@ -36,7 +36,7 @@ export function hashCode(email, purpose, code) {
 }
 function newCode() { return String(crypto.randomInt(0, 1000000)).padStart(6, '0'); }
 
-// Create a challenge. Returns the raw code (to email) — never stored raw.
+// Create a challenge. Returns the raw code (to email), never stored raw.
 export async function createChallenge(email, purpose, payload = null, ttlMinutes = 30) {
   const e = String(email || '').trim().toLowerCase();
   if (!e || !/^[^@]+@[^@]+\.[^@]+$/.test(e)) throw new Error('invalid email');

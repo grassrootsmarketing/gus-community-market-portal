@@ -1,4 +1,4 @@
-// /api/stripe-webhook — receives events from Stripe and updates our DB.
+// /api/stripe-webhook, receives events from Stripe and updates our DB.
 //
 // Events handled:
 //   account.updated                → flips retailers.stripe_charges_enabled / _payouts_enabled
@@ -15,8 +15,8 @@
 //   charge.refunded                → marks the booking as refunded.
 //
 // Env vars required:
-//   STRIPE_WEBHOOK_SECRET (whsec_...)   — from Stripe Dashboard → Developers → Webhooks
-//   SUPABASE_SERVICE_KEY                — bypasses RLS for DB writes
+//   STRIPE_WEBHOOK_SECRET (whsec_...)  , from Stripe Dashboard → Developers → Webhooks
+//   SUPABASE_SERVICE_KEY               , bypasses RLS for DB writes
 //
 // Important: Vercel serverless needs the raw body for signature verification, so we
 // disable the built-in body parser and read the stream manually.
@@ -35,7 +35,7 @@ let _b = null;
 async function bind() { _b = await getBinding(); return _b; }
 const WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-// Tolerate up to 5 minutes of clock skew — Stripe's default is 5 min.
+// Tolerate up to 5 minutes of clock skew, Stripe's default is 5 min.
 const TOLERANCE_SECONDS = 300;
 
 // Retrieve a Stripe PaymentIntent (with its latest charge expanded) so we can read the exact
@@ -80,7 +80,7 @@ function verifySignature(rawBody, sigHeader, secret) {
   for (const candidate of parsed.v1) {
     const candBuf = Buffer.from(candidate, 'hex');
     if (candBuf.length === expectedBuf.length && timingSafeEqual(candBuf, expectedBuf)) {
-      // Signature valid — parse the body as JSON now
+      // Signature valid, parse the body as JSON now
       try { return JSON.parse(rawBody); } catch (_) { return null; }
     }
   }
@@ -143,8 +143,8 @@ export async function createDemoForConfirmedBooking(ctx) {
   // Codex R2 (2026-09-11): materialisation is the database's job (0077 booking_transition
   // 'materialize'): it locks the booking, requires status = confirmed NOW, and creates or
   // reactivates the ONE linked demo from the booking's current schedule/duration. The result is
-  // explicit — created / reactivated / already_present / superseded (booking no longer active) /
-  // not_confirmed — and a database failure is thrown so a fulfilment retry can happen. An
+  // explicit, created / reactivated / already_present / superseded (booking no longer active) /
+  // not_confirmed, and a database failure is thrown so a fulfilment retry can happen. An
   // unreadable booking is never turned into a "created" demo.
   if (!ctx || !ctx.booking_id || !ctx.retailer_id) return { result: 'skipped', reason: 'no_booking_identity' };
   const rows = await sbRpc('booking_transition', { p_booking_id: ctx.booking_id, p_retailer_id: ctx.retailer_id, p_action: 'materialize', p_fields: {}, p_demo_fee: null });
@@ -160,13 +160,13 @@ async function sendResendEmail({ to, subject, html }) {
   let b = null;
   try { b = await bind(); } catch (e) { return { ok: false, reason: (e && e.code) || 'binding_invalid' }; }
   if (!b.resendApiKey) return { ok: false, reason: 'not_configured_or_no_to' };
-  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'david@demohubhq.com', subject, html }, { binding: b });
+  const r = await sendMailQuietly({ from: FROM_ADDRESS, to, replyTo: 'bookings@demohubhq.com', subject, html }, { binding: b });
   // _mail.js does not surface the provider message id; success/failure is still reported faithfully.
   return { ok: !!r.ok, id: null, reason: r.ok ? null : (r.code || null) };
 }
 
 // R12-P0-3: fail-closed email. A missing key, network error or non-2xx MUST throw so the fulfilment
-// outbox records emails as NOT sent and retries — previously these were silently treated as success.
+// outbox records emails as NOT sent and retries, previously these were silently treated as success.
 async function sendEmailOrThrow(args, label) {
   const r = await sendResendEmail(args);
   if (!r.ok) throw new Error(`email_failed:${label}:${r.reason || 'unknown'}`);
@@ -176,7 +176,7 @@ async function sendEmailOrThrow(args, label) {
 function _brandHeaderHTML() {
   return '<table cellpadding="0" cellspacing="0"><tr>' +
     '<td style="padding-right:12px;vertical-align:middle;">' +
-      '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>' +
+      '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>' +
     '</td>' +
     '<td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>' +
   '</tr></table>';
@@ -292,7 +292,7 @@ async function createBrandMagicLink(brand_id, email) {
   } catch (_) { return null; }
 }
 
-// Brand "booking received" email — identical framing to api/booking.js emailBody,
+// Brand "booking received" email, identical framing to api/booking.js emailBody,
 // but sent from the webhook AFTER payment succeeds so unpaid bookings never trigger it.
 function bookingConfirmationEmailHtml(ctx, manageBookingUrl, rebookUrl, coiDeadline) {
   const contact_name = ctx.contact_name;
@@ -330,13 +330,13 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 <div style="text-align:center;margin:0 0 20px;">
 <a href="${manageBookingUrl || link(_b, '/brand/signin')}" style="background:#0f2c17;color:white;padding:12px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:14px;display:inline-block;">Manage your booking</a>
 </div>
-<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email — it goes straight to the store team.</p>
+<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email and it goes straight to the store team.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
-// Store contacts (internal_contacts) are told about a demo when it is CONFIRMED — never when a
+// Store contacts (internal_contacts) are told about a demo when it is CONFIRMED, never when a
 // brand merely pays. The old "New demo scheduled" staff alert that lived here (mirror of the Wave 8
 // block in api/booking.js) is gone. On an auto-confirm retailer the payment IS the confirmation: the
 // bookings.status PATCH to 'confirmed' (promoteBookings / the fulfilment outbox) fires
@@ -355,7 +355,7 @@ async function sbRpc(fn, args) {
 }
 
 // checkout.session.expired: atomically expire the payment ATTEMPT (0033). Never deletes
-// allocations — financial history is retained; a fresh attempt can be created later (R10-P1-1).
+// allocations, financial history is retained; a fresh attempt can be created later (R10-P1-1).
 async function handleCheckoutSessionExpired(event) {
   const s = event.data.object || {};
   if (s.mode && s.mode !== 'payment') return;
@@ -396,7 +396,7 @@ async function handleRefundEvent(event) {
 
 // R10-P0-1/P0-2: ledger payment is fulfilled ONLY from the verified checkout.session.completed
 // binding (handleCheckoutSessionCompleted → apply_verified_payment). payment_intent.succeeded no
-// longer applies the ledger — it would trust PI metadata and could promote a frozen group. It still
+// longer applies the ledger, it would trust PI metadata and could promote a frozen group. It still
 // serves LEGACY pre-ledger PaymentIntents (no payment_group_id) so old sessions keep working.
 async function handlePaymentIntentSucceeded(event) {
   const pi = event.data.object;
@@ -404,7 +404,7 @@ async function handlePaymentIntentSucceeded(event) {
     // Provisional holds: for a manual-capture group, checkout.session.completed already fired at
     // AUTHORIZATION time, so this event is the only signed signal that the CAPTURE happened. If the
     // attempt's group is sitting at 'authorized', apply the verified payment now (same RPC + outbox
-    // as the immediate-charge path — the session id comes from the durable attempt binding).
+    // as the immediate-charge path, the session id comes from the durable attempt binding).
     // Any other group state keeps the R10 rule: defer to checkout.session.completed.
     try {
       const atts = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(pi.id)}&select=stripe_checkout_session_id,payment_group_id,status&order=created_at.desc&limit=1`);
@@ -414,7 +414,7 @@ async function handlePaymentIntentSucceeded(event) {
         const grp = Array.isArray(grpRows) ? grpRows[0] : null;
         // P0-1 (Codex 2026-08-20): a payment_intent.succeeded is proof Stripe CAPTURED the money. The
         // old code only reconciled when the group was 'authorized' and silently acked every other
-        // state — so a captured PI on an 'auth_canceled' group (the mis-ordered-release race) was
+        // state, so a captured PI on an 'auth_canceled' group (the mis-ordered-release race) was
         // dropped, leaving a charged card with an expired booking and no case. We now reconcile ANY
         // non-settled group state: apply_verified_payment applies an 'authorized' group and, for a
         // non-payable state, opens a reconciliation case. A captured PI is NEVER silently acked.
@@ -440,7 +440,7 @@ async function handlePaymentIntentSucceeded(event) {
             const n = await promoteFromOutbox(val.payment_group_id);
             console.log(`payment_intent.succeeded: capture reconciled from ${grp.status} (${outcome}), fulfilled ${n} booking(s)`, pi.id);
           } else if (outcome === 'frozen') {
-            // A frozen group already carries a case from when it was frozen — safe to ack.
+            // A frozen group already carries a case from when it was frozen, safe to ack.
             console.error('payment_intent.succeeded: captured PI on FROZEN group (case already open):', val && val.reason, pi.id);
           } else {
             // Contradiction (e.g. captured PI on an auth_canceled group). apply_verified_payment opened
@@ -502,7 +502,7 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
       const fields = ledgerPaid ? {} : { payment_status: 'paid', payment_intent_id: piId, paid_at: paidAt };
       if (nextStatus) {
         // Codex R2: the promotion and (on auto-confirm) the demo are ONE transaction, judged on the
-        // booking's CURRENT state — a cancellation that landed in between wins (superseded) and no
+        // booking's CURRENT state, a cancellation that landed in between wins (superseded) and no
         // promotion side effect runs.
         fields.status = nextStatus;
         const rows = await sbRpc('booking_transition', { p_booking_id: bookingId, p_retailer_id: b.retailer_id, p_action: 'promote_paid', p_fields: fields, p_demo_fee: null });
@@ -512,7 +512,7 @@ async function promoteBookings(bookingIds, { piId, ledgerPaid }) {
         await sb(`bookings?id=eq.${encodeURIComponent(bookingId)}`, { method: 'PATCH', body: JSON.stringify(fields) });
       }
       // Only email on a real promotion (this booking was pending_payment and just got paid).
-      // This is where the brand confirmation + staff alert fire — never at unpaid creation time.
+      // This is where the brand confirmation + staff alert fire, never at unpaid creation time.
       if (nextStatus) {
         try {
           const ctx = await fetchBookingContext(bookingId);
@@ -551,7 +551,7 @@ export async function sendPromotionEmails(ctx, bookingId) {
       coiDeadline = _dd.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
     }
   } catch (_) {}
-  // R12-P0-3: the brand confirmation is REQUIRED — throw (not swallow) so the outbox retries.
+  // R12-P0-3: the brand confirmation is REQUIRED, throw (not swallow) so the outbox retries.
   const msgId = await sendEmailOrThrow({
     to: ctx.contact_email,
     subject: `Your demo booking at ${(ctx.retailers && ctx.retailers.name) || 'Demohub'}`,
@@ -566,7 +566,7 @@ async function handlePaymentIntentFailed(event) {
   const err = (pi.last_payment_error && pi.last_payment_error.message) || 'payment failed';
   const _gid = pi.metadata && pi.metadata.payment_group_id;
   // R10-P1-4: a ledger group's failed PaymentIntent is a failed ATTEMPT, not a terminal group.
-  // Record the error on the attempt and leave the group payable — Checkout may still be open for a
+  // Record the error on the attempt and leave the group payable, Checkout may still be open for a
   // retry; the group only terminalizes when its Session actually expires (handleCheckoutSessionExpired).
   // Do NOT mark bookings failed on a retryable card decline.
   if (_gid) {
@@ -606,9 +606,9 @@ async function handlePaymentIntentFailed(event) {
   }
 }
 
-// payment_intent.canceled: a manual-capture authorization was released — by our own sweep/decline
+// payment_intent.canceled: a manual-capture authorization was released, by our own sweep/decline
 // (replay: the RPC answers 'idempotent') or by Stripe itself (auth aged out ~7d). Converge the
-// ledger; if THIS event is what flipped the bookings (outcome 'applied'), send the release email —
+// ledger; if THIS event is what flipped the bookings (outcome 'applied'), send the release email,
 // our own synchronous paths already notified, and they win the race by applying first.
 async function handlePaymentIntentCanceled(event) {
   const pi = event.data.object;
@@ -654,11 +654,11 @@ async function handleCheckoutSessionCompleted(event) {
   // This signed event binds a specific Session to its group. We retrieve the PaymentIntent to read
   // the exact charge / transfer / application-fee / on_behalf_of, then apply_verified_payment does
   // every field check + all-or-none apply in ONE transaction. Bookings are promoted ONLY on an
-  // 'applied'/'idempotent' outcome — a 'frozen'/'contradiction'/'unknown_session' promotes nothing.
+  // 'applied'/'idempotent' outcome, a 'frozen'/'contradiction'/'unknown_session' promotes nothing.
   if (mode === 'payment') {
     if (session.payment_status && session.payment_status !== 'paid') {
       // Provisional holds: a manual-capture Session completes at AUTHORIZATION with
-      // payment_status='unpaid' and its PI in 'requires_capture'. That is the hold being placed —
+      // payment_status='unpaid' and its PI in 'requires_capture'. That is the hold being placed,
       // apply it through the verified authorization RPC (group -> 'authorized', bookings -> held/
       // authorized, 24h clock starts) and drive the hold-placed email via the outbox. Any other
       // unpaid completion (async payment methods) keeps the old log-and-wait behavior.
@@ -703,7 +703,7 @@ async function handleCheckoutSessionCompleted(event) {
     const outcome = val && val.outcome;
     if (outcome === 'applied' || outcome === 'idempotent') {
       // R11-P1-4: drive side effects from the durable outbox (enqueued in the payment transaction).
-      // Safe to call on 'idempotent' replays too — finished rows are already 'done' and won't reappear.
+      // Safe to call on 'idempotent' replays too, finished rows are already 'done' and won't reappear.
       const n = await promoteFromOutbox(val.payment_group_id);
       console.log(`checkout.session.completed: ${outcome}, fulfilled ${n} booking(s)`, session.id);
     } else {
@@ -861,11 +861,11 @@ export default async function handler(req, res) {
   // DH-17 / R2-01: durable event inbox. Claim the event as 'processing'. ONLY a row already
   // marked 'completed' is a true duplicate to skip; a 'processing'/'failed' row is a prior
   // attempt that did not finish, so we re-process (a duplicate side effect is far better than a
-  // permanently lost payment — the earlier "insert before processing" logic could drop an event
+  // permanently lost payment, the earlier "insert before processing" logic could drop an event
   // whose handler threw). We mark 'completed' only AFTER the handler succeeds, and release to
   // 'failed' on error so Stripe's retry can reclaim it. Resilient: if the table/columns are
   // missing we process as before and never block a real payment.
-  // P0-7: atomic exactly-once claim via the DB lease. FAIL CLOSED — if the inbox is unavailable we
+  // P0-7: atomic exactly-once claim via the DB lease. FAIL CLOSED, if the inbox is unavailable we
   // do NOT process without a durable claim (return 503 so Stripe retries).
   const _owner = randomBytes(16).toString('hex');
   let _claimVal;
@@ -914,7 +914,7 @@ export default async function handler(req, res) {
       case 'checkout.session.expired':
         await handleCheckoutSessionExpired(event); break;
       default:
-        // Other events subscribed but not handled — log and 200 so Stripe doesn't retry
+        // Other events subscribed but not handled, log and 200 so Stripe doesn't retry
         console.log(`ignored event: ${event.type}`);
     }
     // mark completed ONLY after the handler succeeded, and ONLY if we still own the lease.
@@ -923,7 +923,7 @@ export default async function handler(req, res) {
     if (_doneVal !== true) { console.warn('inbox completion not recorded (lease lost?):', event.id); return res.status(500).json({ error: 'completion_not_recorded' }); }
     return res.status(200).json({ received: true });
   } catch (e) {
-    // Return 500 so Stripe retries — release our lease so the retry can reclaim.
+    // Return 500 so Stripe retries, release our lease so the retry can reclaim.
     try { await sbRpc('fail_stripe_event', { p_event_id: event.id, p_owner: _owner, p_err: String((e && e.message) || e) }); } catch (_) {}
     console.error(`webhook handler error for ${event.type}:`, e.message);
     return res.status(500).json({ error: e.message });

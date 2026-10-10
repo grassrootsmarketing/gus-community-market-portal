@@ -1,4 +1,4 @@
-// api/book.js — F5-05 secure booking endpoint. Composes the proven engines:
+// api/book.js, F5-05 secure booking endpoint. Composes the proven engines:
 // identity from the SESSION (not a typed email), COI must be VERIFIED, slot capacity enforced
 // by the DB trigger, server owns tenant/brand/amount. Replaces the anonymous email-based booking.
 import { validateProducts, describeErrors } from './_products.js';
@@ -26,8 +26,8 @@ const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
-  // Codex finding B, CSRF wiring: this is the live brand booking endpoint — it creates a booking under the caller's brand.
-  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // Codex finding B, CSRF wiring: this is the live brand booking endpoint, it creates a booking under the caller's brand.
+  // Checked before the session is read. No exemption applies, this route is cookie-authenticated
   // and carries neither a Stripe signature nor a CRON_SECRET.
   if (!requireSameOrigin(req, res, _b)) return;
   let body={}; try{ body = typeof req.body==='string'?JSON.parse(req.body||'{}'):(req.body||{}); }catch(_){}
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
   if (!parseDemoTime(String(body.demo_time))) return res.status(400).json({ error: 'invalid_demo_time', message: 'demo_time must be a time such as "11:00 AM" or "13:00".' });
   // Release B: the requested time must be a slot this location OFFERS on that date (configured
   // slots, weekday hours, blackouts). The canonical spelling and the configured length are what get
-  // stored — the browser never picks a storage label, a duration or an end time. The database
+  // stored, the browser never picks a storage label, a duration or an end time. The database
   // re-runs the same check under the venue lock (booking_slot_resolve, 0075); this is the early,
   // precise refusal.
   const slot = resolveRequestedSlot(venue.availability, String(body.demo_date), String(body.demo_time), retailer.timezone);
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
     if (!startAt || startAt.getTime() <= nowClock.getTime()) return res.status(400).json({ error: 'slot_started', message: 'That time has already started today. Pick a later slot.' });
   }
   // Release A: electricity is a TYPED per-booking value. true/false from the form's toggle, absent
-  // -> null ("Not specified"). Anything else is refused — never parsed out of the notes text.
+  // -> null ("Not specified"). Anything else is refused, never parsed out of the notes text.
   if (body.needs_electricity !== undefined && body.needs_electricity !== null && typeof body.needs_electricity !== 'boolean') {
     return res.status(400).json({ error: 'invalid_needs_electricity', message: 'needs_electricity must be true or false.' });
   }
@@ -83,13 +83,13 @@ export default async function handler(req, res) {
   // 3) COI must be VERIFIED for the authenticated brand
   const brand = await one(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone`);
   const cov = coiCovered(brand, body.demo_date);
-  // Provisional holds (behind PROVISIONAL_HOLDS_ENABLED): a brand may book WITHOUT a verified COI —
+  // Provisional holds (behind PROVISIONAL_HOLDS_ENABLED): a brand may book WITHOUT a verified COI,
   // the booking becomes 'held' (funds authorized, not captured) with a 24h window to get COI-verified
   // + confirmed, else the hold is released. Flag OFF = current hard gate (COI required to book).
   const provisional = FLAGS.provisionalHolds && !cov.covered;
   if (!cov.covered && !FLAGS.provisionalHolds) return res.status(400).json({ error: 'coi_required', reason: cov.reason });
 
-  // 3b) Contact info (name + phone) required to book — retailers must be able to reach the brand.
+  // 3b) Contact info (name + phone) required to book, retailers must be able to reach the brand.
   if (!brand.contact_name || !String(brand.contact_name).trim() || !brand.phone || !String(brand.phone).trim()) {
     return res.status(400).json({ error: 'contact_required', reason: 'missing_contact_name_or_phone' });
   }
@@ -108,7 +108,7 @@ export default async function handler(req, res) {
   }
   const productSnapshot = productCheck.items;
 
-  // 4) create the booking — server sets tenant/brand/state; slot trigger enforces capacity
+  // 4) create the booking, server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
     demo_date: body.demo_date, demo_time: slot.time, duration_hours: slot.hours,
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
   if (!r.ok) {
     let t = await r.text();
     // Slot contention (provisional holds): a VERIFIED brand booking a full slot may bump a 'held'
-    // provisional hold — insured/confirmed beats provisional by design (the held brand was told so
+    // provisional hold, insured/confirmed beats provisional by design (the held brand was told so
     // in the hold email). Bump = release the newest hold (cancel auth, 'expired', notify) and retry.
     // Provisional bookers never bump anyone.
     if (t.includes('slot_full') && FLAGS.provisionalHolds && cov.covered) {
@@ -133,10 +133,10 @@ export default async function handler(req, res) {
         const rel = await releaseHeldBooking(victim, { target: 'expired', reason: 'bumped_by_verified_booking', notify: true, bumped: true });
         if (!rel.ok) { console.warn('contention bump failed for', victim.id, rel.error); break; }
         // P0-1: if the victim was CAPTURED at this instant (rel.was_captured), it converged to PAID and
-        // now occupies the slot as a confirmed demo — the bump did not free space. The retry below will
+        // now occupies the slot as a confirmed demo, the bump did not free space. The retry below will
         // re-fail slot_full; the next loop re-queries status=eq.held, which excludes this now-paid row,
         // so it either bumps a different still-held hold or exits and returns slot_full. No extra branch
-        // needed — just do not treat was_captured as a freed slot.
+        // needed, just do not treat was_captured as a freed slot.
         r = await rest('bookings', { method:'POST', headers:{Prefer:'return=representation'}, body: JSON.stringify(payload) });
         if (!r.ok) t = await r.text();
       }

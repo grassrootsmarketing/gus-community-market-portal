@@ -1,16 +1,16 @@
-// api/_notification-mail.js — the emails the notification outbox sends (Codex Release A).
+// api/_notification-mail.js, the emails the notification outbox sends (Codex Release A).
 //
 // Two audiences, one visual system:
-//   * STORE CONTACTS (internal_contacts) — the people at a location who order product and host
+//   * STORE CONTACTS (internal_contacts), the people at a location who order product and host
 //     demos. They do not sign in; they get emails. They hear about a demo when it is CONFIRMED, get
 //     reminders before it, and are told when a confirmed demo is cancelled or rescheduled. Never when
 //     a brand merely books or pays.
-//   * BRANDS — the account recipient(s) of a brand hear the owner's COI decision (approved with the
+//   * BRANDS, the account recipient(s) of a brand hear the owner's COI decision (approved with the
 //     reviewed expiry; rejected with the owner's brand-visible note). Never the certificate itself,
 //     never a download link.
 //
 // This module is PURE: it turns rows into { subject, html }. It performs no I/O and decides nothing
-// about who receives what or when — that is api/_notification-outbox.js. Every string that came from
+// about who receives what or when, that is api/_notification-outbox.js. Every string that came from
 // a user or a row is escaped with H(); the brand_note in particular is owner-typed text rendered as
 // text. Subjects are derived from the ACTUAL schedule at send time (a delayed "tomorrow" reminder that
 // goes out on the day says "today").
@@ -18,8 +18,8 @@
 // What a store-contact email shows (Codex §5): date; start–end time with the zone abbreviation
 // (end_at from the booking, else start + 3h); location name + address; brand; product + SKUs
 // (booking.product_skus); "Needs electricity: Yes / No / Not specified" from bookings.needs_electricity
-// (per booking — NOT the brand profile); brand rep name + phone; only the booking's operational notes
-// (bookings.notes — the text the brand typed on the booking form; owner review notes, COI notes,
+// (per booking, NOT the brand profile); brand rep name + phone; only the booking's operational notes
+// (bookings.notes, the text the brand typed on the booking form; owner review notes, COI notes,
 // cancel reasons and finance notes live in other columns and are never included).
 
 import { describeItem, itemDetailsHtml } from './_products.js';
@@ -27,7 +27,7 @@ import { link } from './_mail.js';
 import { safeZone, demoStartUtc, dateLabel, timeRangeLabel, timeLabel, relativeDayPhrase } from './_local-time.js';
 
 export const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-export const REPLY_TO = 'david@demohubhq.com';
+export const REPLY_TO = 'bookings@demohubhq.com';
 const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export function H(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -60,7 +60,7 @@ export function buildContext({ booking, retailer, venue, brand }) {
     rep_name: b.contact_name || (brand && brand.contact_name) || '',
     rep_phone: b.contact_phone || (brand && brand.phone) || '',
     notes: operationalNotes(b.notes),
-    // per-booking, typed. null/undefined = "Not specified" — never guessed from the brand profile.
+    // per-booking, typed. null/undefined = "Not specified", never guessed from the brand profile.
     needs_electricity: typeof b.needs_electricity === 'boolean' ? b.needs_electricity : null,
   };
 }
@@ -154,7 +154,7 @@ export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, to
 }
 
 // ---------------------------------------------------------------------------
-// Store-contact messages — subject + html for each kind.
+// Store-contact messages, subject + html for each kind.
 // ---------------------------------------------------------------------------
 export function confirmedMessage(b, ctx) {
   return {
@@ -169,7 +169,7 @@ export function confirmedMessage(b, ctx) {
 }
 
 // The wording comes from how far away the demo ACTUALLY is at send time, not from the offset that
-// scheduled the reminder — a 1-day reminder delivered late on the demo day says "today".
+// scheduled the reminder, a 1-day reminder delivered late on the demo day says "today".
 export function reminderPhrase(ctx, now) {
   if (!ctx.startAt) return { eyebrow: 'Demo reminder', phrase: 'is coming up' };
   const r = relativeDayPhrase(ctx.startAt, now, ctx.tz);
@@ -222,7 +222,7 @@ export function cancelledMessage(b, ctx, { reason } = {}) {
   };
 }
 
-// from: { startAt, endAt } — the slot the demo used to be on. ctx already reflects the NEW slot.
+// from: { startAt, endAt }, the slot the demo used to be on. ctx already reflects the NEW slot.
 export function rescheduledMessage(b, ctx, { from } = {}) {
   const hasFrom = !!(from && from.startAt);
   const wasLine = hasFrom ? `It was on <strong>${H(dayOfYear(ctx, from.startAt))}</strong> at ${H(timeLabel(from.startAt, ctx.tz))}; it` : 'It';
@@ -238,7 +238,7 @@ export function rescheduledMessage(b, ctx, { from } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Brand messages — COI decisions. Never the certificate, never a download link.
+// Brand messages, COI decisions. Never the certificate, never a download link.
 // ---------------------------------------------------------------------------
 function brandFooter(brand) {
   return `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">Sent to the account contacts of <strong style="color:#0f2c17;">${H((brand && brand.company_name) || 'your brand')}</strong> on Demohub. Questions? Reply to this email.</p>`;

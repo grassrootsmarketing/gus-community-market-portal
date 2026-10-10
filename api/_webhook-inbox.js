@@ -1,6 +1,6 @@
-// api/_webhook-inbox.js — F5-17 / LG-05: a Stripe event is only marked 'completed' after its
+// api/_webhook-inbox.js, F5-17 / LG-05: a Stripe event is only marked 'completed' after its
 // handler fully succeeds. If a DB write fails mid-handler we mark it 'failed' and return a
-// retryable error, so Stripe retries and the event is reclaimed — never silently lost.
+// retryable error, so Stripe retries and the event is reclaimed, never silently lost.
 
 import { getBinding } from './_env.js';
 

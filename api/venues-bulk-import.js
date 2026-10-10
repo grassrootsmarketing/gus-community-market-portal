@@ -1,8 +1,8 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
 
-// Tier limit enforcement — mirrors /api/admin
+// Tier limit enforcement, mirrors /api/admin
 const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
-// /api/venues-bulk-import — cookie-authenticated POST FormData with a CSV file.
+// /api/venues-bulk-import, cookie-authenticated POST FormData with a CSV file.
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
 import { getBinding, sendBindingFailure } from './_env.js';
@@ -18,7 +18,7 @@ async function sb(path, opts = {}) {
   return json;
 }
 
-// Simple CSV parser — quoted fields, escaped quotes, comma separators
+// Simple CSV parser, quoted fields, escaped quotes, comma separators
 function parseCsv(text) {
   const rows = [];
   let row = [], field = '', inQuotes = false, i = 0;
@@ -135,7 +135,7 @@ export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
 
   // Codex finding B, CSRF wiring: this route bulk-inserts venues for the caller's retailer from an uploaded CSV.
-  // Checked before the session is read. No exemption applies — this route is cookie-authenticated
+  // Checked before the session is read. No exemption applies, this route is cookie-authenticated
   // and carries neither a Stripe signature nor a CRON_SECRET.
   if (!requireSameOrigin(req, res, _b)) return;
 

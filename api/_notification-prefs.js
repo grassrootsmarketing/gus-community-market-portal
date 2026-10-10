@@ -1,4 +1,4 @@
-// api/_notification-prefs.js — the ONE reading of internal_contacts.notification_prefs.
+// api/_notification-prefs.js, the ONE reading of internal_contacts.notification_prefs.
 //
 // Store contacts (Gus admin -> Team -> "Store contacts & demo notifications") are the people who
 // order product and host demos at a location. They do not sign in; they get emails. This module is
@@ -12,7 +12,7 @@
 //     contact added before reminders existed is told about confirmed/cancelled/rescheduled demos
 //     but never receives a reminder burst the day this ships;
 //   * new contacts created in the form are saved with the VISIBLE defaults: lifecycle ON and
-//     reminders ['w1','d3'] (DEFAULT_NEW_CONTACT_PREFS) — written explicitly, never
+//     reminders ['w1','d3'] (DEFAULT_NEW_CONTACT_PREFS), written explicitly, never
 //     implied;
 //   * an explicitly empty reminders list means no reminders;
 //   * legacy `days_before: [3, 1]` -> ['d3','d1']; legacy `custom_days: N` -> 'd<N>';
@@ -127,7 +127,7 @@ export function validateNotificationPrefs(raw) {
 }
 
 // Venue scope: venue_ids empty/null = every location; otherwise the demo's venue must be listed.
-// Compared as UUID strings — never by venue name.
+// Compared as UUID strings, never by venue name.
 export function contactInScope(contact, venueId) {
   const scopes = Array.isArray(contact && contact.venue_ids) ? contact.venue_ids.map(String) : [];
   if (scopes.length === 0) return true;

@@ -1,7 +1,7 @@
-// api/_provisional.js — shared provisional-holds (24h escrow) helpers.
+// api/_provisional.js, shared provisional-holds (24h escrow) helpers.
 // Consumers: stripe-webhook.js (auth/capture/cancel events), booking-action.js (confirm captures,
 // decline/cancel releases), provisional-sweep.js (24h expiry), book.js (slot-contention bump).
-// See docs/provisional-holds.md. Everything here is inert unless a booking is in the held flow —
+// See docs/provisional-holds.md. Everything here is inert unless a booking is in the held flow,
 // PROVISIONAL_HOLDS_ENABLED gates the creation of held bookings, not this module.
 
 import { getBinding } from './_env.js';
@@ -19,7 +19,7 @@ async function stripePost(path, params, idempotencyKey) {
   if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 255);
   // Codex R4-02: the caller must be able to tell a DEFINITIVE rejection (Stripe answered 4xx: the
   // request was refused, nothing happened) from an UNCERTAIN outcome (no usable answer: transport
-  // failure, unreadable response, or a Stripe 5xx — the request may have been applied). A generic
+  // failure, unreadable response, or a Stripe 5xx, the request may have been applied). A generic
   // failure is never a synonym for "not charged".
   let r;
   try {
@@ -42,7 +42,7 @@ export function stripeCapturePaymentIntent(piId) {
   return stripePost(`payment_intents/${encodeURIComponent(piId)}/capture`, null, `cap-${piId}`);
 }
 
-// Cancel (release) an uncaptured authorization — $0 charged, $0 Stripe fee.
+// Cancel (release) an uncaptured authorization, $0 charged, $0 Stripe fee.
 export function stripeCancelPaymentIntent(piId, reason) {
   const p = new URLSearchParams();
   // Stripe only accepts its own enum here; everything provisional maps to 'abandoned'.
@@ -106,14 +106,14 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
   if (!booking || booking.status !== 'held') return { ok: false, error: 'not_held' };
   if (booking.payment_status === 'authorized' && booking.payment_intent_id) {
     const c = await stripeCancelPaymentIntent(booking.payment_intent_id, 'abandoned');
-    // 'payment_intent_unexpected_state' means the PI is no longer cancelable — it was either already
+    // 'payment_intent_unexpected_state' means the PI is no longer cancelable, it was either already
     // canceled OR already CAPTURED by a concurrent confirm. Any other error is a real failure; leave
     // the booking held so the next sweep tick retries.
     if (!c.ok && c.code !== 'payment_intent_unexpected_state') {
       return { ok: false, error: 'stripe_cancel_failed: ' + c.error, retryable: true };
     }
     // P0-1 (Codex 2026-08-20): NEVER terminalize on the request we intended. The old code called
-    // apply_authorization_canceled unconditionally after unexpected_state — which, if a concurrent
+    // apply_authorization_canceled unconditionally after unexpected_state, which, if a concurrent
     // capture had just SUCCEEDED, expired a booking whose card was charged (charged-but-no-demo).
     // Retrieve the PI and converge on Stripe's authoritative state instead:
     //   succeeded -> the hold was captured out from under us: converge the ledger to PAID (the
@@ -128,7 +128,7 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
       if (!applied.ok) {
         return { ok: false, was_captured: true, error: 'reconcile_paid_' + (applied.error || 'failed'), case_id: applied.case_id };
       }
-      // Converged to paid — the booking is now paid/fulfilling, NOT released. No release email.
+      // Converged to paid, the booking is now paid/fulfilling, NOT released. No release email.
       return { ok: true, was_captured: true, payment_group_id: applied.payment_group_id };
     }
     if (fullPi.status !== 'canceled') {
@@ -154,11 +154,11 @@ export async function releaseHeldBooking(booking, { target = 'expired', reason =
 // Capture one held booking end-to-end: Stripe capture -> apply_verified_payment (sync; the
 // payment_intent.succeeded webhook replay is idempotent) -> outbox drain (held -> pending/confirmed
 // + payment email). Callers: booking-action.js (retailer confirm) and admin-auth.js (COI approval
-// on an auto-confirm retailer). COI coverage is the CALLER's check — this only moves money.
+// on an auto-confirm retailer). COI coverage is the CALLER's check, this only moves money.
 // Returns { ok, stage, error, outcome?, case_id?, payment_group_id? }.
 // ---------------------------------------------------------------------------
 // Apply an ALREADY-CAPTURED PaymentIntent to the ledger (group authorized -> paid) and drain the
-// fulfilment outbox. fullPi MUST be a freshly-retrieved PI with status 'succeeded' — the caller is
+// fulfilment outbox. fullPi MUST be a freshly-retrieved PI with status 'succeeded', the caller is
 // responsible for confirming Stripe's authoritative state first. Shared by captureHeldBooking (the
 // deliberate capture) and releaseHeldBooking (the P0-1 case where a release discovers the hold was
 // captured out from under it and must converge to paid, not release). apply_verified_payment is
@@ -200,27 +200,27 @@ async function applyCapturedPi(paymentIntentId, fullPi) {
   return { ok: true, payment_group_id: applied.payment_group_id, outcome };
 }
 
-// Codex R4-02 — the shared capture-outcome contract (both callers: booking-action confirm and the
+// Codex R4-02, the shared capture-outcome contract (both callers: booking-action confirm and the
 // COI auto-confirm loop in admin-auth). Every result carries an explicit `outcome`:
-//   'captured'     — Stripe's retrieved PaymentIntent is 'succeeded'. ok:true (applied:true) when the
-//                    ledger was applied; ok:false (applied:false, stage 'apply') when it was not — the
+//   'captured'    , Stripe's retrieved PaymentIntent is 'succeeded'. ok:true (applied:true) when the
+//                    ledger was applied; ok:false (applied:false, stage 'apply') when it was not, the
 //                    money HAS moved, a deduplicated case ('capture-unapplied:<booking>') is recorded
 //                    (case_recorded says whether that succeeded) and the webhook replay / sweep converge
 //                    the ledger; callers must never say "not charged" (Codex P-1).
-//   'not_captured' — authoritatively nothing was charged for THIS hold: Stripe's retrieved PI is in a
+//   'not_captured', authoritatively nothing was charged for THIS hold: Stripe's retrieved PI is in a
 //                    not-captured state (canceled / requires_capture / requires_payment_method /
-//                    requires_confirmation). A refused capture request alone is NOT enough — Stripe may
+//                    requires_confirmation). A refused capture request alone is NOT enough, Stripe may
 //                    refuse a retry (429, rate limit before its idempotency layer) of a capture that
 //                    already happened, so the PI is always retrieved first (Codex P-2).
-//   'not_attempted'— this request made no capture request because the local row is not a held,
+//   'not_attempted': this request made no capture request because the local row is not a held,
 //                    authorized booking. It says nothing about whether an existing payment was ever
 //                    captured (Codex P-2); the caller must not translate it into "never charged".
-//   'uncertain'    — the capture request may or may not have been applied and Stripe's authoritative
+//   'uncertain'   , the capture request may or may not have been applied and Stripe's authoritative
 //                    state could not be established (transport loss / 5xx / unreadable response on the
 //                    capture, and/or the follow-up retrieval unavailable or non-terminal). ONE
 //                    deduplicated reconciliation case ('capture-unknown:<booking>') is recorded; the
 //                    result says whether that succeeded. Nothing else is attempted: no fresh capture,
-//                    no refund, no new idempotency identity — the same PI-scoped key makes a later
+//                    no refund, no new idempotency identity, the same PI-scoped key makes a later
 //                    retry converge, and payment_intent.succeeded / the 24h sweep converge the ledger.
 export async function captureHeldBooking(booking) {
   if (!booking || booking.status !== 'held' || booking.payment_status !== 'authorized' || !booking.payment_intent_id) {
@@ -228,9 +228,9 @@ export async function captureHeldBooking(booking) {
   }
   const piId = booking.payment_intent_id;
   const cap = await stripeCapturePaymentIntent(piId);
-  // Codex P-2: whatever Stripe answered to the capture REQUEST — accepted, 'payment_intent_unexpected_state'
+  // Codex P-2: whatever Stripe answered to the capture REQUEST, accepted, 'payment_intent_unexpected_state'
   // (an earlier capture already succeeded), an uncertain answer, or a definitive refusal such as a 429
-  // on a retry of a capture that already went through — the PaymentIntent's retrieved state is the
+  // on a retry of a capture that already went through, the PaymentIntent's retrieved state is the
   // only thing that decides. No request outcome is ever translated into "nothing was charged".
   const refused = !cap.ok && !cap.uncertain && cap.code !== 'payment_intent_unexpected_state';
   const fullPi = await stripeGetPaymentIntent(piId);
@@ -238,7 +238,7 @@ export async function captureHeldBooking(booking) {
     return uncertainCapture(booking, 'verify', (cap.ok ? '' : 'capture_' + (cap.error || 'unknown') + '; ') + 'cannot_retrieve_pi');
   }
   // Branch on Stripe's authoritative state, never on the request we made. If a concurrent release
-  // canceled the PI first, this is 'canceled' — do NOT mark paid.
+  // canceled the PI first, this is 'canceled', do NOT mark paid.
   if (fullPi.status === 'succeeded') {
     const applied = await applyCapturedPi(piId, fullPi);
     if (applied.ok) return { ...applied, outcome: 'captured', applied: true };
@@ -287,13 +287,13 @@ async function uncertainCapture(booking, stage, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Emails — same visual system as stripe-webhook.js / booking-action.js.
+// Emails, same visual system as stripe-webhook.js / booking-action.js.
 // ---------------------------------------------------------------------------
 function H(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function brandHeaderHTML() {
   return '<table cellpadding="0" cellspacing="0"><tr>' +
     '<td style="padding-right:12px;vertical-align:middle;">' +
-    '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>' +
+    '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>' +
     '</td>' +
     '<td style="font-weight:800;font-size:24px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>' +
     '</tr></table>';
@@ -324,7 +324,7 @@ function detailsTable(rows) {
 }
 
 // ctx: a bookings row with venues(name), retailers(name) embedded (fetchBookingContext shape).
-// amountCents: the AUTHORIZED amount from the ledger allocation (venue fee + platform fee) — the
+// amountCents: the AUTHORIZED amount from the ledger allocation (venue fee + platform fee), the
 // bookings.amount_paid column is the venue fee only and would understate the hold.
 export function holdPlacedEmailHtml(ctx, binding, amountCents) {
   const amountStr = amountCents != null ? '$' + (Number(amountCents) / 100).toFixed(2) : null;
@@ -386,10 +386,10 @@ export async function buildHoldPlacedMessage(ctxOrId) {
   try {
     const allocs = await sb(`payment_allocations?booking_id=eq.${encodeURIComponent(ctx.id || ctx.booking_id)}&select=customer_amount&limit=1`);
     amountCents = Array.isArray(allocs) && allocs[0] ? allocs[0].customer_amount : null;
-  } catch (_) { /* amount is decorative — the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
+  } catch (_) { /* amount is decorative, the email still reads correctly without it; whatever is built FIRST is what gets frozen */ }
   return {
-    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
-    subject: `Your slot is held — upload your COI within 24 hours`,
+    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'bookings@demohubhq.com',
+    subject: `Your slot is held: upload your COI within 24 hours`,
     html: holdPlacedEmailHtml(ctx, b, amountCents),
   };
 }
@@ -401,7 +401,7 @@ export async function sendHoldPlacedEmail(ctxOrId, { idempotencyKey = null, froz
   const msg = (frozen && frozen.to && frozen.subject && frozen.html) ? frozen : await buildHoldPlacedMessage(ctxOrId);
   if (!msg) return { ok: false, reason: 'no_recipient' };
   const r = await sendMailQuietly({
-    from: msg.from || FROM_ADDRESS, to: msg.to, replyTo: msg.replyTo || 'david@demohubhq.com',
+    from: msg.from || FROM_ADDRESS, to: msg.to, replyTo: msg.replyTo || 'bookings@demohubhq.com',
     subject: msg.subject, html: msg.html,
   }, { binding: b, ...(idempotencyKey ? { idempotencyKey } : {}) });
   if (!r.ok) throw new Error('email_failed:hold_placed:' + (r.code || 'unknown'));
@@ -413,8 +413,8 @@ export async function sendHoldReleasedEmail(ctxOrId, { bumped = false } = {}) {
   const ctx = (typeof ctxOrId === 'string' || !ctxOrId.venues) ? await bookingCtx(typeof ctxOrId === 'string' ? ctxOrId : ctxOrId.id) : ctxOrId;
   if (!ctx || !ctx.contact_email) return { ok: false, reason: 'no_recipient' };
   const r = await sendMailQuietly({
-    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'david@demohubhq.com',
-    subject: bumped ? 'Your held demo slot was released — you were not charged' : 'Your 24-hour hold expired — you were not charged',
+    from: FROM_ADDRESS, to: ctx.contact_email, replyTo: 'bookings@demohubhq.com',
+    subject: bumped ? 'Your held demo slot was released, and you were not charged' : 'Your 24-hour hold expired, and you were not charged',
     html: holdReleasedEmailHtml(ctx, b, { bumped }),
   }, { binding: b });
   if (!r.ok) return { ok: false, reason: r.code || 'send_failed' };
