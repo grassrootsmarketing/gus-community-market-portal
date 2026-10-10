@@ -2481,6 +2481,7 @@ END:VEVENT
                     return;
                 }
                 RETAILER_ID = retailer.id;
+                startLiveRefresh();
                 RETAILER_DISPLAY_NAME = retailer.name || '';
                 const headerEl = document.getElementById('adminHeaderRetailerName');
                 if (headerEl && retailer.name) {
@@ -2628,6 +2629,29 @@ END:VEVENT
                 reader.readAsDataURL(file);
             });
         });
+
+        // Live refresh (2026-10-10): the dashboard used to show whatever was loaded when the tab opened,
+        // so a booking confirmed elsewhere never changed the tiles until someone reloaded. Now the page
+        // re-reads /api/admin?action=data every 60 seconds while it is visible, and immediately when the
+        // tab comes back into view or the window regains focus. Refreshes never overlap, and nothing runs
+        // while the tab is hidden, so an open admin in a background tab costs nothing.
+        const LIVE_REFRESH_MS = 60 * 1000;
+        let _liveTimer = null, _liveBusy = false, _liveLast = 0;
+        async function liveRefresh(reason) {
+            if (_liveBusy || document.hidden) return;
+            if (reason !== 'interval' && Date.now() - _liveLast < 5000) return;   // a focus right after a refresh is a no-op
+            _liveBusy = true;
+            try { await refreshAll(); _liveLast = Date.now(); } catch (e) { console.warn('live refresh skipped:', e && e.message); }
+            finally { _liveBusy = false; }
+        }
+        function startLiveRefresh() {
+            if (_liveTimer) return;
+            _liveLast = Date.now();
+            _liveTimer = setInterval(() => liveRefresh('interval'), LIVE_REFRESH_MS);
+            document.addEventListener('visibilitychange', () => { if (!document.hidden) liveRefresh('visible'); });
+            window.addEventListener('focus', () => liveRefresh('focus'));
+            window._liveRefresh = liveRefresh;   // exposed for tests and for a manual nudge from the console
+        }
 
         async function refreshAll() {
             // Privacy Phase 0: single session-validated read endpoint replaces 7 anon reads.
