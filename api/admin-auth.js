@@ -1162,7 +1162,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, retailer_id, retailer_notified: sent, notification_error: !sent });
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-brand-update' || action === 'owner-brand-delete' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1645,6 +1645,65 @@ async function handleOwnerAction(action, req, res, body) {
         brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings),
         complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
     } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+  }
+
+  // ---- OWNER-BRAND-UPDATE / OWNER-BRAND-DELETE (David, 2026-10-10): manage a brand from the owner panel ----
+  // Update: the four display fields only (company, contact, phone, website), each bounded and trimmed. The email is
+  // the brand's sign-in identity and is deliberately NOT editable here; the certificate and products belong to the
+  // brand's own dashboard. Delete: only a brand with NO bookings at all can be deleted (a booking is a financial
+  // record, and bookings.brand_id would be nulled by the cascade); the owner must type the brand's name to confirm.
+  // Sessions, tokens and certificate reviews cascade with the row; retailer-side brand_contacts keep their rows with
+  // brand_id cleared (that is the retailer's own address book). The certificate file in storage is left in place.
+  if (action === 'owner-brand-update' || action === 'owner-brand-delete') {
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const id = body?.brand_id;
+    if (!isUuid(id)) return res.status(400).json({ error: 'brand_id required' });
+    const R = encodeURIComponent(id);
+    let current;
+    try { const rows = await sb(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website`); current = Array.isArray(rows) && rows[0]; }
+    catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    if (!current) return res.status(404).json({ error: 'brand_not_found' });
+    if (action === 'owner-brand-update') {
+      const ALLOWED = { company_name: 120, contact_name: 120, phone: 40, website: 200 };
+      const patch = {}; const errors = [];
+      for (const [k, val] of Object.entries(body || {})) {
+        if (k === 'brand_id' || k === 'action') continue;
+        if (!(k in ALLOWED)) { errors.push({ field: k, code: 'not_editable' }); continue; }
+        if (val == null) { patch[k] = null; continue; }
+        if (typeof val !== 'string') { errors.push({ field: k, code: 'invalid' }); continue; }
+        const t = val.replace(/[\r\n\t]+/g, ' ').trim();
+        if (t.length > ALLOWED[k]) { errors.push({ field: k, code: 'too_long', max: ALLOWED[k] }); continue; }
+        if (k === 'website' && t && !/^(https?:\/\/)?[a-z0-9.-]+\.[a-z]{2,}([/?#].*)?$/i.test(t)) { errors.push({ field: k, code: 'invalid' }); continue; }
+        patch[k] = t || null;
+      }
+      if (errors.length) return res.status(400).json({ error: 'invalid_fields', fields: errors });
+      if (!('company_name' in patch) && !('contact_name' in patch) && !('phone' in patch) && !('website' in patch)) return res.status(400).json({ error: 'nothing_to_update' });
+      if ('company_name' in patch && !patch.company_name) return res.status(400).json({ error: 'invalid_fields', fields: [{ field: 'company_name', code: 'required' }] });
+      try {
+        const rows = await sb(`brands?id=eq.${R}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        const brand = Array.isArray(rows) && rows[0];
+        if (!brand) return res.status(503).json({ error: 'update_unverified', retry: true });
+        console.log('owner-brand-update', JSON.stringify({ brand_id: id, fields: Object.keys(patch), by: v.email || 'owner' }));
+        return res.status(200).json({ ok: true, brand: { id: brand.id, company_name: brand.company_name, contact_name: brand.contact_name, email: brand.email, phone: brand.phone, website: brand.website } });
+      } catch (e) { console.error('owner-brand-update failed:', e?.message); return res.status(503).json({ error: 'update_failed', retry: true }); }
+    }
+    // delete
+    const expectName = String(current.company_name || current.email || '').trim();
+    const typed = String(body?.confirm_name || '').trim();
+    let bookings;
+    try { bookings = await sbAll(`bookings?brand_id=eq.${R}&select=id,status`, { max: 100000 }); }
+    catch (e) { console.error('owner-brand-delete read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    if (!bookings.complete) return res.status(503).json({ error: 'directory_unavailable', retry: true });
+    if (bookings.rows.length > 0) return res.status(409).json({ error: 'brand_has_bookings', bookings: bookings.rows.length, message: 'This brand has ' + bookings.rows.length + ' booking' + (bookings.rows.length === 1 ? '' : 's') + ' on record, so it cannot be deleted. Bookings are financial records.' });
+    if (!typed || typed.toLowerCase() !== expectName.toLowerCase()) return res.status(400).json({ error: 'confirm_name_mismatch', expected_hint: expectName.length, message: 'Type the brand name exactly to confirm.' });
+    try {
+      await sb(`brand_contacts?brand_id=eq.${R}`, { method: 'PATCH', body: JSON.stringify({ brand_id: null }) });
+      const gone = await sb(`brands?id=eq.${R}`, { method: 'DELETE' });
+      if (!Array.isArray(gone) || !gone.length) return res.status(503).json({ error: 'delete_unverified', retry: true });
+      console.log('owner-brand-delete', JSON.stringify({ brand_id: id, by: v.email || 'owner' }));
+      return res.status(200).json({ ok: true, deleted: id });
+    } catch (e) { console.error('owner-brand-delete failed:', e?.message); return res.status(503).json({ error: 'delete_failed', retry: true }); }
   }
 
   if (action === 'owner-list-retailers') {
