@@ -84,6 +84,15 @@ table.simple th { text-align:left; padding:9px 10px; font-size:0.74rem; text-tra
 table.simple td { padding:11px 10px; border-bottom:1px solid rgba(15,44,23,0.06); color:var(--ink-900); }
 table.simple td.num { text-align:right; font-variant-numeric:tabular-nums; }
 table.simple tr:last-child td { border-bottom:0; }
+/* Brands tab (2026-10-11): no wrapping inside pills, dates, counts or the action buttons; the brand column is bounded. */
+#brandsPane table.simple { table-layout:fixed; min-width:1040px; }
+#brandsPane table.simple th:nth-child(1) { width:17%; } #brandsPane table.simple th:nth-child(2) { width:18%; } #brandsPane table.simple th:nth-child(3) { width:17%; }
+#brandsPane table.simple th:nth-child(4) { width:10%; } #brandsPane table.simple th:nth-child(5) { width:11%; } #brandsPane table.simple th:nth-child(6) { width:10%; } #brandsPane table.simple th:nth-child(7) { width:17%; }
+#brandRows td { vertical-align:middle; overflow-wrap:anywhere; }
+#brandRows td:nth-child(3), #brandRows td:nth-child(4), #brandRows td:nth-child(6), #brandRows td:nth-child(7) { white-space:nowrap; }
+#brandRows td:nth-child(7) { text-align:right; }
+#brandRows .pill { white-space:nowrap; }
+#brandRows .btn-sm + .btn-sm { margin-left:4px; }
 
 .empty { padding:24px 0; text-align:center; color:var(--ink-500); font-size:0.9rem; }
 
@@ -839,7 +848,7 @@ async function renderBrandsTab() {
   const inp = (key, val, ph, w) => '<input class="dir-search" data-bf="' + key + '" value="' + escapeHtml(val || '') + '" placeholder="' + ph + '" autocomplete="off" style="padding:5px 8px; font-size:0.86rem; width:' + w + '; margin:2px 0;">';
   const rowHtml = (b) => {
     const st = _brandRow.id === b.id ? _brandRow : null;
-    const demos = b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '');
+    const demos = '<span style="font-variant-numeric:tabular-nums;">' + b.bookings_total + '</span>' + (b.bookings_upcoming ? ' <span class="pill ok" style="margin-left:6px;">' + b.bookings_upcoming + ' upcoming</span>' : '');
     const canDelete = Number(b.bookings_total) === 0;
     if (st && st.mode === 'delete') {
       return '<tr data-bid="' + escapeHtml(b.id) + '"><td colspan="7" style="background:#fff3ed;"><strong>Delete ' + escapeHtml(b.company_name || b.email || 'this brand') + '?</strong> Its sign-in, sessions and certificate reviews go with it. Type the name to confirm: '
@@ -849,10 +858,10 @@ async function renderBrandsTab() {
     if (st && st.mode === 'edit') {
       return '<tr data-bid="' + escapeHtml(b.id) + '"><td>' + inp('company_name', b.company_name, 'Company', '170px') + '</td>'
         + '<td>' + inp('contact_name', b.contact_name, 'Contact name', '95%') + inp('phone', b.phone, 'Phone', '95%') + inp('website', b.website, 'Website', '95%') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + ' (sign-in, not editable)</div></td>'
-        + '<td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
+        + '<td>' + coiPill(b.coi_verification_status, b.default_coi_expires).replace(' · expires ', ' · ') + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
         + '<td class="num" style="white-space:nowrap;"><button class="btn-sm" data-act="saveb" data-bid="' + escapeHtml(b.id) + '">Save</button> <button class="btn-sm" data-act="cancelrow" data-bid="' + escapeHtml(b.id) + '">Cancel</button><div class="sub" data-msg style="margin-top:4px;">' + escapeHtml(st.msg || '') + '</div></td></tr>';
     }
-    return '<tr data-bid="' + escapeHtml(b.id) + '"><td><strong>' + escapeHtml(b.company_name || 'n/a') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
+    return '<tr data-bid="' + escapeHtml(b.id) + '"><td><strong>' + escapeHtml(b.company_name || 'n/a') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires).replace(' · expires ', ' · ') + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
       + '<td class="num" style="white-space:nowrap;"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button> <button class="btn-sm" data-act="editb" data-bid="' + escapeHtml(b.id) + '">Edit</button> '
       + (canDelete ? '<button class="btn-sm" data-act="delb" data-bid="' + escapeHtml(b.id) + '" style="color:#a14e2a;">Delete</button>' : '<button class="btn-sm" disabled title="Has ' + b.bookings_total + ' booking' + (b.bookings_total === 1 ? '' : 's') + ' on record; bookings are financial records, so this brand cannot be deleted." style="opacity:0.45; cursor:not-allowed;">Delete</button>') + '</td></tr>';
   };
@@ -889,7 +898,7 @@ async function openBrandProfile(id) {
   let p; try { p = await ownerPost('owner-brand-profile', { brand_id: id }); } catch (e) { box.innerHTML = loadErr("Couldn't load this brand", e, 'brand', id); return; }
   const b = p.brand;
   const kv = [row('Contact', escapeHtml(b.contact_name || 'n/a')), row('Email', escapeHtml(b.email || 'n/a')), row('Phone', escapeHtml(b.phone || 'n/a')), row('Website', b.website ? link(/^https?:/.test(b.website) ? b.website : 'https://' + b.website, b.website) : 'n/a'), row('Joined', fmtD(b.created_at)), row('Email verified', yesno(b.is_verified)),
-    row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires) + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? 'n/a' : yesno(b.needs_electricity)),
+    row('Certificate of insurance', coiPill(b.coi_verification_status, b.default_coi_expires).replace(' · expires ', ' · ') + (b.default_coi_filename ? ' <span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.default_coi_filename) + '</span>' : '')), row('Needs electricity', b.needs_electricity == null ? 'n/a' : yesno(b.needs_electricity)),
     row('Categories', escapeHtml(Array.isArray(b.default_categories) ? b.default_categories.join(', ') : (b.default_categories || 'n/a'))), row('Products', escapeHtml(Array.isArray(b.products) ? b.products.map(x => (x && x.name) || x).join(', ').slice(0, 300) : 'n/a'))].join('');
   const byR = (Array.isArray(p.by_retailer) ? p.by_retailer : []).map(a => '<tr><td>' + (a.slug ? link('/r/' + a.slug, a.name) : escapeHtml(a.name)) + '</td><td class="num">' + a.total + '</td><td class="num">' + a.upcoming + '</td><td class="num">' + money(a.paid_cents / 100) + '</td></tr>').join('');
   const bk = (p.bookings || []).slice(0, 25).map(x => '<tr><td>' + escapeHtml(x.demo_date) + ' ' + escapeHtml(x.demo_time || '') + '</td><td>' + escapeHtml(x.retailer_name) + '</td><td>' + escapeHtml(x.status) + '</td><td>' + escapeHtml(x.payment_status || '') + (x.payment_status === 'paid' ? ' · ' + money(Number(x.amount_paid || 0) / 100) : '') + '</td></tr>').join('');
