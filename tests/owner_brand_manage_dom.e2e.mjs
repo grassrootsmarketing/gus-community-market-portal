@@ -2,6 +2,7 @@
 // inputs and Save posts owner-brand-update with the four fields; Delete is disabled for a brand with bookings and,
 // for one without, asks for the name on the same row and posts owner-brand-delete. The API is stubbed; the real page
 // script runs. Needs a local server (DOM_BASE, default http://localhost:4174) and a Playwright install (PLAYWRIGHT_ROOT).
+/* global document */
 import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4174';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');
