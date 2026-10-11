@@ -719,6 +719,7 @@ const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s =
 const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
 const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
 let _retailersCache = null, _brandsCache = null;
+let _brandRow = { id: null, mode: null, msg: '' }, _brandRedraw = () => {};   // inline edit / delete state for the Brands tab
 // Go-live approval (2026-09-30). A store takes bookings only when approved; self-service sign-ups arrive pending.
 const approvalPill = (r, full) => {
   const st = r && r.verification_status; const demo = r && r.is_demo ? ' <span class="pill">demo</span>' : '';
@@ -833,9 +834,54 @@ async function renderBrandsTab() {
   pane.innerHTML = '<div class="card"><h2>Brands</h2><div class="sub">' + (_brandsCache.capped ? list.length + ' of ' + Number(_brandsCache.total) + ' (partial list)' : list.length) + ' signed up.' + (_brandsCache.complete.bookings === false ? ' Demo counts are partial.' : '') + ' Open one to see its profile, certificate and bookings (read-only).</div>'
     + '<input class="dir-search" id="brandSearch" placeholder="Search by company, contact or email" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Brand</th><th>Contact</th><th>Certificate</th><th class="num">Demos</th><th>Retailers</th><th>Joined</th><th></th></tr></thead><tbody id="brandRows"></tbody></table></div></div><div id="brandProfile"></div>';
-  const draw = (q) => { const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(b => '<tr><td><strong>' + escapeHtml(b.company_name || 'n/a') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '') + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td><td class="num"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button></td></tr>').join('') || '<tr><td colspan="7">No match</td></tr>'; };
+  // Rows edit in place (David, 2026-10-10): Edit turns the brand and contact cells into inputs with Save / Cancel;
+  // Delete (only for a brand with no bookings) asks for the name on the same row. The sign-in email is shown, never edited.
+  const inp = (key, val, ph, w) => '<input class="dir-search" data-bf="' + key + '" value="' + escapeHtml(val || '') + '" placeholder="' + ph + '" autocomplete="off" style="padding:5px 8px; font-size:0.86rem; width:' + w + '; margin:2px 0;">';
+  const rowHtml = (b) => {
+    const st = _brandRow.id === b.id ? _brandRow : null;
+    const demos = b.bookings_total + (b.bookings_upcoming ? ' <span class="pill ok">' + b.bookings_upcoming + ' upcoming</span>' : '');
+    const canDelete = Number(b.bookings_total) === 0;
+    if (st && st.mode === 'delete') {
+      return '<tr data-bid="' + escapeHtml(b.id) + '"><td colspan="7" style="background:#fff3ed;"><strong>Delete ' + escapeHtml(b.company_name || b.email || 'this brand') + '?</strong> Its sign-in, sessions and certificate reviews go with it. Type the name to confirm: '
+        + '<input class="dir-search" data-bf="confirm" placeholder="' + escapeHtml(b.company_name || b.email || '') + '" autocomplete="off" style="padding:5px 8px; font-size:0.86rem; width:220px; margin:0 6px;">'
+        + '<button class="btn-sm" data-act="confirmdel" data-bid="' + escapeHtml(b.id) + '" style="background:#a14e2a; color:#fff; border-color:#a14e2a;">Delete</button> <button class="btn-sm" data-act="cancelrow" data-bid="' + escapeHtml(b.id) + '">Cancel</button> <span class="sub" data-msg>' + escapeHtml(st.msg || '') + '</span></td></tr>';
+    }
+    if (st && st.mode === 'edit') {
+      return '<tr data-bid="' + escapeHtml(b.id) + '"><td>' + inp('company_name', b.company_name, 'Company', '170px') + '</td>'
+        + '<td>' + inp('contact_name', b.contact_name, 'Contact name', '95%') + inp('phone', b.phone, 'Phone', '95%') + inp('website', b.website, 'Website', '95%') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + ' (sign-in, not editable)</div></td>'
+        + '<td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
+        + '<td class="num" style="white-space:nowrap;"><button class="btn-sm" data-act="saveb" data-bid="' + escapeHtml(b.id) + '">Save</button> <button class="btn-sm" data-act="cancelrow" data-bid="' + escapeHtml(b.id) + '">Cancel</button><div class="sub" data-msg style="margin-top:4px;">' + escapeHtml(st.msg || '') + '</div></td></tr>';
+    }
+    return '<tr data-bid="' + escapeHtml(b.id) + '"><td><strong>' + escapeHtml(b.company_name || 'n/a') + '</strong></td><td>' + escapeHtml(b.contact_name || '') + '<div style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(b.email || '') + '</div></td><td>' + coiPill(b.coi_verification_status, b.default_coi_expires) + '</td><td class="num">' + demos + '</td><td>' + escapeHtml((b.retailers || []).join(', ') || 'n/a') + '</td><td>' + fmtD(b.created_at) + '</td>'
+      + '<td class="num" style="white-space:nowrap;"><button class="btn-sm" data-act="openb" data-bid="' + escapeHtml(b.id) + '">Open</button> <button class="btn-sm" data-act="editb" data-bid="' + escapeHtml(b.id) + '">Edit</button> '
+      + (canDelete ? '<button class="btn-sm" data-act="delb" data-bid="' + escapeHtml(b.id) + '" style="color:#a14e2a;">Delete</button>' : '<button class="btn-sm" disabled title="Has ' + b.bookings_total + ' booking' + (b.bookings_total === 1 ? '' : 's') + ' on record; bookings are financial records, so this brand cannot be deleted." style="opacity:0.45; cursor:not-allowed;">Delete</button>') + '</td></tr>';
+  };
+  let _q = '';
+  const draw = (q) => { _q = q; const rows = list.filter(b => !q || [b.company_name, b.contact_name, b.email].some(x => (x || '').toLowerCase().includes(q))); document.getElementById('brandRows').innerHTML = rows.map(rowHtml).join('') || '<tr><td colspan="7">No match</td></tr>'; };
+  _brandRedraw = () => draw(_q);
   draw(''); document.getElementById('brandSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act=openb]'); if (b) openBrandProfile(b.dataset.bid); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]'); if (!btn) return;
+    const act = btn.dataset.act, bid = btn.dataset.bid; const list = (_brandsCache && _brandsCache.list) || []; const b = list.find(x => x.id === bid);
+    if (act === 'openb') return openBrandProfile(bid);
+    if (act === 'editb') { _brandRow = { id: bid, mode: 'edit', msg: '' }; return _brandRedraw(); }
+    if (act === 'delb') { _brandRow = { id: bid, mode: 'delete', msg: '' }; _brandRedraw(); const i = pane.querySelector('tr[data-bid="' + bid + '"] input[data-bf=confirm]'); if (i) i.focus(); return; }
+    if (act === 'cancelrow') { _brandRow = { id: null, mode: null, msg: '' }; return _brandRedraw(); }
+    const tr = btn.closest('tr'); const val = (k) => { const i = tr.querySelector('input[data-bf="' + k + '"]'); return i ? i.value : ''; };
+    if (act === 'saveb' && b) {
+      btn.disabled = true; _brandRow.msg = 'Saving…';
+      try { const j = await ownerPost('owner-brand-update', { brand_id: bid, company_name: val('company_name'), contact_name: val('contact_name'), phone: val('phone'), website: val('website') });
+        Object.assign(b, j.brand || {}); _brandRow = { id: null, mode: null, msg: '' }; _brandRedraw(); }
+      catch (err) { _brandRow.msg = /invalid_fields/.test(err.message) ? 'Check the fields: company is required, phone up to 40 characters, website must look like a web address.' : 'Could not save: ' + err.message; _brandRedraw(); }
+      return;
+    }
+    if (act === 'confirmdel' && b) {
+      const typed = val('confirm').trim(); if (!typed) { _brandRow.msg = 'Type the brand name first.'; return _brandRedraw(); }
+      btn.disabled = true; _brandRow.msg = 'Deleting…';
+      try { await ownerPost('owner-brand-delete', { brand_id: bid, confirm_name: typed }); const i = list.indexOf(b); if (i >= 0) list.splice(i, 1); _brandRow = { id: null, mode: null, msg: '' }; _brandRedraw(); const box = document.getElementById('brandProfile'); if (box && box.innerHTML.includes(escapeHtml(b.company_name || '§'))) box.innerHTML = ''; }
+      catch (err) { _brandRow.msg = /brand_has_bookings|cannot be deleted/.test(err.message) ? 'This brand has bookings and cannot be deleted.' : /confirm_name_mismatch|Type the brand name/.test(err.message) ? 'The name did not match. Type it exactly.' : 'Could not delete: ' + err.message; _brandRedraw(); }
+    }
+  }); }
 }
 async function openBrandProfile(id) {
   const box = document.getElementById('brandProfile'); if (!box) return;
@@ -851,40 +897,6 @@ async function openBrandProfile(id) {
     + '<div class="dir-grid"><div><h3 class="dir-h3">Profile</h3><table class="simple"><tbody>' + kv + '</tbody></table></div>'
     + '<div><h3 class="dir-h3">By retailer' + (p.rollup_complete === false ? ' (partial)' : '') + '</h3><table class="simple"><thead><tr><th>Retailer</th><th class="num">Demos</th><th class="num">Upcoming</th><th class="num">Paid (booking records)</th></tr></thead><tbody>' + (byR || '<tr><td colspan="4">No bookings yet</td></tr>') + '</tbody></table>'
     + '<h3 class="dir-h3" style="margin-top:16px;">Bookings' + ' (latest ' + Math.min(25, (p.bookings || []).length) + ' of ' + Number(p.bookings_total != null ? p.bookings_total : (p.bookings || []).length) + ')' + '</h3><table class="simple"><tbody>' + (bk || '<tr><td>None</td></tr>') + '</tbody></table></div></div></div>';
-  // Manage (David, 2026-10-10): edit the four display fields, or delete a brand that has no bookings.
-  const canDelete = Number(p.bookings_total != null ? p.bookings_total : (p.bookings || []).length) === 0 && p.rollup_complete !== false;
-  const nameForConfirm = (b.company_name || b.email || '').trim();
-  box.insertAdjacentHTML('beforeend', '<div class="card" id="brandManage"><h3 class="dir-h3">Manage this brand</h3>'
-    + '<div class="sub" style="margin-bottom:10px;">Edit the display fields below. The sign-in email, the certificate and the product list belong to the brand and change from their own dashboard.</div>'
-    + '<div class="dir-grid" id="brandEditForm">'
-    + fld('Company', 'company_name', b.company_name) + fld('Contact name', 'contact_name', b.contact_name) + fld('Phone', 'phone', b.phone) + fld('Website', 'website', b.website)
-    + '</div><div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:10px;"><button class="btn-sm" data-bm="save" data-bid="' + escapeHtml(b.id) + '">Save changes</button><span class="sub" id="brandEditMsg"></span></div>'
-    + '<hr style="border:0; border-top:1px solid rgba(15,44,23,0.1); margin:16px 0;">'
-    + (canDelete
-        ? '<div class="sub">This brand has no bookings, so it can be deleted. Its sign-in, sessions and certificate reviews go with it. Type the brand name to confirm.</div>'
-          + '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-top:8px;"><input class="dir-search" id="brandDeleteConfirm" placeholder="Type: ' + escapeHtml(nameForConfirm) + '" autocomplete="off" style="max-width:320px;"><button class="btn-sm" data-bm="delete" data-bid="' + escapeHtml(b.id) + '" style="background:#a14e2a; color:#fff; border-color:#a14e2a;">Delete brand</button><span class="sub" id="brandDeleteMsg"></span></div>'
-        : '<div class="sub">This brand has bookings on record, so it cannot be deleted. Bookings are financial records; if the brand should stop booking, tell them and leave the history in place.</div>')
-    + '</div>');
-  function fld(label, key, val) { return '<div><label class="sub" style="display:block; margin-bottom:4px;">' + label + '</label><input class="dir-search" data-bf="' + key + '" value="' + escapeHtml(val || '') + '" autocomplete="off"></div>'; }
-  if (!box.dataset.manageWired) { box.dataset.manageWired = '1'; box.addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-bm]'); if (!btn) return;
-    const bid = btn.dataset.bid;
-    if (btn.dataset.bm === 'save') {
-      const msg = document.getElementById('brandEditMsg'); const payload = { brand_id: bid };
-      box.querySelectorAll('#brandEditForm input[data-bf]').forEach(i => { payload[i.dataset.bf] = i.value; });
-      btn.disabled = true; msg.textContent = 'Saving…';
-      try { await ownerPost('owner-brand-update', payload); msg.textContent = 'Saved.'; _brandsCache = null; await renderBrandsTab(); await openBrandProfile(bid); }
-      catch (err) { msg.textContent = /invalid_fields|nothing_to_update/.test(err.message) ? 'Check the fields: ' + err.message : 'Could not save: ' + err.message; btn.disabled = false; }
-      return;
-    }
-    if (btn.dataset.bm === 'delete') {
-      const msg = document.getElementById('brandDeleteMsg'); const typed = (document.getElementById('brandDeleteConfirm') || {}).value || '';
-      if (!typed.trim()) { msg.textContent = 'Type the brand name first.'; return; }
-      btn.disabled = true; msg.textContent = 'Deleting…';
-      try { await ownerPost('owner-brand-delete', { brand_id: bid, confirm_name: typed }); _brandsCache = null; box.innerHTML = '<div class="card"><div class="sub">Brand deleted.</div></div>'; await renderBrandsTab(); }
-      catch (err) { msg.textContent = /brand_has_bookings|cannot be deleted/.test(err.message) ? 'This brand has bookings and cannot be deleted.' : /confirm_name_mismatch|Type the brand name/.test(err.message) ? 'The name did not match. Type it exactly.' : 'Could not delete: ' + err.message; btn.disabled = false; }
-    }
-  }); }
 }
 
 // ---- Owner calendar (2026-09-29): every retailer's demos on one month grid, read-only ----
