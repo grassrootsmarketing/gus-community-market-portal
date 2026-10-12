@@ -300,8 +300,13 @@ export function money(cents, currency = 'usd') {
   catch (_) { s = n.toFixed(ZERO_DECIMAL.has(code) ? 0 : 2); }
   return `${s} ${code.toUpperCase()}`;
 }
-function zoneAbbrev(tz) {
-  try { const parts = new Intl.DateTimeFormat('en-US', { timeZone: safeZone(tz), timeZoneName: 'short' }).formatToParts(new Date()); const z = parts.find(x => x.type === 'timeZoneName'); return z ? z.value : ''; } catch (_) { return ''; }
+// Codex closure item 1: the abbreviation is taken at the DEMO's own instant in its zone (PDT in October,
+// PST in November for California), never at "now". With no resolvable instant the IANA name is shown
+// instead of a guess.
+export function zoneAbbrevAt(tz, instant) {
+  const zone = safeZone(tz);
+  if (!(instant instanceof Date) || Number.isNaN(instant.getTime())) return String(tz || '');
+  try { const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'short' }).formatToParts(instant); const z = parts.find(x => x.type === 'timeZoneName'); return z ? z.value : String(tz || ''); } catch (_) { return String(tz || ''); }
 }
 function receiptTimeLabel(demoTime) {
   const s = String(demoTime || '').trim();
@@ -333,8 +338,10 @@ export function receiptMessage(b, receipt) {
   const count = items.length;
   const demoWord = count === 1 ? 'demo' : 'demos';
   const demoLines = items.map(it => {
-    const zone = zoneAbbrev(it.timezone || tz);
-    const when = [it.demo_date ? dateLabel(String(it.demo_date).slice(0, 10), { year: true }) : null, [receiptTimeLabel(it.demo_time), zone].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    const itemTz = it.timezone || tz;
+    const zone = zoneAbbrevAt(itemTz, it.start_at ? new Date(it.start_at) : demoStartUtc(it.demo_date, it.demo_time, itemTz));
+    const timePart = receiptTimeLabel(it.demo_time);
+    const when = [it.demo_date ? dateLabel(String(it.demo_date).slice(0, 10), { year: true }) : null, timePart ? [timePart, zone].filter(Boolean).join(' ') : null].filter(Boolean).join(', ');
     const where = it.venue_name ? ` at ${H(it.venue_name)}` : '';
     const what = it.product ? ` &middot; ${H(it.product)}` : '';
     const ref = it.booking_id ? `<div style="font-size:12px;color:#6b6a64;">Booking ref ${H(String(it.booking_id).slice(0, 8))}</div>` : '';

@@ -67,6 +67,15 @@ async function cronJobHealth(job) {
       h.backlog_overdue_60m = m ? Number(m[1]) : null;
       h.backlog_ok = m ? Number(m[1]) === 0 : null;
     } catch (_) { h.backlog_ok = null; }
+    // Codex receipts closure item 2: deliveries parked for an operator (skip_reason 'review_required:...')
+    // are reported here as well, so the number is visible without reading the worker's heartbeat rows.
+    try {
+      const r2 = await fetch(`${_b.supabaseUrl}/rest/v1/notification_deliveries?status=eq.skipped&skip_reason=like.review_required*&select=id`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
+      });
+      const m2 = (r2.headers.get('content-range') || '').match(/\/(\d+)$/);
+      h.review_required = m2 ? Number(m2[1]) : null;
+    } catch (_) { h.review_required = null; }
   }
   return h;
 }

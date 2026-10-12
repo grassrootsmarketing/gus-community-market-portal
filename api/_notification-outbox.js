@@ -573,14 +573,14 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     const allocTotal = allocs.reduce((t, a) => t + Number(a.customer_amount || 0), 0);
     if (!allocs.length || allocs.length >= 500 || allocTotal !== Number(group.total_customer_amount)) return { skip: 'review_required:allocations_mismatch' };
     const bookingIds = allocs.map(a => a.booking_id).filter(Boolean);
-    const bookings = rowsOf(await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id,timezone`), 'bookings');
+    const bookings = rowsOf(await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id,timezone,start_at`), 'bookings');
     const byId = new Map(bookings.map(x => [x.id, x]));
     if (bookingIds.some(id => !byId.has(id))) return { skip: 'review_required:booking_missing' };
     const items = [];
     for (const a of allocs) {
       const bk = byId.get(a.booking_id);
       const venue = bk.venue_id ? await loadOne(b, cache, 'venues', bk.venue_id, 'id,name') : null;
-      items.push({ booking_id: a.booking_id, demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, timezone: bk.timezone || (retailer && retailer.timezone) || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
+      items.push({ booking_id: a.booking_id, demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, start_at: bk.start_at || null, timezone: bk.timezone || (retailer && retailer.timezone) || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
     }
     let paidAt = payload.paid_at ? String(payload.paid_at) : null;
     if (!paidAt) {
@@ -780,7 +780,14 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
       out.claimed++; out.attempts++;
       const r = await processClaimed(b, row, { now, clock, token, mailer, sendTimeoutMs, cache });
       if (r.outcome === 'accepted') out.accepted++;
-      else if (r.outcome === 'skipped') { out.skipped++; out.skip_reasons[r.reason] = (out.skip_reasons[r.reason] || 0) + 1; }
+      else if (r.outcome === 'skipped') {
+        out.skipped++; out.skip_reasons[r.reason] = (out.skip_reasons[r.reason] || 0) + 1;
+        // Codex closure item 2: a review_required skip is operator work, not a benign "no longer true".
+        // The run that creates it is NOT ok (failed heartbeat, 500, first_error names the delivery), once:
+        // the row is terminal, so later runs do not repeat the alarm; the durable count in collectMetrics
+        // keeps it visible until an operator resolves it.
+        if (isReviewRequired(r.reason)) { out.review_required = (out.review_required || 0) + 1; out.errors.push(`review_required:${row.id}`); }
+      }
       else if (r.outcome === 'failed') { out.failed++; out.errors.push('send_failed'); }
       else if (r.outcome === 'unknown') { out.unknown++; out.errors.push('send_unknown'); }
       else if (r.outcome === 'lost') { out.lost++; out.errors.push('completion_mismatch'); }
@@ -795,15 +802,18 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
 // ---------------------------------------------------------------------------
 // 4. METRICS, backlog and oldest pending age are reported separately from liveness.
 // ---------------------------------------------------------------------------
+export function isReviewRequired(reason) { return /^review_required(:|$)/.test(String(reason || '')); }
 export async function collectMetrics(b, { now = new Date() } = {}) {
   const nowIso = enc(now.toISOString());
   const overdue = enc(new Date(now.getTime() - 60 * MIN).toISOString());
-  const [backlog, overdueCount, failed, unknown, oldest] = await Promise.all([
+  const [backlog, overdueCount, failed, unknown, oldest, reviewRequired] = await Promise.all([
     countRows(b, `notification_deliveries?status=eq.pending&due_at=lte.${nowIso}&select=id`),
     countRows(b, `notification_deliveries?status=eq.pending&due_at=lte.${overdue}&select=id`),
     countRows(b, `notification_deliveries?status=eq.failed&select=id`),
     countRows(b, `notification_deliveries?status=eq.unknown&select=id`),
     sb(b, `notification_deliveries?status=eq.pending&due_at=lte.${nowIso}&select=due_at&order=due_at.asc&limit=1`),
+    // Codex closure item 2: terminal rows parked for an operator (skip_reason 'review_required:...').
+    countRows(b, `notification_deliveries?status=eq.skipped&skip_reason=like.review_required*&select=id`),
   ]);
   const oldestDue = Array.isArray(oldest) && oldest[0] ? new Date(oldest[0].due_at) : null;
   return {
@@ -812,6 +822,7 @@ export async function collectMetrics(b, { now = new Date() } = {}) {
     oldest_pending_age_min: oldestDue ? Math.max(0, Math.round((now.getTime() - oldestDue.getTime()) / MIN)) : 0,
     failed_count: failed,
     unknown_count: unknown,
+    review_required_count: reviewRequired,
   };
 }
 

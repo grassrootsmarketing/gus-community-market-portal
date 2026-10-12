@@ -1,4 +1,4 @@
-// tests/payment_receipts_offline.test.mjs — Codex receipts review PR-2 / PR-3 / PR-5, failure injection.
+// tests/payment_receipts_offline.test.mjs: Codex receipts review PR-2 / PR-3 / PR-5, failure injection.
 //
 // The REAL worker (api/_notification-outbox.js processClaimed) runs against an intercepted fetch: no
 // database, no provider, no Stripe. Every scenario asserts the worker's decision (outcome), what it
@@ -47,6 +47,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (f === '503') return new Response(JSON.stringify({ message: 'simulated database failure' }), { status: 503 });
   if (f === 'malformed') return new Response(JSON.stringify({ message: 'not a list' }), { status: 200 });
   if (f === 'timeout') { const e = new Error('aborted'); e.name = 'TimeoutError'; throw e; }
+  if (table === 'notification_deliveries') return new Response(JSON.stringify(tables.notification_deliveries || []), { status: 200 });
   if (!(table in tables)) throw new Error('unexpected table ' + table);
   let rows = tables[table];
   const m = u.match(/[?&]id=eq\.([^&]+)/); if (m) rows = rows.filter(r => r.id === decodeURIComponent(m[1]));
@@ -176,7 +177,7 @@ console.log('\n:: PR-6 / PR-7 content ::');
   reset();
   await run(row());
   const html = sent[0].msg.html, subject = sent[0].msg.subject;
-  ok('PR-7 currency code shown, neutral "Payment for" wording, booking refs, timezone, as-of note, no em dash', /\$60\.00 USD/.test(subject) && /Payment for<\/td>/.test(html) && /2 demos at Fixture Store, booked through Demohub/.test(html) && !/Paid to/.test(html) && (html.match(/Booking ref /g) || []).length === 2 && /12:00 PM P[DS]T/.test(html) && /Dates and times are as of this receipt/.test(html) && !/—/.test(html + subject), subject);
+  ok('PR-7 currency code shown, neutral "Payment for" wording, booking refs, timezone, as-of note, no em dash', /\$60\.00 USD/.test(subject) && /Payment for<\/td>/.test(html) && /2 demos at Fixture Store, booked through Demohub/.test(html) && !/Paid to/.test(html) && (html.match(/Booking ref /g) || []).length === 2 && /12:00 PM P[DS]T/.test(html) && /Dates and times are as of this receipt/.test(html) && !/\u2014/.test(html + subject), subject);
 }
 {
   reset(); tables.payment_groups[0] = { ...group, currency: 'jpy', total_customer_amount: 6000 };
@@ -192,5 +193,56 @@ console.log('\n:: PR-6 / PR-7 content ::');
   reset(); tables.notification_events = [{ ...baseEvent, payload: { payment_group_id: 'g', resend: true } }];
   const r3 = await run(row());
   ok('PR-6 a resend naming no requester at all belongs to no one: skipped, nothing sent', r3.outcome === 'skipped' && r3.reason === 'not_the_requester' && sent.length === 0, JSON.stringify(r3));
+}
+
+console.log('\n:: Codex closure item 1: zone abbreviation at the demo\'s own instant ::');
+{
+  // DST in the US ends 2026-11-01. A receipt generated in October (or any time) must label an October
+  // California demo PDT and a November one PST; a zone without DST (Phoenix) is MST either way.
+  reset();
+  tables.bookings = [
+    { id: 'bk1', demo_date: '2026-10-17', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: '2026-10-17T18:00:00Z' },
+    { id: 'bk2', demo_date: '2026-11-14', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: '2026-11-14T19:00:00Z' },
+  ];
+  const r = await run(row());
+  const html = sent[0] && sent[0].msg.html || '';
+  ok('item 1: October demo reads PDT and November demo reads PST in the same receipt (stored instants)', r.outcome === 'accepted' && /October 17, 2026, 11:00 AM PDT/.test(html) && /November 14, 2026, 11:00 AM PST/.test(html), html.match(/(October|November) \d+, 2026, 11:00 AM [A-Z]+/g)?.join(' | '));
+  reset();
+  tables.bookings = [
+    { id: 'bk1', demo_date: '2026-10-17', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: null },
+    { id: 'bk2', demo_date: '2026-11-14', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: null },
+  ];
+  await run(row());
+  const html2 = sent[0] && sent[0].msg.html || '';
+  ok('item 1: without a stored instant the date and time resolve in the zone (PDT then PST)', /October 17, 2026, 11:00 AM PDT/.test(html2) && /November 14, 2026, 11:00 AM PST/.test(html2), html2.match(/(October|November) \d+, 2026, 11:00 AM [A-Z]+/g)?.join(' | '));
+  reset();
+  tables.retailers = [{ id: 'retailer', name: 'Fixture Store', timezone: 'America/Phoenix' }];
+  tables.bookings = [
+    { id: 'bk1', demo_date: '2026-10-17', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: null, start_at: null },
+    { id: 'bk2', demo_date: '2026-11-14', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: null, start_at: null },
+  ];
+  await run(row());
+  const html3 = sent[0] && sent[0].msg.html || '';
+  ok('item 1: a zone without DST (Phoenix, from the retailer) reads MST on both dates', (html3.match(/11:00 AM MST/g) || []).length === 2, html3.match(/(October|November) \d+, 2026, 11:00 AM [A-Z]+/g)?.join(' | '));
+  reset();
+  tables.bookings = [{ id: 'bk1', demo_date: 'not-a-date', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: null }, { id: 'bk2', demo_date: '2026-11-14', demo_time: '11:00 AM', product: 'Product', venue_id: null, timezone: 'America/Los_Angeles', start_at: null }];
+  await run(row());
+  const html4 = sent[0] && sent[0].msg.html || '';
+  ok('item 1: an item whose instant cannot be resolved shows the IANA zone name on its time, not a guessed abbreviation; the other item is still PST', /11:00 AM America\/Los_Angeles/.test(html4) && /November 14, 2026, 11:00 AM PST/.test(html4) && !/undefined/.test(html4), html4.match(/11:00 AM [^<]*/g)?.join(' | '));
+}
+
+console.log('\n:: Codex closure item 2: review_required is operator work ::');
+{
+  const { dispatchDue } = await import('../api/_notification-outbox.js');
+  // dispatchDue claims through PATCH; our fetch stub answers PATCH with one row, so model the claim read too
+  reset(); tables.payment_allocations = [{ booking_id: 'bk1', customer_amount: 3000, refunded_amount: 0 }];
+  const claimed = [row()];
+  tables.notification_deliveries = claimed;
+  const out = await dispatchDue(b, { now, mailer, batch: 5, maxAttempts: 5 });
+  ok('item 2: a review_required skip makes the run NOT ok (an error naming the delivery) and is counted apart from benign skips', out.review_required === 1 && out.errors.includes('review_required:delivery') && out.skipped === 1 && sent.length === 0, JSON.stringify(out));
+  reset(); tables.brand_members = [];
+  tables.notification_deliveries = [row({ recipient_id: 'mate' })];
+  const out2 = await dispatchDue(b, { now, mailer, batch: 5, maxAttempts: 5 });
+  ok('item 2: a benign skip (removed recipient) is a normal skip with no error and no review count', out2.skipped === 1 && !out2.review_required && out2.errors.length === 0, JSON.stringify(out2));
 }
 summary('payment receipts offline (Codex PR-2/3/5/6/7)');

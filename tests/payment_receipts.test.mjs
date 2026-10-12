@@ -275,6 +275,46 @@ try {
       ok('R6d the anon role cannot execute the RPC', !anonRpc.ok && [401, 403, 404].includes(anonRpc.status), String(anonRpc.status));
     }
   }
+
+  console.log('\n:: R7 review_required: visible, durable, and recoverable ::');
+  {
+    const { dispatchDue, collectMetrics } = await import('../api/_notification-outbox.js');
+    const b7a = await booking(), b7b = await booking();
+    const g7 = await claimGroup([b7a.id, b7b.id]); const gid7 = g7.payment_group_id;
+    one(await capture(await attempt(gid7), 6000));
+    await fan();
+    // break the itemization: one allocation row removed (the ledger total stays 6000)
+    const removed = one(await db(`payment_allocations?payment_group_id=eq.${gid7}&booking_id=eq.${b7b.id}&select=*`));
+    await db(`payment_allocations?id=eq.${removed.id}`, { method: 'DELETE' });
+    const rec = recordingMailer(b);
+    // earlier steps leave this brand's other deliveries due on the shared database; only THIS group's receipts count (its booking refs appear in the body)
+    // (the owner's "Booked" alerts for the same bookings also go through the stub; only receipts count)
+    const ours = (c) => /Your Demohub receipt/.test(String(c.body.subject)) && (JSON.stringify(c.body).includes(b7a.id.slice(0, 8)) || JSON.stringify(c.body).includes(b7b.id.slice(0, 8)));
+    const before = await collectMetrics(b, { now: new Date() });
+    // dispatch only our rows: claim everything due, release what is not ours, process ours through dispatchDue's accounting
+    const c = await claimMine(gid7);
+    for (const r0 of c.rows) await db(`notification_deliveries?id=eq.${r0.id}`, { method: 'PATCH', body: JSON.stringify({ claim_token: null, lease_until: null, status: 'pending' }) });
+    const out = await dispatchDue(b, { now: new Date(), mailer: rec.mailer, batch: 50, maxAttempts: 50 });
+    const parked = (await deliveries(gid7)).filter(d => d.status === 'skipped' && /^review_required:/.test(d.skip_reason || ''));
+    const after = await collectMetrics(b, { now: new Date() });
+    ok('R7a both contacts\' receipts are parked skipped review_required:allocations_mismatch, zero emails to this brand', parked.length === 2 && parked.every(d => d.skip_reason === 'review_required:allocations_mismatch') && !rec.calls.some(ours), JSON.stringify({ parked: parked.map(d => d.skip_reason), ours: rec.calls.filter(ours).map(c => [c.body.to, String(c.body.subject), String(c.body.html).match(/Booking ref [0-9a-f]+/g)]), all: (await deliveries(gid7)).map(d => [d.recipient_email, d.status, d.skip_reason, d.dedupe_key.slice(-20)]) }));
+    ok('R7b the run that parked them is NOT ok: errors name the deliveries, review_required counted apart from skips', (out.review_required || 0) >= 2 && parked.every(d => out.errors.includes('review_required:' + d.id)), JSON.stringify({ review_required: out.review_required, errors: out.errors.slice(0, 4) }));
+    ok('R7c the durable metric rose by two and stays until resolved', after.review_required_count === before.review_required_count + 2, JSON.stringify({ before: before.review_required_count, after: after.review_required_count }));
+    const out2 = await dispatchDue(b, { now: new Date(), mailer: rec.mailer, batch: 50, maxAttempts: 50 });
+    ok('R7d a later run does not re-alarm on the same parked rows (terminal) and sends nothing for them', !(out2.errors || []).some(e => parked.some(d => e === 'review_required:' + d.id)) && !rec.calls.some(ours), JSON.stringify(out2.errors));
+    // operator resolution: restore the ledger row, then requeue the parked deliveries (the runbook's SQL, here via REST)
+    await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: gid7, booking_id: b7b.id, customer_amount: removed.customer_amount, venue_amount: removed.venue_amount, platform_fee_amount: removed.platform_fee_amount, refunded_amount: 0, reserved_refund_amount: 0, currency: removed.currency }) });
+    for (const d of parked) await db(`notification_deliveries?id=eq.${d.id}&status=eq.skipped&skip_reason=like.review_required*`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', skip_reason: null, claim_token: null, lease_until: null, next_attempt_at: null, due_at: new Date().toISOString() }) });
+    const c2 = await claimMine(gid7);
+    const primary = c2.rows.find(r => r.recipient_email === brandEmail);
+    const rec2 = recordingMailer(b);
+    const r = await processClaimed(b, primary, { now: new Date(), token: c2.token, mailer: rec2.mailer });
+    const sentRow = (await deliveries(gid7)).find(d => d.id === primary.id);
+    ok('R7e after the operator restores the ledger row and requeues, the receipt sends once under its own delivery id, both demos listed', r.outcome === 'accepted' && rec2.calls.length === 1 && keyOf(rec2.calls[0]) === primary.id && sentRow.idempotency_key === primary.id && /2 demos covered by this payment/.test(sentRow.frozen_payload.html), JSON.stringify(r));
+    for (const r0 of c2.rows) if (r0 !== primary) await db(`notification_deliveries?id=eq.${r0.id}`, { method: 'PATCH', body: JSON.stringify({ claim_token: null, lease_until: null, status: 'pending' }) });
+    const final = await collectMetrics(b, { now: new Date() });
+    ok('R7f the metric falls back once the rows are requeued', final.review_required_count === before.review_required_count, JSON.stringify({ before: before.review_required_count, final: final.review_required_count }));
+  }
 } finally {
   // cleanup: deliveries + events by group, then the ledger rows, bookings, sessions, fixtures
   for (const gid of groups) {
