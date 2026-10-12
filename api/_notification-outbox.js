@@ -60,27 +60,57 @@ export const OWNER_KINDS = ['owner_booking_created'];
 export const RECEIPT_KINDS = ['payment_receipt'];
 const RECEIPT_SETTLED = ['paid', 'partially_refunded', 'refunded'];
 export function receiptEligible(group) { return !!group && RECEIPT_SETTLED.includes(String(group.status || '')); }
+// The requesting contact of a resend event: by recorded recipient id (0092), else, for a resend event
+// written by the earlier application code, by the recorded email. A resend naming no requester is nobody's.
+export function isRequester(payload, recipientId, email) {
+  if (!payload || !payload.resend) return false;
+  if (payload.requested_recipient_id) return String(payload.requested_recipient_id) === String(recipientId || '');
+  const want = String(payload.requested_by || '').trim().toLowerCase();
+  return !!want && want === String(email || '').trim().toLowerCase();
+}
 export function receiptGroupIdOf(ev) {
   const fromPayload = ev && ev.payload && ev.payload.payment_group_id;
   return String(fromPayload || String((ev && ev.transition_id) || '').split(':')[0] || '').trim() || null;
 }
 // Best-effort card summary + Stripe receipt link from the charge. Replaceable in tests. Never required:
 // a lookup failure only drops the card line and the link from the receipt.
+// Codex PR-5: the key is the VALIDATED binding's (no process.env fallback); the lookup is bounded per call
+// (RECEIPT_ENRICH_CALL_MS) and per worker run (cache.enrichment, RECEIPT_ENRICH_RUN_BUDGET_MS), cached per
+// charge for the run (one lookup per payment per run however many contacts), and never made on a replay.
+export const RECEIPT_ENRICH_CALL_MS = 6000;
+export const RECEIPT_ENRICH_RUN_BUDGET_MS = 20000;
 export const receiptHooks = {
   chargeLookup: async (b, chargeId) => {
-    const key = (b && b.stripeKey) || process.env.STRIPE_SECRET_KEY || null;
+    const key = (b && b.stripeKey) || null;
     if (!key || !chargeId || !/^ch_[A-Za-z0-9]+$/.test(String(chargeId))) return null;
     try {
       const r = await fetch('https://api.stripe.com/v1/charges/' + encodeURIComponent(chargeId), {
-        headers: { Authorization: 'Bearer ' + key }, signal: globalThis.AbortSignal.timeout(8000),
+        headers: { Authorization: 'Bearer ' + key }, signal: globalThis.AbortSignal.timeout(RECEIPT_ENRICH_CALL_MS),
       });
       if (!r.ok) return null;
       const c = await r.json();
-      const card = c && c.payment_method_details && c.payment_method_details.card;
-      return { card: card && card.last4 ? { brand: card.brand || null, last4: String(card.last4) } : null, receiptUrl: (c && c.receipt_url) || null };
+      if (!c || c.object !== 'charge' || c.id !== chargeId) return null;
+      const card = c.payment_method_details && c.payment_method_details.card;
+      const receiptUrl = typeof c.receipt_url === 'string' && /^https:\/\/pay\.stripe\.com\//.test(c.receipt_url) ? c.receipt_url : null;
+      return { card: card && card.last4 ? { brand: card.brand || null, last4: String(card.last4) } : null, receiptUrl };
     } catch (_) { return null; }
   },
 };
+// Enrichment through the per-run cache and budget. Returns null (absent optional data) when the budget is
+// spent, the hook fails, or the hook throws; it never throws itself.
+async function enrichCharge(b, cache, chargeId) {
+  if (!chargeId) return null;
+  const en = cache.enrichment || (cache.enrichment = { spentMs: 0, budgetMs: RECEIPT_ENRICH_RUN_BUDGET_MS, calls: 0, skipped_budget: 0 });
+  const charges = cache.charges || (cache.charges = new Map());
+  if (charges.has(chargeId)) return charges.get(chargeId);
+  if (en.spentMs >= en.budgetMs) { en.skipped_budget++; return null; }
+  const t0 = Date.now();
+  let out = null;
+  try { out = await receiptHooks.chargeLookup(b, chargeId); } catch (_) { out = null; }
+  en.spentMs += Date.now() - t0; en.calls++;
+  charges.set(chargeId, out || null);
+  return out || null;
+}
 const INACTIVE_STATUSES = ['cancelled', 'declined', 'expired', 'auth_canceled'];
 // Eligible = verified money state (authorized hold or paid) AND the booking is still live. A hold that
 // released/expired or a booking cancelled before the owner heard about it is obsolete unsent work.
@@ -166,21 +196,28 @@ const errCode = (e) => (e && (e.code || e.name)) ? String(e.code || e.name) : 'e
 // ---------------------------------------------------------------------------
 // Shared loaders with a per-run cache (a run touches the same booking/retailer/brand many times).
 // ---------------------------------------------------------------------------
-export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map() }; }
+export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map(), charges: new Map(), enrichment: { spentMs: 0, budgetMs: RECEIPT_ENRICH_RUN_BUDGET_MS, calls: 0, skipped_budget: 0 } }; }
+// Codex receipts PR-2: a successful read answers with a row list. Anything else (a JSON error body on a 2xx,
+// a truncated response) is a malformed read and throws, so the caller retries instead of treating it as
+// "no such row". Only a real empty list means missing.
+function rowsOf(rows, path) {
+  if (!Array.isArray(rows)) throw new OutboxError('db_malformed', { path: String(path || '').split('?')[0] });
+  return rows;
+}
 async function loadOne(b, cache, table, id, select = '*') {
   if (!id) return null;
   const m = cache[table];
   if (m.has(id)) return m.get(id);
-  const rows = await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`);
-  const row = Array.isArray(rows) ? rows[0] || null : null;
+  const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
+  const row = rows[0] || null;
   m.set(id, row);
   return row;
 }
 // Fresh (uncached) read, used by the dispatch recheck, which must see the CURRENT state.
 async function loadFresh(b, table, id, select = '*') {
   if (!id) return null;
-  const rows = await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`);
-  return Array.isArray(rows) ? rows[0] || null : null;
+  const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
+  return rows[0] || null;
 }
 const CONTACT_SELECT = 'id,retailer_id,name,email,venue_ids,notification_prefs';
 async function loadContactsForRetailer(b, cache, retailerId) {
@@ -286,7 +323,14 @@ async function fanOutOne(b, cache, ev, now) {
     if (ev.brand_id && ev.brand_id !== group.brand_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
     const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
     if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
-    const recipients = await brandRecipients(b, brand);
+    let recipients = await brandRecipients(b, brand);
+    // Codex receipts PR-6: the automatic receipt goes to every account contact; a copy a contact asked for
+    // goes to that contact only, resolved server-side when the request was recorded (0092) and checked
+    // again here against the brand's CURRENT contacts.
+    if (payload.resend) {
+      recipients = recipients.filter(r => isRequester(payload, r.recipient_id, r.email));
+      if (!recipients.length) { await markFannedOut(b, ev, now, 'requester_not_a_contact'); return { deliveries: 0, skipped: true }; }
+    }
     const rows = recipients.map(r => ({
       event_id: ev.id, retailer_id: group.retailer_id, booking_id: null,
       recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
@@ -443,8 +487,10 @@ async function cas(b, row, token, patch) {
 const release = (extra) => ({ claim_token: null, lease_until: null, ...extra });
 
 // The recheck: is this delivery still true, and to whom? Returns { ok, message } or { skip }.
-async function recheckAndBuild(b, cache, row, now) {
-  const event = row.event_id ? await loadOne(b, cache, 'notification_events', row.event_id).catch(() => null) : null;
+async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
+  // Codex receipts PR-2: a failed event read throws (db_* OutboxError) and the row stays claimed for the
+  // next run; only a successful read with no row yields event_missing below.
+  const event = row.event_id ? await loadOne(b, cache, 'notification_events', row.event_id) : null;
   const payload = (event && event.payload) || {};
   if (row.recipient_kind === 'store_contact') {
     const booking = await loadFresh(b, 'bookings', row.booking_id);
@@ -495,9 +541,13 @@ async function recheckAndBuild(b, cache, row, now) {
     // Judged on the CURRENT ledger row: the group must still be settled (paid, or paid then refunded),
     // the brand must still own it, and the recipient must still belong to the brand. Figures come from
     // payment_groups / payment_allocations, never from the event payload alone.
+    // Codex PR-2: every read here either returns rows or throws (retry); nothing is guessed from a failure.
+    // Codex PR-3: the paid date is a RECORDED one (the apply transaction's stamp in the event payload, else
+    // the paid attempt's paid_at) or it is stated as not recorded; the group's creation time is never used.
+    // Codex PR-5: on a replay the checks run and nothing is rebuilt or looked up.
     if (!event) return { skip: 'event_missing' };
     const gid = receiptGroupIdOf(event);
-    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status,total_customer_amount,currency,stripe_payment_intent_id,stripe_charge_id,created_at') : null;
+    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status,total_customer_amount,currency,stripe_payment_intent_id,stripe_charge_id,platform_keeps_all') : null;
     if (!group) return { skip: 'group_missing' };
     if (!receiptEligible(group)) return { skip: `group_${group.status || 'unknown'}` };
     if (row.retailer_id && group.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
@@ -514,23 +564,32 @@ async function recheckAndBuild(b, cache, row, now) {
     }
     to = String(to || '').trim();
     if (!to) return { skip: 'recipient_no_email' };
+    if (payload.resend && !isRequester(payload, row.recipient_id, to)) return { skip: 'not_the_requester' };
+    if (replay) return { ok: true, to };
     const retailer = await loadFresh(b, 'retailers', group.retailer_id, 'id,name,slug,timezone');
-    const allocs = await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id,customer_amount,refunded_amount&order=created_at.asc`) || [];
+    const allocs = rowsOf(await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id,customer_amount,refunded_amount&order=created_at.asc&limit=500`), 'payment_allocations');
+    // Codex PR-3: the itemization must reconcile with the ledger total before the receipt claims to list
+    // every demo. A mismatch is an operator matter (review_required), never a partial receipt.
+    const allocTotal = allocs.reduce((t, a) => t + Number(a.customer_amount || 0), 0);
+    if (!allocs.length || allocs.length >= 500 || allocTotal !== Number(group.total_customer_amount)) return { skip: 'review_required:allocations_mismatch' };
     const bookingIds = allocs.map(a => a.booking_id).filter(Boolean);
-    const bookings = bookingIds.length ? (await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id`) || []) : [];
+    const bookings = rowsOf(await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id,timezone`), 'bookings');
     const byId = new Map(bookings.map(x => [x.id, x]));
+    if (bookingIds.some(id => !byId.has(id))) return { skip: 'review_required:booking_missing' };
     const items = [];
     for (const a of allocs) {
-      const bk = byId.get(a.booking_id) || {};
+      const bk = byId.get(a.booking_id);
       const venue = bk.venue_id ? await loadOne(b, cache, 'venues', bk.venue_id, 'id,name') : null;
-      items.push({ demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
+      items.push({ booking_id: a.booking_id, demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, timezone: bk.timezone || (retailer && retailer.timezone) || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
     }
-    let paidAt = payload.paid_at || null;
+    let paidAt = payload.paid_at ? String(payload.paid_at) : null;
     if (!paidAt) {
-      try { const att = await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=paid_at&order=paid_at.desc&limit=1`); paidAt = Array.isArray(att) && att[0] ? att[0].paid_at : null; } catch (_) {}
+      const att = rowsOf(await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=paid_at&order=paid_at.desc&limit=1`), 'payment_attempts');
+      paidAt = att[0] && att[0].paid_at ? String(att[0].paid_at) : null;
     }
-    const charge = await receiptHooks.chargeLookup(b, group.stripe_charge_id);
-    const message = receiptMessage(b, { brand, retailer, group, paidAt: paidAt || group.created_at, items, card: charge && charge.card, receiptUrl: charge && charge.receiptUrl, resend: !!payload.resend });
+    if (paidAt && !Number.isFinite(Date.parse(paidAt))) paidAt = null;
+    const charge = await enrichCharge(b, cache, group.stripe_charge_id);
+    const message = receiptMessage(b, { brand, retailer, group, paidAt, items, card: charge && charge.card, receiptUrl: charge && charge.receiptUrl, resend: !!payload.resend });
     return { ok: true, to, message };
   }
   if (row.recipient_kind === 'brand') {
@@ -608,7 +667,9 @@ export function uncertaintyOf(frozen) {
 export async function processClaimed(b, row, { now = new Date(), clock = null, token, mailer = sendMail, sendTimeoutMs = DEFAULTS.sendTimeoutMs, cache = makeCache() } = {}) {
   const nowIso = now.toISOString();
   try {
-    const check = await recheckAndBuild(b, cache, row, now);
+    // Codex receipts PR-5: a row with a frozen payload is a REPLAY. The recheck keeps every identity,
+    // membership, tenant and settlement decision fresh but builds nothing and makes no enrichment call.
+    const check = await recheckAndBuild(b, cache, row, now, { replay: !!(row.frozen_payload && typeof row.frozen_payload === 'object') });
     if (!check.ok) {
       await cas(b, row, token, release({ status: 'skipped', skip_reason: check.skip, updated_at: nowIso }));
       return { outcome: 'skipped', reason: check.skip };

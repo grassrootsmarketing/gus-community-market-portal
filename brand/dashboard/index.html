@@ -2360,10 +2360,12 @@ function paymentDateLabel(iso) {
 }
 function renderPaymentsList() {
   const unavailable = Array.isArray(_data.unavailable) ? _data.unavailable : [];
-  if (unavailable.includes('payments')) return '<div style="font-size:0.9rem;color:var(--clay-700,#a14e2a);">We could not load your payments just now. <a href="#account" onclick="loadData().then(function () { render(); }); return false;">Try again</a>.</div>';
+  if (unavailable.includes('payments')) return '<div style="font-size:0.9rem;color:var(--clay-700,#a14e2a);">Payments are unavailable right now, so this list may be missing some or all of them. <a href="#account" onclick="loadData().then(function () { render(); }); return false;">Try again</a>.</div>';
   const list = Array.isArray(_data.payments) ? _data.payments : [];
   if (!list.length) return '<div style="font-size:0.9rem;color:var(--ink-500);">No payments yet. Your first receipt lands here once you book and pay for a demo.</div>';
-  return '<div id="paymentsList">' + list.map(function (p) {
+  const truncatedNote = (Array.isArray(_data.truncated) && _data.truncated.includes('payments'))
+    ? '<div style="font-size:0.86rem;color:var(--clay-700,#a14e2a);margin-bottom:8px;">This list shows your most recent payments only. For an older receipt, email bookings@demohubhq.com.</div>' : '';
+  return truncatedNote + '<div id="paymentsList">' + list.map(function (p) {
     const demos = Array.isArray(p.demos) ? p.demos : [];
     const n = demos.length;
     const store = p.retailer && p.retailer.name ? p.retailer.name : 'Store';
@@ -2372,9 +2374,11 @@ function renderPaymentsList() {
       return escapeHtml(when + (d.demo_time ? ' ' + d.demo_time : '') + (d.venue_name ? ' at ' + d.venue_name : ''));
     }).join(' &middot; ');
     const refund = Number(p.refunded || 0) > 0 ? ' <span style="color:var(--clay-700,#a14e2a);font-size:0.82rem;">(' + escapeHtml(moneyLabel(p.refunded, p.currency)) + ' refunded)</span>' : '';
+    const paidLine = p.paid_at ? 'Paid ' + escapeHtml(paymentDateLabel(p.paid_at)) : 'Paid date not recorded';
+    const itemNote = p.itemized === false ? ' <span style="color:var(--clay-700,#a14e2a);">(demo list incomplete, email bookings@demohubhq.com for the full receipt)</span>' : '';
     return '<div class="payment-row" data-gid="' + escapeHtml(p.id) + '" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 0;border-top:1px solid rgba(15,44,23,0.08);">'
       + '<div style="flex:1;min-width:220px;"><div style="font-weight:700;color:var(--forest-900);">' + escapeHtml(moneyLabel(p.amount, p.currency)) + refund + ' <span style="font-weight:500;color:var(--ink-500);">for ' + n + (n === 1 ? ' demo' : ' demos') + ' at ' + escapeHtml(store) + '</span></div>'
-      + '<div style="font-size:0.84rem;color:var(--ink-500);margin-top:2px;">Paid ' + escapeHtml(paymentDateLabel(p.paid_at)) + (detail ? ' &middot; ' + detail : '') + '</div></div>'
+      + '<div style="font-size:0.84rem;color:var(--ink-500);margin-top:2px;">' + paidLine + (detail ? ' &middot; ' + detail : '') + itemNote + '</div></div>'
       + '<div style="display:flex;align-items:center;gap:10px;"><button class="btn btn-ghost" style="padding:8px 14px;font-size:0.86rem;" onclick="resendReceipt(\'' + escapeHtml(p.id) + '\', this)">Email receipt</button><span class="sub" data-receipt-msg style="font-size:0.82rem;"></span></div>'
       + '</div>';
   }).join('') + '</div>';
@@ -2388,8 +2392,9 @@ async function resendReceipt(gid, btn) {
   try {
     const r = await fetch('/api/brand-account?action=receipt-resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'receipt-resend', payment_group_id: gid }), credentials: 'same-origin' });
     const j = await r.json().catch(function () { return {}; });
-    if (r.ok && j.ok) { say('On its way to ' + (j.to || 'your account email') + '. Give it a few minutes.'); return; }
-    if (r.status === 429) { const m = Math.ceil(Number(j.retry_after_seconds || 60) / 60); say('A copy went out recently. Check your inbox, or try again in ' + m + (m === 1 ? ' minute.' : ' minutes.'), true); return; }
+    if (r.ok && j.ok) { say('Queued for ' + (j.to || 'your sign-in address') + '. Our mail worker runs about every ' + (j.worker_interval_minutes || 15) + ' minutes, so allow that long.'); return; }
+    if (r.status === 429) { const m = Math.ceil(Number(j.retry_after_seconds || 60) / 60); say('A copy was requested in the last few minutes and is queued or already sent. Try again in ' + m + (m === 1 ? ' minute' : ' minutes') + ' if it has not arrived.', true); return; }
+    if (r.status === 403) { say('Copies go to account contacts only. Ask your account owner to add you under Team, or email bookings@demohubhq.com.', true); return; }
     if (r.status === 401) { window.location.href = '/brand/signin'; return; }
     say('Could not send that receipt (' + (j.error || r.status) + '). Email bookings@demohubhq.com and we will send it by hand.', true);
   } catch (e) {
@@ -2418,7 +2423,7 @@ function renderAccount() {
     </div>
     <div class="card" style="margin-bottom:18px;" id="paymentsCard">
       <h2 style="margin:0 0 6px;">Payments and receipts</h2>
-      <div class="sub" style="margin-bottom:14px;">Every demo fee you have paid through Demohub. A receipt is emailed to your account contacts when a payment goes through, and you can ask for another copy here.</div>
+      <div class="sub" style="margin-bottom:14px;">Every demo fee you have paid through Demohub. When a payment goes through, a receipt is emailed to everyone on your account. A copy you request here goes to you only, at the address you are signed in with.</div>
       ${renderPaymentsList()}
     </div>
     <div class="card">

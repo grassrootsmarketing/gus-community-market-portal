@@ -700,26 +700,40 @@ export default async function handler(req, res) {
       const pending_bookings = await readList(pendingR, 'pending_bookings');
       // Payments and receipts (2026-10-11): every settled payment group of this brand, read from the ledger,
       // with the demos it covered. Powers the Account tab's receipts list and its "Email receipt" button.
-      // A failed read is reported in `unavailable` like the other collections, never a silent empty list.
+      // Codex PR-3: every dependent read is checked for HTTP success AND shape; a failure puts 'payments' in
+      // `unavailable` (never an empty list that looks like "no payments"). A list that hits its cap is reported
+      // in `truncated` as 'payments'. Each payment says whether its itemization reconciles with the ledger
+      // total (`itemized`), so the UI never claims a complete list it cannot vouch for.
       let payments = [];
+      const PAYMENTS_CAP = 200, ROWS_CAP = 1000;
+      let paymentsTruncated = false;
+      const readRows = async (r, name) => {
+        if (!r || !r.ok) throw new Error(name + '_http_' + (r ? r.status : 'none'));
+        const j = await r.json();
+        if (!Array.isArray(j)) throw new Error(name + '_malformed');
+        return j;
+      };
       try {
-        const gr = await (await sb(`payment_groups?brand_id=eq.${brandId}&status=in.(paid,partially_refunded,refunded)&select=id,retailer_id,status,total_customer_amount,currency,created_at,retailers(id,name,slug)&order=created_at.desc&limit=200`)).json();
-        const groups = Array.isArray(gr) ? gr : null;
-        if (!groups) unavailable.push('payments');
-        else if (groups.length) {
+        const groupsAll = await readRows(await sb(`payment_groups?brand_id=eq.${brandId}&status=in.(paid,partially_refunded,refunded)&select=id,retailer_id,status,total_customer_amount,currency,created_at,retailers(id,name,slug)&order=created_at.desc&limit=${PAYMENTS_CAP + 1}`), 'payment_groups');
+        if (groupsAll.length > PAYMENTS_CAP) paymentsTruncated = true;
+        const groups = groupsAll.slice(0, PAYMENTS_CAP);
+        if (groups.length) {
           const gids = groups.map(g => encodeURIComponent(g.id)).join(',');
-          const [al, at] = await Promise.all([
-            (await sb(`payment_allocations?payment_group_id=in.(${gids})&select=payment_group_id,booking_id,customer_amount,refunded_amount,bookings(id,demo_date,demo_time,product,status,venues(name))`)).json(),
-            (await sb(`payment_attempts?payment_group_id=in.(${gids})&status=eq.paid&select=payment_group_id,paid_at`)).json(),
+          const [allocs, attempts] = await Promise.all([
+            readRows(await sb(`payment_allocations?payment_group_id=in.(${gids})&select=payment_group_id,booking_id,customer_amount,refunded_amount,bookings(id,demo_date,demo_time,product,status,venues(name))&limit=${ROWS_CAP}`), 'payment_allocations'),
+            readRows(await sb(`payment_attempts?payment_group_id=in.(${gids})&status=eq.paid&select=payment_group_id,paid_at&limit=${ROWS_CAP}`), 'payment_attempts'),
           ]);
-          const allocs = Array.isArray(al) ? al : [];
-          const paidAt = new Map((Array.isArray(at) ? at : []).map(a => [a.payment_group_id, a.paid_at]));
+          if (allocs.length >= ROWS_CAP || attempts.length >= ROWS_CAP) paymentsTruncated = true;
+          const paidAt = new Map(attempts.map(a => [a.payment_group_id, a.paid_at]));
           payments = groups.map(g => {
             const mine = allocs.filter(a => a.payment_group_id === g.id);
+            const itemTotal = mine.reduce((s, a) => s + Number(a.customer_amount || 0), 0);
             return {
               id: g.id, status: g.status, currency: g.currency, amount: g.total_customer_amount,
               refunded: mine.reduce((s, a) => s + Number(a.refunded_amount || 0), 0),
-              paid_at: paidAt.get(g.id) || g.created_at,
+              // Codex PR-3: a recorded paid timestamp or null. Never the checkout's creation time.
+              paid_at: paidAt.get(g.id) || null,
+              itemized: mine.length > 0 && itemTotal === Number(g.total_customer_amount),
               retailer: g.retailers ? { id: g.retailers.id, name: g.retailers.name, slug: g.retailers.slug } : null,
               demos: mine.map(a => ({ booking_id: a.booking_id, amount: a.customer_amount, refunded: a.refunded_amount || 0,
                 demo_date: a.bookings ? a.bookings.demo_date : null, demo_time: a.bookings ? a.bookings.demo_time : null,
@@ -728,44 +742,35 @@ export default async function handler(req, res) {
             };
           });
         }
-      } catch (e) { console.warn('payments lookup failed:', (e && e.message) || e); unavailable.push('payments'); }
+      } catch (e) { console.warn('payments lookup failed:', (e && e.message) || e); payments = []; unavailable.push('payments'); }
       const truncated = [['demos', demos], ['contacts', contacts], ['pending_bookings', pending_bookings]].filter(([, rows]) => rows.length >= PAGE_CAP).map(([n]) => n);
+      if (paymentsTruncated) truncated.push('payments');
       // provisional_holds tells the booking page whether an unverified-COI brand may proceed
       // (server gate in api/book.js stays authoritative either way).
       return jsonResp(res, 200, { profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds });
     }
 
-    // ===== Receipt resend (2026-10-11): the brand asks for another copy of a payment receipt =====
-    // Writes ONE notification_events row of kind 'payment_receipt' with transition_id '<group id>:resend:<ms>'
-    // (0091); the outbox worker fans it out and sends it with the same recheck, freeze and idempotency as
-    // the original receipt. The group must belong to the signed-in brand and be settled in the ledger.
-    // Throttled: one resend per payment per 10 minutes, so a double click or a bored user cannot flood.
+    // ===== Receipt resend (2026-10-11, Codex PR-4/PR-6): the brand asks for another copy of a receipt =====
+    // One atomic database operation (0092 request_payment_receipt_resend): ownership, settlement, requester
+    // resolution (the session email must be a current account contact), a rolling 10-minute cooldown on
+    // database time, and the event insert, all under a per-group lock. Concurrent requests yield exactly
+    // one event; the others get 'throttled'. The copy is addressed to the requesting contact only.
     if (action === 'receipt-resend') {
       const sess = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
       if (!sess) return jsonResp(res, 401, { error: 'Not authenticated' });
       const gid = String((body && body.payment_group_id) || '').trim();
       if (!/^[0-9a-f-]{36}$/i.test(gid)) return jsonResp(res, 400, { error: 'invalid_payment_group' });
-      const gRows = await (await sb(`payment_groups?id=eq.${encodeURIComponent(gid)}&brand_id=eq.${encodeURIComponent(sess.brand_id)}&select=id,retailer_id,brand_id,status`)).json();
-      const g = Array.isArray(gRows) ? gRows[0] : null;
-      if (!g) return jsonResp(res, 404, { error: 'payment_not_found' });
-      if (!['paid', 'partially_refunded', 'refunded'].includes(String(g.status || ''))) return jsonResp(res, 409, { error: 'payment_not_settled', status: g.status });
-      const THROTTLE_MS = 10 * 60 * 1000;
-      const since = new Date(Date.now() - THROTTLE_MS).toISOString();
-      // Only RESEND events count toward the throttle: a brand that asks for a copy right after paying gets one.
-      const recentR = await sb(`notification_events?kind=eq.payment_receipt&transition_id=like.${encodeURIComponent(gid + ':resend:')}*&created_at=gt.${encodeURIComponent(since)}&select=id,created_at&order=created_at.desc&limit=1`);
-      const recent = recentR.ok ? await recentR.json() : null;
-      if (!Array.isArray(recent)) return jsonResp(res, 500, { error: 'receipt_lookup_failed' });
-      if (recent.length) {
-        const retryAfter = Math.max(1, Math.ceil((new Date(recent[0].created_at).getTime() + THROTTLE_MS - Date.now()) / 1000));
-        return jsonResp(res, 429, { error: 'receipt_recently_requested', retry_after_seconds: retryAfter });
-      }
-      const ins = await sb('notification_events', { method: 'POST', body: JSON.stringify({
-        retailer_id: g.retailer_id, booking_id: null, brand_id: g.brand_id, kind: 'payment_receipt',
-        transition_id: `${gid}:resend:${Date.now()}`,
-        payload: { payment_group_id: gid, resend: true, requested_by: sess.email || null },
-      }) });
-      if (!ins.ok) { console.error('receipt-resend insert failed:', ins.status, (await ins.text()).slice(0, 200)); return jsonResp(res, 500, { error: 'receipt_queue_failed' }); }
-      return jsonResp(res, 200, { ok: true, queued: true, to: sess.email || null });
+      const rr = await sb('rpc/request_payment_receipt_resend', { method: 'POST', body: JSON.stringify({ p_group_id: gid, p_brand_id: sess.brand_id, p_requested_by: sess.email || '', p_cooldown_seconds: 600 }) });
+      if (!rr.ok) { console.error('receipt-resend rpc failed:', rr.status, (await rr.text()).slice(0, 200)); return jsonResp(res, 500, { error: 'receipt_queue_failed' }); }
+      const out = await rr.json();
+      const o = out && typeof out === 'object' ? out : {};
+      if (o.outcome === 'queued') return jsonResp(res, 200, { ok: true, queued: true, to: o.to || sess.email || null, event_id: o.event_id || null, worker_interval_minutes: 15 });
+      if (o.outcome === 'throttled') return jsonResp(res, 429, { error: 'receipt_recently_requested', retry_after_seconds: Number(o.retry_after_seconds || 60) });
+      if (o.outcome === 'not_found') return jsonResp(res, 404, { error: 'payment_not_found' });
+      if (o.outcome === 'not_settled') return jsonResp(res, 409, { error: 'payment_not_settled', status: o.status || null });
+      if (o.outcome === 'requester_not_a_contact') return jsonResp(res, 403, { error: 'requester_not_a_contact' });
+      console.error('receipt-resend unexpected outcome:', JSON.stringify(o).slice(0, 200));
+      return jsonResp(res, 500, { error: 'receipt_queue_failed' });
     }
 
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====

@@ -289,10 +289,19 @@ export function coiRejectedMessage(b, { brand, verification }) {
 // payment_allocations), never from a client; the card line and the Stripe receipt link are
 // best-effort additions from the charge and are simply omitted when unavailable.
 // ---------------------------------------------------------------------------
+// Stripe minor units: most currencies are 1/100, these are whole units. Unknown codes fall back to 1/100
+// and are shown with their code so the reader can tell. The code is always appended (Codex PR-7).
+const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
 export function money(cents, currency = 'usd') {
-  const n = Number(cents || 0) / 100;
-  try { return n.toLocaleString('en-US', { style: 'currency', currency: String(currency || 'usd').toUpperCase() }); }
-  catch (_) { return '$' + n.toFixed(2); }
+  const code = String(currency || 'usd').toLowerCase();
+  const n = ZERO_DECIMAL.has(code) ? Number(cents || 0) : Number(cents || 0) / 100;
+  let s;
+  try { s = n.toLocaleString('en-US', { style: 'currency', currency: code.toUpperCase(), minimumFractionDigits: ZERO_DECIMAL.has(code) ? 0 : 2 }); }
+  catch (_) { s = n.toFixed(ZERO_DECIMAL.has(code) ? 0 : 2); }
+  return `${s} ${code.toUpperCase()}`;
+}
+function zoneAbbrev(tz) {
+  try { const parts = new Intl.DateTimeFormat('en-US', { timeZone: safeZone(tz), timeZoneName: 'short' }).formatToParts(new Date()); const z = parts.find(x => x.type === 'timeZoneName'); return z ? z.value : ''; } catch (_) { return ''; }
 }
 function receiptTimeLabel(demoTime) {
   const s = String(demoTime || '').trim();
@@ -316,48 +325,52 @@ export function receiptMessage(b, receipt) {
   const total = money(group ? group.total_customer_amount : 0, currency);
   const refunded = items.reduce((s, it) => s + Number(it.refunded || 0), 0);
   const storeName = (retailer && retailer.name) || 'the store';
-  const paidAt = receipt.paidAt ? new Date(receipt.paidAt) : null;
   const tz = (retailer && retailer.timezone) || 'America/Los_Angeles';
-  const paidLabel = paidAt && !Number.isNaN(paidAt.getTime())
-    ? `${dateLabel(paidAt, { year: true, tz })} at ${timeLabel(paidAt, tz)}` : 'n/a';
+  // Codex PR-3: a recorded timestamp or an honest blank. Never a guess.
+  const paidAt = receipt.paidAt ? new Date(receipt.paidAt) : null;
+  const paidKnown = !!(paidAt && !Number.isNaN(paidAt.getTime()));
+  const paidLabel = paidKnown ? `${dateLabel(paidAt, { year: true, tz })} at ${timeLabel(paidAt, tz)}` : 'Not recorded on this receipt. Your card statement shows the date.';
   const count = items.length;
   const demoWord = count === 1 ? 'demo' : 'demos';
   const demoLines = items.map(it => {
-    const when = [it.demo_date ? dateLabel(String(it.demo_date).slice(0, 10), { year: true }) : null, receiptTimeLabel(it.demo_time)].filter(Boolean).join(', ');
+    const zone = zoneAbbrev(it.timezone || tz);
+    const when = [it.demo_date ? dateLabel(String(it.demo_date).slice(0, 10), { year: true }) : null, [receiptTimeLabel(it.demo_time), zone].filter(Boolean).join(' ')].filter(Boolean).join(', ');
     const where = it.venue_name ? ` at ${H(it.venue_name)}` : '';
     const what = it.product ? ` &middot; ${H(it.product)}` : '';
+    const ref = it.booking_id ? `<div style="font-size:12px;color:#6b6a64;">Booking ref ${H(String(it.booking_id).slice(0, 8))}</div>` : '';
     const refundNote = Number(it.refunded || 0) > 0 ? `<div style="color:#a14e2a;font-size:13px;">${H(money(it.refunded, currency))} refunded</div>` : '';
-    return `<tr><td style="padding:7px 0;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;vertical-align:top;"><strong style="color:#0f2c17;">${H(when || 'Date to be confirmed')}</strong>${where}${what}</td><td style="padding:7px 0 7px 14px;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;text-align:right;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;">${H(money(it.amount, currency))}${refundNote}</td></tr>`;
+    return `<tr><td style="padding:7px 0;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;vertical-align:top;"><strong style="color:#0f2c17;">${H(when || 'Date to be confirmed')}</strong>${where}${what}${ref}</td><td style="padding:7px 0 7px 14px;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;text-align:right;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;">${H(money(it.amount, currency))}${refundNote}</td></tr>`;
   }).join('');
   const ref = (group && (group.stripe_payment_intent_id || group.stripe_charge_id)) || (group && group.id) || '';
   const refShort = ref ? String(ref).slice(-12) : '';
   const rows = [
     ['Amount paid', `<strong style="font-size:18px;color:#0f2c17;">${H(total)}</strong>`],
     ['Paid on', H(paidLabel)],
-    ['Paid to', `${H(storeName)} through Demohub`],
+    ['Payment for', `${count || 'Your'} ${count ? demoWord : 'demo'} at ${H(storeName)}, booked through Demohub`],
     receipt.card && receipt.card.last4 ? ['Card', `${H(receipt.card.brand ? String(receipt.card.brand).replace(/^\w/, c => c.toUpperCase()) : 'Card')} ending in ${H(receipt.card.last4)}`] : null,
     ['Billed to', `${H((brand && brand.company_name) || 'your brand')}${brand && brand.email ? ` (${H(brand.email)})` : ''}`],
     refShort ? ['Reference', `<span style="font-family:Menlo,Consolas,monospace;font-size:13px;">${H(refShort)}</span>`] : null,
   ].filter(Boolean);
   const table = `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${rows.map(([k, v], i) => receiptRow(k, v, i === 0)).join('')}</table>`;
   const demosBlock = count
-    ? `<div style="margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin-bottom:6px;">${count} ${demoWord} covered by this payment</div><table cellpadding="0" cellspacing="0" style="width:100%;">${demoLines}</table></div>`
+    ? `<div style="margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin-bottom:6px;">${count} ${demoWord} covered by this payment</div><table cellpadding="0" cellspacing="0" style="width:100%;">${demoLines}</table><div style="font-size:12px;color:#6b6a64;margin-top:8px;line-height:1.5;">Dates and times are as of this receipt. If a demo is moved later, your brand portal shows the current schedule under the same booking reference.</div></div>`
     : '';
   const refundBlock = refunded > 0
-    ? `<div style="background:#fff3ed;border-left:4px solid #a14e2a;border-radius:10px;padding:12px 16px;margin:0 0 22px;font-size:14px;line-height:1.6;color:#1c1c1a;">${H(money(refunded, currency))} of this payment has since been refunded to the same card. The figures above show the original payment.</div>`
+    ? `<div style="background:#fff3ed;border-left:4px solid #a14e2a;border-radius:10px;padding:12px 16px;margin:0 0 22px;font-size:14px;line-height:1.6;color:#1c1c1a;">${H(money(refunded, currency))} of this payment has since been refunded to the original payment method. The figures above show the original payment.</div>`
     : '';
   const stripeLine = receipt.receiptUrl
     ? `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">Need the card processor's version for your books? <a href="${H(receipt.receiptUrl)}" style="color:#2a5b32;">View the Stripe receipt &rarr;</a></p>`
     : '';
-  const footer = `${stripeLine}<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">Keep this email for your records. You can ask for another copy of any receipt from your brand portal under Account.</p>${brandFooter(brand)}`;
+  const copyFooter = `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">Sent to you alone, at your request, as an account contact of <strong style="color:#0f2c17;">${H((brand && brand.company_name) || 'your brand')}</strong> on Demohub. Questions? Reply to this email.</p>`;
+  const footer = `${stripeLine}<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">Keep this email for your records. You can ask for another copy of any receipt from your brand portal under Account.</p>${receipt.resend ? copyFooter : brandFooter(brand)}`;
   return {
     subject: `Your Demohub receipt: ${total} for ${count || 'your'} ${count ? demoWord : 'demo'} at ${storeName}`,
     html: shell({
       eyebrow: receipt.resend ? 'Payment receipt (copy)' : 'Payment receipt', tone: 'green',
       heading: `Thanks, your payment of ${H(total)} went through.`,
-      intro: `This is your receipt for the demo fee${count > 1 ? 's' : ''} paid to <strong>${H(storeName)}</strong> through Demohub${receipt.resend ? ', sent again at your request' : ''}.`,
+      intro: `This is your receipt for the demo fee${count > 1 ? 's' : ''} for <strong>${H(storeName)}</strong>, booked through Demohub${receipt.resend ? ', sent again at your request' : ''}.`,
       body: table + demosBlock + refundBlock,
-      cta: { href: link(b, '/brand/dashboard#overview'), label: 'Open your brand portal' },
+      cta: { href: link(b, '/brand/dashboard#account'), label: 'Open your brand portal' },
       footer,
     }),
   };

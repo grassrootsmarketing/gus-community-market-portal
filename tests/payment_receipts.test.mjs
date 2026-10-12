@@ -15,9 +15,12 @@
 //       per-demo amount), the store, the card summary and Stripe link from the charge lookup, the paid
 //       date; provider key = delivery id; frozen payload; one provider call.
 //   R4  a refunded group still receives its receipt (the payment happened); a missing group is skipped.
-//   R5  portal: 'data' lists the payment with its demos; 'receipt-resend' queues a copy (event
-//       '<gid>:resend:<ms>'), refuses a foreign group (404), throttles a repeat (429); the copy is
-//       delivered through the same path with the "copy" framing.
+//   R5  portal: 'data' lists the payment with its demos and a RECORDED paid date; 'receipt-resend' queues a
+//       copy (event '<gid>:resend:<ms>' with the requesting contact recorded), refuses a foreign group (404),
+//       a non-contact session (403), throttles a repeat (429); the copy fans out to the REQUESTER ONLY and is
+//       delivered through the same path with the "copy" framing (Codex PR-4 / PR-6).
+//   R6  concurrency: 20 simultaneous resend requests for one payment yield exactly ONE event; the rest are
+//       throttled with a consistent answer (0092 advisory lock + database-time cooldown).
 //
 // Run from the repository root with test-database creds + ledger opt-in:
 //   LEDGER_TARGET_REF=<ref> ALLOW_STAGING_LEDGER_TESTS=yes node tests/payment_receipts.test.mjs
@@ -153,10 +156,10 @@ try {
     const after = (await deliveries(gid)).find(d => d.id === primary.id);
     const html = (after && after.frozen_payload && after.frozen_payload.html) || '';
     ok('R3b accepted; frozen payload to the brand email; provider key = delivery id; ONE provider call', r.outcome === 'accepted' && after.status === 'accepted' && after.frozen_payload.to === brandEmail && after.idempotency_key === after.id && rec.calls.length === 1 && keyOf(rec.calls[0]) === after.id, JSON.stringify({ r, key: rec.calls[0] && keyOf(rec.calls[0]) }));
-    ok('R3c subject states the ledger total, the demo count and the store', after.frozen_payload.subject === `Your Demohub receipt: $60.00 for 2 demos at Receipt Fixture Market`, after.frozen_payload.subject);
-    ok('R3d body lists both demos with their dates, the venue and the per-demo amount, from the ledger allocations', /2 demos covered by this payment/.test(html) && (html.match(/Receipt Main Street/g) || []).length === 2 && (html.match(/>\$30\.00</g) || []).length === 2 && /Cold Brew/.test(html), html.match(/covered by this payment[\s\S]{0,600}/)?.[0]?.slice(0, 400));
+    ok('R3c subject states the ledger total, the demo count and the store', after.frozen_payload.subject === `Your Demohub receipt: $60.00 USD for 2 demos at Receipt Fixture Market`, after.frozen_payload.subject);
+    ok('R3d body lists both demos with their dates, the venue and the per-demo amount, from the ledger allocations', /2 demos covered by this payment/.test(html) && (html.match(/Receipt Main Street/g) || []).length === 2 && (html.match(/>\$30\.00 USD</g) || []).length === 2 && /Cold Brew/.test(html), html.match(/covered by this payment[\s\S]{0,600}/)?.[0]?.slice(0, 400));
     ok('R3e card summary + Stripe receipt link come from the charge lookup, which was asked for the ledger charge id', /Visa ending in 4242/.test(html) && html.includes('https://pay.stripe.com/receipts/test/' + a1.ch) && lookups.includes(a1.ch));
-    ok('R3f paid date, billed-to brand, reference, portal CTA, "sent to the account contacts" footer; no em dash', /Paid on<\/td>/.test(html) && /Receipt Brand Co/.test(html) && /Reference<\/td>/.test(html) && /brand\/dashboard#overview/.test(html) && /account contacts of/.test(html) && !/::/.test(html) && !/::/.test(after.frozen_payload.subject));
+    ok('R3f paid date, billed-to brand, reference, portal CTA, "sent to the account contacts" footer; no em dash', /Paid on<\/td>/.test(html) && /Receipt Brand Co/.test(html) && /Reference<\/td>/.test(html) && /brand\/dashboard#account/.test(html) && /account contacts of/.test(html) && !/::/.test(html) && !/::/.test(after.frozen_payload.subject));
     ok('R3g the original receipt is not framed as a copy', !/copy/i.test(html.match(/<div style="font-size:11px[^>]*>[^<]*</)?.[0] || '') && !/sent again at your request/.test(html));
     // the teammate's copy goes out too, under its own key
     const mate = c.rows.find(r => r.recipient_email === mateEmail);
@@ -196,13 +199,17 @@ try {
     const cookies = { dh_brand_session: token };
     const data = await callRoute('brand-account.js', req({ body: { action: 'data' }, cookies }));
     const pay = (data.body.payments || []).find(p => p.id === gid);
-    ok('R5a data lists the payment with the ledger amount, the store and both demos', data.statusCode === 200 && pay && pay.amount === 6000 && pay.status === 'paid' && pay.retailer && pay.retailer.name === 'Receipt Fixture Market' && pay.demos.length === 2 && pay.demos.every(d => d.amount === 3000 && d.venue_name === 'Receipt Main Street' && d.demo_date) && pay.paid_at, JSON.stringify(pay));
+    ok('R5a data lists the payment with the ledger amount, the store and both demos', data.statusCode === 200 && pay && pay.amount === 6000 && pay.status === 'paid' && pay.retailer && pay.retailer.name === 'Receipt Fixture Market' && pay.demos.length === 2 && pay.demos.every(d => d.amount === 3000 && d.venue_name === 'Receipt Main Street' && d.demo_date) && pay.paid_at && pay.itemized === true && !(data.body.truncated || []).includes('payments'), JSON.stringify(pay));
+    {
+      const att = (await db(`payment_attempts?payment_group_id=eq.${gid}&status=eq.paid&select=paid_at`)).body || [];
+      ok('R5a2 the listed paid date is the attempt\'s recorded paid_at, not the group\'s creation time', att.length === 1 && pay.paid_at === att[0].paid_at, JSON.stringify({ listed: pay.paid_at, attempt: att[0] && att[0].paid_at }));
+    }
     ok('R5b the refunded payment is listed as refunded', (data.body.payments || []).some(p => p.status === 'refunded'));
     const before = (await events(gid)).length;
     const rs = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid }, cookies }));
     const evs = await events(gid);
     const resendEv = evs.find(e => e.transition_id !== gid);
-    ok('R5c receipt-resend queues ONE resend event (<gid>:resend:<ms>) with the requester recorded', rs.statusCode === 200 && rs.body.ok && rs.body.queued && evs.length === before + 1 && resendEv && /^.+:resend:\d+$/.test(resendEv.transition_id) && resendEv.payload.resend === true && resendEv.payload.payment_group_id === gid && resendEv.payload.requested_by === brandEmail, JSON.stringify({ status: rs.statusCode, body: rs.body, ev: resendEv && resendEv.transition_id }));
+    ok('R5c receipt-resend queues ONE resend event (<gid>:resend:<ms>) with the requester recorded', rs.statusCode === 200 && rs.body.ok && rs.body.queued && evs.length === before + 1 && resendEv && /^.+:resend:\d+$/.test(resendEv.transition_id) && resendEv.payload.resend === true && resendEv.payload.payment_group_id === gid && resendEv.payload.requested_by === brandEmail && resendEv.payload.requested_recipient_id === brandId && rs.body.to === brandEmail && rs.body.worker_interval_minutes === 15, JSON.stringify({ status: rs.statusCode, body: rs.body, ev: resendEv && resendEv.payload }));
     const again = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid }, cookies }));
     ok('R5d a repeat inside 10 minutes is throttled (429) and writes nothing', again.statusCode === 429 && again.body.error === 'receipt_recently_requested' && again.body.retry_after_seconds > 0 && (await events(gid)).length === before + 1, JSON.stringify(again.body));
     // foreign group: another brand's session cannot resend ours
@@ -214,18 +221,59 @@ try {
     const unpaid = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gA.payment_group_id }, cookies }));
     const anon = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid } }));
     ok('R5f bad id 400, unpaid group 409, no session 401', bad.statusCode === 400 && unpaid.statusCode === 409 && unpaid.body.error === 'payment_not_settled' && anon.statusCode === 401, JSON.stringify([bad.statusCode, unpaid.statusCode, unpaid.body, anon.statusCode]));
+    const strangerToken = crypto.randomUUID();
+    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: brandId, session_token: strangerToken, email: 'stranger@fixture.test', expires_at: new Date(Date.now() + 36e5).toISOString() }) });
+    const stranger = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid }, cookies: { dh_brand_session: strangerToken } }));
+    ok('R5f2 a session whose email is not a current account contact gets 403 and queues nothing', stranger.statusCode === 403 && stranger.body.error === 'requester_not_a_contact' && (await events(gid)).length === before + 1, JSON.stringify(stranger.body));
     // the copy is delivered through the same path, framed as a copy
     await fan();
     const dAll = await deliveries(gid);
     const copies = dAll.filter(d => d.event_id === resendEv.id);
-    ok('R5g the resend fans out to the same two contacts with keys that name the resend transition', copies.length === 2 && copies.every(d => d.dedupe_key.startsWith(`payment_receipt:${resendEv.transition_id}:brand:`)), JSON.stringify(copies.map(d => d.dedupe_key)));
+    ok('R5g the resend fans out to the REQUESTER ONLY (one delivery, the account email), keyed on the resend transition', copies.length === 1 && copies[0].recipient_email === brandEmail && copies[0].recipient_id === brandId && copies[0].dedupe_key === `payment_receipt:${resendEv.transition_id}:brand:${brandId}`, JSON.stringify(copies.map(d => [d.recipient_email, d.dedupe_key])));
     const rec = recordingMailer(b);
     const c = await claimMine(gid);
     const copy = c.rows.find(r => r.event_id === resendEv.id && r.recipient_email === brandEmail);
     const r = await processClaimed(b, copy, { now: new Date(), token: c.token, mailer: rec.mailer });
     const after = (await deliveries(gid)).find(d => d.id === copy.id);
-    ok('R5h the copy sends with the same figures and the "copy" framing', r.outcome === 'accepted' && after.frozen_payload.subject === `Your Demohub receipt: $60.00 for 2 demos at Receipt Fixture Market` && /Payment receipt \(copy\)/.test(after.frozen_payload.html) && /sent again at your request/.test(after.frozen_payload.html), JSON.stringify(r));
+    ok('R5h the copy sends with the same figures and the "copy" framing', r.outcome === 'accepted' && after.frozen_payload.subject === `Your Demohub receipt: $60.00 USD for 2 demos at Receipt Fixture Market` && /Payment receipt \(copy\)/.test(after.frozen_payload.html) && /sent again at your request/.test(after.frozen_payload.html), JSON.stringify(r));
     for (const r0 of c.rows) if (r0 !== copy) await db(`notification_deliveries?id=eq.${r0.id}`, { method: 'PATCH', body: JSON.stringify({ claim_token: null, lease_until: null, status: 'pending' }) });
+    // a teammate asks for a copy: it goes to the teammate only (a different group, so the cooldown does not apply)
+    const mateToken = crypto.randomUUID();
+    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: brandId, session_token: mateToken, email: mateEmail, expires_at: new Date(Date.now() + 36e5).toISOString() }) });
+    const gidR = (data.body.payments || []).find(p => p.status === 'refunded').id;
+    const mr = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gidR }, cookies: { dh_brand_session: mateToken } }));
+    const mateEv = (await events(gidR)).find(e => e.transition_id !== gidR);
+    await fan();
+    const mateCopies = (await deliveries(gidR)).filter(d => mateEv && d.event_id === mateEv.id);
+    ok('R5i a teammate\'s request is recorded with the teammate as recipient and fans out to the teammate only', mr.statusCode === 200 && mr.body.to === mateEmail && mateEv && mateEv.payload.requested_recipient_id === mateId && mateCopies.length === 1 && mateCopies[0].recipient_email === mateEmail, JSON.stringify({ body: mr.body, copies: mateCopies.map(d => d.recipient_email) }));
+  }
+
+  console.log('\n:: R6 concurrency: one event however many simultaneous requests ::');
+  {
+    const b6 = await booking();
+    const g6 = await claimGroup([b6.id]); const gid6 = g6.payment_group_id;
+    one(await capture(await attempt(gid6), 3000));
+    const token = crypto.randomUUID();
+    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: brandId, session_token: token, email: brandEmail, expires_at: new Date(Date.now() + 36e5).toISOString() }) });
+    const cookies = { dh_brand_session: token };
+    const results = await Promise.all(Array.from({ length: 20 }, () => callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid6 }, cookies }))));
+    const queued = results.filter(r => r.statusCode === 200 && r.body.queued);
+    const throttled = results.filter(r => r.statusCode === 429 && r.body.error === 'receipt_recently_requested' && r.body.retry_after_seconds > 0 && r.body.retry_after_seconds <= 600);
+    const evs6 = (await events(gid6)).filter(e => e.transition_id !== gid6);
+    ok('R6a 20 concurrent resend requests: exactly ONE queued, 19 throttled with a bounded retry_after, exactly ONE resend event', queued.length === 1 && throttled.length === 19 && evs6.length === 1, JSON.stringify({ queued: queued.length, throttled: throttled.length, other: results.filter(r => r.statusCode !== 200 && r.statusCode !== 429).map(r => [r.statusCode, r.body]), events: evs6.length }));
+    const again = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid6 }, cookies }));
+    ok('R6b a later request inside the cooldown is throttled too, still one event', again.statusCode === 429 && (await events(gid6)).filter(e => e.transition_id !== gid6).length === 1, JSON.stringify(again.body));
+    const rpcDirect = await fetch(`${SB}/rest/v1/rpc/request_payment_receipt_resend`, { method: 'POST', headers: { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_group_id: gid6, p_brand_id: otherBrandId, p_requested_by: 'other@fixture.test', p_cooldown_seconds: 600 }) });
+    const rpcOut = await rpcDirect.json();
+    ok('R6c the RPC itself refuses a group the given brand does not own (not_found), whatever the caller claims', rpcDirect.ok && rpcOut && rpcOut.outcome === 'not_found', JSON.stringify(rpcOut));
+    // The anon role must not be able to call the RPC. Needs the project's anon key in the environment
+    // (SUPABASE_ANON_KEY); without it the check is reported as skipped, never as passed.
+    const ANON = process.env.SUPABASE_ANON_KEY;
+    if (!ANON) ok('R6d SKIPPED: SUPABASE_ANON_KEY not in the environment, anon execution not exercised', true);
+    else {
+      const anonRpc = await fetch(`${SB}/rest/v1/rpc/request_payment_receipt_resend`, { method: 'POST', headers: { apikey: ANON, Authorization: 'Bearer ' + ANON, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_group_id: gid6, p_brand_id: brandId, p_requested_by: brandEmail, p_cooldown_seconds: 600 }) });
+      ok('R6d the anon role cannot execute the RPC', !anonRpc.ok && [401, 403, 404].includes(anonRpc.status), String(anonRpc.status));
+    }
   }
 } finally {
   // cleanup: deliveries + events by group, then the ledger rows, bookings, sessions, fixtures
