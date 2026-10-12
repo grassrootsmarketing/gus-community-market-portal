@@ -44,7 +44,7 @@ import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notificatio
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
-  coiApprovedMessage, coiRejectedMessage,
+  coiApprovedMessage, coiRejectedMessage, receiptMessage,
 } from './_notification-mail.js';
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
@@ -53,6 +53,34 @@ export const COI_KINDS = ['coi_approved', 'coi_rejected'];
 // (0080 trigger on the first verified payment state), one delivery to the fixed owner address; the
 // hold-vs-paid wording is decided at dispatch from the CURRENT booking, then frozen like any other row.
 export const OWNER_KINDS = ['owner_booking_created'];
+// Payment receipts (0091, 2026-10-11): one event per payment group when the ledger first records it as
+// paid (transition_id = the group id), plus application-written resend events ('<group id>:resend:<ms>').
+// The brand's account contacts get one receipt each. Eligibility is the CURRENT ledger row: a group that
+// is paid, or paid and since refunded (a refund does not un-happen the payment the receipt documents).
+export const RECEIPT_KINDS = ['payment_receipt'];
+const RECEIPT_SETTLED = ['paid', 'partially_refunded', 'refunded'];
+export function receiptEligible(group) { return !!group && RECEIPT_SETTLED.includes(String(group.status || '')); }
+export function receiptGroupIdOf(ev) {
+  const fromPayload = ev && ev.payload && ev.payload.payment_group_id;
+  return String(fromPayload || String((ev && ev.transition_id) || '').split(':')[0] || '').trim() || null;
+}
+// Best-effort card summary + Stripe receipt link from the charge. Replaceable in tests. Never required:
+// a lookup failure only drops the card line and the link from the receipt.
+export const receiptHooks = {
+  chargeLookup: async (b, chargeId) => {
+    const key = (b && b.stripeKey) || process.env.STRIPE_SECRET_KEY || null;
+    if (!key || !chargeId || !/^ch_[A-Za-z0-9]+$/.test(String(chargeId))) return null;
+    try {
+      const r = await fetch('https://api.stripe.com/v1/charges/' + encodeURIComponent(chargeId), {
+        headers: { Authorization: 'Bearer ' + key }, signal: globalThis.AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return null;
+      const c = await r.json();
+      const card = c && c.payment_method_details && c.payment_method_details.card;
+      return { card: card && card.last4 ? { brand: card.brand || null, last4: String(card.last4) } : null, receiptUrl: (c && c.receipt_url) || null };
+    } catch (_) { return null; }
+  },
+};
 const INACTIVE_STATUSES = ['cancelled', 'declined', 'expired', 'auth_canceled'];
 // Eligible = verified money state (authorized hold or paid) AND the booking is still live. A hold that
 // released/expired or a booking cancelled before the owner heard about it is obsolete unsent work.
@@ -241,6 +269,26 @@ async function fanOutOne(b, cache, ev, now) {
     const recipients = await brandRecipients(b, brand);
     const rows = recipients.map(r => ({
       event_id: ev.id, retailer_id: null, booking_id: null,
+      recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+      kind: ev.kind, offset_key: null, occurrence_key: null,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }));
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (RECEIPT_KINDS.includes(ev.kind)) {
+    const gid = receiptGroupIdOf(ev);
+    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status') : null;
+    if (!group) { await markFannedOut(b, ev, now, 'group_missing'); return { deliveries: 0, skipped: true }; }
+    if (!receiptEligible(group)) { await markFannedOut(b, ev, now, `skipped_group_${group.status || 'unknown'}`); return { deliveries: 0, skipped: true }; }
+    if (ev.brand_id && ev.brand_id !== group.brand_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
+    const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
+    if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
+    const recipients = await brandRecipients(b, brand);
+    const rows = recipients.map(r => ({
+      event_id: ev.id, retailer_id: group.retailer_id, booking_id: null,
       recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
       kind: ev.kind, offset_key: null, occurrence_key: null,
       dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
@@ -443,6 +491,48 @@ async function recheckAndBuild(b, cache, row, now) {
     return { ok: true, to, message };
   }
 
+  if (row.recipient_kind === 'brand' && RECEIPT_KINDS.includes(row.kind)) {
+    // Judged on the CURRENT ledger row: the group must still be settled (paid, or paid then refunded),
+    // the brand must still own it, and the recipient must still belong to the brand. Figures come from
+    // payment_groups / payment_allocations, never from the event payload alone.
+    if (!event) return { skip: 'event_missing' };
+    const gid = receiptGroupIdOf(event);
+    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status,total_customer_amount,currency,stripe_payment_intent_id,stripe_charge_id,created_at') : null;
+    if (!group) return { skip: 'group_missing' };
+    if (!receiptEligible(group)) return { skip: `group_${group.status || 'unknown'}` };
+    if (row.retailer_id && group.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    if (event.brand_id && event.brand_id !== group.brand_id) return { skip: 'tenant_mismatch' };
+    const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
+    if (!brand) return { skip: 'brand_missing' };
+    let to = null;
+    if (row.recipient_id === brand.id) to = brand.email;
+    else {
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      if (!member) return { skip: 'recipient_deleted' };
+      if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      to = member.email;
+    }
+    to = String(to || '').trim();
+    if (!to) return { skip: 'recipient_no_email' };
+    const retailer = await loadFresh(b, 'retailers', group.retailer_id, 'id,name,slug,timezone');
+    const allocs = await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id,customer_amount,refunded_amount&order=created_at.asc`) || [];
+    const bookingIds = allocs.map(a => a.booking_id).filter(Boolean);
+    const bookings = bookingIds.length ? (await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id`) || []) : [];
+    const byId = new Map(bookings.map(x => [x.id, x]));
+    const items = [];
+    for (const a of allocs) {
+      const bk = byId.get(a.booking_id) || {};
+      const venue = bk.venue_id ? await loadOne(b, cache, 'venues', bk.venue_id, 'id,name') : null;
+      items.push({ demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
+    }
+    let paidAt = payload.paid_at || null;
+    if (!paidAt) {
+      try { const att = await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=paid_at&order=paid_at.desc&limit=1`); paidAt = Array.isArray(att) && att[0] ? att[0].paid_at : null; } catch (_) {}
+    }
+    const charge = await receiptHooks.chargeLookup(b, group.stripe_charge_id);
+    const message = receiptMessage(b, { brand, retailer, group, paidAt: paidAt || group.created_at, items, card: charge && charge.card, receiptUrl: charge && charge.receiptUrl, resend: !!payload.resend });
+    return { ok: true, to, message };
+  }
   if (row.recipient_kind === 'brand') {
     if (!event) return { skip: 'event_missing' };
     const verificationId = payload.verification_id || String(event.transition_id || '').split(':')[0];

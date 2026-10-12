@@ -110,7 +110,7 @@ try {
     const c = await claimOne(paid.id);
     const r = await processClaimed(b, c.row, { now: new Date(), token: c.token, mailer: rec.mailer });
     const d = (await deliveries(paid.id))[0];
-    ok('S4 ordinary paid booking: one paid event, "Booked:" awaiting the retailer\'s confirmation', (await events(paid.id)).length === 1 && r.outcome === 'accepted' && /^Booked: Owner Brand Co/.test(d.frozen_payload.subject) && /PAID — awaiting/.test(d.frozen_payload.html), JSON.stringify({ r, s: d.frozen_payload && d.frozen_payload.subject }));
+    ok('S4 ordinary paid booking: one paid event, "Booked:" awaiting the retailer\'s confirmation', (await events(paid.id)).length === 1 && r.outcome === 'accepted' && /^Booked: Owner Brand Co/.test(d.frozen_payload.subject) && /PAID, awaiting/.test(d.frozen_payload.html), JSON.stringify({ r, s: d.frozen_payload && d.frozen_payload.subject }));
   }
   const paidConfirmed = await booking({ status: 'confirmed', payment_status: 'paid' });   // paid on INSERT
   await fan();

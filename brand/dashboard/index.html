@@ -2348,6 +2348,54 @@ async function renderAgreements() {
   document.getElementById('agreementsList').innerHTML = html;
 }
 
+// Payments and receipts (2026-10-11): the ledger's settled payment groups for this brand, newest first.
+function moneyLabel(cents, currency) {
+  const n = Number(cents || 0) / 100;
+  try { return n.toLocaleString('en-US', { style: 'currency', currency: String(currency || 'usd').toUpperCase() }); } catch (_) { return '$' + n.toFixed(2); }
+}
+function paymentDateLabel(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || isNaN(d.getTime())) return 'n/a';
+  try { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return String(iso).slice(0, 10); }
+}
+function renderPaymentsList() {
+  const unavailable = Array.isArray(_data.unavailable) ? _data.unavailable : [];
+  if (unavailable.includes('payments')) return '<div style="font-size:0.9rem;color:var(--clay-700,#a14e2a);">We could not load your payments just now. <a href="#account" onclick="loadData().then(function () { render(); }); return false;">Try again</a>.</div>';
+  const list = Array.isArray(_data.payments) ? _data.payments : [];
+  if (!list.length) return '<div style="font-size:0.9rem;color:var(--ink-500);">No payments yet. Your first receipt lands here once you book and pay for a demo.</div>';
+  return '<div id="paymentsList">' + list.map(function (p) {
+    const demos = Array.isArray(p.demos) ? p.demos : [];
+    const n = demos.length;
+    const store = p.retailer && p.retailer.name ? p.retailer.name : 'Store';
+    const detail = demos.map(function (d) {
+      const when = d.demo_date ? new Date(d.demo_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Date TBC';
+      return escapeHtml(when + (d.demo_time ? ' ' + d.demo_time : '') + (d.venue_name ? ' at ' + d.venue_name : ''));
+    }).join(' &middot; ');
+    const refund = Number(p.refunded || 0) > 0 ? ' <span style="color:var(--clay-700,#a14e2a);font-size:0.82rem;">(' + escapeHtml(moneyLabel(p.refunded, p.currency)) + ' refunded)</span>' : '';
+    return '<div class="payment-row" data-gid="' + escapeHtml(p.id) + '" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 0;border-top:1px solid rgba(15,44,23,0.08);">'
+      + '<div style="flex:1;min-width:220px;"><div style="font-weight:700;color:var(--forest-900);">' + escapeHtml(moneyLabel(p.amount, p.currency)) + refund + ' <span style="font-weight:500;color:var(--ink-500);">for ' + n + (n === 1 ? ' demo' : ' demos') + ' at ' + escapeHtml(store) + '</span></div>'
+      + '<div style="font-size:0.84rem;color:var(--ink-500);margin-top:2px;">Paid ' + escapeHtml(paymentDateLabel(p.paid_at)) + (detail ? ' &middot; ' + detail : '') + '</div></div>'
+      + '<div style="display:flex;align-items:center;gap:10px;"><button class="btn btn-ghost" style="padding:8px 14px;font-size:0.86rem;" onclick="resendReceipt(\'' + escapeHtml(p.id) + '\', this)">Email receipt</button><span class="sub" data-receipt-msg style="font-size:0.82rem;"></span></div>'
+      + '</div>';
+  }).join('') + '</div>';
+}
+async function resendReceipt(gid, btn) {
+  const row = btn && btn.closest('.payment-row');
+  const msg = row && row.querySelector('[data-receipt-msg]');
+  const say = function (t, bad) { if (msg) { msg.textContent = t; msg.style.color = bad ? 'var(--clay-700,#a14e2a)' : 'var(--forest-700,#2a5b32)'; } };
+  if (btn) btn.disabled = true;
+  say('Sending\u2026');
+  try {
+    const r = await fetch('/api/brand-account?action=receipt-resend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'receipt-resend', payment_group_id: gid }), credentials: 'same-origin' });
+    const j = await r.json().catch(function () { return {}; });
+    if (r.ok && j.ok) { say('On its way to ' + (j.to || 'your account email') + '. Give it a few minutes.'); return; }
+    if (r.status === 429) { const m = Math.ceil(Number(j.retry_after_seconds || 60) / 60); say('A copy went out recently. Check your inbox, or try again in ' + m + (m === 1 ? ' minute.' : ' minutes.'), true); return; }
+    if (r.status === 401) { window.location.href = '/brand/signin'; return; }
+    say('Could not send that receipt (' + (j.error || r.status) + '). Email bookings@demohubhq.com and we will send it by hand.', true);
+  } catch (e) {
+    say('Could not reach Demohub. Check your connection and try again.', true);
+  } finally { if (btn) btn.disabled = false; }
+}
 function renderAccount() {
   const p = _data.profile || {};
   main.innerHTML = `
@@ -2364,9 +2412,14 @@ function renderAccount() {
     <div class="card" style="margin-bottom:18px;">
       <h2 style="margin:0 0 14px;">Notifications</h2>
       <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.5;">
-        We send you a sign-in link, a welcome email, and COI expiry reminders (30 / 14 / 3 days before expiry).
+        We send you a sign-in link, a welcome email, a receipt for every demo fee you pay, and COI expiry reminders (30 / 14 / 3 days before expiry).
         Transactional emails always go through.
       </div>
+    </div>
+    <div class="card" style="margin-bottom:18px;" id="paymentsCard">
+      <h2 style="margin:0 0 6px;">Payments and receipts</h2>
+      <div class="sub" style="margin-bottom:14px;">Every demo fee you have paid through Demohub. A receipt is emailed to your account contacts when a payment goes through, and you can ask for another copy here.</div>
+      ${renderPaymentsList()}
     </div>
     <div class="card">
       <h2 style="margin:0 0 6px;">Danger zone</h2>
