@@ -425,7 +425,7 @@ export default async function handler(req, res) {
     }
     let demoFee = null;
     if (action === 'confirm') {
-      // Booking codes (0085, Codex BC-7): a fee-waived booking projects a $0 demo — never the venue list price and
+      // Booking codes (0085, Codex BC-7): a fee-waived booking projects a $0 demo, never the venue list price and
       // never a typed override (there is nothing to charge).
       const fee = booking.fee_waived === true ? 0 : (demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null));
       if (fee == null || !Number.isFinite(fee) || fee < 0) {

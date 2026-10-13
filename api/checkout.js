@@ -57,7 +57,7 @@ export default async function handler(req, res) {
     // exact requested==returned set (Codex): no silent partial
     if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
     // Booking codes (0085): a fee-waived booking is free and confirms through the outbox; it never enters checkout.
-    if (bookings.some(b => b.fee_waived === true)) return res.status(400).json({ error: 'booking_fee_waived', message: 'This booking is free — no payment is needed.' });
+    if (bookings.some(b => b.fee_waived === true)) return res.status(400).json({ error: 'booking_fee_waived', message: 'This booking is free, so no payment is needed.' });
 
     // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
     // the whole PaymentIntent, so a held booking can never share a Session with anything else,

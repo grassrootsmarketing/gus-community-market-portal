@@ -1,6 +1,6 @@
 # Booking codes (migration 0085)
 
-A retailer — or Demohub from the owner portal's Retailers tab — generates a code a brand types at checkout. Three kinds, kept separate: **no demo fee**, **short-notice booking**, **both**. Single-use by default; "unlimited" only when explicitly chosen; optional expiry and note. Valid at any of that retailer's venues.
+A retailer, or Demohub from the owner portal's Retailers tab, generates a code a brand types at checkout. Three kinds, kept separate: **no demo fee**, **short-notice booking**, **both**. Single-use by default; "unlimited" only when explicitly chosen; optional expiry and note. Valid at any of that retailer's venues.
 
 ## Rules
 

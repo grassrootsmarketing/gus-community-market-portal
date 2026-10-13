@@ -1,5 +1,5 @@
 -- 0085_booking_codes.sql
--- Booking codes (David, 2026-09-22): a retailer — or the platform owner on a retailer's behalf — generates a code a
+-- Booking codes (David, 2026-09-22): a retailer, or the platform owner on a retailer's behalf, generates a code a
 -- brand types at checkout. A code waives the demo fee, clears the advance-booking (lead-time) minimum, or both.
 --
 -- Money rule: a booking is EITHER full price through the payment ledger OR free with no ledger row at all. A code
@@ -75,7 +75,7 @@ GRANT EXECUTE ON FUNCTION booking_code_check(text, uuid) TO service_role;
 
 -- ---------------------------------------------------------------------------------------------
 -- Redeem: ONE transaction under the code's row lock. Checks again (a parallel request may have taken the last
--- use), records the redemption, increments, stamps the booking and — for a fee waiver — marks it free and issues
+-- use), records the redemption, increments, stamps the booking and, for a fee waiver, marks it free and issues
 -- its outbox row. A booking can redeem at most one code, and only while it is still unpaid + pending_payment.
 -- ---------------------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION booking_code_redeem(p_code text, p_retailer_id uuid, p_booking_id uuid, p_brand_id uuid)

@@ -1590,7 +1590,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (dateStr < retailerTodayYmd()) { alert('That date has already passed.'); return; }
             if (dateStr < storeEarliestYmd()) {
                 const c = window._bookingCode;
-                if (!(c && c.waives_lead_time && !c.itemId)) { alert('This store needs ' + storeLeadDays() + " days' notice. A short-notice code from the store can cover ONE demo — apply it before adding that date."); return; }
+                if (!(c && c.waives_lead_time && !c.itemId)) { alert('This store needs ' + storeLeadDays() + " days' notice. A short-notice code from the store can cover ONE demo. Apply it before adding that date."); return; }
             }
             cart.push({
                 id: newOpKey(),
@@ -2064,14 +2064,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const label = r.item ? (r.item.displayDate + ' ' + (r.item.label || r.item.time) + ' · ' + r.item.location) : 'a demo';
                 const isCodeItem = !!(r.item && (r.item.frozen || (window._bookingCode && window._bookingCode.itemId === r.item.id)));
                 if (r.error) {
-                    okAll = false; errors.push(label + ': ' + (isCodeItem ? 'we could not confirm the result — use "Check status" below' : r.error));
+                    okAll = false; errors.push(label + ': ' + (isCodeItem ? 'we could not confirm the result. Use "Check status" below' : r.error));
                     // a code-bearing request whose response was lost may have COMMITTED: freeze it for recovery, never resend fresh
                     if (isCodeItem) { r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); } else failedItems.push(r.item);
                     continue;
                 }
                 const { resp, json } = r;
                 if (!resp.ok || !json.ok) {
-                    if (json.error === 'booking_outcome_unknown' && r.item) { okAll = false; errors.push(label + ': the result could not be confirmed — use "Check status" below'); r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); continue; }
+                    if (json.error === 'booking_outcome_unknown' && r.item) { okAll = false; errors.push(label + ': the result could not be confirmed. Use "Check status" below'); r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); continue; }
                     okAll = false;
                     errors.push(label + ': ' + (json.message || json.error || ('HTTP ' + resp.status)));
                     if (json.error === 'coi_required') coiBlocked = true;
@@ -2111,7 +2111,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
             // Stash the booking email so the success card can show 'saved to X'
             try { window._lastBookingEmail = contactEmail; } catch(_){}
-            // Booking codes (0085): a fee-waived booking is free — no Stripe, no "pending payment". The server has
+            // Booking codes (0085): a fee-waived booking is free: no Stripe, no "pending payment". The server has
             // already queued it (confirmed or awaiting the store's approval, per its auto-confirm setting).
             if (freeCount > 0 && unpaid.length === 0) {
                 showFreeBookedModal(freeCount, contactEmail);
@@ -2214,7 +2214,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
             if (input) { input.value = ''; input.disabled = false; } if (btn) btn.textContent = 'Apply'; if (msg) msg.style.display = 'none';
         }
-        // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1) — independent of the cart, kept in
+        // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1), independent of the cart, kept in
         // sessionStorage for this tab (booking ids, labels, the frozen request; no secrets, no extra personal data).
         // (a function: RETAILER_SLUG is declared further down this script, so it must not be read at load time)
         const outcomesKey = () => 'dh_outcomes_' + (location.pathname.split('/')[2] || '');
@@ -2224,7 +2224,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function addRecovery(item) { if (!item || !item.frozen) return; const o = loadOutcomes(); if (!o.recovery.some(x => x.op_key === item.id)) o.recovery.push({ op_key: item.id, frozen: item.frozen, dateStr: item.dateStr, time: item.time, hours: item.hours, label: item.label, location: item.location, displayDate: item.displayDate }); saveOutcomes(o); }
         function removeRecovery(opKey) { const o = loadOutcomes(); o.recovery = o.recovery.filter(x => x.op_key !== opKey); saveOutcomes(o); }
         function clearOutcomes() { try { sessionStorage.removeItem(outcomesKey()); } catch (_) {} }
-        // A lost-result item comes back into the cart after a reload, frozen, so it can only be re-checked — never re-made.
+        // A lost-result item comes back into the cart after a reload, frozen, so it can only be re-checked, never re-made.
         function restoreRecoveringItems() {
             const o = loadOutcomes(); if (!o.recovery.length) return;
             for (const r of o.recovery) { if (cart.some(it => it.id === r.op_key)) continue; const [y, m, d] = r.dateStr.split('-').map(Number); cart.push({ id: r.op_key, date: new Date(y, m - 1, d), dateStr: r.dateStr, time: r.time, hours: r.hours || 3, label: r.label || r.time, location: r.location, displayDate: r.displayDate, frozen: r.frozen, recovering: true }); }
@@ -2236,8 +2236,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
             a.textContent = 'opening payment…';
             try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; }
-                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session — open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment — see your dashboard' : 'could not open payment — try again or pay from your dashboard'; }
-            catch (_) { a.textContent = 'could not open payment — try again or pay from your dashboard'; }
+                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session. Open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment. See your dashboard' : 'could not open payment. Try again or pay from your dashboard'; }
+            catch (_) { a.textContent = 'could not open payment. Try again or pay from your dashboard'; }
             return false;
         }
         async function applyBookingCode() {
@@ -2258,7 +2258,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // assigned to exactly ONE demo: the only item in the cart, else the brand picks with "use code here"
                 window._bookingCode = { code: j.code, waives_fee: j.waives_fee, waives_lead_time: j.waives_lead_time, itemId: cart.length === 1 ? cart[0].id : null };
                 input.value = j.code; input.disabled = true; btn.textContent = 'Remove';
-                const soon = j.waives_lead_time && storeLeadDays() > 0 ? ' — one demo may now be booked from ' + (Math.min(storeLeadDays(), 1) === 1 ? 'tomorrow' : 'today') + '.' : '.';
+                const soon = j.waives_lead_time && storeLeadDays() > 0 ? '. One demo may now be booked from ' + (Math.min(storeLeadDays(), 1) === 1 ? 'tomorrow' : 'today') + '.' : '.';
                 show('Code applied: ' + j.label + soon + (cart.length > 1 ? ' Choose which demo it covers with "use code here".' : ''), true);
                 updateCartDisplay(); showFirstBookableMonth();
             } catch (_) { show('Could not check that code right now. Try again in a moment.', false); }
@@ -2276,7 +2276,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     <div style="width:64px;height:64px;border-radius:50%;background:#e6f4ea;display:inline-flex;align-items:center;justify-content:center;margin-bottom:18px;">
                         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1f6b3a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
                     </div>
-                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${word} submitted — no payment needed</h2>
+                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${word} submitted, no payment needed</h2>
                     <p style="font-size:0.95rem;color:#3a3a36;margin:0 0 18px;line-height:1.55;">Your store code covered the demo fee. ${auto ? 'Confirmation is being processed and usually lands within a minute' : 'The store will review and confirm it'}; the confirmation email goes to <strong>${escapeHtml(email || 'your email')}</strong>. Until then it shows as awaiting confirmation on your dashboard.</p>
                     <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                         <button type="button" onclick="document.getElementById('freeBookedOverlay').remove();resetBookingCodeUi();closeModal();" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:999px;font-weight:700;cursor:pointer;">Done</button>

@@ -5513,7 +5513,7 @@ function escapeHtml(s) {
                 const body = { kind, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: note || null };
                 const r = await fetch('/api/admin?action=codes-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
                 const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
-                st.textContent = 'Created ' + j.code.code + ' — copy it to the brand.'; document.getElementById('codeNote').value = '';
+                st.textContent = 'Created ' + j.code.code + '. Copy it to the brand.'; document.getElementById('codeNote').value = '';
                 await loadBookingCodes();
             } catch (e) { st.textContent = 'Could not create the code: ' + (e.message || e); }
             finally { btn.disabled = false; }

@@ -14,14 +14,6 @@ import { createHash } from 'node:crypto';
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
 let _b = null;
 
-// Minimum booking lead time (2026-09-30). The store's settings.advance_booking_days (default 14) counted in whole
-// retailer-local calendar days from today: earliest allowed date = today + N. Until now only the booking page's
-// calendar applied this (greyed-out days); a stale tab, a failed settings load (page fallback 14) or a direct API call
-// could book inside the window. The server is the rule; the calendar is the explanation. Nothing before today, ever.
-export function earliestBookableYmd(now, tz, advanceDays) {
-  const n = Number.isInteger(advanceDays) && advanceDays >= 0 ? advanceDays : 14;
-  return ymdString(shiftYmd(localDateOf(now, safeZone(tz)), n));
-}
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
 const one=async(p)=>{const r=await rest(p);return r.ok?(await r.json())[0]:null;};
 const rpc=async(fn,args)=>{const r=await rest(`rpc/${fn}`,{method:'POST',body:JSON.stringify(args)});if(!r.ok)throw new Error(`${fn}: ${r.status} ${(await r.text()).slice(0,200)}`);const j=await r.json();return Array.isArray(j)?j[0]:j;};
@@ -47,7 +39,7 @@ export default async function handler(req, res) {
   const auth = await requireBrandSession(req, body);
   if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
 
-  // 1b) Codex review 2 item 1 — committed-operation recovery comes BEFORE every mutable eligibility check
+  // 1b) Codex review 2 item 1: committed-operation recovery comes BEFORE every mutable eligibility check
   // (venue active, slot config, notice rule, clock, COI, contact). A booking made under an earlier rule stays
   // recoverable by its key. The fingerprint is built from the REQUEST only (never from current slot config).
   const hasCode = body.booking_code !== undefined && body.booking_code !== null && String(body.booking_code).trim() !== '';
@@ -88,23 +80,6 @@ export default async function handler(req, res) {
   if (!slot.ok) {
     return res.status(slot.reason === 'slot_config_invalid' ? 503 : 400).json({ error: slot.reason, message: SLOT_REFUSAL_MESSAGES[slot.reason] || 'That time is not available.' });
   }
-  // 2c) Minimum lead time, enforced here (see earliestBookableYmd). A settings read failure is "unavailable", never a
-  // silently different rule. One clock for the whole decision; a test hook may pin it.
-  const sr = await rest(`settings?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=advance_booking_days`);
-  if (!sr.ok) return res.status(503).json({ error: 'settings_unavailable', message: "Could not read this store's booking rules. Try again in a moment." });
-  const settingsRow = (await sr.json())[0];
-  const advanceDays = settingsRow && Number.isInteger(settingsRow.advance_booking_days) && settingsRow.advance_booking_days >= 0 ? settingsRow.advance_booking_days : 14;
-  const nowClock = (process.env.DEMOHUB_TEST_HOOKS === '1' && process.env.DEMOHUB_CLOCK_OVERRIDE) ? new Date(process.env.DEMOHUB_CLOCK_OVERRIDE) : new Date();
-  const todayYmd = earliestBookableYmd(nowClock, retailer.timezone, 0);
-  const earliestYmd = earliestBookableYmd(nowClock, retailer.timezone, advanceDays);
-  if (String(body.demo_date) < todayYmd) return res.status(400).json({ error: 'date_in_past', message: 'That date has already passed.' });
-  if (String(body.demo_date) < earliestYmd) {
-    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice. The earliest date you can book is ${earliestYmd}.`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
-  }
-  if (String(body.demo_date) === todayYmd) {
-    const startAt = demoStartUtc(String(body.demo_date), slot.time, retailer.timezone);
-    if (!startAt || startAt.getTime() <= nowClock.getTime()) return res.status(400).json({ error: 'slot_started', message: 'That time has already started today. Pick a later slot.' });
-  }
   // Release A: electricity is a TYPED per-booking value. true/false from the form's toggle, absent
   // -> null ("Not specified"). Anything else is refused, never parsed out of the notes text.
   if (body.needs_electricity !== undefined && body.needs_electricity !== null && typeof body.needs_electricity !== 'boolean') {
@@ -135,14 +110,14 @@ export default async function handler(req, res) {
   const sr = await rest(`settings?retailer_id=eq.${encodeURIComponent(retailer.id)}&select=advance_booking_days`);
   if (!sr.ok) return res.status(503).json({ error: 'settings_unavailable', message: 'Could not read this store\'s booking rules. Try again in a moment.' });
   const settings = (await sr.json())[0];
-  const advanceDays = settings && Number.isInteger(settings.advance_booking_days) ? settings.advance_booking_days : 14;
+  const advanceDays = settings && Number.isInteger(settings.advance_booking_days) && settings.advance_booking_days >= 0 ? settings.advance_booking_days : 14;
   const nowClock = (process.env.DEMOHUB_TEST_HOOKS === '1' && process.env.DEMOHUB_CLOCK_OVERRIDE) ? new Date(process.env.DEMOHUB_CLOCK_OVERRIDE) : new Date();
   const todayYmd = earliestBookableYmd(nowClock, retailer.timezone, 0);
   const effectiveDays = (codeInfo && codeInfo.waives_lead_time) ? Math.min(advanceDays, 1) : advanceDays;
   const earliestYmd = earliestBookableYmd(nowClock, retailer.timezone, effectiveDays);
   if (String(body.demo_date) < todayYmd) return res.status(400).json({ error: 'date_in_past', message: 'That date has already passed.' });
   if (String(body.demo_date) < earliestYmd) {
-    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice — the earliest date is ${earliestYmd}.${(codeInfo && codeInfo.waives_lead_time) ? '' : ' A short-notice code from the store lifts this.'}`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
+    return res.status(400).json({ error: 'lead_time_required', message: `This store needs ${advanceDays} days' notice, so the earliest date is ${earliestYmd}.${(codeInfo && codeInfo.waives_lead_time) ? '' : ' A short-notice code from the store lifts this.'}`, earliest_date: earliestYmd, advance_booking_days: advanceDays });
   }
   if (String(body.demo_date) === todayYmd) {
     const startAt = demoStartUtc(String(body.demo_date), slot.time, retailer.timezone);
@@ -197,8 +172,8 @@ export default async function handler(req, res) {
   // recovered by replaying the same key; a refused code leaves no booking; nothing is ever deleted to "recover".
   if (codeInfo) {
     // Codex review 2 item 1: a rejected fetch, a timeout, a body-read failure or a success without a booking id are
-    // all UNKNOWN outcomes — the transaction either committed or rolled back as a whole; never guess, never delete.
-    const unknown = () => res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry — your request will not be duplicated.', retry_with_same_key: true, op_key: String(body.op_key) });
+    // all UNKNOWN outcomes: the transaction either committed or rolled back as a whole; never guess, never delete.
+    const unknown = () => res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry; your request will not be duplicated.', retry_with_same_key: true, op_key: String(body.op_key) });
     let rr, text = '', j = null;
     try {
       rr = await rest('rpc/booking_create_with_code', { method: 'POST', signal: globalThis.AbortSignal.timeout(25000), body: JSON.stringify({ p_op_key: String(body.op_key), p_fingerprint: fingerprint, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_payload: payload, p_code: codeInfo.code }) });

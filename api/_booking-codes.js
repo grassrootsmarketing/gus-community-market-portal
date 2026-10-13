@@ -1,4 +1,4 @@
-// _booking-codes.js — shared pieces of the booking-code feature (0085). Pure; no I/O.
+// _booking-codes.js: shared pieces of the booking-code feature (0085). Pure; no I/O.
 //   * code shape: PREFIX-KIND-RANDOM, upper-case, e.g. GUS-FREE-7K3M. Generated server-side only.
 //   * messages the booking page shows for each refusal reason.
 import { randomBytes } from 'node:crypto';
@@ -8,7 +8,7 @@ export function normalizeCode(s) { const c = String(s || '').trim().toUpperCase(
 
 // Unambiguous alphabet (no 0/O/1/I) for the random part.
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-// Codex BC-5: eight uniformly drawn symbols (40 bits) — rejection sampling, no modulo bias. Codex BC-4: a prefix
+// Codex BC-5: eight uniformly drawn symbols (40 bits), rejection sampling, no modulo bias. Codex BC-4: a prefix
 // shorter than two characters is padded so every generated code satisfies CODE_RE and the database constraint.
 export const RANDOM_LEN = 8;
 export function generateCode(retailerSlug, kind) {

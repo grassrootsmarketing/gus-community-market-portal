@@ -1,4 +1,4 @@
-// api/booking-code.js — preview what a booking code would do at this store (0085). Read-only: never redeems or
+// api/booking-code.js: preview what a booking code would do at this store (0085). Read-only: never redeems or
 // counts. Requires the brand session so anonymous visitors cannot probe codes; the booking page calls it when the
 // brand presses "Apply" so the price and the calendar can update before /api/book runs the real check again.
 import { requireBrandSession } from './_booking-identity.js';
