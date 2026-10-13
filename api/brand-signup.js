@@ -1,12 +1,13 @@
-// api/brand-signup.js — F5-04: verified brand account creation / passwordless-claim.
+// api/brand-signup.js, F5-04: verified brand account creation / passwordless-claim.
 // Kills the takeover hole: you can only set a password + get a session for an email AFTER
-// proving you own it. An account that ALREADY has a password can never be "claimed" — that
+// proving you own it. An account that ALREADY has a password can never be "claimed", that
 // path is login only. Password format matches the existing login (<salt_hex>$<hash_hex>, scrypt).
 
 import crypto from 'node:crypto';
 import { createChallenge, hashCode } from './_verify.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
+import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly } from './_mail.js';
@@ -20,7 +21,7 @@ function rest(path, opts = {}) {
 }
 
 // Set the HttpOnly brand-session cookie (matches brand-account.js) so a verified brand is
-// immediately signed in for booking — no token handling in page JS.
+// immediately signed in for booking, no token handling in page JS.
 // Codex finding B: "matches brand-account.js" was a promise kept by hand, in a duplicated
 // attribute string. Delegated, so the name and attributes have one definition.
 function setBrandCookie(res, token) {
@@ -30,7 +31,7 @@ function setBrandCookie(res, token) {
 // The signup card's single primary category rides the challenge payload exactly like the name and
 // phone do, and is applied ONCE at redeem, only when the brand has none yet. Previously it was
 // persisted by a page-side follow-up call after the code was accepted, which only ran on one of the
-// two signup surfaces — so the booking form kept asking "What are you demoing?" on every booking.
+// two signup surfaces, so the booking form kept asking "What are you demoing?" on every booking.
 function cleanCategory(v) {
   const s = String(v == null ? '' : v).trim().replace(/\s+/g, ' ').slice(0, 80);
   return s || null;
@@ -46,7 +47,7 @@ async function applyChallengeCategory(email, brandId) {
     await rest(`brands?id=eq.${encodeURIComponent(brandId)}&default_categories=is.null`, {
       method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ default_categories: cat }),
     });
-  } catch (_) { /* best-effort — the Profile page remains the place to set it */ }
+  } catch (_) { /* best-effort, the Profile page remains the place to set it */ }
 }
 
 // matches brand-account.js: <salt_hex>$<hash_hex>, 16-byte salt, 64-byte scrypt, Node defaults
@@ -56,9 +57,9 @@ function hashPassword(password) {
   return salt.toString('hex') + '$' + dk.toString('hex');
 }
 
-// Core: create or claim a brand — ONLY called after email verification succeeds.
+// Core: create or claim a brand, ONLY called after email verification succeeds.
 // Returns { ok, reason? , brand_id, session_token }.
-// RETIRED — Codex finding A: exactly one canonical provisioning path. Everything this used to do
+// RETIRED, Codex finding A: exactly one canonical provisioning path. Everything this used to do
 // now happens inside redeem_brand_signup() (migration 0053) as one transaction. Kept as a throwing
 // stub rather than deleted so any forgotten caller fails loudly instead of silently taking a
 // second, unreviewed route to the same tables.
@@ -73,13 +74,13 @@ async function _retired_provisionOrClaimVerifiedBrand(email, password, profile =
   const existing = rows[0] || null;
 
   if (existing && existing.password_hash) {
-    // Active account already exists — do NOT let anyone re-claim it. This is the takeover guard.
+    // Active account already exists, do NOT let anyone re-claim it. This is the takeover guard.
     return { ok: false, reason: 'account_exists_login_instead' };
   }
   const password_hash = hashPassword(password);
   let brandId;
   if (existing) {
-    // legitimate claim of a passwordless row — now verified
+    // legitimate claim of a passwordless row, now verified
     await rest(`brands?id=eq.${existing.id}`, { method: 'PATCH', body: JSON.stringify({ password_hash, is_verified: true, updated_at: new Date().toISOString() }) });
     brandId = existing.id;
   } else {
@@ -107,15 +108,16 @@ function verificationCodeEmail(code) {
 <div style="font-size:13px;color:#6b6a64;margin-bottom:12px;">Your verification code</div>
 <div style="font-size:38px;font-weight:800;letter-spacing:0.18em;color:#0f2c17;font-family:'SFMono-Regular',Menlo,Monaco,Consolas,monospace;margin-bottom:14px;">${code}</div>
 <div style="font-size:13px;color:#6b6a64;">This code expires in 30 minutes.</div>
-<p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email &mdash; no action will be taken.</p>
+<p style="font-size:12px;color:#9a978f;line-height:1.5;margin:22px 0 0;">If you didn't request this, you can ignore this email. No action will be taken.</p>
 </td></tr>
 <tr><td style="padding:16px 36px;background:#faf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:11px;color:#9a978f;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307</td></tr>
 </table></body></html>`;
 }
 
 async function sendCode(email, code) {
-  if (!_b.resendApiKey) return;
-  await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
+  // The provider's refusal is observed (reason code only), never shown to the caller: the reply stays generic.
+  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code', html: verificationCodeEmail(code) }, { binding: _b });
+  logSigninMailFailure('brand-signup', sent);
 }
 
 const GENERIC_REQUEST_REPLY = 'If that email can receive mail, a code is on its way.';
@@ -159,6 +161,9 @@ export default async function handler(req, res) {
   const action = String(body.action || '');
   const email = String(body.email || '').trim().toLowerCase();
   if (!/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'valid email required' });
+  // Codex S-1: a globally misconfigured sign-in says so (503, identical for every address) BEFORE any quota is
+  // debited or any account looked up. Never the generic "code is on its way" for our own configuration failure.
+  { const cfg = signinConfigStatus(_b); if (!cfg.ok) { logSigninConfigFailure('brand-signup', cfg); return res.status(503).json(signinUnavailableBody(cfg)); } }
 
   // Cross-role guard: one email = one role. An address already registered as a RETAILER cannot
   // also become a brand. This restores the check orphaned when brand signup moved off the
@@ -216,7 +221,7 @@ export default async function handler(req, res) {
     if (!ipOk || !emOk) return res.status(429).json({ error: 'too_many_attempts' });
 
     // ONE round trip does all of: match the code, consume the challenge, provision the brand,
-    // create the owner membership, and issue the session — in a single transaction that claims
+    // create the owner membership, and issue the session, in a single transaction that claims
     // the challenge row FOR UPDATE. Codex finding A required atomicity here; previously a crash
     // between consume and provision left the code spent and the brand absent, and N parallel
     // guesses could all read the same pre-increment attempt count.

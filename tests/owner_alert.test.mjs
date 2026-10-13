@@ -26,7 +26,7 @@ console.log('\n— paid bookings —');
   const m = build(ctx, { kind: 'paid', targetStatus: 'pending', facts: facts({ autoConfirm: false }) });
   ok('paid: addressed to the owner from the bookings sender', m.to === 'david@demohubhq.com' && m.from === 'Demohub <bookings@demohubhq.com>' && m.replyTo === 'david@demohubhq.com', JSON.stringify([m.to, m.from]));
   ok('paid: subject names the brand, store, location, date and time', /^Booked: Cold Brew Co -> Gus's Community Market \/ Mission District \| 2026-10-12 11:00 AM$/.test(m.subject), m.subject);
-  ok('paid: body says PAID awaiting confirmation, carries fee, booking id, the admin link, no COI button', /PAID — awaiting/.test(m.html) && /\$30\.00/.test(m.html) && m.html.includes(ctx.booking_id) && /\/r\/gus\/admin/.test(m.html) && !/Review the COI/.test(m.html), m.html.slice(0, 200));
+  ok('paid: body says PAID awaiting confirmation, carries fee, booking id, the admin link, no COI button', /PAID, awaiting/.test(m.html) && /\$30\.00/.test(m.html) && m.html.includes(ctx.booking_id) && /\/r\/gus\/admin/.test(m.html) && !/Review the COI/.test(m.html), m.html.slice(0, 200));
   const manual = build(ctx, { kind: 'paid', targetStatus: 'confirmed', facts: facts({ autoConfirm: false }) });
   ok('paid + confirmed by a manual-confirm retailer: says CONFIRMED by the retailer, does NOT claim auto-confirm', /PAID and CONFIRMED by the retailer/.test(manual.html) && !/auto-confirms/.test(manual.html), manual.html.match(/Status<\/td><td[^>]*>[^<]*/)?.[0]);
   const auto = build(ctx, { kind: 'paid', targetStatus: 'confirmed', facts: facts({ autoConfirm: true }) });
@@ -39,7 +39,7 @@ const held = { ...ctx, held_expires_at: '2026-10-01T18:00:00Z' };
   const m = build(held, { kind: 'hold', targetStatus: 'held', facts: facts({ autoConfirm: false }) });
   ok('hold, auto-confirm OFF: requires COI approval AND retailer confirmation; says approval alone does not capture', /^Hold placed: Cold Brew Co/.test(m.subject) && /then confirm the booking in the retailer admin/.test(m.html) && /Approving the COI alone does not capture/.test(m.html) && !/auto-confirm enabled/.test(m.html), m.html.slice(0, 300));
   ok('hold: the deadline is the booking\'s OWN held_expires_at, labelled with its zone (not "24 hours from now")', /Thursday, October 1 at 11:00 AM PDT/.test(m.html) && !/within 24 hours/.test(m.html), m.html.match(/before [^.]*/)?.[0]);
-  ok('hold: authorization / release wording is distinct from refund', /authorized — not charged/.test(m.html) && /released after expiry \(not refunded/.test(m.html) && !/refund you|refunded to/.test(m.html));
+  ok('hold: authorization / release wording is distinct from refund', /authorized, not charged/.test(m.html) && /released after expiry \(not refunded/.test(m.html) && !/refund you|refunded to/.test(m.html));
   ok('hold: Review-the-COI (/owner) and retailer-admin links present, no secrets in either', /href="https:\/\/staging\.example\.test\/owner"/.test(m.html) && /href="https:\/\/staging\.example\.test\/r\/gus\/admin"/.test(m.html) && !/token=|key=|secret/i.test(m.html));
 }
 {

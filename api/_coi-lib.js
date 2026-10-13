@@ -55,7 +55,7 @@ export function coiCutoff(demoDate, retailerTimezone) {
   return new Date(localMidnightUtc - 72 * 3600 * 1000);
 }
 
-// Local midnight (UTC instant) of demoDate in tz — used to derive the 7-day reminder threshold.
+// Local midnight (UTC instant) of demoDate in tz, used to derive the 7-day reminder threshold.
 export function localMidnightUtc(demoDate, retailerTimezone) {
   const c = coiCutoff(demoDate, retailerTimezone);
   return c ? new Date(c.getTime() + 72 * 3600 * 1000) : null;

@@ -17,7 +17,7 @@
 //         deadlock; a destination refusal leaves the SOURCE untouched; stale source version refused.
 //   B-08  a slot ending at/after midnight is refused by the action and by the database.
 import pg from 'pg';
-import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs';
+import { installSpy, callRoute, req, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { _resetBindingCache } from '../api/_env.js';
 
 const { Client } = pg;
@@ -92,8 +92,8 @@ try {
   // Fixtures
   // ---------------------------------------------------------------------------------------------
   const slug = uniq('rbfix');
-  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode)
-                            VALUES ($1, 'Release B Fix Market', $2, 'pro', 'active', true, $3, false, 'refundable') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
+  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode, verification_status)
+                            VALUES ($1, 'Release B Fix Market', $2, 'pro', 'active', true, $3, false, 'refundable', 'approved') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
   const R = fx.retailer;
   const mkVenue = async (name, availability, cap = 1) => (await one(`INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot, availability) VALUES ($1, $2, '1 Fix St', 30, $3, $4::jsonb) RETURNING id`,
       [R, name, cap, availability === undefined ? '{}' : JSON.stringify(availability)])).id;
@@ -116,7 +116,7 @@ try {
   staffCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: staffTok.token } }))).cookie('dh_retailer_session');
   ok('fixtures: staff + brand sessions', !!staffCookie && !!brandCookie);
 
-  const book = (venue, date, time) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time }, cookies: { dh_brand_session: brandCookie } }));
+  const book = (venue, date, time) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
   const admin = async (action, body) => parsed(await callRoute('admin.js', req({ method: 'POST', query: { action }, body, cookies: { dh_retailer_session: staffCookie } })));
   const venue = (id) => one(`SELECT id, name, availability, availability_version, max_demos_per_slot FROM venues WHERE id = $1`, [id]);
   const booking = (id) => one(`SELECT id, venue_id, demo_date::text AS demo_date, demo_time, duration_hours, status, start_at, end_at, timezone, schedule_revision FROM bookings WHERE id = $1`, [id]);

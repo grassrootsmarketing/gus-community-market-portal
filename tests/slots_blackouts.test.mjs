@@ -18,7 +18,7 @@
 //
 // Env: SB_URL, SB_KEY, SB_REF (route harness) + SB_DB_URL (session/direct pg, test project only).
 import pg from 'pg';
-import { installSpy, callRoute, req, ok, summary, uniq } from './_route.mjs';
+import { installSpy, callRoute, req, ok, summary, uniq, FIXTURE_PRODUCTS } from './_route.mjs';
 
 const { Client } = pg;
 const STAGING_REF = 'tileejdviuvijumjeplv';
@@ -72,8 +72,8 @@ try {
   // Fixtures
   // ---------------------------------------------------------------------------------------------
   const slug = uniq('sb');
-  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode)
-                            VALUES ($1, 'Slots Fixture Market', $2, 'pro', 'active', true, $3, false, 'refundable') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
+  fx.retailer = (await one(`INSERT INTO retailers (slug, name, billing_email, billing_tier, billing_status, platform_keeps_all, timezone, auto_confirm_bookings, cancellation_mode, verification_status)
+                            VALUES ($1, 'Slots Fixture Market', $2, 'pro', 'active', true, $3, false, 'refundable', 'approved') RETURNING id`, [slug, `${slug}@fixture.test`, LA])).id;
   const R = fx.retailer;
   const mkVenue = async (name, availability, cap = 1) => {
     const v = await one(`INSERT INTO venues (retailer_id, name, address, demo_fee, max_demos_per_slot, availability) VALUES ($1, $2, '1 Slot St', 30, $3, $4::jsonb) RETURNING id`,
@@ -99,7 +99,7 @@ try {
   staffCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: staffTok.token } }))).cookie('dh_retailer_session');
   ok('fixtures: staff + brand sessions exist', !!staffCookie && !!brandCookie);
 
-  const book = (venue, date, time, extra = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, ...extra }, cookies: { dh_brand_session: brandCookie } }));
+  const book = (venue, date, time, extra = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venue, demo_date: date, demo_time: time, product_skus: FIXTURE_PRODUCTS, ...extra }, cookies: { dh_brand_session: brandCookie } }));
   // api/admin.js answers via send(JSON string); normalize to an object like the other routes.
   const parsed = (r) => ({ ...r, body: (typeof r.body === 'string') ? (() => { try { return JSON.parse(r.body); } catch (_) { return r.body; } })() : r.body });
   const admin = async (action, body) => parsed(await callRoute('admin.js', req({ method: 'POST', query: { action }, body, cookies: { dh_retailer_session: staffCookie } })));

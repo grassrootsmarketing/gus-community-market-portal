@@ -1,4 +1,4 @@
-// api/_booking-identity.js — F5-05: booking + agreement identity comes from the AUTHENTICATED
+// api/_booking-identity.js, F5-05: booking + agreement identity comes from the AUTHENTICATED
 // brand session, never from a submitted email. Stops "book as another brand / use their COI"
 // (LG-01) and stops the agreement-record disclosure.
 
@@ -29,7 +29,7 @@ export async function requireBrandSession(req, _body) {
   } catch (_) { return { ok: false, status: 503, error: 'auth unavailable' }; }
 }
 
-// Agreement status for the AUTHENTICATED brand only. Returns booleans + reason — never the
+// Agreement status for the AUTHENTICATED brand only. Returns booleans + reason, never the
 // stored agreement record (no signed name/email/IP disclosure).
 export async function agreementStatus(brandId, retailerId, currentPolicyHash) {
   const r = await rest(`brand_retailer_agreements?brand_id=eq.${encodeURIComponent(brandId)}&retailer_id=eq.${encodeURIComponent(retailerId)}&superseded_at=is.null&select=policy_hash,expires_at&order=signed_at.desc&limit=1`);

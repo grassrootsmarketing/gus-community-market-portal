@@ -1,6 +1,6 @@
-// api/_occurrence.js — Codex R3 (2026-09-11): the ACCEPTED occurrence of a demo is its booking's
+// api/_occurrence.js, Codex R3 (2026-09-11): the ACCEPTED occurrence of a demo is its booking's
 // snapshot (bookings.start_at / end_at / timezone, 0074–0077). A calendar feed must read that
-// snapshot with a SUCCESSFUL lookup or fail closed — it must never reconstruct a linked appointment
+// snapshot with a SUCCESSFUL lookup or fail closed, it must never reconstruct a linked appointment
 // from the retailer's current settings because a lookup happened to fail (that shifts accepted
 // appointments and the result can be cached).
 //
@@ -39,7 +39,7 @@ export async function fetchBookingSnapshots(get, ids, { chunk = SNAPSHOT_CHUNK }
         continue;
       }
       // One timestamp without the other, unparseable values, or an interval that does not run
-      // forwards are not a snapshot — the feed must not guess.
+      // forwards are not a snapshot, the feed must not guess.
       if (b.start_at == null || b.end_at == null) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id, reason: 'partial_snapshot' });
       const s = new Date(b.start_at), e = new Date(b.end_at);
       if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) throw new SnapshotLookupError('snapshot_lookup_malformed', { row: b.id, reason: 'unparseable' });
@@ -58,5 +58,5 @@ export async function fetchBookingSnapshots(get, ids, { chunk = SNAPSHOT_CHUNK }
 export function sendFeedUnavailable(res, err) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.status(503).send('Calendar temporarily unavailable — try again in a moment. (' + ((err && err.message) || 'lookup failed') + ')');
+  res.status(503).send('Calendar temporarily unavailable. Try again in a moment. (' + ((err && err.message) || 'lookup failed') + ')');
 }

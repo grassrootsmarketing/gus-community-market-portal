@@ -1,7 +1,7 @@
-// Demohub PWA service worker — conservative caching strategy
+// Demohub PWA service worker, conservative caching strategy
 // - Static assets (icons, manifest, fonts): cache-first with network fallback
-// - HTML pages: NETWORK ONLY (never cache — avoids stale auth state)
-// - /api/*: NETWORK ONLY (never cache — fresh data always)
+// - HTML pages: NETWORK ONLY (never cache, avoids stale auth state)
+// - /api/*: NETWORK ONLY (never cache, fresh data always)
 // - Cross-origin (fonts, Chart.js, Supabase SDK, Stripe.js, PostHog): pass-through (browser handles)
 //
 // Versioning: bump CACHE_VERSION when icons or static assets change
@@ -38,10 +38,10 @@ self.addEventListener('fetch', (event) => {
   // Only handle same-origin GET. Everything else: pass-through.
   if (req.method !== 'GET' || url.origin !== self.location.origin) return;
 
-  // NEVER cache API calls — they need fresh data
+  // NEVER cache API calls, they need fresh data
   if (url.pathname.startsWith('/api/')) return;
 
-  // NEVER cache HTML — auth state must be fresh. Let the browser handle.
+  // NEVER cache HTML, auth state must be fresh. Let the browser handle.
   // Detect HTML by Accept header OR by no file extension on the path.
   const wantsHtml = (req.headers.get('Accept') || '').includes('text/html');
   if (wantsHtml) return;

@@ -1,4 +1,4 @@
-// api/_coi-storage.js — F5-10/F5-11/F5-13 (LG-03): COIs live in a PRIVATE bucket under random,
+// api/_coi-storage.js, F5-10/F5-11/F5-13 (LG-03): COIs live in a PRIVATE bucket under random,
 // unguessable keys; downloads are short-lived signed URLs issued only after an authorization
 // check; and reject/remove/replace actually deletes the bytes. Storage ops use the service key
 // (run only in the server handler), so these are exercised on the preview, not the public key.

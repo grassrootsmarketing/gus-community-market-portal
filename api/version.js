@@ -1,4 +1,4 @@
-// api/version.js — build identity probe.
+// api/version.js, build identity probe.
 //
 // R12-P1-5: the detailed view (Supabase project ref, Stripe live/test mode, secret-presence flags)
 // is reconnaissance if exposed publicly, so it now requires the operator/deploy secret. Without it
@@ -15,7 +15,7 @@ export default async function handler(req, res) {
     || (req.headers['x-deploy-verify'] || '');
   const authed = !!CRON_SECRET && provided === CRON_SECRET;
 
-  // public: nothing sensitive — short build id only, no env/config footprint
+  // public: nothing sensitive, short build id only, no env/config footprint
   if (!authed) {
     return res.status(200).json({
       ok: true,

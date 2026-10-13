@@ -1,12 +1,12 @@
-// api/_flags.js — closed-launch feature gates and kill switches.
+// api/_flags.js, closed-launch feature gates and kill switches.
 //
 // Gate 0 rule: the operator probe must report the REAL effective runtime surface. A flag that no
-// route consumes is worse than no flag — it manufactures false confidence. So every value returned
+// route consumes is worse than no flag, it manufactures false confidence. So every value returned
 // by flagSnapshot() below is either (a) enforced by a named consumer, or (b) explicitly labelled as
 // derived/hard-coded state rather than a control.
 //
 // Codex G0-C3/G0-v2-3: kill switches require the LITERAL string "true" (case/whitespace variants rejected). Unset, empty, misspelled or malformed
-// values DISABLE the operation. This is a deliberate change from availability-first defaults — the
+// values DISABLE the operation. This is a deliberate change from availability-first defaults, the
 // closed launch prefers a hard stop over an accidentally-open surface, and it makes the packet's
 // "malformed configuration cannot widen the surface" statement actually true.
 //
@@ -18,9 +18,11 @@
 //   brandInviteEnabled    BRAND_INVITE_ENABLED            api/brand-account.js action=team-invite     false
 //   coiAutoEnforcement    COI_AUTO_ENFORCEMENT_ENABLED    api/coi-enforcement.js (dual gate w/ mode)  false
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
+//   signinMaintenance     SIGNIN_MAINTENANCE_ENABLED      api/_signin-config.js (503 on brand-signup +  false
+//                                                         retailer-signup request AND verify, before quotas)
 //   notificationWorker    NOTIFICATION_WORKER_ENABLED     api/notification-worker.js (200 disabled) +   false
 //                                                         api/find-retailer.js (job required only when on)
-//   connectedCheckout     (no env control — hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
+//   connectedCheckout     (no env control, hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
 // DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
@@ -48,12 +50,18 @@ export const FLAGS = {
   // Release B: per-location demo-slot and blackout EDITING (api/admin.js availability actions that
   // carry a slot list, the blackout action, and the admin editors). Off = existing configurations
   // keep being enforced and read, hours/capacity autosave still works, but no new slot/blackout
-  // intake — the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
+  // intake, the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
   // compatible rollback once custom slots exist.
   // Read at request time (getter) rather than at module load: the kill switch is still the literal
   // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
   // proven in-process (tests/release_b_corrections.test.mjs R4) without re-importing the module graph.
   get slotEditing() { return exactTrue(process.env.SLOT_EDITING_ENABLED); },
+  // Codex C-1 (2026-10-03): maintenance gate for the CODE-BASED sign-in flows only (brand sign-in/sign-up,
+  // retailer sign-up: request and verify). On = those routes answer 503 before any quota is spent, so a schema
+  // switch (migration 0089) can happen with no half-working issuance. Payments, existing sessions, the
+  // notification worker, magic-link retailer login and every other route are untouched. Set in Vercel
+  // Production and redeploy to close; unset and redeploy to reopen. Read at request time.
+  get signinMaintenance() { return exactTrue(process.env.SIGNIN_MAINTENANCE_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -64,7 +72,7 @@ export function coiEnforcementMode() {
 }
 
 // EFFECTIVE COI automation state: the Boolean launch flag AND the mode must both permit work.
-// If the launch flag is not exactly "true", the answer is 'off' no matter what the mode says —
+// If the launch flag is not exactly "true", the answer is 'off' no matter what the mode says,
 // so a stray COI_ENFORCEMENT_MODE=live cannot cancel or refund anything.
 export function coiEnforcementEffective() {
   if (!FLAGS.coiAutoEnforcement) return 'off';
@@ -93,6 +101,7 @@ export function flagSnapshot() {
     coiUploadEnabled: FLAGS.coiUploadEnabled,
     brandInviteEnabled: FLAGS.brandInviteEnabled,
     slotEditing: FLAGS.slotEditing,
+    signinMaintenance: FLAGS.signinMaintenance,
     notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,

@@ -1,4 +1,4 @@
-// /api/admin-auth — Retailer admin authentication.
+// /api/admin-auth, Retailer admin authentication.
 //   POST { action: "login",  email, retailer_slug }      → emails magic link if email matches billing_email
 //   POST { action: "verify", token }                      → sets dh_retailer_session cookie
 //   POST { action: "data",   retailer_slug }              → returns { ok, email, retailer_id }
@@ -19,16 +19,20 @@ import {
   readCookies as parseCookies,
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
+import { parseYmd } from './_local-time.js';
+import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
+import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
+import { listAction as ownerNotificationsList, summaryAction as ownerNotificationsSummary, bookingAction as ownerBookingNotifications } from './_owner-notifications.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
-// binding is resolved lazily by bind() — the exported guards work even when this file's own handler
+// binding is resolved lazily by bind(), the exported guards work even when this file's own handler
 // was not the entry point. _b is what the in-handler storage calls read.
 let _b = null;
 async function bind() { _b = await getBinding(); return _b; }
 
 // R2-11: build security-sensitive links (magic links, redirects) from a fixed, configured origin
-// — never from client-controllable forwarded-host headers. The origin comes from the validated
+//, never from client-controllable forwarded-host headers. The origin comes from the validated
 // binding (siteLink), so it can never default to production from a preview deployment.
 
 // R2-05: viewer-role staff accounts are read-only. Uses the shared sb() helper (throws on error,
@@ -45,7 +49,7 @@ const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// UUID format guard — protects against Postgres "invalid input syntax for type uuid" errors
+// UUID format guard, protects against Postgres "invalid input syntax for type uuid" errors
 // when callers pass garbage values like "fake" in session_id or other UUID params.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(s) { return typeof s === 'string' && UUID_RE.test(s); }
@@ -60,30 +64,52 @@ async function sb(path, opts = {}) {
   return json;
 }
 
+// Every row of a PostgREST read (Codex OV-3, 2026-09-29). Pages with Range headers and Prefer: count=exact until the
+// exact total is reached. The server's own row cap (max_rows, 1000 locally) may be smaller than the page asked for, so
+// the next page starts after the rows actually returned. `path` MUST carry a deterministic order ending in a unique
+// column (`...,id.asc`) so pages cannot overlap or skip. Any failed page throws. complete=false only when `max` stopped
+// the read early; callers must pass that on rather than present a partial list as the whole.
+async function sbAll(path, { max = 20000, page = 1000 } = {}) {
+  const b = await bind(); const rows = []; let total = null;
+  while (rows.length < max) {
+    const from = rows.length, to = Math.min(from + page, max) - 1;
+    const r = await fetch(`${b.supabaseUrl}/rest/v1/${path}`, { headers: { apikey: b.serviceKey, Authorization: `Bearer ${b.serviceKey}`, Prefer: 'count=exact', 'Range-Unit': 'items', Range: `${from}-${to}` } });
+    const text = await r.text(); let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+    if (!r.ok) throw new Error(json?.message || text || `HTTP ${r.status}`);
+    if (!Array.isArray(json)) throw new Error('unexpected response shape');
+    const t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+    if (!Number.isFinite(t)) throw new Error('no exact count in response');
+    total = t; rows.push(...json);
+    if (rows.length >= total || json.length === 0) break;
+  }
+  if (total === null) total = rows.length;
+  return { rows, total, complete: rows.length >= total };
+}
+
 // -----------------------------------------------------------------------------
-// Session transport — api/_cookies.js is the single implementation.
+// Session transport, api/_cookies.js is the single implementation.
 //
 // Codex finding B. This file previously carried its own copy of the cookie helpers, and so did
-// api/admin.js, api/booking-action.js and api/brand-account.js — four hand-rolled copies of the
+// api/admin.js, api/booking-action.js and api/brand-account.js, four hand-rolled copies of the
 // same attribute string. api/booking.js and api/refund-booking.js parsed the cookie with an
 // inline regex instead. Four copies plus two regexes is six places for one of them to drift.
 //
 // TWO ROLES ARE NOW DISTINCT COOKIES:
-//   dh_retailer_session — retailer staff, and the session an owner assumes when impersonating
-//   dh_owner_session    — the platform owner
+//   dh_retailer_session, retailer staff, and the session an owner assumes when impersonating
+//   dh_owner_session   , the platform owner
 // Before this change the owner panel carried its session in the QUERY STRING (see owner-data,
 // owner-logout, owner-list-retailers, owner-impersonate below), so the credential for the account
 // that can read all platform data and impersonate any retailer was landing in browser history,
-// Referer headers and Vercel's access logs. Impersonation then wrote dh_session — the retailer
-// cookie — which is why the two had to be separated before impersonation could be made safe.
+// Referer headers and Vercel's access logs. Impersonation then wrote dh_session, the retailer
+// cookie, which is why the two had to be separated before impersonation could be made safe.
 // -----------------------------------------------------------------------------
 
-const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h — matches the DB expiry set in owner-verify
+const OWNER_SESSION_MAX_AGE = 12 * 60 * 60;      // 12h, matches the DB expiry set in owner-verify
 const RETAILER_SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 // Codex F-06 / FC-02. The retailer's Settings toggle promises "OFF. Demohub cannot sign in to
 // your account." The consent rule (allow_support_access exactly true AND support_access_expires_at
 // strictly in the future) and the session window (min(4h cap, remaining consent)) used to be
-// computed HERE, in JS, between three separate PostgREST requests — so the consent read was stale
+// computed HERE, in JS, between three separate PostgREST requests, so the consent read was stale
 // by the time the session was inserted, and the audit row depended on a compensating delete.
 // Both now live in the database function support_session_create() (migration 0072), which checks
 // consent under a row lock and mints the session and its audit row in ONE transaction. This file
@@ -101,7 +127,7 @@ function setSessionCookie(res, sessionId, maxAgeSeconds = RETAILER_SESSION_MAX_A
 
 function clearSessionCookie(res) { clearRoleCookie(res, 'retailer'); }
 
-// Retailer/staff session. Cookie only — no body, no query string.
+// Retailer/staff session. Cookie only, no body, no query string.
 function getSessionIdFromReq(req, _body) {
   return getSessionToken(req, 'retailer');
 }
@@ -131,14 +157,14 @@ export async function verifyAdminSession(session_id, expectedRetailerId) {
 }
 
 // Strict retailer-staff check for MUTATIONS (P0-1): valid session + LIVE membership + allowed role.
-// retailer_admins has no disabled flag — a removed staffer's row is deleted, so absence == removed.
+// retailer_admins has no disabled flag, a removed staffer's row is deleted, so absence == removed.
 export async function verifyRetailerStaff(session_id, retailerId, allowedRoles = ['owner', 'admin', 'manager']) {
   const s = await verifyAdminSession(session_id, retailerId);
   if (!s.ok) return { ok: false, status: 401, error: s.error };
-  // P0-1B: EXACT normalized-email identity (never ILIKE — `_`/`%` are SQL wildcards and legal in
+  // P0-1B: EXACT normalized-email identity (never ILIKE, `_`/`%` are SQL wildcards and legal in
   // email local parts). email_normalized is UNIQUE per (retailer_id, email_normalized) via 0025.
   // Venue-scope model (P0-1C, Model 2): owner/admin/manager are RETAILER-WIDE mutating roles;
-  // only viewer may be venue-scoped and viewer cannot mutate — so no per-venue check is needed on
+  // only viewer may be venue-scoped and viewer cannot mutate, so no per-venue check is needed on
   // this mutation path. The P0-8 authz cutover enforces "no scoped mutating membership" at write time.
   const en = String(s.email || '').trim().toLowerCase();
   let rows;
@@ -175,7 +201,7 @@ export async function requireRetailerMembership(session_id, expectedRetailerId =
 }
 
 function generateLoginCode() {
-  // 6-digit numeric code, zero-padded — cryptographically random, not Math.random.
+  // 6-digit numeric code, zero-padded, cryptographically random, not Math.random.
   const n = randomInt(0, 1000000);
   return String(n).padStart(6, '0');
 }
@@ -187,7 +213,7 @@ function invitationEmail({ retailerName, roleName, link, code, inviterEmail }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -213,7 +239,7 @@ function magicLinkEmail({ retailerName, link, code }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -227,7 +253,7 @@ function magicLinkEmail({ retailerName, link, code }) {
 <tr><td style="padding:0 36px 32px;text-align:center;">
 <p style="font-size:13px;color:#6b6a64;line-height:1.5;margin:14px 0 18px;">Or use the direct link below to sign in without entering the code:</p>
 <p style="margin:0 0 20px;"><a href="${html(link)}" style="background:#0f2c17;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;font-size:14px;">Sign in &rarr;</a></p>
-<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore this email &mdash; no action will be taken.</p>
+<p style="font-size:12px;color:#6b6a64;line-height:1.5;margin:0;">If you didn't request this, ignore this email. No action will be taken.</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this because someone requested a sign-in link for an admin email at this address.</td></tr>
 </table></body></html>`;
@@ -246,7 +272,7 @@ async function checkRateLimitByKey(fullKey, maxPerHour) {
     else await sb('rate_limit', { method: 'POST', body: JSON.stringify({ bucket_key: fullKey, window_start: windowStart, count: 1 }) });
     return { allowed: true };
   } catch (e) {
-    console.error('per-key rate limit failed — denying:', e?.message || e);
+    console.error('per-key rate limit failed, denying:', e?.message || e);
     return { allowed: false, error: 'rate_limit_unavailable' };
   }
 }
@@ -254,7 +280,7 @@ async function checkRateLimitByKey(fullKey, maxPerHour) {
 async function checkRateLimit(req, bucketKey, maxPerHour) {
   try {
     // x-real-ip is set by Vercel and not client-overridable; the LAST x-forwarded-for hop is
-    // the one Vercel appends. Never trust cf-connecting-ip here — we are not behind Cloudflare,
+    // the one Vercel appends. Never trust cf-connecting-ip here, we are not behind Cloudflare,
     // so it is purely attacker-supplied and was a complete rate-limit bypass.
     const xff = (req.headers['x-forwarded-for'] || '').toString().split(',').map(x => x.trim()).filter(Boolean);
     const ip = req.headers['x-real-ip'] || xff[xff.length - 1] || req.socket?.remoteAddress || 'unknown';
@@ -269,7 +295,7 @@ async function checkRateLimit(req, bucketKey, maxPerHour) {
   } catch (e) {
     // Fail-CLOSED for auth write paths (magic-link request, code verification):
     // an unavailable rate-limiter must NOT translate into unlimited requests.
-    console.error('admin-auth rate limit check failed — denying request:', e?.message || e);
+    console.error('admin-auth rate limit check failed, denying request:', e?.message || e);
     return { allowed: false, error: 'rate_limit_unavailable' };
   }
 }
@@ -287,7 +313,7 @@ export default async function handler(req, res) {
   try { await bind(); } catch (e) { return sendBindingFailure(res, e); }
 
   // Codex finding B: every action on this route is a POST that either creates a session or acts
-  // under one, so the same-origin check belongs here — once, before any action dispatch, before
+  // under one, so the same-origin check belongs here, once, before any action dispatch, before
   // the body is read. api/_session.js exported a checkOrigin() helper that no route ever called;
   // this is that control actually wired in. No exemption: this route has no webhook and no cron.
   if (!requireSameOrigin(req, res, _b)) return;
@@ -333,14 +359,14 @@ export default async function handler(req, res) {
           const token = Array.isArray(tokens) ? tokens[0]?.token : null;
           const link = siteLink(_b, `/r/${retailer_slug}/admin?token=${encodeURIComponent(token)}`);
           if (_b.resendApiKey && token) {
-            await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
+            await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'bookings@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
           }
         }
       }
       return res.status(200).json({ ok: true });
     }
 
-    // ---- EMAIL-LOGIN: send magic link(s) by email only — auto-routes to right retailer(s) ----
+    // ---- EMAIL-LOGIN: send magic link(s) by email only, auto-routes to right retailer(s) ----
     if (action === 'email-login') {
       const rl = await checkRateLimit(req, 'admin-email-login', 30);
       if (!rl.allowed) return res.status(429).json({ error: 'Too many magic-link requests from this IP. Try again later.' });
@@ -376,7 +402,7 @@ export default async function handler(req, res) {
             if (!token) continue;
             const link = siteLink(_b, `/r/${retailer.slug}/admin?token=${encodeURIComponent(token)}`);
             if (_b.resendApiKey) {
-              await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'david@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
+              await sendMailQuietly({ from: FROM_ADDRESS, to: adminRow.email, replyTo: 'bookings@demohubhq.com', subject: `Your Demohub login code: ${code}`, html: magicLinkEmail({ retailerName: retailer.name, link, code }) }, { binding: _b });
             }
           }
         }
@@ -467,7 +493,7 @@ export default async function handler(req, res) {
       const v = await requireRetailerMembership(session_id, retailer.id);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       // The opportunistic "authenticated via body, so upgrade them to a cookie" branch is gone
-      // with the body path itself — a cookie is now the only way to have got here.
+      // with the body path itself, a cookie is now the only way to have got here.
       return res.status(200).json({ ok: true, email: v.email, retailer_id: v.retailer_id, retailer_name: retailer.name });
     }
 
@@ -487,7 +513,7 @@ export default async function handler(req, res) {
     // This action existed to accept a session_id from a request body and hand back an HttpOnly
     // cookie, so pages holding a session in localStorage could migrate. Codex finding B: remove
     // the legacy compatibility paths, there is no real user data to preserve. Keeping it would
-    // have preserved exactly the primitive the rest of this change removes — an endpoint that
+    // have preserved exactly the primitive the rest of this change removes, an endpoint that
     // accepts a session secret from a request body. The localStorage writes that fed it are
     // deleted from r/gus/admin/index.html and brand/verify/index.html in the same commit.
 
@@ -514,7 +540,7 @@ export default async function handler(req, res) {
         for (const a of (admins || [])) {
           a.has_signed_in = seenEmails.has((a.email || '').toLowerCase());
         }
-      } catch (e) { /* non-fatal — UI just shows everyone as accepted */ }
+      } catch (e) { /* non-fatal, UI just shows everyone as accepted */ }
       return res.status(200).json({ ok: true, admins, your_email: v.email });
     }
 
@@ -534,7 +560,7 @@ export default async function handler(req, res) {
       // Phase E: Solo tier is single-admin. Team invites require Pro.
       try {
         // settings has no billing_tier column and never has, so the "settings first, then
-        // retailers" precedence this used to implement could not have worked — the first query
+        // retailers" precedence this used to implement could not have worked, the first query
         // 400s on an unknown column and the catch swallows it, meaning EVERY retailer read as
         // 'solo' and every team invite was refused with plan_upgrade_required.
         // Migration 0054 removed the identical fiction from enforce_venue_limit(). retailers is
@@ -609,7 +635,7 @@ export default async function handler(req, res) {
           await sendMailQuietly({
             from: FROM_ADDRESS,
             to: normalizedEmail,
-            replyTo: 'david@demohubhq.com',
+            replyTo: 'bookings@demohubhq.com',
             subject: `${v.email} invited you to ${retailer.name} on Demohub`,
             html: invitationEmail({ retailerName: retailer.name, roleName, link, code, inviterEmail: v.email }),
           }, { binding: _b });
@@ -681,7 +707,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true });
     }
 
-    // ---- TEAM-UPDATE-SCOPE: Phase D — set which venues a viewer can see ----
+    // ---- TEAM-UPDATE-SCOPE: Phase D, set which venues a viewer can see ----
     if (action === 'team-update-scope') {
       const { admin_id, venue_ids } = body || {};
       const session_id = getSessionIdFromReq(req, body);
@@ -719,11 +745,11 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(image || '').match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
-      if (!m) return res.status(400).json({ error: 'Invalid image — must be PNG, JPEG, WEBP, or GIF data URL' });
+      if (!m) return res.status(400).json({ error: 'Invalid image: must be PNG, JPEG, WEBP, or GIF data URL' });
       const mime = m[1];
       const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[mime];
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large — max 2MB' });
+      if (bytes.length > 2 * 1024 * 1024) return res.status(400).json({ error: 'Image too large (max 2MB)' });
       const path = `retailers/${v.retailer_id}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/avatars/${path}?upsert=true`, {
         method: 'POST',
@@ -747,11 +773,11 @@ export default async function handler(req, res) {
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       if (!['owner', 'admin', 'manager'].includes(String(v.role || '').toLowerCase())) return res.status(403).json({ error: 'read_only_role', message: 'Your account has view-only access. Ask an admin to make changes.' });
       const m = String(file || '').match(/^data:(application\/pdf|image\/(?:png|jpeg));base64,(.+)$/);
-      if (!m) return res.status(400).json({ error: 'Invalid file — must be a PDF, PNG, or JPEG data URL' });
+      if (!m) return res.status(400).json({ error: 'Invalid file: must be a PDF, PNG, or JPEG data URL' });
       const mime = m[1];
       const ext = mime === 'application/pdf' ? 'pdf' : (mime === 'image/png' ? 'png' : 'jpg');
       const bytes = Buffer.from(m[2], 'base64');
-      if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large — max 5MB' });
+      if (bytes.length > 5 * 1024 * 1024) return res.status(400).json({ error: 'File too large (max 5MB)' });
       const safeName = (filename || 'demo-policy').replace(/[^a-z0-9._-]/gi, '_').slice(0, 60);
       const path = `retailers/${v.retailer_id}/demo-policy-${Date.now()}.${ext}`;
       const uploadResp = await fetch(`${_b.supabaseUrl}/storage/v1/object/policy-docs/${path}?upsert=true`, {
@@ -793,12 +819,12 @@ export default async function handler(req, res) {
     }
 
     // ============================================================
-    // OWNER PANEL — restricted to allowlist (david@demohubhq.com)
+    // OWNER PANEL, restricted to allowlist (david@demohubhq.com)
     // ============================================================
     // ---- OWNER-VERIFICATION-QUEUE: list retailers by verification status ----
     if (action === 'owner-verification-queue') {
       const { status } = body || {};
-      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2, never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       const wantedStatus = ['pending', 'approved', 'rejected', 'suspended'].includes(status) ? status : 'pending';
       try {
@@ -810,7 +836,7 @@ export default async function handler(req, res) {
     }
 
     // ========================================================================
-    // OWNER COI REVIEW — Codex v6 launch blocker.
+    // OWNER COI REVIEW, Codex v6 launch blocker.
     //
     // Before these three actions existed, an uploaded certificate could not be approved by
     // anyone: AI verification is off for the closed launch, so a real upload lands
@@ -883,7 +909,7 @@ export default async function handler(req, res) {
 
         // Codex v6-FINAL B1/B2: view the bytes belonging to THIS verification, and refuse
         // anything that is not the brand's current reviewable document. Previously this
-        // signed whatever path the record held, which — while uploads shared one path —
+        // signed whatever path the record held, which, while uploads shared one path,
         // meant viewing an old record displayed the newest bytes.
         if (rec.removed_at) return res.status(410).json({ error: 'removed', message: 'That certificate was removed by the brand.' });
         if (rec.superseded_at) return res.status(409).json({ error: 'superseded', message: 'A newer certificate has been uploaded. Review that one instead.' });
@@ -919,7 +945,7 @@ export default async function handler(req, res) {
       // event the brand is emailed from. It is therefore validated as brand-facing plain text:
       //   * optional on approve, REQUIRED on reject (a brand told "no" must be told why);
       //   * trimmed, at most 1000 characters;
-      //   * nothing is stripped or rewritten — control characters other than newlines are REFUSED,
+      //   * nothing is stripped or rewritten, control characters other than newlines are REFUSED,
       //     so what the owner typed is exactly what the brand reads (CRLF is normalised to LF).
       let brandNote = null;
       if (brand_note != null) {
@@ -937,7 +963,7 @@ export default async function handler(req, res) {
         brandNote = normalised || null;
       }
       if (decision === 'rejected' && !brandNote) {
-        return res.status(400).json({ error: 'brand_note_required', message: 'Tell the brand why the certificate was rejected — this note is emailed to them.' });
+        return res.status(400).json({ error: 'brand_note_required', message: 'Tell the brand why the certificate was rejected. This note is emailed to them.' });
       }
       // Coverage expiry is REVIEWER-owned (LG-11 removed brand self-service; the AI parser is
       // optional). An approval must carry the certificate's expiry or the brand ends up
@@ -949,7 +975,7 @@ export default async function handler(req, res) {
         }
         expiryDate = String(expiry);
         if (expiryDate <= new Date().toISOString().slice(0, 10)) {
-          return res.status(400).json({ error: 'expiry_in_past', message: 'That certificate is already expired — reject it instead.' });
+          return res.status(400).json({ error: 'expiry_in_past', message: 'That certificate is already expired. Reject it instead.' });
         }
       }
       const trimmed = notes == null ? null : String(notes).slice(0, 2000);
@@ -963,7 +989,7 @@ export default async function handler(req, res) {
           body: JSON.stringify({ p_verification_id: verification_id, p_decision: decision,
                                  p_reviewer: owner.email, p_notes: trimmed,
                                  // P0-4: the reviewer-confirmed expiry commits inside the review
-                                 // transaction (0067). No separate best-effort PATCH — the decision
+                                 // transaction (0067). No separate best-effort PATCH, the decision
                                  // and the coverage date it is about can no longer disagree.
                                  p_expiry: expiryDate,
                                  // Release A §6: the note to the brand commits in the same
@@ -999,9 +1025,9 @@ export default async function handler(req, res) {
         }
         let row = null; try { const j = JSON.parse(txt); row = Array.isArray(j) ? j[0] : j; } catch (_) {}
         // Provisional holds: an APPROVED COI resolves this brand's held bookings on AUTO-CONFIRM
-        // retailers — capture each hold now (charge -> confirmed + demo + emails via the shared
+        // retailers, capture each hold now (charge -> confirmed + demo + emails via the shared
         // pipeline). Manual-confirm retailers keep the hold until they confirm in their inbox
-        // (confirm is what captures there). Best-effort: a capture hiccup never fails the review —
+        // (confirm is what captures there). Best-effort: a capture hiccup never fails the review,
         // the booking simply stays held and the retailer/sweep path picks it up.
         let capturedHolds = 0, capturedUnappliedHolds = 0, uncertainHolds = 0, uncapturedHolds = 0, captureErrors = 0; const captureCases = []; const holdResults = [];
         if (decision === 'approved') {
@@ -1009,7 +1035,7 @@ export default async function handler(req, res) {
             const vRows = await sb(`coi_verifications?id=eq.${encodeURIComponent(verification_id)}&select=brand_id`);
             const brandId = Array.isArray(vRows) && vRows[0] ? vRows[0].brand_id : null;
             // P0-4: brands.default_coi_expires is now written INSIDE review_coi_verification (0067),
-            // in the same transaction as the decision — the separate best-effort PATCH that used to
+            // in the same transaction as the decision, the separate best-effort PATCH that used to
             // live here is gone. The per-date coverage read below therefore sees the reviewer's date.
             if (brandId) {
               const held = await sb(`bookings?brand_id=eq.${encodeURIComponent(brandId)}&status=eq.held&payment_status=eq.authorized&select=id,status,payment_status,payment_intent_id,retailer_id,demo_date`) || [];
@@ -1017,7 +1043,7 @@ export default async function handler(req, res) {
                 const retailerIds = [...new Set(held.map(b => b.retailer_id))];
                 const rRows = await sb(`retailers?id=in.(${retailerIds.map(encodeURIComponent).join(',')})&select=id,auto_confirm_bookings`) || [];
                 const autoById = new Map(rRows.map(r => [r.id, !!r.auto_confirm_bookings]));
-                // Re-read the brand's COI fields for the per-date coverage check — approving THIS
+                // Re-read the brand's COI fields for the per-date coverage check, approving THIS
                 // certificate doesn't mean it covers every held demo's date (a cert can expire
                 // before a far-future booking). Capture only demos the approved COI actually covers,
                 // matching the manual-confirm path's coiCovered gate. Uncovered holds wait for a
@@ -1031,7 +1057,7 @@ export default async function handler(req, res) {
                 const { captureHeldBooking } = await import('./_provisional.js');
                 for (const b of held) {
                   if (!autoById.get(b.retailer_id)) continue;
-                  if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered — don't charge
+                  if (!coiCovered(coiBrand || {}, b.demo_date).covered) continue;   // date not covered, don't charge
                   // Codex R4-02 (6) + P-1: the shared outcome contract, reported PER BOOKING. One booking's
                   // failure never stops the sweep or erases the others' results.
                   //   captured + applied      -> charged and ledgered
@@ -1066,7 +1092,7 @@ export default async function handler(req, res) {
           capture_cases: captureCases.length ? captureCases : undefined,
           holds: holdResults.length ? holdResults : undefined,
           // Codex F-2: every sentence is derived from the actual per-booking results (a case is never
-          // promised for an entry that has none) — see api/_coi-capture-summary.js and its unit test.
+          // promised for an entry that has none), see api/_coi-capture-summary.js and its unit test.
           message: (await import('./_coi-capture-summary.js')).coiCaptureSummary(holdResults).message });
       } catch (e) {
         return res.status(500).json({ error: 'review_failed' });
@@ -1076,7 +1102,7 @@ export default async function handler(req, res) {
     // ---- OWNER-VERIFY-RETAILER: approve / reject / suspend / reset ----
     if (action === 'owner-verify-retailer') {
       const { retailer_id, new_status, notes } = body || {};
-      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2 — never defined */;
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req))   /* was verifyOwnerSessionV2, never defined */;
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
       if (!['pending', 'approved', 'rejected', 'suspended'].includes(new_status)) {
@@ -1093,15 +1119,50 @@ export default async function handler(req, res) {
         patch.verified_at = null;
         patch.verified_by = null;
       }
-      try {
-        await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}`, { method: 'PATCH', body: JSON.stringify(patch) });
-        return res.status(200).json({ ok: true, retailer_id, new_status });
-      } catch (e) {
-        return res.status(500).json({ error: 'Update failed: ' + (e?.message || e) });
+      let before;
+      try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,verification_status`); before = Array.isArray(rows) && rows[0]; }
+      catch (e) { return res.status(503).json({ error: 'lookup_failed', retry: true }); }
+      if (!before) return res.status(404).json({ error: 'retailer_not_found' });
+      if (before.slug === '__owner__') return res.status(400).json({ error: 'system_retailer' });
+      // Repeating the current state is a real no-op: nothing is written and nothing is sent.
+      if (before.verification_status === new_status) return res.status(200).json({ ok: true, no_op: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified: false });
+      // Compare-and-set (Codex RA-2): the update applies only if the status is still the one we read, and exactly one
+      // row must come back. Two owners deciding at once cannot both win; the loser gets 409 with the current state.
+      let updated;
+      try { updated = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&verification_status=eq.${encodeURIComponent(before.verification_status)}`, { method: 'PATCH', headers: { Prefer: 'return=representation' }, body: JSON.stringify(patch) }); }
+      catch (e) { return res.status(503).json({ error: 'update_failed', retry: true }); }
+      if (!Array.isArray(updated) || updated.length !== 1) {
+        let current = null; try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=verification_status`); current = rows && rows[0] ? rows[0].verification_status : null; } catch (_) {}
+        return res.status(409).json({ error: 'stale_state', expected: before.verification_status, current_status: current });
       }
+      // Go-live notice: only the winning transition to approved initiates it. Delivery is best effort and reported
+      // truthfully; a failed send leaves the store approved and is retried only through owner-resend-live-notice.
+      let retailer_notified = false, notification_error = false;
+      if (new_status === 'approved') {
+        if (!before.billing_email) notification_error = true;
+        else { const sent = await sendLiveNotice(before); retailer_notified = sent; notification_error = !sent; }
+      }
+      return res.status(200).json({ ok: true, retailer_id, new_status, previous_status: before.verification_status, retailer_notified, notification_error });
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-codes-create' || action === 'owner-codes-deactivate' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+    // ---- OWNER-RESEND-LIVE-NOTICE (2026-09-30): re-send "your booking page is live" to an APPROVED store, at most
+    // three times per store per hour (signup_budget_take). Reads the current state first; refuses unless approved.
+    if (action === 'owner-resend-live-notice') {
+      const { retailer_id } = body || {};
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      if (!isUuid(retailer_id)) return res.status(400).json({ error: 'Invalid retailer_id' });
+      let row; try { const rows = await sb(`retailers?id=eq.${encodeURIComponent(retailer_id)}&select=id,slug,name,billing_email,verification_status`); row = Array.isArray(rows) && rows[0]; } catch (e) { return res.status(503).json({ error: 'lookup_failed', retry: true }); }
+      if (!row) return res.status(404).json({ error: 'retailer_not_found' });
+      if (row.verification_status !== 'approved') return res.status(409).json({ error: 'not_live', current_status: row.verification_status });
+      if (!row.billing_email) return res.status(400).json({ error: 'no_billing_email' });
+      let budget; try { const ws = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString(); const r = await sb('rpc/signup_budget_take', { method: 'POST', body: JSON.stringify({ p_bucket_key: 'live-notice:' + row.id, p_window_start: ws, p_max: 3 }) }); budget = Array.isArray(r) ? r[0] : r; } catch (e) { return res.status(503).json({ error: 'budget_unavailable', retry: true }); }
+      if (!budget || budget.admitted !== true) return res.status(429).json({ error: 'resend_limit', message: 'Three notices per store per hour. Contact the store directly.' });
+      const sent = await sendLiveNotice(row);
+      return res.status(200).json({ ok: true, retailer_id, retailer_notified: sent, notification_error: !sent });
+    }
+
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-codes-create' || action === 'owner-codes-deactivate' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-brand-update' || action === 'owner-brand-delete' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1172,7 +1233,7 @@ async function ensureOwnerRetailerId() {
 }
 
 function randomToken(n = 32) {
-  // Use Node's crypto — throw if unavailable rather than fall back to Math.random,
+  // Use Node's crypto, throw if unavailable rather than fall back to Math.random,
   // which is a predictable PRNG unsuitable for auth tokens.
   const buf = randomBytes(n);
   return Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -1211,16 +1272,22 @@ async function verifyOwnerSession(sessionId) {
 
 async function computeOwnerMetrics() {
   // Each query wrapped: if table/column missing, default to [] instead of failing the whole metrics
-  const safeQuery = async (q) => { try { return await sb(q); } catch (e) { console.error('owner metrics query failed:', q, e?.message); return []; } };
+  // Paged to completion (Codex OV-3). A failed or partial read is still tolerated so the rest of the dashboard renders,
+  // but it is reported in data_issues and the watchlist cards that depend on it say "unavailable" instead of "none".
+  const issues = [];
+  const safeQuery = async (name, q) => {
+    try { const r = await sbAll(q, { max: 100000 }); if (!r.complete) issues.push({ source: name, problem: 'partial', loaded: r.rows.length, total: r.total }); return r.rows; }
+    catch (e) { console.error('owner metrics query failed:', name, e?.message); issues.push({ source: name, problem: 'unavailable' }); return []; }
+  };
   const [retailers, brands, demos, bookings, settings] = await Promise.all([
-    safeQuery(`retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id`),
-    safeQuery(`brands?select=id,company_name,created_at,default_coi_url,is_verified`),
-    safeQuery(`demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at`),
-    safeQuery(`bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at`),
+    safeQuery('retailers', `retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id,verification_status,is_demo&order=id.asc`),
+    safeQuery('brands', `brands?select=id,company_name,created_at,default_coi_url,is_verified,coi_verification_status,contact_name,email&order=id.asc`),
+    safeQuery('demos', `demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at&order=id.asc`),
+    safeQuery('bookings', `bookings?select=id,retailer_id,brand_id,status,payment_status,amount_paid,paid_at,created_at&order=id.asc`),
     // settings has neither billing_tier nor price_per_demo. demo_fee is the real per-demo
     // price column; tier lives on retailers. safeQuery swallowed the 400, so this row of the
     // owner metrics silently contributed nothing.
-    safeQuery(`settings?select=retailer_id,demo_fee`),
+    safeQuery('settings', `settings?select=retailer_id,demo_fee&order=id.asc`),
   ]);
   const now = new Date();
   const thisMonth = monthKey(now);
@@ -1242,7 +1309,7 @@ async function computeOwnerMetrics() {
   const demosDeltaPct = demosLastMonth === 0 ? (demosThisMonth > 0 ? 100 : 0) : Math.round(((demosThisMonth - demosLastMonth) / demosLastMonth) * 100);
 
   // Real tiers are solo/pro/enterprise (solo = free). Only ACTIVE paid subscriptions count toward
-  // MRR — a comped Pro retailer (pro tier, no active subscription) is not recurring revenue.
+  // MRR, a comped Pro retailer (pro tier, no active subscription) is not recurring revenue.
   const tierCounts = { solo: 0, pro: 0, enterprise: 0 };
   let mrrSubs = 0, paidRetailers = 0;
   retailers.forEach(r => {
@@ -1300,25 +1367,52 @@ async function computeOwnerMetrics() {
 
   const brandsWithoutCoi = brands.filter(b => !b.default_coi_url).slice(0, 25).map(b => ({ id: b.id, name: b.company_name, created_at: b.created_at }));
   const dormantRetailers = retailers.filter(r => !activeRetailerIds.has(r.id)).slice(0, 25).map(r => ({ id: r.id, name: r.name, slug: r.slug, last_active: null }));
-  const brandLastDemo = {};
-  demos.forEach(d => { if (d.brand_id) { const c = d.created_at; if (!brandLastDemo[d.brand_id] || c > brandLastDemo[d.brand_id]) brandLastDemo[d.brand_id] = c; } });
-  const inactiveBrands = brands.filter(b => !brandLastDemo[b.id] || new Date(brandLastDemo[b.id]) < sixtyDaysAgo).slice(0, 25)
+  // "Inactive" measures when the brand last CREATED a booking (or a legacy demo record), not when a demo takes place.
+  const brandLastDemo = Object.create(null);
+  const noteActivity = (x) => { if (x.brand_id && x.created_at && (!brandLastDemo[x.brand_id] || x.created_at > brandLastDemo[x.brand_id])) brandLastDemo[x.brand_id] = x.created_at; };
+  demos.forEach(noteActivity); bookings.forEach(noteActivity);
+  // A brand younger than 60 days cannot be "inactive for 60 days": new sign-ups are listed as such, not as inactive.
+  const inactiveBrands = brands.filter(b => new Date(b.created_at) < sixtyDaysAgo && (!brandLastDemo[b.id] || new Date(brandLastDemo[b.id]) < sixtyDaysAgo)).slice(0, 25)
     .map(b => ({ id: b.id, name: b.company_name, last_active: brandLastDemo[b.id] || null }));
+  const bookingsByBrand = Object.create(null); bookings.forEach(b => { if (b.brand_id) bookingsByBrand[b.brand_id] = (bookingsByBrand[b.brand_id] || 0) + 1; });
+  const newBrands = brands.filter(b => b.created_at && new Date(b.created_at) >= thirtyDaysAgo).sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
+    .map(b => ({ id: b.id, name: b.company_name, contact: b.contact_name || null, created_at: b.created_at, coi_status: b.default_coi_url ? (b.coi_verification_status || 'pending') : 'none', bookings: bookingsByBrand[b.id] || 0 }));
+  const newRetailers = retailers.filter(r => r.created_at && new Date(r.created_at) >= thirtyDaysAgo && r.slug !== '__owner__').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
+    .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, verification_status: r.verification_status || null }));
+  // Stores waiting for the owner's go-live approval (self-service sign-ups arrive here as 'pending').
+  const awaitingApproval = retailers.filter(r => r.slug !== '__owner__' && !r.is_demo && r.verification_status === 'pending').sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).slice(0, 25)
+    .map(r => ({ id: r.id, name: r.name, slug: r.slug, created_at: r.created_at, is_demo: !!r.is_demo }));
 
   return {
     generated_at: new Date().toISOString(),
     headline: { total_retailers: totalRetailers, active_retailers_30d: activeRetailers30d, total_brands: totalBrands, demos_this_month: demosThisMonth, demos_last_month: demosLastMonth, demos_delta_pct: demosDeltaPct, mrr_subs: Math.round(mrrSubs * 100) / 100, mrr_projection: mrrProjection, paid_retailers: paidRetailers, conversion_pct: conversionPct, gmv_month: Math.round(gmvMonth * 100) / 100, gmv_all: Math.round(gmvAll * 100) / 100, take_rate_pct: takeRatePct, tier_counts: tierCounts },
     trends: { retailer_signups: retailerSignups, brand_signups: brandSignups, demos_per_month: demosPerMonth },
     tables: { top_retailers: topRetailers, top_brands: topBrands, pending_stuck: pendingStuck },
-    watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands },
+    watchlist: { brands_without_coi: brandsWithoutCoi, dormant_retailers: dormantRetailers, inactive_brands_60d: inactiveBrands, new_brands_30d: newBrands, new_retailers_30d: newRetailers, awaiting_approval: awaitingApproval },
+    // Per watchlist card: were all the reads it depends on complete? false => the card must say "unavailable", not "none".
+    watchlist_ok: (() => { const bad = new Set(issues.map(i => i.source)); const ok = (...src) => src.every(x => !bad.has(x));
+      return { awaiting_approval: ok('retailers'), new_signups: ok('retailers', 'brands', 'bookings'), without_coi: ok('brands'), dormant: ok('retailers', 'demos', 'bookings'), inactive: ok('brands', 'demos', 'bookings') }; })(),
+    data_issues: issues,
   };
+}
+
+// "Your Demohub booking page is live": one message, escaped, links only. Returns true when the provider accepted it.
+// Approval permits intake; it does not check that venues or slots exist, so the copy promises nothing beyond that.
+async function sendLiveNotice(row) {
+  try {
+    const b1 = await bind(); const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const pub = siteLink(b1, '/r/' + row.slug), adm = siteLink(b1, '/r/' + row.slug + '/admin');
+    const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: row.billing_email, replyTo: 'bookings@demohubhq.com', subject: 'Your Demohub booking page is live',
+      html: '<p>Demohub has approved <strong>' + esc(row.name) + '</strong>. Brands can now book demos on your booking page, once your locations and hours are set up.</p><p>Booking page: <a href="' + esc(pub) + '">' + esc(pub) + '</a><br>Admin: <a href="' + esc(adm) + '">' + esc(adm) + '</a></p><p>Questions? Email david@demohubhq.com.</p>' }, { binding: b1 });
+    return !!sent && sent.ok !== false;
+  } catch (_) { return false; }
 }
 
 async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-login') {
     const email = String(body.email || '').trim().toLowerCase();
     if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
-    // DH-14: rate-limit before doing any work or sending mail — otherwise a caller can drain the
+    // DH-14: rate-limit before doing any work or sending mail, otherwise a caller can drain the
     // Resend quota and flood the owner inbox. Uniform 200 either way to avoid leaking the cap.
     const rlOwnerIp = await checkRateLimit(req, 'owner-login-ip', 10);
     const rlOwnerEmail = await checkRateLimitByKey('owner-login-email:' + email.slice(0, 64), 10);
@@ -1345,7 +1439,7 @@ async function handleOwnerAction(action, req, res, body) {
       if (token) {
         const link = siteLink(_b, `/owner?token=${encodeURIComponent(token)}`);
         if (_b.resendApiKey) {
-          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link, code) }, { binding: _b });
+          const r = await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'bookings@demohubhq.com', subject: 'Sign in to the Demohub owner panel', html: ownerMagicLinkEmail(link, code) }, { binding: _b });
           diag.resend_ok = !!r.ok;
           if (!r.ok) diag.resend_error = r.code || 'mail_send_failed';
         } else {
@@ -1353,7 +1447,7 @@ async function handleOwnerAction(action, req, res, body) {
         }
       }
     }
-    // Always return the same opaque response — never a token, link, or diagnostics.
+    // Always return the same opaque response, never a token, link, or diagnostics.
     // (A previous debug branch returned a valid owner login link to any caller.)
     return res.status(200).json({ ok: true });
   }
@@ -1383,7 +1477,7 @@ async function handleOwnerAction(action, req, res, body) {
   }
 
   // Parallel to owner-verify but keyed on the 6-digit code (consistent with the retailer admin
-  // login). Same 2x OWNER_EMAILS allowlist check, same 12h owner session + owner cookie — so the
+  // login). Same 2x OWNER_EMAILS allowlist check, same 12h owner session + owner cookie, so the
   // owner can type the code instead of clicking the magic link, which works in any window/device.
   if (action === 'owner-verify-code') {
     const email = String(body.email || '').trim().toLowerCase();
@@ -1430,39 +1524,209 @@ async function handleOwnerAction(action, req, res, body) {
 
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
-  // ---- OWNER RETAILER PROFILE (2026-09-22): a read-only mirror of one retailer's account for the owner portal,
-  // plus booking-code management on that retailer's behalf (0085). Never returns session/token material.
-  if (action === 'owner-retailer-profile' || action === 'owner-codes-create' || action === 'owner-codes-deactivate') {
+  // ---- OWNER BOOKING CODES (2026-09-22, 0085): create or deactivate a code on a retailer's behalf. The retailer
+  // mirror itself is the owner directory block below (which also lists the retailer's codes).
+  if (action === 'owner-codes-create' || action === 'owner-codes-deactivate') {
     const sessionId = getOwnerSessionIdFromReq(req);
     const v = await verifyOwnerSession(sessionId);
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
     const rid = String(body?.retailer_id || ''); if (!/^[0-9a-f-]{36}$/i.test(rid)) return res.status(400).json({ error: 'retailer_id required' });
-    const { listCodes, createCode, deactivateCode } = await import('./_booking-codes.js');
-    const rows = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
+    const { createCode, deactivateCode } = await import('./_booking-codes.js');
+    const rows = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug`);
     const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     if (action === 'owner-codes-create') { const r = await createCode(sb, { retailerId: rid, retailerSlug: retailer.slug, body, createdBy: 'owner', createdByEmail: v.email || 'owner' }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error }); }
-    if (action === 'owner-codes-deactivate') { const r = await deactivateCode(sb, { retailerId: rid, codeId: String(body.code_id || '') }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error }); }
-    const R = encodeURIComponent(rid); const today = new Date().toISOString().slice(0, 10);
-    const q = (p) => sb(p).catch(() => []);
-    const [settings, venues, contacts, admins, upcoming, recent, codes] = await Promise.all([
-      q(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
-      q(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot&order=name.asc`),
-      q(`internal_contacts?retailer_id=eq.${R}&select=name,email,role,venue_id&order=name.asc&limit=100`),
-      q(`retailer_admins?retailer_id=eq.${R}&select=email,role,created_at&order=created_at.asc&limit=50`),
-      q(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,fee_waived,venue_id&order=demo_date.asc&limit=25`),
-      q(`bookings?retailer_id=eq.${R}&select=id,demo_date,brand_name,status,payment_status,fee_waived,created_at&order=created_at.desc&limit=25`),
-      listCodes(sb, rid),
-    ]);
-    const brands = {}; for (const b of (recent || [])) if (b.brand_name) brands[b.brand_name] = (brands[b.brand_name] || 0) + 1;
-    return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(await bind(), '/r/' + retailer.slug), admin_url: link(await bind(), '/r/' + retailer.slug + '/admin'), venues: venues || [], contacts: contacts || [], admins: admins || [], upcoming: upcoming || [], recent: recent || [], brands, codes });
+    const r = await deactivateCode(sb, { retailerId: rid, codeId: String(body.code_id || '') }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error });
+  }
+
+  // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
+  // field lists only, never session, token, password-hash or feed-key columns. Lists are capped and say so.
+  // ---- OWNER CALENDAR (2026-09-29, revised per Codex OV-2/OV-3/OV-4): every retailer's demo bookings for one date
+  // range, read-only. Input is validated BEFORE any database access: real calendar dates, an inclusive span of at most
+  // 62 days (both ends counted), a canonical UUID. Any failed read is a 503, never an empty calendar. Every list is paged
+  // to completion or reported as partial. Times are each store's local time; the store's zone is returned with them.
+  if (action === 'owner-calendar') {
+    const pf = parseYmd(body?.from), pt = parseYmd(body?.to);
+    if (!pf || !pt) return res.status(400).json({ error: 'from and to must be real dates (YYYY-MM-DD)' });
+    const span = Math.round((Date.UTC(pt.year, pt.month - 1, pt.day) - Date.UTC(pf.year, pf.month - 1, pf.day)) / 864e5) + 1;
+    if (span < 1) return res.status(400).json({ error: 'to is before from' });
+    if (span > 62) return res.status(400).json({ error: 'range too long (max 62 days, both ends counted)' });
+    const rid = body?.retailer_id == null || body.retailer_id === '' ? null : body.retailer_id;
+    if (rid !== null && !isUuid(rid)) return res.status(400).json({ error: 'bad retailer_id' });
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const from = String(body.from), to = String(body.to);
+    let bk, rt, vn;
+    try {
+      [bk, rt, vn] = await Promise.all([
+        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity&order=demo_date.asc,id.asc`, { max: 5000 }),
+        sbAll('retailers?select=id,name,slug,timezone&order=name.asc,id.asc', { max: 5000 }),
+        sbAll('venues?select=id,name,retailer_id&order=id.asc', { max: 20000 }),
+      ]);
+    } catch (e) { console.error('owner-calendar read failed:', e?.message); return res.status(503).json({ error: 'calendar_unavailable', retry: true }); }
+    const rm = new Map(rt.rows.map(r => [r.id, r])), vm = new Map(vn.rows.map(x => [x.id, x]));
+    return res.status(200).json({ ok: true, from, to,
+      retailers: rt.rows.filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug, timezone: r.timezone || null })),
+      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
+      total: bk.total, complete: { bookings: bk.complete, retailers: rt.complete, venues: vn.complete }, capped: !bk.complete });
+  }
+
+  // ---- OWNER NOTIFICATIONS (2026-10-03, Codex N-1): read-only views of the notification outbox and worker health.
+  // Input is validated and the owner session verified HERE; the reads and the public row shape live in
+  // api/_owner-notifications.js. A failed required read is a 503 with retry:true, never an empty panel.
+  if (action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications') {
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const b = await bind();
+    const out = action === 'owner-notifications' ? await ownerNotificationsList(b, body)
+      : action === 'owner-notifications-summary' ? await ownerNotificationsSummary(b, body)
+      : await ownerBookingNotifications(b, body);
+    return res.status(out.status).json(out.body);
+  }
+
+  // ---- OWNER DIRECTORY (2026-09-29, revised per Codex OV-2/OV-3): read-only mirrors for the Retailers and Brands tabs.
+  // Explicit field lists only; never session, token, password-hash or feed-key columns. A failed read is a 503 with a
+  // retry state, never "none" and never a false 404. Lists are paged to completion or flagged partial. Rollups are keyed
+  // by id in a Map, never by a user-controlled name.
+  if (action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile') {
+    const id = action === 'owner-brand-profile' ? body?.brand_id : action === 'owner-retailer-profile' ? body?.retailer_id : null;
+    if (action !== 'owner-list-brands' && !isUuid(id)) return res.status(400).json({ error: 'id required' });
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const today = new Date().toISOString().slice(0, 10);
+    const ACTIVE = ['pending', 'confirmed', 'held', 'pending_payment'];
+    try {
+      if (action === 'owner-list-brands') {
+        const [br, bk, rt] = await Promise.all([
+          sbAll('brands?select=id,company_name,contact_name,email,phone,website,coi_verification_status,default_coi_expires,is_verified,created_at&order=created_at.desc,id.desc', { max: 5000 }),
+          sbAll('bookings?select=brand_id,retailer_id,status,demo_date&order=id.asc', { max: 100000 }),
+          sbAll('retailers?select=id,name&order=id.asc', { max: 5000 }),
+        ]);
+        const rname = new Map(rt.rows.map(r => [r.id, r.name])); const agg = new Map();
+        for (const b of bk.rows) {
+          if (!b.brand_id) continue;
+          let a = agg.get(b.brand_id); if (!a) agg.set(b.brand_id, a = { total: 0, upcoming: 0, retailers: new Map() });
+          a.total++; if (b.demo_date >= today && ACTIVE.includes(b.status)) a.upcoming++;
+          if (b.retailer_id) a.retailers.set(b.retailer_id, rname.get(b.retailer_id) || '?');
+        }
+        return res.status(200).json({ ok: true,
+          brands: br.rows.map(b => { const a = agg.get(b.id); return { ...b, bookings_total: a ? a.total : 0, bookings_upcoming: a ? a.upcoming : 0, retailers: a ? [...a.retailers.values()] : [] }; }),
+          total: br.total, complete: { brands: br.complete, bookings: bk.complete, retailers: rt.complete }, capped: !br.complete });
+      }
+      const R = encodeURIComponent(id);
+      if (action === 'owner-brand-profile') {
+        const rows = await sb(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website,logo_url,coi_verification_status,default_coi_expires,default_coi_filename,is_verified,created_at,products,default_categories,needs_electricity`);
+        const brand = Array.isArray(rows) && rows[0]; if (!brand) return res.status(404).json({ error: 'brand_not_found' });
+        const bk = await sbAll(`bookings?brand_id=eq.${R}&select=id,retailer_id,venue_id,demo_date,demo_time,status,payment_status,amount_paid,created_at&order=demo_date.desc,id.desc`, { max: 20000 });
+        const rids = [...new Set(bk.rows.map(b => b.retailer_id).filter(isUuid))];
+        const rt = rids.length ? await sb(`retailers?id=in.(${rids.join(',')})&select=id,name,slug`) : [];
+        const rmap = new Map((rt || []).map(r => [r.id, r])); const byR = new Map();
+        for (const b of bk.rows) {
+          const r = rmap.get(b.retailer_id) || {}; let a = byR.get(b.retailer_id || '');
+          if (!a) byR.set(b.retailer_id || '', a = { retailer_id: b.retailer_id || null, name: r.name || '?', slug: r.slug || null, total: 0, upcoming: 0, paid_cents: 0 });
+          a.total++; if (b.demo_date >= today && ACTIVE.includes(b.status)) a.upcoming++;
+          if (b.payment_status === 'paid') a.paid_cents += Number(b.amount_paid || 0);
+        }
+        return res.status(200).json({ ok: true, brand, bookings: bk.rows.slice(0, 100).map(b => ({ ...b, retailer_name: (rmap.get(b.retailer_id) || {}).name || '?' })), bookings_total: bk.total,
+          by_retailer: [...byR.values()].sort((x, y) => y.total - x.total), rollup_complete: bk.complete, capped: bk.total > 100 });
+      }
+      const rows = await sb(`retailers?id=eq.${R}&select=id,slug,name,billing_email,phone,billing_tier,billing_status,billing_period_end,created_at,logo_url,timezone,auto_confirm_bookings,cancellation_mode,cancellation_policy,cancellation_policy_url,demo_policy,demo_policy_url,platform_keeps_all,stripe_charges_enabled,stripe_account_status,verification_status,verified_at,is_demo,expected_locations,monthly_summary_enabled,allow_support_access`);
+      const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+      const [settings, venues, contacts, admins, upcoming, allBk] = await Promise.all([
+        sb(`settings?retailer_id=eq.${R}&select=demo_fee,demo_duration,advance_booking_days`),
+        sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot,availability&order=name.asc,id.asc`, { max: 2000 }),
+        sbAll(`internal_contacts?retailer_id=eq.${R}&select=name,email,phone,role,venue_ids,notification_prefs&order=name.asc,id.asc`, { max: 500 }),
+        sbAll(`retailer_admins?retailer_id=eq.${R}&select=email,name,role,venue_ids,created_at&order=created_at.asc,id.asc`, { max: 500 }),
+        sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,fee_waived,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
+        sbAll(`bookings?retailer_id=eq.${R}&select=brand_id,brand_name&order=id.asc`, { max: 50000 }),
+      ]);
+      const codes = await (await import('./_booking-codes.js')).listCodes(sb, id);   // booking codes (0085) for this retailer
+      const roll = new Map();
+      for (const b of allBk.rows) { const k = b.brand_id || ('name:' + (b.brand_name || '')); let a = roll.get(k); if (!a) roll.set(k, a = { brand_id: b.brand_id || null, brand: b.brand_name || '', bookings: 0 }); a.bookings++; }
+      // Notification settings at a glance (David, 2026-09-30): the same reading of notification_prefs the outbox
+      // uses (_notification-prefs.js), rendered as words, plus which locations each person covers.
+      // Demo length lives per location since Release B (venues.availability.slots); settings.demo_duration is a legacy
+      // field nothing writes or reads any more, so the profile reports the slots actually offered, never that field.
+      const venuesOut = venues.rows.map(v => { const cfg = parseSlotsConfig(v.availability); const { availability, ...pub } = v;
+        return { ...pub, slots: cfg.ok ? cfg.slots.map(sl => ({ start: slotLabel(sl.startMin), hours: sl.hours })) : null, slots_defaulted: !!(cfg.ok && cfg.defaulted), slots_error: cfg.ok ? null : cfg.error }; });
+      const venueName = new Map(venues.rows.map(v => [v.id, v.name]));
+      const scope = (ids) => (Array.isArray(ids) && ids.length) ? ids.map(id => venueName.get(id) || 'unknown location') : ['All locations'];
+      const contactsOut = contacts.rows.map(c => { const np = normalizePrefs(c.notification_prefs); const life = [np.on_confirmed && 'confirmed', np.on_cancelled && 'cancelled', np.on_rescheduled && 'rescheduled'].filter(Boolean);
+        return { name: c.name || null, email: c.email || null, phone: c.phone || null, role: c.role || null, locations: scope(c.venue_ids), prefs_set: c.notification_prefs != null && typeof c.notification_prefs === 'object' && Object.keys(c.notification_prefs).length > 0,
+          notifications: { lifecycle: life, reminders: np.reminders.map(offsetLabel) } }; });
+      const adminsOut = admins.rows.map(a => ({ email: a.email, name: a.name || null, role: a.role || null, locations: a.role === 'viewer' ? scope(a.venue_ids) : ['All locations'], created_at: a.created_at }));
+      const b0 = await bind();
+      return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
+        venues: venuesOut, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
+        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings), codes,
+        complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
+    } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+  }
+
+  // ---- OWNER-BRAND-UPDATE / OWNER-BRAND-DELETE (David, 2026-10-10): manage a brand from the owner panel ----
+  // Update: the four display fields only (company, contact, phone, website), each bounded and trimmed. The email is
+  // the brand's sign-in identity and is deliberately NOT editable here; the certificate and products belong to the
+  // brand's own dashboard. Delete: only a brand with NO bookings at all can be deleted (a booking is a financial
+  // record, and bookings.brand_id would be nulled by the cascade); the owner must type the brand's name to confirm.
+  // Sessions, tokens and certificate reviews cascade with the row; retailer-side brand_contacts keep their rows with
+  // brand_id cleared (that is the retailer's own address book). The certificate file in storage is left in place.
+  if (action === 'owner-brand-update' || action === 'owner-brand-delete') {
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const id = body?.brand_id;
+    if (!isUuid(id)) return res.status(400).json({ error: 'brand_id required' });
+    const R = encodeURIComponent(id);
+    let current;
+    try { const rows = await sb(`brands?id=eq.${R}&select=id,company_name,contact_name,email,phone,website`); current = Array.isArray(rows) && rows[0]; }
+    catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    if (!current) return res.status(404).json({ error: 'brand_not_found' });
+    if (action === 'owner-brand-update') {
+      const ALLOWED = { company_name: 120, contact_name: 120, phone: 40, website: 200 };
+      const patch = {}; const errors = [];
+      for (const [k, val] of Object.entries(body || {})) {
+        if (k === 'brand_id' || k === 'action') continue;
+        if (!(k in ALLOWED)) { errors.push({ field: k, code: 'not_editable' }); continue; }
+        if (val == null) { patch[k] = null; continue; }
+        if (typeof val !== 'string') { errors.push({ field: k, code: 'invalid' }); continue; }
+        const t = val.replace(/[\r\n\t]+/g, ' ').trim();
+        if (t.length > ALLOWED[k]) { errors.push({ field: k, code: 'too_long', max: ALLOWED[k] }); continue; }
+        if (k === 'website' && t && !/^(https?:\/\/)?[a-z0-9.-]+\.[a-z]{2,}([/?#].*)?$/i.test(t)) { errors.push({ field: k, code: 'invalid' }); continue; }
+        patch[k] = t || null;
+      }
+      if (errors.length) return res.status(400).json({ error: 'invalid_fields', fields: errors });
+      if (!('company_name' in patch) && !('contact_name' in patch) && !('phone' in patch) && !('website' in patch)) return res.status(400).json({ error: 'nothing_to_update' });
+      if ('company_name' in patch && !patch.company_name) return res.status(400).json({ error: 'invalid_fields', fields: [{ field: 'company_name', code: 'required' }] });
+      try {
+        const rows = await sb(`brands?id=eq.${R}`, { method: 'PATCH', body: JSON.stringify(patch) });
+        const brand = Array.isArray(rows) && rows[0];
+        if (!brand) return res.status(503).json({ error: 'update_unverified', retry: true });
+        console.log('owner-brand-update', JSON.stringify({ brand_id: id, fields: Object.keys(patch), by: v.email || 'owner' }));
+        return res.status(200).json({ ok: true, brand: { id: brand.id, company_name: brand.company_name, contact_name: brand.contact_name, email: brand.email, phone: brand.phone, website: brand.website } });
+      } catch (e) { console.error('owner-brand-update failed:', e?.message); return res.status(503).json({ error: 'update_failed', retry: true }); }
+    }
+    // delete
+    const expectName = String(current.company_name || current.email || '').trim();
+    const typed = String(body?.confirm_name || '').trim();
+    let bookings;
+    try { bookings = await sbAll(`bookings?brand_id=eq.${R}&select=id,status`, { max: 100000 }); }
+    catch (e) { console.error('owner-brand-delete read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    if (!bookings.complete) return res.status(503).json({ error: 'directory_unavailable', retry: true });
+    if (bookings.rows.length > 0) return res.status(409).json({ error: 'brand_has_bookings', bookings: bookings.rows.length, message: 'This brand has ' + bookings.rows.length + ' booking' + (bookings.rows.length === 1 ? '' : 's') + ' on record, so it cannot be deleted. Bookings are financial records.' });
+    if (!typed || typed.toLowerCase() !== expectName.toLowerCase()) return res.status(400).json({ error: 'confirm_name_mismatch', expected_hint: expectName.length, message: 'Type the brand name exactly to confirm.' });
+    try {
+      await sb(`brand_contacts?brand_id=eq.${R}`, { method: 'PATCH', body: JSON.stringify({ brand_id: null }) });
+      const gone = await sb(`brands?id=eq.${R}`, { method: 'DELETE' });
+      if (!Array.isArray(gone) || !gone.length) return res.status(503).json({ error: 'delete_unverified', retry: true });
+      console.log('owner-brand-delete', JSON.stringify({ brand_id: id, by: v.email || 'owner' }));
+      return res.status(200).json({ ok: true, deleted: id });
+    } catch (e) { console.error('owner-brand-delete failed:', e?.message); return res.status(503).json({ error: 'delete_failed', retry: true }); }
   }
 
   if (action === 'owner-list-retailers') {
-    const sessionId = getOwnerSessionIdFromReq(req);
-    const v = await verifyOwnerSession(sessionId);
+    const v = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
-    const rows = await sb('retailers?select=id,slug,name,billing_email,billing_tier,created_at&order=name.asc&limit=500');
-    return res.status(200).json({ ok: true, retailers: rows || [] });
+    let rt; try { rt = await sbAll('retailers?select=id,slug,name,billing_email,billing_tier,created_at,verification_status,is_demo&order=name.asc,id.asc', { max: 5000 }); }
+    catch (e) { console.error('owner-list-retailers read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
+    return res.status(200).json({ ok: true, retailers: rt.rows, total: rt.total, complete: rt.complete });
   }
 
   // ---- OWNER-IMPERSONATE: create a consent-gated, ≤4-hour session for a retailer, audited ----
@@ -1535,7 +1799,7 @@ async function handleOwnerAction(action, req, res, body) {
   if (action === 'owner-end-impersonation') {
     // The session being ended is the IMPERSONATED retailer session, from the retailer cookie.
     // The owner cookie is deliberately left alone so the owner lands back on the owner panel
-    // still signed in — previously there was no owner cookie to preserve.
+    // still signed in, previously there was no owner cookie to preserve.
     const sid = getSessionIdFromReq(req, body);
     let summaryRow = null;
     let retailerInfo = null;
@@ -1585,7 +1849,7 @@ async function handleOwnerAction(action, req, res, body) {
         sendMailQuietly({
           from: 'Demohub <support@demohubhq.com>',
           to: retailerInfo.billing_email,
-          replyTo: 'david@demohubhq.com',
+          replyTo: 'bookings@demohubhq.com',
           subject: `Demohub support just accessed ${retailerInfo.name}`,
           html,
         }, { binding: _b }).catch(e => console.warn('support summary email failed:', e?.message || e));
@@ -1615,7 +1879,7 @@ async function handleOwnerAction(action, req, res, body) {
 
   // ---- SUPPORT-ACCESS-TOGGLE: retailer flips their own allow_support_access flag ----
   // ON sets a 24-hour auto-expire. OFF clears expires_at, blocks future impersonation AND ends every
-  // active support session (audit row stamped ended_at, admin_sessions row deleted) — all inside
+  // active support session (audit row stamped ended_at, admin_sessions row deleted), all inside
   // support_access_set() (0072), under the same retailer row lock support_session_create() takes, so
   // an impersonation racing the OFF is either revoked by it or refused after it.
   if (action === 'support-access-toggle') {

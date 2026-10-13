@@ -1,4 +1,4 @@
-// api/_local-time.js — wall-clock <-> UTC arithmetic in an IANA time zone, with no library.
+// api/_local-time.js, wall-clock <-> UTC arithmetic in an IANA time zone, with no library.
 //
 // WHY. A demo is booked as a calendar DATE plus a wall-clock TIME in the store's zone (bookings /
 // demos: demo_date + demo_time, retailers.timezone, default America/Los_Angeles; 0074 also persists
@@ -13,7 +13,7 @@
 // we try every offset the zone uses within a day of the wall time and keep the candidates that
 // round-trip. Exactly one candidate = the answer. Zero = the wall time does not exist (spring-forward
 // gap); two = it happens twice (fall-back overlap). Codex Release A: both are REFUSED with a typed
-// error rather than silently choosing an occurrence — a reminder or a calendar entry must not be an
+// error rather than silently choosing an occurrence, a reminder or a calendar entry must not be an
 // hour off because the code guessed. Callers decide what refusing means for them (skip the reminder
 // with a recorded reason; drop the calendar entry).
 //
@@ -43,7 +43,7 @@ function formatter(tz) {
   return f;
 }
 
-// An IANA zone this runtime can format in. "UTC" and "Area/Location[/Sub]" forms only — no offsets,
+// An IANA zone this runtime can format in. "UTC" and "Area/Location[/Sub]" forms only, no offsets,
 // no abbreviations ("PST" is not a zone), no whitespace, no junk.
 export function isValidZone(tz) {
   const z = String(tz == null ? '' : tz).trim();

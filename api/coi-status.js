@@ -1,12 +1,12 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
-// /api/coi-status.js — retailer-facing COI status (work order Phase 4).
+// /api/coi-status.js, retailer-facing COI status (work order Phase 4).
 //   GET  (session)                 -> { pending: [{booking_id, brand_name, demo_date}] } for upcoming COI-pending demos
 //   POST action=waive {booking_id} -> sets coi_waived_at / coi_waived_by on a booking the retailer owns
 // Uses the shared COI helper so there is one source of truth. Requires a retailer admin session,
-// carried ONLY in the dh_retailer_session cookie — the retired dh_session name and the
+// carried ONLY in the dh_retailer_session cookie, the retired dh_session name and the
 // ?session_id= alternative are both gone (Codex finding B).
 // Reads brands.default_coi_url (brand-level source; the cron
-// additionally consults compliance_records — the badge uses the brand-level signal, which is what
+// additionally consults compliance_records, the badge uses the brand-level signal, which is what
 // all brand-facing UI writes to).
 //
 // NOTE: references bookings.coi_waived_at, which does not exist until the Phase 1 migration is
@@ -30,7 +30,7 @@ async function sb(path, opts = {}) {
   if (!r.ok) throw new Error(json && json.message ? json.message : (text || `sb HTTP ${r.status}`));
   return json;
 }
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
+// (dead auth helper removed, all authorization goes through _retailer-auth.js)
 function ymd(d) { return d.toISOString().slice(0, 10); }
 async function readBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
@@ -39,7 +39,7 @@ async function readBody(req) {
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error (no viewer
 // accounts exist yet; failing closed would risk locking out the owner).
-// (dead auth helper removed — all authorization goes through _retailer-auth.js)
+// (dead auth helper removed, all authorization goes through _retailer-auth.js)
 
 export default async function handler(req, res) {
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
@@ -52,7 +52,7 @@ export default async function handler(req, res) {
   if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
   const session = { retailer_id: _auth.retailer_id, email: _auth.email };
   const retailerId = _auth.retailer_id;
-  // COI waiver is a compliance state transition — owner/admin only.
+  // COI waiver is a compliance state transition, owner/admin only.
   if (req.method === 'POST' && !['owner', 'admin'].includes(String(_auth.role).toLowerCase())) {
     return res.status(403).json({ error: 'insufficient_role', message: 'Only owners and admins can change COI status.' });
   }

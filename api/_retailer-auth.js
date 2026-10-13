@@ -1,4 +1,4 @@
-// api/_retailer-auth.js — one shared, fail-closed retailer authorization guard for EVERY
+// api/_retailer-auth.js, one shared, fail-closed retailer authorization guard for EVERY
 // service-role route that acts on retailer data (P0-1/P0-8). Validates the session, requires a
 // LIVE exact-normalized-email membership, enforces a closed role domain + optional allowlist.
 // No route may authorize a retailer mutation without this.

@@ -166,7 +166,7 @@ let retailerId, retailerSlug, venueA, venueB, brandId, brandEmail, staffEmail, b
 async function setup() {
   retailerSlug = uniq('e2e-grp');
   const r = await db('retailers', { method: 'POST', body: JSON.stringify({
-    slug: retailerSlug, name: 'E2E Grouped Retailer', billing_email: `${retailerSlug}@example.com`,
+    slug: retailerSlug, name: 'E2E Grouped Retailer', verification_status: 'approved', billing_email: `${retailerSlug}@example.com`,
     billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true,
     auto_confirm_bookings: false,          // bookings land 'pending' after payment -> retailer confirms
   }) });
@@ -286,7 +286,7 @@ async function run() {
   // ---- 1. Two bookings through POST /api/book -----------------------------------------------
   console.log('\n— 1: two bookable demos —');
   for (const [venue, n] of [[venueA, 30], [venueB, 31]]) {
-    const bk = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venue, demo_date: day(n), demo_time: '13:00' }, cookies: { dh_brand_session: brandCookie } }));
+    const bk = await callRoute('book.js', req({ body: { retailer_slug: retailerSlug, venue_id: venue, demo_date: day(n), demo_time: '13:00', product_skus: H.FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
     const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
     ok(`/api/book created booking on venue ${venue === venueA ? 'A ($7)' : 'B ($9)'}`, bk.statusCode === 200 && !!id, `${bk.statusCode} ${JSON.stringify(bk.body).slice(0, 160)}`);
     if (id) { G.bookingIds.push(id); bin.bookings.push(id); }

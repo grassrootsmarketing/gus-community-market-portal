@@ -1,4 +1,4 @@
-// api/_notification-outbox.js — the notification outbox worker's internals (Codex Release A).
+// api/_notification-outbox.js, the notification outbox worker's internals (Codex Release A).
 //
 // THE MODEL (migration 0074). Database triggers write notification_events IN THE TRANSACTION that
 // changes state: a booking reaching 'confirmed' (manual confirm, auto-confirm on payment, fulfilment
@@ -6,7 +6,7 @@
 // reschedule (accept_reschedule RPC), and a COI decision (review_coi_verification). Nothing in the
 // request path sends store-contact or COI-decision mail any more. This module turns those events
 // into notification_deliveries (one row per recipient, or per reminder offset per recipient per
-// occurrence), and then sends them — claim, recheck, freeze, send, record — so that:
+// occurrence), and then sends them, claim, recheck, freeze, send, record, so that:
 //
 //   * a crash anywhere leaves a durable row that the next run finishes (never a lost lifecycle mail);
 //   * two workers cannot both send the same row (claim_token + lease; completion is a compare-and-set
@@ -27,14 +27,14 @@
 // CLOCK. Every function takes `now` (a Date) so tests drive DST edges, catch-up expiry and lease
 // takeover deterministically. The HTTP route (api/notification-worker.js) never accepts a clock.
 //
-// DATABASE ACCESS is PostgREST with the service key, in bounded batches (limit/offset loops — never
+// DATABASE ACCESS is PostgREST with the service key, in bounded batches (limit/offset loops, never
 // the 1000-row default page). The claim is a single filtered UPDATE (one SQL statement, so each row
 // is claimed by exactly one worker); ownership is then re-read by claim_token.
 //
 // REMINDER SCHEDULE (api/_local-time.js reminderWindow): w1/d3/d1/d<N> at 09:00 local on the earlier
 // calendar day; morning_of at 07:00 local only if the demo starts later; h1 = start - 60 min.
 // expires_at = due + 2h (h1: +30 min), never later than the start. A reminder whose due_at is already
-// past when it is FIRST scheduled is inserted as skipped 'due_before_scheduling' — first rollout and
+// past when it is FIRST scheduled is inserted as skipped 'due_before_scheduling', first rollout and
 // late opt-ins never produce a backlog burst, and the decision is visible in the table.
 
 import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
@@ -44,7 +44,7 @@ import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notificatio
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
-  coiApprovedMessage, coiRejectedMessage,
+  coiApprovedMessage, coiRejectedMessage, receiptMessage,
 } from './_notification-mail.js';
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
@@ -53,6 +53,64 @@ export const COI_KINDS = ['coi_approved', 'coi_rejected'];
 // (0080 trigger on the first verified payment state), one delivery to the fixed owner address; the
 // hold-vs-paid wording is decided at dispatch from the CURRENT booking, then frozen like any other row.
 export const OWNER_KINDS = ['owner_booking_created'];
+// Payment receipts (0091, 2026-10-11): one event per payment group when the ledger first records it as
+// paid (transition_id = the group id), plus application-written resend events ('<group id>:resend:<ms>').
+// The brand's account contacts get one receipt each. Eligibility is the CURRENT ledger row: a group that
+// is paid, or paid and since refunded (a refund does not un-happen the payment the receipt documents).
+export const RECEIPT_KINDS = ['payment_receipt'];
+const RECEIPT_SETTLED = ['paid', 'partially_refunded', 'refunded'];
+export function receiptEligible(group) { return !!group && RECEIPT_SETTLED.includes(String(group.status || '')); }
+// The requesting contact of a resend event: by recorded recipient id (0092), else, for a resend event
+// written by the earlier application code, by the recorded email. A resend naming no requester is nobody's.
+export function isRequester(payload, recipientId, email) {
+  if (!payload || !payload.resend) return false;
+  if (payload.requested_recipient_id) return String(payload.requested_recipient_id) === String(recipientId || '');
+  const want = String(payload.requested_by || '').trim().toLowerCase();
+  return !!want && want === String(email || '').trim().toLowerCase();
+}
+export function receiptGroupIdOf(ev) {
+  const fromPayload = ev && ev.payload && ev.payload.payment_group_id;
+  return String(fromPayload || String((ev && ev.transition_id) || '').split(':')[0] || '').trim() || null;
+}
+// Best-effort card summary + Stripe receipt link from the charge. Replaceable in tests. Never required:
+// a lookup failure only drops the card line and the link from the receipt.
+// Codex PR-5: the key is the VALIDATED binding's (no process.env fallback); the lookup is bounded per call
+// (RECEIPT_ENRICH_CALL_MS) and per worker run (cache.enrichment, RECEIPT_ENRICH_RUN_BUDGET_MS), cached per
+// charge for the run (one lookup per payment per run however many contacts), and never made on a replay.
+export const RECEIPT_ENRICH_CALL_MS = 6000;
+export const RECEIPT_ENRICH_RUN_BUDGET_MS = 20000;
+export const receiptHooks = {
+  chargeLookup: async (b, chargeId) => {
+    const key = (b && b.stripeKey) || null;
+    if (!key || !chargeId || !/^ch_[A-Za-z0-9]+$/.test(String(chargeId))) return null;
+    try {
+      const r = await fetch('https://api.stripe.com/v1/charges/' + encodeURIComponent(chargeId), {
+        headers: { Authorization: 'Bearer ' + key }, signal: globalThis.AbortSignal.timeout(RECEIPT_ENRICH_CALL_MS),
+      });
+      if (!r.ok) return null;
+      const c = await r.json();
+      if (!c || c.object !== 'charge' || c.id !== chargeId) return null;
+      const card = c.payment_method_details && c.payment_method_details.card;
+      const receiptUrl = typeof c.receipt_url === 'string' && /^https:\/\/pay\.stripe\.com\//.test(c.receipt_url) ? c.receipt_url : null;
+      return { card: card && card.last4 ? { brand: card.brand || null, last4: String(card.last4) } : null, receiptUrl };
+    } catch (_) { return null; }
+  },
+};
+// Enrichment through the per-run cache and budget. Returns null (absent optional data) when the budget is
+// spent, the hook fails, or the hook throws; it never throws itself.
+async function enrichCharge(b, cache, chargeId) {
+  if (!chargeId) return null;
+  const en = cache.enrichment || (cache.enrichment = { spentMs: 0, budgetMs: RECEIPT_ENRICH_RUN_BUDGET_MS, calls: 0, skipped_budget: 0 });
+  const charges = cache.charges || (cache.charges = new Map());
+  if (charges.has(chargeId)) return charges.get(chargeId);
+  if (en.spentMs >= en.budgetMs) { en.skipped_budget++; return null; }
+  const t0 = Date.now();
+  let out = null;
+  try { out = await receiptHooks.chargeLookup(b, chargeId); } catch (_) { out = null; }
+  en.spentMs += Date.now() - t0; en.calls++;
+  charges.set(chargeId, out || null);
+  return out || null;
+}
 const INACTIVE_STATUSES = ['cancelled', 'declined', 'expired', 'auth_canceled'];
 // Eligible = verified money state (authorized hold or paid) AND the booking is still live. A hold that
 // released/expired or a booking cancelled before the owner heard about it is obsolete unsent work.
@@ -138,21 +196,28 @@ const errCode = (e) => (e && (e.code || e.name)) ? String(e.code || e.name) : 'e
 // ---------------------------------------------------------------------------
 // Shared loaders with a per-run cache (a run touches the same booking/retailer/brand many times).
 // ---------------------------------------------------------------------------
-export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map() }; }
+export function makeCache() { return { bookings: new Map(), retailers: new Map(), venues: new Map(), brands: new Map(), internal_contacts: new Map(), notification_events: new Map(), contactsByRetailer: new Map(), charges: new Map(), enrichment: { spentMs: 0, budgetMs: RECEIPT_ENRICH_RUN_BUDGET_MS, calls: 0, skipped_budget: 0 } }; }
+// Codex receipts PR-2: a successful read answers with a row list. Anything else (a JSON error body on a 2xx,
+// a truncated response) is a malformed read and throws, so the caller retries instead of treating it as
+// "no such row". Only a real empty list means missing.
+function rowsOf(rows, path) {
+  if (!Array.isArray(rows)) throw new OutboxError('db_malformed', { path: String(path || '').split('?')[0] });
+  return rows;
+}
 async function loadOne(b, cache, table, id, select = '*') {
   if (!id) return null;
   const m = cache[table];
   if (m.has(id)) return m.get(id);
-  const rows = await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`);
-  const row = Array.isArray(rows) ? rows[0] || null : null;
+  const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
+  const row = rows[0] || null;
   m.set(id, row);
   return row;
 }
-// Fresh (uncached) read — used by the dispatch recheck, which must see the CURRENT state.
+// Fresh (uncached) read, used by the dispatch recheck, which must see the CURRENT state.
 async function loadFresh(b, table, id, select = '*') {
   if (!id) return null;
-  const rows = await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`);
-  return Array.isArray(rows) ? rows[0] || null : null;
+  const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
+  return rows[0] || null;
 }
 const CONTACT_SELECT = 'id,retailer_id,name,email,venue_ids,notification_prefs';
 async function loadContactsForRetailer(b, cache, retailerId) {
@@ -241,6 +306,33 @@ async function fanOutOne(b, cache, ev, now) {
     const recipients = await brandRecipients(b, brand);
     const rows = recipients.map(r => ({
       event_id: ev.id, retailer_id: null, booking_id: null,
+      recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+      kind: ev.kind, offset_key: null, occurrence_key: null,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }));
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (RECEIPT_KINDS.includes(ev.kind)) {
+    const gid = receiptGroupIdOf(ev);
+    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status') : null;
+    if (!group) { await markFannedOut(b, ev, now, 'group_missing'); return { deliveries: 0, skipped: true }; }
+    if (!receiptEligible(group)) { await markFannedOut(b, ev, now, `skipped_group_${group.status || 'unknown'}`); return { deliveries: 0, skipped: true }; }
+    if (ev.brand_id && ev.brand_id !== group.brand_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
+    const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
+    if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
+    let recipients = await brandRecipients(b, brand);
+    // Codex receipts PR-6: the automatic receipt goes to every account contact; a copy a contact asked for
+    // goes to that contact only, resolved server-side when the request was recorded (0092) and checked
+    // again here against the brand's CURRENT contacts.
+    if (payload.resend) {
+      recipients = recipients.filter(r => isRequester(payload, r.recipient_id, r.email));
+      if (!recipients.length) { await markFannedOut(b, ev, now, 'requester_not_a_contact'); return { deliveries: 0, skipped: true }; }
+    }
+    const rows = recipients.map(r => ({
+      event_id: ev.id, retailer_id: group.retailer_id, booking_id: null,
       recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
       kind: ev.kind, offset_key: null, occurrence_key: null,
       dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
@@ -363,12 +455,12 @@ export async function scheduleReminders(b, { now = new Date(), batch = DEFAULTS.
 export function claimFilter(nowIso) {
   return `due_at=lte.${enc(nowIso)}&or=(and(status.eq.pending,claim_token.is.null),and(status.eq.failed,next_attempt_at.lte.${nowIso}),and(status.eq.unknown,next_attempt_at.lte.${nowIso}),and(status.eq.claimed,lease_until.lt.${nowIso}))`;
 }
-// CLAIM PROTOCOL (PostgREST cannot do UPDATE ... LIMIT — verified against the test project: a
-// `limit` on PATCH is ignored — so the batch bound is a SELECT and atomicity is the filtered UPDATE):
+// CLAIM PROTOCOL (PostgREST cannot do UPDATE ... LIMIT, verified against the test project: a
+// `limit` on PATCH is ignored, so the batch bound is a SELECT and atomicity is the filtered UPDATE):
 //   1. SELECT up to `batch` claimable ids (oldest due first).
 //   2. UPDATE those ids WITH THE SAME CLAIMABILITY FILTER, setting status/claim_token/lease. One SQL
 //      statement: under READ COMMITTED a concurrent worker that picked the same ids blocks on the row
-//      lock and re-evaluates the WHERE on the committed version — which is now claimed by us — so it
+//      lock and re-evaluates the WHERE on the committed version, which is now claimed by us, so it
 //      updates zero of them. Exactly one winner per row.
 //   3. SELECT rows carrying OUR token. Ownership is what the database says, never what we asked for.
 export async function claimDue(b, { now, batch, claimToken }) {
@@ -395,8 +487,10 @@ async function cas(b, row, token, patch) {
 const release = (extra) => ({ claim_token: null, lease_until: null, ...extra });
 
 // The recheck: is this delivery still true, and to whom? Returns { ok, message } or { skip }.
-async function recheckAndBuild(b, cache, row, now) {
-  const event = row.event_id ? await loadOne(b, cache, 'notification_events', row.event_id).catch(() => null) : null;
+async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
+  // Codex receipts PR-2: a failed event read throws (db_* OutboxError) and the row stays claimed for the
+  // next run; only a successful read with no row yields event_missing below.
+  const event = row.event_id ? await loadOne(b, cache, 'notification_events', row.event_id) : null;
   const payload = (event && event.payload) || {};
   if (row.recipient_kind === 'store_contact') {
     const booking = await loadFresh(b, 'bookings', row.booking_id);
@@ -430,7 +524,7 @@ async function recheckAndBuild(b, cache, row, now) {
     const ctx = buildContext({ booking, retailer, venue, brand });
     let message;
     if (row.kind === 'demo_confirmed') message = confirmedMessage(b, ctx);
-    else if (row.kind === 'reminder') message = reminderMessage(b, ctx, now);
+    else if (row.kind === 'reminder') message = reminderMessage(b, ctx, now, { offsetKey: row.offset_key });
     else if (row.kind === 'demo_cancelled') message = cancelledMessage(b, ctx, { reason: payload.cancel_reason || booking.cancel_reason || null });
     else if (row.kind === 'demo_rescheduled') {
       let from = null;
@@ -443,6 +537,61 @@ async function recheckAndBuild(b, cache, row, now) {
     return { ok: true, to, message };
   }
 
+  if (row.recipient_kind === 'brand' && RECEIPT_KINDS.includes(row.kind)) {
+    // Judged on the CURRENT ledger row: the group must still be settled (paid, or paid then refunded),
+    // the brand must still own it, and the recipient must still belong to the brand. Figures come from
+    // payment_groups / payment_allocations, never from the event payload alone.
+    // Codex PR-2: every read here either returns rows or throws (retry); nothing is guessed from a failure.
+    // Codex PR-3: the paid date is a RECORDED one (the apply transaction's stamp in the event payload, else
+    // the paid attempt's paid_at) or it is stated as not recorded; the group's creation time is never used.
+    // Codex PR-5: on a replay the checks run and nothing is rebuilt or looked up.
+    if (!event) return { skip: 'event_missing' };
+    const gid = receiptGroupIdOf(event);
+    const group = gid ? await loadFresh(b, 'payment_groups', gid, 'id,brand_id,retailer_id,status,total_customer_amount,currency,stripe_payment_intent_id,stripe_charge_id,platform_keeps_all') : null;
+    if (!group) return { skip: 'group_missing' };
+    if (!receiptEligible(group)) return { skip: `group_${group.status || 'unknown'}` };
+    if (row.retailer_id && group.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    if (event.brand_id && event.brand_id !== group.brand_id) return { skip: 'tenant_mismatch' };
+    const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
+    if (!brand) return { skip: 'brand_missing' };
+    let to = null;
+    if (row.recipient_id === brand.id) to = brand.email;
+    else {
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      if (!member) return { skip: 'recipient_deleted' };
+      if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      to = member.email;
+    }
+    to = String(to || '').trim();
+    if (!to) return { skip: 'recipient_no_email' };
+    if (payload.resend && !isRequester(payload, row.recipient_id, to)) return { skip: 'not_the_requester' };
+    if (replay) return { ok: true, to };
+    const retailer = await loadFresh(b, 'retailers', group.retailer_id, 'id,name,slug,timezone');
+    const allocs = rowsOf(await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id,customer_amount,refunded_amount&order=created_at.asc&limit=500`), 'payment_allocations');
+    // Codex PR-3: the itemization must reconcile with the ledger total before the receipt claims to list
+    // every demo. A mismatch is an operator matter (review_required), never a partial receipt.
+    const allocTotal = allocs.reduce((t, a) => t + Number(a.customer_amount || 0), 0);
+    if (!allocs.length || allocs.length >= 500 || allocTotal !== Number(group.total_customer_amount)) return { skip: 'review_required:allocations_mismatch' };
+    const bookingIds = allocs.map(a => a.booking_id).filter(Boolean);
+    const bookings = rowsOf(await sb(b, `bookings?id=in.(${bookingIds.map(enc).join(',')})&select=id,demo_date,demo_time,product,venue_id,timezone,start_at`), 'bookings');
+    const byId = new Map(bookings.map(x => [x.id, x]));
+    if (bookingIds.some(id => !byId.has(id))) return { skip: 'review_required:booking_missing' };
+    const items = [];
+    for (const a of allocs) {
+      const bk = byId.get(a.booking_id);
+      const venue = bk.venue_id ? await loadOne(b, cache, 'venues', bk.venue_id, 'id,name') : null;
+      items.push({ booking_id: a.booking_id, demo_date: bk.demo_date || null, demo_time: bk.demo_time || null, start_at: bk.start_at || null, timezone: bk.timezone || (retailer && retailer.timezone) || null, product: bk.product || null, venue_name: venue ? venue.name : null, amount: a.customer_amount, refunded: a.refunded_amount || 0 });
+    }
+    let paidAt = payload.paid_at ? String(payload.paid_at) : null;
+    if (!paidAt) {
+      const att = rowsOf(await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=paid_at&order=paid_at.desc&limit=1`), 'payment_attempts');
+      paidAt = att[0] && att[0].paid_at ? String(att[0].paid_at) : null;
+    }
+    if (paidAt && !Number.isFinite(Date.parse(paidAt))) paidAt = null;
+    const charge = await enrichCharge(b, cache, group.stripe_charge_id);
+    const message = receiptMessage(b, { brand, retailer, group, paidAt, items, card: charge && charge.card, receiptUrl: charge && charge.receiptUrl, resend: !!payload.resend });
+    return { ok: true, to, message };
+  }
   if (row.recipient_kind === 'brand') {
     if (!event) return { skip: 'event_missing' };
     const verificationId = payload.verification_id || String(event.transition_id || '').split(':')[0];
@@ -500,10 +649,10 @@ async function recheckAndBuild(b, cache, row, now) {
 // Send one claimed row. Returns 'accepted' | 'skipped' | 'failed' | 'unknown' | 'lost'.
 // Codex R4-03 B: delivery uncertainty lives in the frozen envelope (outside the immutable provider
 // fields to/subject/html), NOT in the lease/work status that claimDue rewrites. A row is uncertain when
-//   * a previous attempt got no usable answer (uncertain:true — provider unreachable, aborted, or an
+//   * a previous attempt got no usable answer (uncertain:true, provider unreachable, aborted, or an
 //     unverifiable acknowledgment), or
 //   * a previous attempt was marked as starting (attempting_at) and never settled (crash mid-send), or
-//   * the envelope predates this contract (legacy: no 'uncertain' field) — handled conservatively.
+//   * the envelope predates this contract (legacy: no 'uncertain' field), handled conservatively.
 // Only a verified acceptance clears it; a later definite rejection cannot.
 export function uncertaintyOf(frozen) {
   if (!frozen || typeof frozen !== 'object') return { uncertain: false, reason: null };
@@ -518,7 +667,9 @@ export function uncertaintyOf(frozen) {
 export async function processClaimed(b, row, { now = new Date(), clock = null, token, mailer = sendMail, sendTimeoutMs = DEFAULTS.sendTimeoutMs, cache = makeCache() } = {}) {
   const nowIso = now.toISOString();
   try {
-    const check = await recheckAndBuild(b, cache, row, now);
+    // Codex receipts PR-5: a row with a frozen payload is a REPLAY. The recheck keeps every identity,
+    // membership, tenant and settlement decision fresh but builds nothing and makes no enrichment call.
+    const check = await recheckAndBuild(b, cache, row, now, { replay: !!(row.frozen_payload && typeof row.frozen_payload === 'object') });
     if (!check.ok) {
       await cas(b, row, token, release({ status: 'skipped', skip_reason: check.skip, updated_at: nowIso }));
       return { outcome: 'skipped', reason: check.skip };
@@ -542,7 +693,7 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
     if (priorAttempt) {
       // Codex R4-03 A: the eligibility decision comes BEFORE any provider call. Resend deduplicates a
       // key for 24h only; a re-send outside that window (or with no trustworthy first-attempt time to
-      // measure it from) could be a duplicate. Such work is terminal — surfaced for an operator — with
+      // measure it from) could be a duplicate. Such work is terminal, surfaced for an operator, with
       // ZERO provider calls, and it keeps its uncertainty ('unknown' when a send may have gone out).
       const firstAttemptMs = Date.parse(String(frozen.attempted_at || ''));
       // Codex N-1: the send must COMPLETE inside the provider's dedupe window, so the request budget
@@ -559,7 +710,7 @@ export async function processClaimed(b, row, { now = new Date(), clock = null, t
         return { outcome: status, final: true, reason: terminal, calls: 0 };
       }
       // Codex R4-03 B: mark THIS attempt durably before the send. A crash between here and the settle
-      // leaves attempting_at newer than settled_at — which the next claim reads as uncertain.
+      // leaves attempting_at newer than settled_at, which the next claim reads as uncertain.
       frozen = { ...frozen, uncertain: history.uncertain, attempting_at: attemptIso };
       await cas(b, row, token, { frozen_payload: frozen, updated_at: attemptIso });
       // Codex N-1: the stamp itself took time (a slow database await can cross the cutoff). Re-read the
@@ -629,7 +780,14 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
       out.claimed++; out.attempts++;
       const r = await processClaimed(b, row, { now, clock, token, mailer, sendTimeoutMs, cache });
       if (r.outcome === 'accepted') out.accepted++;
-      else if (r.outcome === 'skipped') { out.skipped++; out.skip_reasons[r.reason] = (out.skip_reasons[r.reason] || 0) + 1; }
+      else if (r.outcome === 'skipped') {
+        out.skipped++; out.skip_reasons[r.reason] = (out.skip_reasons[r.reason] || 0) + 1;
+        // Codex closure item 2: a review_required skip is operator work, not a benign "no longer true".
+        // The run that creates it is NOT ok (failed heartbeat, 500, first_error names the delivery), once:
+        // the row is terminal, so later runs do not repeat the alarm; the durable count in collectMetrics
+        // keeps it visible until an operator resolves it.
+        if (isReviewRequired(r.reason)) { out.review_required = (out.review_required || 0) + 1; out.errors.push(`review_required:${row.id}`); }
+      }
       else if (r.outcome === 'failed') { out.failed++; out.errors.push('send_failed'); }
       else if (r.outcome === 'unknown') { out.unknown++; out.errors.push('send_unknown'); }
       else if (r.outcome === 'lost') { out.lost++; out.errors.push('completion_mismatch'); }
@@ -642,17 +800,20 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
 }
 
 // ---------------------------------------------------------------------------
-// 4. METRICS — backlog and oldest pending age are reported separately from liveness.
+// 4. METRICS, backlog and oldest pending age are reported separately from liveness.
 // ---------------------------------------------------------------------------
+export function isReviewRequired(reason) { return /^review_required(:|$)/.test(String(reason || '')); }
 export async function collectMetrics(b, { now = new Date() } = {}) {
   const nowIso = enc(now.toISOString());
   const overdue = enc(new Date(now.getTime() - 60 * MIN).toISOString());
-  const [backlog, overdueCount, failed, unknown, oldest] = await Promise.all([
+  const [backlog, overdueCount, failed, unknown, oldest, reviewRequired] = await Promise.all([
     countRows(b, `notification_deliveries?status=eq.pending&due_at=lte.${nowIso}&select=id`),
     countRows(b, `notification_deliveries?status=eq.pending&due_at=lte.${overdue}&select=id`),
     countRows(b, `notification_deliveries?status=eq.failed&select=id`),
     countRows(b, `notification_deliveries?status=eq.unknown&select=id`),
     sb(b, `notification_deliveries?status=eq.pending&due_at=lte.${nowIso}&select=due_at&order=due_at.asc&limit=1`),
+    // Codex closure item 2: terminal rows parked for an operator (skip_reason 'review_required:...').
+    countRows(b, `notification_deliveries?status=eq.skipped&skip_reason=like.review_required*&select=id`),
   ]);
   const oldestDue = Array.isArray(oldest) && oldest[0] ? new Date(oldest[0].due_at) : null;
   return {
@@ -661,17 +822,18 @@ export async function collectMetrics(b, { now = new Date() } = {}) {
     oldest_pending_age_min: oldestDue ? Math.max(0, Math.round((now.getTime() - oldestDue.getTime()) / MIN)) : 0,
     failed_count: failed,
     unknown_count: unknown,
+    review_required_count: reviewRequired,
   };
 }
 
 // ---------------------------------------------------------------------------
 // One worker run. ok = every step ran without error and every attempted send was accepted or
 // skipped by design. A failed/unknown send, a lost lease, a failed enqueue or read, or a failed
-// completion record all make the run NOT ok — the route writes a 'failed' heartbeat and answers 500.
+// completion record all make the run NOT ok, the route writes a 'failed' heartbeat and answers 500.
 // ---------------------------------------------------------------------------
 export async function runWorker(b, { now = new Date(), mailer = sendMail, budgets = {} } = {}) {
   // Codex R4-03 A: the run clock is fixed at start (for the audit line); each dispatch attempt reads a
-  // clock that advances with real elapsed time from it — a long run cannot re-send under a decision
+  // clock that advances with real elapsed time from it, a long run cannot re-send under a decision
   // made minutes ago.
   const startedRealMs = Date.now();
   const clock = () => new Date(now.getTime() + (Date.now() - startedRealMs));

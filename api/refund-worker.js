@@ -1,5 +1,5 @@
 import { drainFulfillments } from './_fulfillment.js';
-// api/refund-worker.js — leased refund retry + reconciliation worker (Codex R10-P0-4/P0-7).
+// api/refund-worker.js, leased refund retry + reconciliation worker (Codex R10-P0-4/P0-7).
 //
 // Runs on a schedule behind CRON_SECRET. Every Stripe write reuses the refund request's stored
 // idempotency key, so a resubmit can only ever return the ORIGINAL refund (never a double refund),
@@ -7,13 +7,13 @@ import { drainFulfillments } from './_fulfillment.js';
 //
 // Concurrency-safe: claim_refund_work() leases due rows (SKIP LOCKED + owner + expiry), and
 // release_refund_work() only writes if we still hold the lease. Outcomes are applied through the
-// verified apply_refund_event() RPC — the worker never mutates ledger balances directly.
+// verified apply_refund_event() RPC, the worker never mutates ledger balances directly.
 //
 // Per leased request:
 //   A. has a stripe_refund_id  -> GET the refund, apply_refund_event (recovers a lost webhook).
 //   B. no id, age <= 24h       -> resubmit with the STORED idempotency key (Stripe returns the
 //                                 original if one exists), then apply. NO currency param (Stripe's
-//                                 Refund-create API rejects it — that was the R10-P0-4 bug).
+//                                 Refund-create API rejects it, that was the R10-P0-4 bug).
 //   C. no id, age > 24h        -> paginate the PI's refunds, adopt the one tagged with this request
 //                                 id, else park requires_review. Never blind-resubmits.
 
@@ -47,7 +47,7 @@ async function sbGet(path) {
 // Phase E: per-job liveness. One APPEND-ONLY cron_heartbeat row per completed run, same write shape
 // as brand-account.js's daily cron ({cron_name, outcome, duration_ms, summary}). The public status
 // route judges each cron_name by its LATEST completed row: healthy only while that row is a fresh
-// 'succeeded'. Codex F-03: a run is 'succeeded' ONLY when every claimed item succeeded — any per-item
+// 'succeeded'. Codex F-03: a run is 'succeeded' ONLY when every claimed item succeeded, any per-item
 // error after claim, any fulfilment failure, or any failed operator alert writes 'failed'
 // (summary.partial=true) and returns 500 so Vercel's cron log agrees with the heartbeat.
 // Best-effort: a heartbeat failure must never fail (or retry) the job itself.
@@ -111,8 +111,8 @@ const ALERT_TO = process.env.ALERT_EMAIL || 'david@demohubhq.com';
 const ENV_LABEL = process.env.VERCEL_ENV || 'unknown';
 
 function alertHtml(c) {
-  const esc = (s) => String(s == null ? '—' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  const money = c.amount != null ? `$${(c.amount / 100).toFixed(2)} ${String(c.currency || 'usd').toUpperCase()}` : '—';
+  const esc = (s) => String(s == null ? 'n/a' : s).replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const money = c.amount != null ? `$${(c.amount / 100).toFixed(2)} ${String(c.currency || 'usd').toUpperCase()}` : 'n/a';
   const row = (k, v) => `<tr><td style="padding:6px 10px;color:#6b6a64;font-size:12px;">${esc(k)}</td><td style="padding:6px 10px;font-family:monospace;font-size:12px;">${esc(v)}</td></tr>`;
   return `<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1c1c1a;">
 <h2 style="margin:0 0 4px;font-size:18px;">Payment exception: ${esc(c.kind)}</h2>
@@ -171,7 +171,7 @@ async function drainCaseAlerts(limit) {
   return out;
 }
 
-// R12-P0-2: fulfilment drain now lives in the shared module (no HTTP self-call — that hit
+// R12-P0-2: fulfilment drain now lives in the shared module (no HTTP self-call, that hit
 // Vercel deployment protection and added a needless network hop).
 const FULFILL_BATCH = 25;
 
@@ -226,7 +226,7 @@ export default async function handler(req, res) {
       } catch (e) { out.errors++; err = String((e && e.message) || e).slice(0, 200); nextAt = backoff(row.attempts); }
       if (out.errors > errorsBefore) noteError(err);
 
-      // R11-P0-4: parking for review is ATOMIC — request + parent operation + one deduped
+      // R11-P0-4: parking for review is ATOMIC, request + parent operation + one deduped
       // reconciliation case, reservation preserved (Stripe may still hold an unadopted refund).
       if (nextStatus === 'requires_review') {
         try { await sbRpc('park_refund_for_review', { p_request_id: row.id, p_owner: owner, p_reason: err || 'retry_cap_exhausted' }); }
@@ -239,7 +239,7 @@ export default async function handler(req, res) {
       } catch (e) { out.errors++; noteError('release: ' + ((e && e.message) || e)); }
     }
     // R12-P0-2: actually DRAIN the fulfilment outbox. Recovery must never depend on Stripe
-    // redelivering a webhook — the webhook marks its event complete, so a row left pending after a
+    // redelivering a webhook, the webhook marks its event complete, so a row left pending after a
     // demo/email failure would otherwise sit unfulfilled forever. This claims rows under the same
     // lease, performs the real work, and completes/retries them.
     try {
@@ -282,7 +282,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ ...out, error: 'partial_failure', first_error: firstError });
   } catch (e) {
     console.error('refund-worker error:', (e && e.message) || e);
-    // A SEPARATE 'failed' row — never a rewrite of the last success. The status route keys health off
+    // A SEPARATE 'failed' row, never a rewrite of the last success. The status route keys health off
     // the latest completed row, so this flips the job unhealthy until a later clean run recovers it.
     await heartbeat('failed', startMs, { ...out, ok: false, error: String((e && e.message) || e).slice(0, 500) });
     return res.status(500).json({ ok: false, error: 'worker_error' });

@@ -1,16 +1,16 @@
-// api/_notification-mail.js — the emails the notification outbox sends (Codex Release A).
+// api/_notification-mail.js, the emails the notification outbox sends (Codex Release A).
 //
 // Two audiences, one visual system:
-//   * STORE CONTACTS (internal_contacts) — the people at a location who order product and host
+//   * STORE CONTACTS (internal_contacts), the people at a location who order product and host
 //     demos. They do not sign in; they get emails. They hear about a demo when it is CONFIRMED, get
 //     reminders before it, and are told when a confirmed demo is cancelled or rescheduled. Never when
 //     a brand merely books or pays.
-//   * BRANDS — the account recipient(s) of a brand hear the owner's COI decision (approved with the
+//   * BRANDS, the account recipient(s) of a brand hear the owner's COI decision (approved with the
 //     reviewed expiry; rejected with the owner's brand-visible note). Never the certificate itself,
 //     never a download link.
 //
 // This module is PURE: it turns rows into { subject, html }. It performs no I/O and decides nothing
-// about who receives what or when — that is api/_notification-outbox.js. Every string that came from
+// about who receives what or when, that is api/_notification-outbox.js. Every string that came from
 // a user or a row is escaped with H(); the brand_note in particular is owner-typed text rendered as
 // text. Subjects are derived from the ACTUAL schedule at send time (a delayed "tomorrow" reminder that
 // goes out on the day says "today").
@@ -18,15 +18,16 @@
 // What a store-contact email shows (Codex §5): date; start–end time with the zone abbreviation
 // (end_at from the booking, else start + 3h); location name + address; brand; product + SKUs
 // (booking.product_skus); "Needs electricity: Yes / No / Not specified" from bookings.needs_electricity
-// (per booking — NOT the brand profile); brand rep name + phone; only the booking's operational notes
-// (bookings.notes — the text the brand typed on the booking form; owner review notes, COI notes,
+// (per booking, NOT the brand profile); brand rep name + phone; only the booking's operational notes
+// (bookings.notes, the text the brand typed on the booking form; owner review notes, COI notes,
 // cancel reasons and finance notes live in other columns and are never included).
 
+import { describeItem, itemDetailsHtml } from './_products.js';
 import { link } from './_mail.js';
 import { safeZone, demoStartUtc, dateLabel, timeRangeLabel, timeLabel, relativeDayPhrase } from './_local-time.js';
 
 export const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-export const REPLY_TO = 'david@demohubhq.com';
+export const REPLY_TO = 'bookings@demohubhq.com';
 const DEFAULT_DURATION_MS = 3 * 60 * 60 * 1000;
 
 export function H(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -59,7 +60,7 @@ export function buildContext({ booking, retailer, venue, brand }) {
     rep_name: b.contact_name || (brand && brand.contact_name) || '',
     rep_phone: b.contact_phone || (brand && brand.phone) || '',
     notes: operationalNotes(b.notes),
-    // per-booking, typed. null/undefined = "Not specified" — never guessed from the brand profile.
+    // per-booking, typed. null/undefined = "Not specified", never guessed from the brand profile.
     needs_electricity: typeof b.needs_electricity === 'boolean' ? b.needs_electricity : null,
   };
 }
@@ -92,17 +93,32 @@ export function demoDetailRows(ctx, { strikeOld = null } = {}) {
   }
   const loc = (ctx.venue && ctx.venue.name)
     ? `<strong>${H(ctx.venue.name)}</strong>${ctx.venue.address ? `<br><span style="color:#6b6a64;font-size:13px;">${H(ctx.venue.address)}</span>` : ''}`
-    : '&mdash;';
+    : 'not given';
   rows.push(['Location', loc]);
   rows.push(['Brand', `<strong>${H(ctx.brand_name)}</strong>`]);
-  rows.push(['Product', ctx.product ? H(ctx.product) : '&mdash;']);
+  rows.push(['Product', ctx.product ? H(ctx.product) : 'not given']);
   rows.push(['Needs electricity', electricityLabel(ctx.needs_electricity)]);
   const rep = [ctx.rep_name, ctx.rep_phone].filter(Boolean).map(H).join(' &middot; ');
-  rows.push(['Brand rep', rep || '&mdash;']);
+  rows.push(['Brand rep', rep || 'not given']);
   if (ctx.notes) rows.push(['Notes from the brand', `<span style="white-space:pre-wrap;">${H(ctx.notes)}</span>`]);
   return rows;
 }
 
+// Codex product-list P-4. Two layouts, chosen by the caller from the SCHEDULED offset (never from elapsed time):
+//   full     confirmation, reschedule and long-lead reminders (7+ days): stacked ordering details per item under
+//            "Products for this demo: ordering details", so the buyer can check stock and arrange any order.
+//   compact  short-lead reminders: one line per item plus where the full details live (the store admin).
+// Tolerant of legacy {name,size,sku} items and empty snapshots.
+export function productsBlockHtml(skus, { full = false, adminUrl = null } = {}) {
+  if (!skus || !skus.length) return '';
+  const head = (title, sub) => `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin:0 0 ${sub ? '4' : '8'}px;">${title}</div>${sub ? '<div style="font-size:13px;color:#6b6a64;margin:0 0 8px;">' + sub + '</div>' : ''}`;
+  const box = (inner) => `<div style="background:#f4f7ef;border:1px solid #2a5b3222;border-left:4px solid #2a5b32;border-radius:10px;padding:15px 18px;margin:0 0 22px;">${inner}</div>`;
+  if (full) return box(head('Products for this demo: ordering details', 'Check stock and arrange any needed order before the demo.') + skus.map(p => itemDetailsHtml(p, H)).join(''));
+  const items = skus.map(p => '&bull; ' + describeItem(p, H)).join('<br>');
+  const where = adminUrl ? `<div style="font-size:12px;color:#6b6a64;margin-top:8px;">Full ordering details are on this booking in your <a href="${adminUrl}" style="color:#2a5b32;">store admin</a>.</div>` : '';
+  return box(head('Products for this demo') + `<div style="font-size:14px;line-height:1.6;">${items}</div>` + where);
+}
+// Kept for callers that still import it: the compact layout.
 export function skuBoxHtml(skus) {
   if (!skus || !skus.length) return '';
   const items = skus.map(p => `&bull; ${H(p.name || '')}${p.size ? ' <span style="color:#6b6a64;">(' + H(p.size) + ')</span>' : ''}${p.sku ? ' <span style="color:#6b6a64;">SKU ' + H(p.sku) + '</span>' : ''}`).join('<br>');
@@ -127,33 +143,33 @@ ${footer || ''}
 </table></body></html>`;
 }
 
-export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, tone = 'green', footerNote }) {
+export function staffEmailHtml({ b, ctx, eyebrow, heading, intro, rows, skus, tone = 'green', footerNote, productsFull = false }) {
   const retailerName = (ctx.retailer && ctx.retailer.name) || 'Your store';
   const adminUrl = b ? link(b, `/r/${encodeURIComponent((ctx.retailer && ctx.retailer.slug) || 'gus')}/admin`) : '#';
   const table = `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${rows.map(([k, v], i) => row(k, v, i === 0)).join('')}</table>`;
   const footer = `${footerNote ? `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">${footerNote}</p>` : ''}
 <p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">You're receiving this because <strong style="color:#0f2c17;">${H(retailerName)}</strong> listed you as a store contact for demo notifications at this location. Adjust who gets these in the admin under Team &rarr; Store contacts.</p>
 <p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;"><a href="${adminUrl}" style="color:#2a5b32;">Open the admin &rarr;</a></p>`;
-  return shell({ eyebrow, heading, intro, body: skuBoxHtml(skus) + table, tone, footer });
+  return shell({ eyebrow, heading, intro, body: productsBlockHtml(skus, { full: productsFull, adminUrl }) + table, tone, footer });
 }
 
 // ---------------------------------------------------------------------------
-// Store-contact messages — subject + html for each kind.
+// Store-contact messages, subject + html for each kind.
 // ---------------------------------------------------------------------------
 export function confirmedMessage(b, ctx) {
   return {
-    subject: `Demo confirmed: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `Demo confirmed: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo confirmed', tone: 'green',
       heading: `A demo is confirmed at ${H(venueName(ctx))}.`,
-      intro: `Make sure you've got enough product on hand &mdash; <strong>${H(ctx.brand_name)}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.`,
-      rows: demoDetailRows(ctx), skus: ctx.skus,
+      intro: `Make sure you've got enough product on hand: <strong>${H(ctx.brand_name)}</strong> is coming to demo <strong>${H(ctx.product || 'their product')}</strong>.`,
+      rows: demoDetailRows(ctx), skus: ctx.skus, productsFull: true,
     }),
   };
 }
 
 // The wording comes from how far away the demo ACTUALLY is at send time, not from the offset that
-// scheduled the reminder — a 1-day reminder delivered late on the demo day says "today".
+// scheduled the reminder, a 1-day reminder delivered late on the demo day says "today".
 export function reminderPhrase(ctx, now) {
   if (!ctx.startAt) return { eyebrow: 'Demo reminder', phrase: 'is coming up' };
   const r = relativeDayPhrase(ctx.startAt, now, ctx.tz);
@@ -163,15 +179,23 @@ export function reminderPhrase(ctx, now) {
   if (r.days === 7) return { eyebrow: 'Demo in 1 week', phrase: 'is one week away' };
   return { eyebrow: `Demo in ${r.days} days`, phrase: `is in ${r.days} days` };
 }
-export function reminderMessage(b, ctx, now = new Date()) {
+// Which reminder offsets carry the full ordering-details layout: anything scheduled 7 or more days out
+// (w1, d14, custom d<N> with N >= 7). Decided from the queued offset_key, never from dispatch time.
+export function offsetWantsFullProducts(offsetKey) {
+  const k = String(offsetKey || '');
+  if (k === 'w1') return true;
+  const m = /^d(\d+)$/.exec(k);
+  return !!(m && Number(m[1]) >= 7);
+}
+export function reminderMessage(b, ctx, now = new Date(), { offsetKey = null } = {}) {
   const { eyebrow, phrase } = reminderPhrase(ctx, now);
   return {
-    subject: `${eyebrow}: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `${eyebrow}: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow, tone: 'green',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} ${phrase}.`,
       intro: `Reminder for the store team: <strong>${H(ctx.brand_name)}</strong> is demoing <strong>${H(ctx.product || 'their product')}</strong> on ${H(dayOf(ctx))}, ${H(whenOf(ctx))}.`,
-      rows: demoDetailRows(ctx), skus: ctx.skus,
+      rows: demoDetailRows(ctx), skus: ctx.skus, productsFull: offsetWantsFullProducts(offsetKey),
     }),
   };
 }
@@ -188,7 +212,7 @@ export function cancelReasonText(reason) {
 export function cancelledMessage(b, ctx, { reason } = {}) {
   reason = cancelReasonText(reason);
   return {
-    subject: `Demo cancelled: ${ctx.brand_name} at ${venueName(ctx)} — ${dayOf(ctx)}`,
+    subject: `Demo cancelled: ${ctx.brand_name} at ${venueName(ctx)}, ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo cancelled', tone: 'clay',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} on ${H(dayOf(ctx))} was cancelled.`,
@@ -198,23 +222,23 @@ export function cancelledMessage(b, ctx, { reason } = {}) {
   };
 }
 
-// from: { startAt, endAt } — the slot the demo used to be on. ctx already reflects the NEW slot.
+// from: { startAt, endAt }, the slot the demo used to be on. ctx already reflects the NEW slot.
 export function rescheduledMessage(b, ctx, { from } = {}) {
   const hasFrom = !!(from && from.startAt);
   const wasLine = hasFrom ? `It was on <strong>${H(dayOfYear(ctx, from.startAt))}</strong> at ${H(timeLabel(from.startAt, ctx.tz))}; it` : 'It';
   return {
-    subject: `Demo rescheduled: ${ctx.brand_name} at ${venueName(ctx)} — now ${dayOf(ctx)}`,
+    subject: `Demo rescheduled: ${ctx.brand_name} at ${venueName(ctx)}, now ${dayOf(ctx)}`,
     html: staffEmailHtml({
       b, ctx, eyebrow: 'Demo rescheduled', tone: 'clay',
       heading: `The ${H(ctx.brand_name)} demo at ${H(venueName(ctx))} has moved.`,
       intro: `${wasLine} is now on <strong>${H(dayOfYear(ctx))}</strong>, ${H(whenOf(ctx))}. Your reminders will follow the new date.`,
-      rows: demoDetailRows(ctx, { strikeOld: hasFrom ? from : null }), skus: ctx.skus,
+      rows: demoDetailRows(ctx, { strikeOld: hasFrom ? from : null }), skus: ctx.skus, productsFull: true,
     }),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Brand messages — COI decisions. Never the certificate, never a download link.
+// Brand messages, COI decisions. Never the certificate, never a download link.
 // ---------------------------------------------------------------------------
 function brandFooter(brand) {
   return `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">Sent to the account contacts of <strong style="color:#0f2c17;">${H((brand && brand.company_name) || 'your brand')}</strong> on Demohub. Questions? Reply to this email.</p>`;
@@ -230,12 +254,12 @@ export function coiApprovedMessage(b, { brand, verification }) {
   const expiryLabel = expiry ? dateLabel(String(expiry).slice(0, 10), { year: true }) : null;
   const note = verification && verification.brand_note ? String(verification.brand_note) : '';
   return {
-    subject: `Your Certificate of Insurance is approved${expiryLabel ? ` — valid through ${expiryLabel}` : ''}`,
+    subject: `Your Certificate of Insurance is approved${expiryLabel ? `, valid through ${expiryLabel}` : ''}`,
     html: shell({
       eyebrow: 'Certificate of Insurance approved', tone: 'green',
       heading: `Your certificate is approved${expiryLabel ? ` through ${H(expiryLabel)}` : ''}.`,
       intro: expiryLabel
-        ? `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong>. Coverage is recorded as expiring on <strong>${H(expiryLabel)}</strong> &mdash; you can book demos on any date up to then. We'll remind you before it lapses.`
+        ? `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong>. Coverage is recorded as expiring on <strong>${H(expiryLabel)}</strong>. You can book demos on any date up to then. We'll remind you before it lapses.`
         : `Demohub reviewed the certificate on file for <strong>${H((brand && brand.company_name) || 'your brand')}</strong> and approved it.`,
       body: noteBlock(note),
       cta: { href: link(b, '/brand/dashboard#compliance'), label: 'View your compliance status' },
@@ -255,6 +279,106 @@ export function coiRejectedMessage(b, { brand, verification }) {
       body: noteBlock(note) || `<p style="font-size:14px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">The reviewer did not leave a note. Reply to this email if you need help.</p>`,
       cta: { href: link(b, '/brand/dashboard#compliance'), label: 'Upload a corrected certificate' },
       footer: brandFooter(brand),
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Brand payment receipt (2026-10-11). One per payment group, sent by the outbox when the ledger
+// records the group as paid (0091). The figures come from the LEDGER (payment_groups +
+// payment_allocations), never from a client; the card line and the Stripe receipt link are
+// best-effort additions from the charge and are simply omitted when unavailable.
+// ---------------------------------------------------------------------------
+// Stripe minor units: most currencies are 1/100, these are whole units. Unknown codes fall back to 1/100
+// and are shown with their code so the reader can tell. The code is always appended (Codex PR-7).
+const ZERO_DECIMAL = new Set(['bif', 'clp', 'djf', 'gnf', 'jpy', 'kmf', 'krw', 'mga', 'pyg', 'rwf', 'ugx', 'vnd', 'vuv', 'xaf', 'xof', 'xpf']);
+export function money(cents, currency = 'usd') {
+  const code = String(currency || 'usd').toLowerCase();
+  const n = ZERO_DECIMAL.has(code) ? Number(cents || 0) : Number(cents || 0) / 100;
+  let s;
+  try { s = n.toLocaleString('en-US', { style: 'currency', currency: code.toUpperCase(), minimumFractionDigits: ZERO_DECIMAL.has(code) ? 0 : 2 }); }
+  catch (_) { s = n.toFixed(ZERO_DECIMAL.has(code) ? 0 : 2); }
+  return `${s} ${code.toUpperCase()}`;
+}
+// Codex closure item 1: the abbreviation is taken at the DEMO's own instant in its zone (PDT in October,
+// PST in November for California), never at "now". With no resolvable instant the IANA name is shown
+// instead of a guess.
+export function zoneAbbrevAt(tz, instant) {
+  const zone = safeZone(tz);
+  if (!(instant instanceof Date) || Number.isNaN(instant.getTime())) return String(tz || '');
+  try { const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'short' }).formatToParts(instant); const z = parts.find(x => x.type === 'timeZoneName'); return z ? z.value : String(tz || ''); } catch (_) { return String(tz || ''); }
+}
+function receiptTimeLabel(demoTime) {
+  const s = String(demoTime || '').trim();
+  if (!s) return '';
+  if (/[ap]m$/i.test(s)) return s.toUpperCase().replace(/\s+/, ' ');
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return s;
+  const h = Number(m[1]), mm = m[2];
+  return `${h % 12 || 12}:${mm} ${h < 12 ? 'AM' : 'PM'}`;
+}
+function receiptRow(k, v, first) {
+  return `<tr><td style="padding:${first ? '14px' : '8px'} 16px 8px;font-size:12px;color:#6b6a64;text-transform:uppercase;letter-spacing:0.06em;white-space:nowrap;vertical-align:top;width:34%;">${H(k)}</td><td style="padding:${first ? '14px' : '8px'} 16px 8px;font-size:14px;color:#1c1c1a;vertical-align:top;">${v}</td></tr>`;
+}
+// receipt: { brand, retailer, group: {id, total_customer_amount, currency, status, stripe_payment_intent_id, stripe_charge_id},
+//            paidAt (ISO), items: [{demo_date, demo_time, product, venue_name, amount, refunded}], card: {brand, last4} | null,
+//            receiptUrl: string | null, resend: boolean }
+export function receiptMessage(b, receipt) {
+  const { brand, retailer, group } = receipt;
+  const items = Array.isArray(receipt.items) ? receipt.items : [];
+  const currency = (group && group.currency) || 'usd';
+  const total = money(group ? group.total_customer_amount : 0, currency);
+  const refunded = items.reduce((s, it) => s + Number(it.refunded || 0), 0);
+  const storeName = (retailer && retailer.name) || 'the store';
+  const tz = (retailer && retailer.timezone) || 'America/Los_Angeles';
+  // Codex PR-3: a recorded timestamp or an honest blank. Never a guess.
+  const paidAt = receipt.paidAt ? new Date(receipt.paidAt) : null;
+  const paidKnown = !!(paidAt && !Number.isNaN(paidAt.getTime()));
+  const paidLabel = paidKnown ? `${dateLabel(paidAt, { year: true, tz })} at ${timeLabel(paidAt, tz)}` : 'Not recorded on this receipt. Your card statement shows the date.';
+  const count = items.length;
+  const demoWord = count === 1 ? 'demo' : 'demos';
+  const demoLines = items.map(it => {
+    const itemTz = it.timezone || tz;
+    const zone = zoneAbbrevAt(itemTz, it.start_at ? new Date(it.start_at) : demoStartUtc(it.demo_date, it.demo_time, itemTz));
+    const timePart = receiptTimeLabel(it.demo_time);
+    const when = [it.demo_date ? dateLabel(String(it.demo_date).slice(0, 10), { year: true }) : null, timePart ? [timePart, zone].filter(Boolean).join(' ') : null].filter(Boolean).join(', ');
+    const where = it.venue_name ? ` at ${H(it.venue_name)}` : '';
+    const what = it.product ? ` &middot; ${H(it.product)}` : '';
+    const ref = it.booking_id ? `<div style="font-size:12px;color:#6b6a64;">Booking ref ${H(String(it.booking_id).slice(0, 8))}</div>` : '';
+    const refundNote = Number(it.refunded || 0) > 0 ? `<div style="color:#a14e2a;font-size:13px;">${H(money(it.refunded, currency))} refunded</div>` : '';
+    return `<tr><td style="padding:7px 0;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;vertical-align:top;"><strong style="color:#0f2c17;">${H(when || 'Date to be confirmed')}</strong>${where}${what}${ref}</td><td style="padding:7px 0 7px 14px;border-bottom:1px solid rgba(15,44,23,0.06);font-size:14px;line-height:1.5;color:#1c1c1a;text-align:right;white-space:nowrap;vertical-align:top;font-variant-numeric:tabular-nums;">${H(money(it.amount, currency))}${refundNote}</td></tr>`;
+  }).join('');
+  const ref = (group && (group.stripe_payment_intent_id || group.stripe_charge_id)) || (group && group.id) || '';
+  const refShort = ref ? String(ref).slice(-12) : '';
+  const rows = [
+    ['Amount paid', `<strong style="font-size:18px;color:#0f2c17;">${H(total)}</strong>`],
+    ['Paid on', H(paidLabel)],
+    ['Payment for', `${count || 'Your'} ${count ? demoWord : 'demo'} at ${H(storeName)}, booked through Demohub`],
+    receipt.card && receipt.card.last4 ? ['Card', `${H(receipt.card.brand ? String(receipt.card.brand).replace(/^\w/, c => c.toUpperCase()) : 'Card')} ending in ${H(receipt.card.last4)}`] : null,
+    ['Billed to', `${H((brand && brand.company_name) || 'your brand')}${brand && brand.email ? ` (${H(brand.email)})` : ''}`],
+    refShort ? ['Reference', `<span style="font-family:Menlo,Consolas,monospace;font-size:13px;">${H(refShort)}</span>`] : null,
+  ].filter(Boolean);
+  const table = `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${rows.map(([k, v], i) => receiptRow(k, v, i === 0)).join('')}</table>`;
+  const demosBlock = count
+    ? `<div style="margin:0 0 22px;"><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2a5b32;margin-bottom:6px;">${count} ${demoWord} covered by this payment</div><table cellpadding="0" cellspacing="0" style="width:100%;">${demoLines}</table><div style="font-size:12px;color:#6b6a64;margin-top:8px;line-height:1.5;">Dates and times are as of this receipt. If a demo is moved later, your brand portal shows the current schedule under the same booking reference.</div></div>`
+    : '';
+  const refundBlock = refunded > 0
+    ? `<div style="background:#fff3ed;border-left:4px solid #a14e2a;border-radius:10px;padding:12px 16px;margin:0 0 22px;font-size:14px;line-height:1.6;color:#1c1c1a;">${H(money(refunded, currency))} of this payment has since been refunded to the original payment method. The figures above show the original payment.</div>`
+    : '';
+  const stripeLine = receipt.receiptUrl
+    ? `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">Need the card processor's version for your books? <a href="${H(receipt.receiptUrl)}" style="color:#2a5b32;">View the Stripe receipt &rarr;</a></p>`
+    : '';
+  const copyFooter = `<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">Sent to you alone, at your request, as an account contact of <strong style="color:#0f2c17;">${H((brand && brand.company_name) || 'your brand')}</strong> on Demohub. Questions? Reply to this email.</p>`;
+  const footer = `${stripeLine}<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0 0 14px;">Keep this email for your records. You can ask for another copy of any receipt from your brand portal under Account.</p>${receipt.resend ? copyFooter : brandFooter(brand)}`;
+  return {
+    subject: `Your Demohub receipt: ${total} for ${count || 'your'} ${count ? demoWord : 'demo'} at ${storeName}`,
+    html: shell({
+      eyebrow: receipt.resend ? 'Payment receipt (copy)' : 'Payment receipt', tone: 'green',
+      heading: `Thanks, your payment of ${H(total)} went through.`,
+      intro: `This is your receipt for the demo fee${count > 1 ? 's' : ''} for <strong>${H(storeName)}</strong>, booked through Demohub${receipt.resend ? ', sent again at your request' : ''}.`,
+      body: table + demosBlock + refundBlock,
+      cta: { href: link(b, '/brand/dashboard#account'), label: 'Open your brand portal' },
+      footer,
     }),
   };
 }

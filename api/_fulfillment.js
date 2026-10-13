@@ -1,4 +1,4 @@
-// api/_fulfillment.js — the ONE implementation of "fulfil a paid booking".
+// api/_fulfillment.js, the ONE implementation of "fulfil a paid booking".
 //
 // R12-P0-2 (corrected): the webhook and the cron both call runFulfillment() in-process. The earlier
 // version had the cron self-call /api/fulfill-booking over HTTP, which fails behind Vercel
@@ -28,7 +28,7 @@ async function sbRpc(fn, args) {
   });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) {}
   if (!r.ok) throw new Error((j && j.message) || t || ('HTTP ' + r.status));
-  return j;   // RAW: claim_fulfillments returns an ARRAY — unwrapping it here silently broke the drain
+  return j;   // RAW: claim_fulfillments returns an ARRAY, unwrapping it here silently broke the drain
 }
 
 // Perform fulfilment for one claimed outbox row. Returns {done, demo_created, emails_sent, error, recorded}.
@@ -36,14 +36,14 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
   const bookingId = row.booking_id;
   // Codex C1 (0078): the claim carries the row's GENERATION. A capture re-issues a held row as a
   // new generation and drops the old lease, so a worker that claimed the held stage can no longer
-  // record anything on the paid work — complete_fulfillment() fences on owner + generation.
+  // record anything on the paid work, complete_fulfillment() fences on owner + generation.
   const generation = Number.isInteger(row.generation) ? row.generation : 1;
   let demoOk = !!row.demo_created, mailOk = !!row.emails_sent, err = null;
   try {
     // Codex R2 (2026-09-11): the promotion and (for auto-confirm) the demo projection are ONE
     // database transaction (0077 booking_transition 'promote_paid'), judged on the booking's CURRENT
     // state. Outcomes are explicit: applied (possibly idempotently on a retry), superseded (the
-    // booking was cancelled/declined/expired in between — the fulfilment is deliberately skipped and
+    // booking was cancelled/declined/expired in between, the fulfilment is deliberately skipped and
     // recorded as such, and no stale confirmation mail goes out), or a thrown database failure that
     // leaves the outbox row retryable.
     const wh = await import('./stripe-webhook.js');
@@ -69,12 +69,12 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
     } else {
       // Codex C1: held-stage work is only current if the booking is STILL held with a live authorization
       // and the outbox row is still this claim's generation. Otherwise it was captured (the paid work is
-      // a NEW generation this lease cannot touch — the completion below is refused) or cancelled/expired
+      // a NEW generation this lease cannot touch, the completion below is refused) or cancelled/expired
       // (this generation is current and the work is superseded); a "hold placed" notice is wrong either way.
       // The claimed object said 'held'; decide on the CURRENT facts: the booking must still be held with
       // a live authorization AND the outbox row must still be this claim's generation. A capture flips
       // payment_status to 'paid' and re-issues the row before the booking is promoted, so the status
-      // alone would still read 'held' — that is exactly the stale notice C1 forbids.
+      // alone would still read 'held', that is exactly the stale notice C1 forbids.
       let genNow = generation;
       try { const g = await sb(`booking_fulfillments?booking_id=eq.${encodeURIComponent(bookingId)}&select=generation`); genNow = (Array.isArray(g) && g[0] && Number.isInteger(g[0].generation)) ? g[0].generation : generation; } catch (_) {}
       if (ctx.status !== 'held' || ctx.payment_status !== 'authorized' || genNow !== generation) superseded = true;
@@ -98,7 +98,7 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
           // Codex F-1 (0083): the exact outbound message is FROZEN before the first provider attempt and
           // every retry replays it. freeze_fulfillment_outbound is fenced like record_fulfillment (live
           // lease owner AND generation AND pending), so it is also the pre-send lease check: a worker
-          // whose lease was taken over gets 'stale' and sends nothing. First writer wins — a retry
+          // whose lease was taken over gets 'stale' and sends nothing. First writer wins, a retry
           // receives the payload the first attempt froze, whatever the booking or the amount lookup
           // look like now, so the provider sees the SAME body under the SAME key (dedupe, not conflict).
           const prov = await import('./_provisional.js');
@@ -125,8 +125,8 @@ export async function runFulfillment(row, owner, { maxAttempts = 6 } = {}) {
 
   const done = demoOk && mailOk;
   // Codex R4-01 (0081): ONE transactional record-or-park operation, fenced on lease owner AND
-  // generation AND a still-pending row. It completes, records progress, or — when THIS claim's row
-  // has reached the retry cap — parks it and opens its deduplicated case, atomically. A stale claim
+  // generation AND a still-pending row. It completes, records progress, or, when THIS claim's row
+  // has reached the retry cap, parks it and opens its deduplicated case, atomically. A stale claim
   // (row re-issued by a capture, or re-leased after expiry) is a no-op: nothing is written, nothing
   // is parked, and the current owner finishes the work. There is no separate "park by booking id".
   let recorded = false, outcome = 'unrecorded', caseId = null;
@@ -162,7 +162,7 @@ export async function drainFulfillments({ limit = 25, group = null, leaseSeconds
     if (r.done && r.recorded) { out.completed++; continue; }
     out.failed++;
     // Codex R4-01: exhaustion is decided INSIDE record_fulfillment on the CURRENT row's attempts and
-    // only for a live claim — never from the claimed object's counters, never by booking id.
+    // only for a live claim, never from the claimed object's counters, never by booking id.
     if (r.outcome === 'exhausted') out.capped++;
   }
   return out;

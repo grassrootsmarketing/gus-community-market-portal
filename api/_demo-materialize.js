@@ -1,4 +1,4 @@
-// api/_demo-materialize.js — F5-19 / LG (confirm race): creating the calendar demo for a booking
+// api/_demo-materialize.js, F5-19 / LG (confirm race): creating the calendar demo for a booking
 // is idempotent and keyed on booking_id, so confirming twice (or a retry) never makes two demos.
 import { getBinding } from './_env.js';
 const rest=async(p,o={})=>{const b=await getBinding();return fetch(`${b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:b.serviceKey,Authorization:`Bearer ${b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});};

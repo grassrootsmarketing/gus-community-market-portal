@@ -1,11 +1,11 @@
-// api/notification-worker.js — the notification outbox worker (Codex Release A).
+// api/notification-worker.js, the notification outbox worker (Codex Release A).
 //
 // Cron every 15 minutes (vercel.json) behind CRON_SECRET, same auth + heartbeat shape as
 // refund-worker.js / provisional-sweep.js. Replaces the draft api/demo-reminders.js.
 //
 // PER RUN (api/_notification-outbox.js runWorker):
 //   1. fan out notification_events written by the 0074 triggers (booking confirmed / cancelled /
-//      rescheduled, COI approved / rejected) into notification_deliveries — one row per recipient;
+//      rescheduled, COI approved / rejected) into notification_deliveries, one row per recipient;
 //   2. schedule reminder deliveries for confirmed future bookings from each store contact's
 //      normalized reminder offsets (due_at in the store's zone; already-due rows are recorded as
 //      skipped, never sent as a backlog);
@@ -24,7 +24,7 @@
 // every attempted send was accepted (or skipped by design); a failed/unknown send, a lost lease, an
 // enqueue/read failure, a failed completion record, or a missing mail credential writes 'failed'
 // (summary.partial=true, first_error) and answers 500 so Vercel's cron log agrees (Codex F-03).
-// The summary carries counts only — no addresses, subjects or bodies.
+// The summary carries counts only, no addresses, subjects or bodies.
 //
 // NO CLOCK OVERRIDE. The route never accepts a `now`; tests drive the internals with injected clocks.
 

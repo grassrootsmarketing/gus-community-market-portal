@@ -1,4 +1,4 @@
-// /api/brand-portal — Brand-side auth + data fetch.
+// /api/brand-portal, Brand-side auth + data fetch.
 // Actions:
 //   POST { action: "login",  email, retailer_slug }  → emails a magic link
 //   POST { action: "verify", token }                  → sets dh_brand_session cookie
@@ -26,7 +26,7 @@ async function sb(path, opts = {}) {
 }
 
 // -----------------------------------------------------------------------------
-// Rate limit — fail-closed. Prevents magic-link email spam / token brute force.
+// Rate limit, fail-closed. Prevents magic-link email spam / token brute force.
 // -----------------------------------------------------------------------------
 function clientIpForRateLimit(req) {
   // cf-connecting-ip is attacker-supplied (not behind Cloudflare); x-real-ip is Vercel-set,
@@ -59,7 +59,7 @@ function magicLinkEmail({ contact_name, retailerName, link, expires_at }) {
 <tr><td style="padding:28px 32px;background:#0f2c17;">
 <table cellpadding="0" cellspacing="0"><tr>
 <td style="padding-right:12px;vertical-align:middle;">
-<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><circle cx="36" cy="40" r="18" fill="#ed682f"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
+<svg width="36" height="36" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>
 </td><td style="font-weight:800;font-size:22px;color:#fbf7f0;letter-spacing:-0.04em;">demohub</td>
 </tr></table>
 </td></tr>
@@ -121,7 +121,7 @@ export default async function handler(req, res) {
         const token = Array.isArray(tokens) ? tokens[0]?.token : null;
         const link = siteLink(_b, `/b/${retailer_slug}/?token=${encodeURIComponent(token)}`);
         if (_b.resendApiKey && token) {
-          await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'david@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }, { binding: _b });
+          await sendMailQuietly({ from: FROM_ADDRESS, to: email, replyTo: 'bookings@demohubhq.com', subject: `Your ${retailer.name} brand portal`, html: magicLinkEmail({ contact_name: contact.name, retailerName: retailer.name, link }) }, { binding: _b });
         }
       }
       // Always respond 200 to prevent email enumeration
@@ -148,7 +148,7 @@ export default async function handler(req, res) {
       });
       const session = Array.isArray(sessions) ? sessions[0] : null;
       if (!session?.session_id) return res.status(500).json({ error: 'Could not start session' });
-      // Role 'brand', not 'retailer': every signal in this file is brand-side — brand_tokens,
+      // Role 'brand', not 'retailer': every signal in this file is brand-side, brand_tokens,
       // brand_sessions, brand_contacts, the /b/<slug>/ portal path, and a magic-link email that
       // says "view your demos at <retailer>". The retailer_slug here scopes WHICH retailer's demos
       // a brand contact may see; it does not make the caller retailer staff.
@@ -156,7 +156,7 @@ export default async function handler(req, res) {
       // CAVEAT, recorded because reviving this route without reading it would break sign-in:
       // dh_brand_session is validated elsewhere (api/_booking-identity.js, api/brand-account.js)
       // against brand_account_sessions.session_token, while this route mints a row in the DIFFERENT
-      // brand_sessions table. The mismatch fails closed — the token simply does not resolve — but it
+      // brand_sessions table. The mismatch fails closed, the token simply does not resolve, but it
       // would evict a live booking session. The right fix on revival is to issue a
       // brand_account_sessions token here, not to give this dead route a fourth cookie name.
       setSessionCookie(res, 'brand', session.session_id);

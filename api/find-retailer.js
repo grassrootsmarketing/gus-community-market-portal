@@ -5,14 +5,15 @@
 //     payload for the public booking page. Server-side, uses SERVICE key, returns
 //     ONLY safe public fields (no PII, no contacts, no compliance docs).
 
+import { signinConfigStatus } from './_signin-config.js';
 import { getBinding, sendBindingFailure, BindingError } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { publicAvailability } from './_slots.js';
 let _b = null;
 
 // Phase E: PER-JOB cron liveness. The old check read the single most recent cron_heartbeat row of
-// ANY job and called "<25h old" healthy — so the daily job masked a dead 15-minute worker. Each job
-// is judged by its OWN heartbeat rows. Codex F-03: the LATEST COMPLETED row governs — a job is
+// ANY job and called "<25h old" healthy, so the daily job masked a dead 15-minute worker. Each job
+// is judged by its OWN heartbeat rows. Codex F-03: the LATEST COMPLETED row governs, a job is
 // healthy iff that row is 'succeeded' AND fresh (within maxAgeMin). A 'failed' row written after a
 // fresh success flips the job unhealthy until a later 'succeeded' recovers it; 'started' rows (the
 // daily job writes one before its final row) are ignored when picking the latest completed outcome.
@@ -53,7 +54,7 @@ async function cronJobHealth(job) {
   h.ok = fresh && !!lastCompleted && lastCompleted.outcome === 'succeeded';
   // A job that is intentionally off is reported healthy so it cannot degrade production.
   if (!h.required) h.ok = true;
-  // Release A: the outbox backlog is reported SEPARATELY from liveness (internal shape only — the
+  // Release A: the outbox backlog is reported SEPARATELY from liveness (internal shape only, the
   // public projection below stays {ok, required}). backlog_ok = no delivery has been due for more
   // than 60 minutes without being sent. A run can be alive and still be falling behind.
   if (job.backlog && h.required) {
@@ -66,6 +67,15 @@ async function cronJobHealth(job) {
       h.backlog_overdue_60m = m ? Number(m[1]) : null;
       h.backlog_ok = m ? Number(m[1]) === 0 : null;
     } catch (_) { h.backlog_ok = null; }
+    // Codex receipts closure item 2: deliveries parked for an operator (skip_reason 'review_required:...')
+    // are reported here as well, so the number is visible without reading the worker's heartbeat rows.
+    try {
+      const r2 = await fetch(`${_b.supabaseUrl}/rest/v1/notification_deliveries?status=eq.skipped&skip_reason=like.review_required*&select=id`, {
+        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, Prefer: 'count=exact', Range: '0-0', 'Range-Unit': 'items' },
+      });
+      const m2 = (r2.headers.get('content-range') || '').match(/\/(\d+)$/);
+      h.review_required = m2 ? Number(m2[1]) : null;
+    } catch (_) { h.review_required = null; }
   }
   return h;
 }
@@ -105,7 +115,7 @@ export default async function handler(req, res) {
   else if (!slug || !/^[a-z0-9-]+$/.test(slug)) return res.status(400).json({ error: 'invalid slug' });
 
   try {
-    // ---- ACTION: status — health snapshot for /status page (anonymous) ----
+    // ---- ACTION: status, health snapshot for /status page (anonymous) ----
     if (action === 'status') {
       const checks = { db: { ok: false, ms: null }, cron: { ok: false, jobs: {} }, errors: { last_24h: 0 } };
       const startMs = Date.now();
@@ -159,12 +169,14 @@ export default async function handler(req, res) {
       // Status: incident=major → outage, incident=minor → degraded, no incidents + checks ok → operational
       const hasMajor = incidents.some(i => i.severity === 'major');
       const hasMinor = incidents.length > 0;
-      const allChecksOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50;
+      // Codex S-1: sign-in configuration readiness (coarse: ok or not; reasons stay in the server log).
+      const signin = signinConfigStatus(_b);
+      const allChecksOk = checks.db.ok && checks.cron.ok && checks.errors.last_24h < 50 && signin.ok;
       let status = 'operational';
       if (hasMajor) status = 'outage';
       else if (hasMinor || !allChecksOk) status = 'degraded';
       // DH-21: expose only coarse public health. Drop latency ms, error counts, cron durations,
-      // and incident bodies — those are operator telemetry, not for an anonymous endpoint.
+      // and incident bodies, those are operator telemetry, not for an anonymous endpoint.
       // Per-job cron health stays coarse too: ok + required per job, never ages/outcomes/summaries.
       const publicJobs = {};
       for (const job of CRON_JOBS) {
@@ -175,12 +187,13 @@ export default async function handler(req, res) {
         db: { ok: !!checks.db.ok },
         cron: { ok: !!checks.cron.ok, jobs: publicJobs },
         errors: { ok: (checks.errors.last_24h || 0) < 50 },
+        signin: { ok: !!signin.ok },
       };
       const publicIncidents = incidents.map(i => ({ title: i.title, severity: i.severity, started_at: i.started_at }));
       return res.status(200).json({ ok: true, status, checks: publicChecks, incidents: publicIncidents, checked_at: new Date().toISOString() });
     }
 
-    // ---- ACTION: public-data — sanitized read for /r/{slug} booking page ----
+    // ---- ACTION: public-data, sanitized read for /r/{slug} booking page ----
     if (action === 'public-data') {
       if (!_b.serviceKey) return res.status(500).json({ error: 'service key not configured' });
       // Whitelist of safe retailer columns. Explicitly excludes: billing_email,
@@ -189,8 +202,11 @@ export default async function handler(req, res) {
       // Release B (Codex R6): the store's zone is public so the booking page can withhold a slot
       // whose interval would cross a clock change on the chosen date.
       const retailerCols = 'id,slug,name,branding,demo_policy,cancellation_policy,logo_url,platform_keeps_all,timezone';
-      const rets = await sb(`retailers?slug=eq.${encodeURIComponent(slug)}&select=${retailerCols}`, true);
-      const retailer = Array.isArray(rets) ? rets[0] : null;
+      // verification_status is read for the go-live flag only; the raw review state is not published.
+      const rets = await sb(`retailers?slug=eq.${encodeURIComponent(slug)}&select=${retailerCols},verification_status`, true);
+      const _row = Array.isArray(rets) ? rets[0] : null;
+      const acceptingBookings = !!_row && _row.verification_status === 'approved';
+      const retailer = _row ? (({ verification_status, ...pub }) => pub)(_row) : null;
       if (!retailer) return res.status(404).json({ error: 'not found' });
       const rid = retailer.id;
 
@@ -198,18 +214,19 @@ export default async function handler(req, res) {
       const venueCols = 'id,name,address,availability,max_demos_per_slot,display_order,demo_fee';
       const venues = await sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=${venueCols}&order=display_order`, true);
 
-      // Capacity snapshot from bookings + demos — venue_id + demo_date + demo_time + status only,
+      // Capacity snapshot from bookings + demos, venue_id + demo_date + demo_time + status only,
       // NO contact info / email / phone / brand name. Pure aggregate input for slot capacity calc.
       const bookings = await sb(`bookings?retailer_id=eq.${encodeURIComponent(rid)}&select=venue_id,demo_date,demo_time,status`, true);
       const demos = await sb(`demos?retailer_id=eq.${encodeURIComponent(rid)}&select=venue_id,demo_date,demo_time,status`, true);
 
-      // Settings: a few safe public fields (advance booking, demo fee — for display)
+      // Settings: a few safe public fields (advance booking, demo fee, for display)
       const settingsAll = await sb(`settings?retailer_id=eq.${encodeURIComponent(rid)}&select=demo_fee,demo_duration,advance_booking_days&limit=1`, true);
       const settings = Array.isArray(settingsAll) ? (settingsAll[0] || null) : null;
 
       return res.status(200).json({
         ok: true,
         retailer,
+        accepting_bookings: acceptingBookings,
         // Release B: hours/slots are public (the page renders them); blackout REASONS are not.
         venues: (venues || []).map(v => ({ ...v, availability: publicAvailability(v.availability) })),
         bookings: bookings || [],

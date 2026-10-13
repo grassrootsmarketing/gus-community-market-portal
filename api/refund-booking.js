@@ -1,4 +1,4 @@
-// api/refund-booking.js — RETIRED (410).
+// api/refund-booking.js, RETIRED (410).
 //
 // Legacy F5-15/18 per-booking "decline refund". Superseded by api/booking-action.js
 // (action:'cancel' | 'decline'), which is the SOLE canonical retailer cancellation/refund path:
@@ -7,7 +7,7 @@
 // out across a multi-demo payment.
 //
 // This route wrote a nonexistent `bookings.amount_refunded` column (via _refund-recovery.js) and
-// therefore 500'd on every paid booking. It is retired rather than fixed — a second refund
+// therefore 500'd on every paid booking. It is retired rather than fixed, a second refund
 // architecture that bypasses the allocation ledger is exactly the split path this project is closing.
 // Its dead helpers `_refund-recovery.js` and `_refund-ledger.js` are removed with it.
 //
@@ -24,7 +24,7 @@ export default async function handler(req, res) {
   /* eslint-disable no-unreachable */
   // Unreachable behind the 410, and kept exactly for that reason (as brand-portal.js does): this is a
   // money-moving route, so if it is ever revived it is revived with the CSRF guard already on it. It
-  // deliberately does NOT restore the old per-booking refund logic — a revival must reserve against the
+  // deliberately does NOT restore the old per-booking refund logic, a revival must reserve against the
   // allocation ledger the way booking-action.js does, not write bookings columns directly.
   let _b;
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }

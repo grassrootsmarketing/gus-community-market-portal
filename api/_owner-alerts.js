@@ -1,6 +1,6 @@
-// api/_owner-alerts.js — the operator's "a brand actually booked" ping.
+// api/_owner-alerts.js, the operator's "a brand actually booked" ping.
 //
-// David (2026-09-11): one email to the owner only when a booking is REAL — the brand completed
+// David (2026-09-11): one email to the owner only when a booking is REAL, the brand completed
 // checkout. That is either a paid booking (funds captured) or an authorized hold (funds held, COI
 // pending). It is NOT sent at /api/book time (an abandoned checkout is not a booking) and it is not
 // re-sent when a hold is later captured (the owner already heard about that booking as a hold).
@@ -8,7 +8,7 @@
 // Delivery (Codex H2, 2026-09-12): the message is BUILT here and DELIVERED by the notification
 // outbox (api/_notification-outbox.js, recipient_kind 'owner'). The event is written by the 0080
 // trigger on the booking's first verified payment state, so it has its own durable identity, lease,
-// frozen payload, provider idempotency key, retries and recorded outcome — independent of the
+// frozen payload, provider idempotency key, retries and recorded outcome, independent of the
 // payment fulfilment worker and of the brand's own mail. Nothing here sends.
 //
 // Codex preview review (2026-09-11):
@@ -16,9 +16,9 @@
 //      at send time): manual-confirm retailers need COI approval AND a confirmation; auto-confirm
 //      retailers get an attempted capture on approval (never promised as certain). Unknown mode →
 //      neutral instructions. Authorization / capture / release terminology kept distinct.
-//   2. (preview generator) the displayed sender line is escaped — tools/render-owner-alert-preview.mjs.
+//   2. (preview generator) the displayed sender line is escaped, tools/render-owner-alert-preview.mjs.
 //   3. The occurrence is shown with its timezone and length. Source of truth, in order: the accepted
-//      snapshot on the booking row (start_at / end_at / timezone — Release B, 0075+) when present;
+//      snapshot on the booking row (start_at / end_at / timezone, Release B, 0075+) when present;
 //      otherwise the documented legacy fallback: demo_date + demo_time in the retailer's timezone
 //      with the retailer's demo-length SETTING (settings.demo_duration, e.g. "3 hours"); a length
 //      that cannot be established is reported as "length not recorded", never invented.
@@ -70,7 +70,7 @@ export function parseDurationHours(text) {
 }
 function fmtHours(h) { return Number.isInteger(h) ? h + (h === 1 ? ' hour' : ' hours') : Math.round(h * 60) + ' minutes'; }
 
-// The occurrence line. Returns { text, source } — text is plain (escaped by the caller).
+// The occurrence line. Returns { text, source }, text is plain (escaped by the caller).
 export function describeOccurrence(ctx, { retailerTimezone = null, settingDuration = null } = {}) {
   // 1. Accepted snapshot (Release B): the instants the booking was accepted at, in the booking's own zone.
   const s = ctx.start_at ? new Date(ctx.start_at) : null, e = ctx.end_at ? new Date(ctx.end_at) : null;
@@ -96,17 +96,17 @@ export function describeOccurrence(ctx, { retailerTimezone = null, settingDurati
 export function holdInstructions(autoConfirm, expiryLabel) {
   const by = expiryLabel ? ` before ${expiryLabel}` : ' before the hold expires';
   if (autoConfirm === true) {
-    return `Card authorized — not charged. Review and approve a COI covering this demo date${by}. With auto-confirm enabled, approval triggers an attempt to capture the payment and confirm the booking; check the booking's status to verify it completed. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+    return `Card authorized, not charged. Review and approve a COI covering this demo date${by}. With auto-confirm enabled, approval triggers an attempt to capture the payment and confirm the booking; check the booking's status to verify it completed. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
   }
   if (autoConfirm === false) {
-    return `Card authorized — not charged. Review and approve a COI covering this demo date, then confirm the booking in the retailer admin${by}. Approving the COI alone does not capture the payment. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+    return `Card authorized, not charged. Review and approve a COI covering this demo date, then confirm the booking in the retailer admin${by}. Approving the COI alone does not capture the payment. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
   }
-  return `Card authorized — not charged. Review the COI${by}, then check the booking in the retailer admin to see whether its confirmation is still required. An uncaptured authorization is released after expiry (not refunded — nothing was charged).`;
+  return `Card authorized, not charged. Review the COI${by}, then check the booking in the retailer admin to see whether its confirmation is still required. An uncaptured authorization is released after expiry (not refunded; nothing was charged).`;
 }
 
 // kind: 'paid' (captured; targetStatus pending = awaiting retailer confirmation, confirmed = auto-confirmed)
 //       'hold' (authorized, not charged; COI to approve within the hold window)
-// facts: { autoConfirm: true|false|null, retailerTimezone, settingDuration } — read at send time.
+// facts: { autoConfirm: true|false|null, retailerTimezone, settingDuration }, read at send time.
 export function ownerBookedEmail(ctx, { kind, targetStatus, facts = {} }, binding) {
   const brand = (ctx.brand_name || ctx.company_name || ctx.contact_email || 'A brand');
   const retailerName = (ctx.retailers && ctx.retailers.name) || 'a retailer';
@@ -121,7 +121,7 @@ export function ownerBookedEmail(ctx, { kind, targetStatus, facts = {} }, bindin
     ? holdInstructions(typeof facts.autoConfirm === 'boolean' ? facts.autoConfirm : null, expiryLabel)
     : (targetStatus === 'confirmed'
         ? 'PAID and CONFIRMED' + (facts.autoConfirm === true ? ' (this retailer auto-confirms)' : ' by the retailer') + '. The demo is on the calendar.'
-        : 'PAID — awaiting the retailer\'s confirmation in their admin.');
+        : 'PAID, awaiting the retailer\'s confirmation in their admin.');
   const row = (k, v) => v ? '<tr><td style="padding:3px 14px 3px 0;color:#6b6a64;vertical-align:top;white-space:nowrap;">' + k + '</td><td style="padding:3px 0;">' + v + '</td></tr>' : '';
   const btn = (href, label, bg) => '<a href="' + href + '" style="display:inline-block;background:' + bg + ';color:#fff;padding:11px 22px;border-radius:9px;text-decoration:none;font-weight:700;font-size:14px;margin-right:8px;">' + label + '</a>';
   const subject = (kind === 'hold' ? 'Hold placed: ' : 'Booked: ') + brand + ' -> ' + retailerName + (venueName ? ' / ' + venueName : '') + ' | ' + (ctx.demo_date || '') + ' ' + (ctx.demo_time || '');
