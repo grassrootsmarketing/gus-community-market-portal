@@ -4,6 +4,7 @@
 import { requireBrandSession } from './_booking-identity.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
+import { FLAGS } from './_flags.js';
 import { normalizeCode, CODE_MESSAGES, KIND_LABELS, kindOf, checkAttemptLimit, netHash } from './_booking-codes.js';
 
 export default async function handler(req, res) {
@@ -17,6 +18,7 @@ export default async function handler(req, res) {
   const rr = await fetch(`${b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug || ''))}&select=id`, { headers: H });
   const retailer = rr.ok ? (await rr.json())[0] : null;
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+  if (!FLAGS.bookingCodes) return res.status(503).json({ error: 'booking_codes_disabled', message: CODE_MESSAGES.booking_codes_disabled });   // Codex BC R1
   const norm = normalizeCode(body.code);
   if (!norm) return res.status(400).json({ error: 'code_invalid_format', message: CODE_MESSAGES.code_invalid_format });
   const rpc = async (fn, args) => { const rr2 = await fetch(`${b.supabaseUrl}/rest/v1/rpc/${fn}`, { method: 'POST', headers: H, body: JSON.stringify(args) }); if (!rr2.ok) throw new Error('rpc ' + rr2.status); const j2 = await rr2.json(); return Array.isArray(j2) ? j2[0] : j2; };

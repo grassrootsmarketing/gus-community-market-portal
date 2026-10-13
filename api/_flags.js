@@ -56,6 +56,12 @@ export const FLAGS = {
   // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
   // proven in-process (tests/release_b_corrections.test.mjs R4) without re-importing the module graph.
   get slotEditing() { return exactTrue(process.env.SLOT_EDITING_ENABLED); },
+  // Booking codes (0085, Codex BC R1 2026-10-13): ISSUANCE and REDEMPTION of codes. Exactly "true" = on. Anything
+  // else = the "compatible disabled build": no code can be generated (retailer or owner), previewed or applied to a
+  // booking, while everything that already exists keeps working: codes are listed and can be turned off, waived
+  // bookings display, fulfil, confirm, cancel, are refused by checkout, and recover by operation key. Read at request
+  // time so flipping the Vercel variable + redeploy is the whole switch.
+  get bookingCodes() { return exactTrue(process.env.BOOKING_CODES_ENABLED); },
   // Codex C-1 (2026-10-03): maintenance gate for the CODE-BASED sign-in flows only (brand sign-in/sign-up,
   // retailer sign-up: request and verify). On = those routes answer 503 before any quota is spent, so a schema
   // switch (migration 0089) can happen with no half-working issuance. Payments, existing sessions, the

@@ -5502,8 +5502,14 @@ function escapeHtml(s) {
         }
         async function loadBookingCodes() {
             const st = document.getElementById('bookingCodesStatus'); if (!document.getElementById('bookingCodesList')) return;
-            try { const r = await fetch('/api/admin?action=codes-list', { credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); renderBookingCodes(j.codes); }
-            catch (e) { if (st) st.textContent = 'Could not load codes.'; }
+            // Codex BC R3: a failed read says so (and clears any stale list); a capped list says it is capped. Codex BC R1: when
+            // issuance is switched off the Generate button is disabled and the card says why; turning codes off still works.
+            try { const r = await fetch('/api/admin?action=codes-list', { credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); renderBookingCodes(j.codes);
+                const gb = document.getElementById('codeGenerateBtn'); if (gb) { gb.disabled = j.enabled === false; gb.title = j.enabled === false ? 'Booking codes are switched off right now' : ''; }
+                const notes = []; if (j.enabled === false) notes.push('Booking codes are switched off right now: no new codes can be made or applied. Existing codes are listed and can still be turned off.');
+                if (j.complete && j.complete.codes === false) notes.push('Showing the newest 200 codes only.'); if (j.complete && j.complete.redemptions === false) notes.push('Redemption history is limited to the newest 500 and may be incomplete for older codes.');
+                if (st) st.textContent = notes.join(' '); }
+            catch (e) { const el = document.getElementById('bookingCodesList'); if (el) el.innerHTML = '<div class="sub" style="color:#a14e2a;">The code list could not be read just now, so nothing is shown rather than an empty list. Reload to retry.</div>'; if (st) st.textContent = ''; }
         }
         async function generateBookingCode() {
             const st = document.getElementById('bookingCodesStatus'), btn = document.getElementById('codeGenerateBtn');
@@ -5515,7 +5521,7 @@ function escapeHtml(s) {
                 const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
                 st.textContent = 'Created ' + j.code.code + '. Copy it to the brand.'; document.getElementById('codeNote').value = '';
                 await loadBookingCodes();
-            } catch (e) { st.textContent = 'Could not create the code: ' + (e.message || e); }
+            } catch (e) { st.textContent = /not available right now|booking_codes_disabled/.test(String(e.message || e)) ? 'Booking codes are switched off right now, so no code was made.' : 'Could not create the code: ' + (e.message || e); }
             finally { btn.disabled = false; }
         }
         async function deactivateBookingCode(id) {

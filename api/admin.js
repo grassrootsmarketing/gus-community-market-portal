@@ -403,12 +403,15 @@ export default async function handler(req, res) {
   // applies to the two writes; viewers may list. Codes are generated server-side, never chosen by the client.
   if (['codes-list', 'codes-create', 'codes-deactivate'].includes(String(req.query?.action || ''))) {
     const action = String(req.query.action); const rid = session.retailer_id;
-    const { listCodes, createCode, deactivateCode } = await import('./_booking-codes.js');
+    const { listCodes, createCode, deactivateCode, CODE_MESSAGES } = await import('./_booking-codes.js'); const CODE_MESSAGES_DISABLED = CODE_MESSAGES.booking_codes_disabled;
     try {
-      if (action === 'codes-list') return send(res, 200, { ok: true, codes: await listCodes(sb, rid) });
+      // Codex BC R3: a list that could not be read is a 503 (codes_unavailable), never an empty list; the caps are reported.
+      if (action === 'codes-list') { const lc = await listCodes(sb, rid); return send(res, 200, { ok: true, codes: lc.codes, complete: lc.complete, enabled: FLAGS.bookingCodes }); }
       if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
       let body; try { body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {}); } catch (_) { return send(res, 400, { error: 'Invalid body' }); }
       if (action === 'codes-create') {
+        // Codex BC R1: issuance is part of the switch; the SQL disable script alone could not stop this insert.
+        if (!FLAGS.bookingCodes) return send(res, 503, { error: 'booking_codes_disabled', message: CODE_MESSAGES_DISABLED });
         const rr = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=slug`); const r = await createCode(sb, { retailerId: rid, retailerSlug: rr && rr[0] && rr[0].slug, body, createdBy: 'retailer', createdByEmail: session.email });
         return send(res, r.status, r.ok ? { ok: true, code: r.code } : { error: r.error });
       }

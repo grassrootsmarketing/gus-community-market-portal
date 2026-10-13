@@ -7,7 +7,7 @@ A retailer, or Demohub from the owner portal's Retailers tab, generates a code a
 - **Money.** A booking is either full price through the payment ledger (checkout → Stripe → `apply_verified_payment`) or free with **no** ledger row at all (`payment_status = 'waived'`, `amount_paid = 0`, demo projected at $0). No discounted amounts exist. Checkout refuses a fee-waived booking and a ledger trigger (`pa_refuse_fee_waived`) makes that impossible to bypass.
 - **One code covers one demo.** In a multi-demo cart the brand picks which demo the code applies to ("use code here"); the others go through ordinary grouped checkout at full price. Each cart item carries a durable operation key; a code-bearing booking is created and redeemed in one database transaction (`booking_create_with_code`) so a lost response is replayed by key, never duplicated, and a refused code leaves no booking.
 - **Advance notice.** `settings.advance_booking_days` (default 14) is enforced by `/api/book` in the retailer's local calendar. Nothing before today; a same-day slot that has already started is refused. A short-notice code relaxes a positive minimum to tomorrow and never tightens a store that already allows sooner. Only the demo the code is assigned to may sit inside the window.
-- **COI.** A no-fee code needs a verified certificate (there is no fee to hold while a certificate is reviewed). Short-notice codes work on provisional (held) bookings like any other; the hold expiry is unchanged.
+- **COI.** Every code needs a verified certificate on file. A brand without one is booking a provisional (held) demo, and this release accepts NO code on that path (`coi_required_for_code`); see "Provisional (held) bookings take no code" below. The hold expiry is unchanged.
 - **Free-booking lifecycle.** The fulfilment worker promotes it (confirmed, or pending for store review, per the store's setting) within about a minute; until then a cancel attempt gets a defined `awaiting_confirmation` refusal. After promotion, confirm / decline / cancel behave normally with nothing to refund; the redemption record stays and the use is not replenished.
 
 ## Guessing defences
@@ -16,7 +16,11 @@ Codes are `PREFIX-KIND-XXXXXXXX`: eight symbols from a 32-symbol unambiguous alp
 
 ## Rollback
 
-Once codes have been redeemed, do not drop the columns or run an app that does not know `fee_waived`. To disable: turn off issuance (retailer/owner "Generate" actions) and redemption (refuse codes in `/api/book`), keep the reader, fulfilment and cancellation paths. Never delete `booking_code_redemptions` or `booking_operations`.
+Two different situations (Codex BC R1, 2026-10-13):
+
+**Before any code has been used (pre-use rollback).** Nothing in the data depends on the feature yet. Either set `BOOKING_CODES_ENABLED` to anything but `true` on Vercel (Production) and redeploy, which is the disabled build below, or revert the deploy. The 0085 tables and the two `bookings` columns (`booking_code_id` nullable, `fee_waived` NOT NULL DEFAULT false) stay in place either way; older code never reads them and the `pa_refuse_fee_waived` trigger has nothing to refuse.
+
+**After a code has been redeemed (post-redemption disablement).** Do NOT revert to a build that does not know `fee_waived`: the new build passes an explicit $0 fee at fulfilment and manual confirmation and refuses waived bookings in checkout, and an older build would not. The only rollback is the disabled build: set `BOOKING_CODES_ENABLED` to anything but `true` on Vercel (Production), redeploy, and confirm `/api/booking-code` answers 503 `booking_codes_disabled`. In that build no code can be generated (retailer or owner), previewed or applied, while existing waived bookings still display, fulfil, confirm with a $0 demo, cancel, are refused by checkout, and recover by operation key; existing codes are listed and can still be turned off. `cutover-kit/0085-rollback-disable.sql` may be run in addition (it deactivates every code and revokes the create/redeem RPCs from the service role) but it is not a substitute: it cannot stop the direct inserts behind the Generate actions, which only the switch stops. Never delete `booking_code_redemptions`, `booking_operations`, the codes, or any booking.
 
 ## Recovery (Codex completion review, 2026-09-25)
 

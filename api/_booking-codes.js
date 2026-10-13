@@ -27,6 +27,7 @@ export function kindFlags(kind) {
 }
 export const KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
 export const CODE_MESSAGES = {
+  booking_codes_disabled: 'Booking codes are not available right now. Book without a code, or ask the store.',
   too_many_attempts: 'Too many code attempts. Wait a few minutes and try again.',
   code_unavailable: 'Codes cannot be checked right now. You can still book at the normal price.',
   code_not_found: 'That code is not valid for this store.',
@@ -57,12 +58,22 @@ export function validateCreate(body) {
 
 // ---- data access shared by the retailer admin (api/admin.js) and the owner portal (api/admin-auth.js) ----------
 // `sb(path, opts)` is the caller's service-role REST helper (returns parsed JSON).
+// Codex BC R3 (2026-10-13): a read that does not answer with a row list is an ERROR (CodesReadError), never an
+// empty list; HTTP failures from the sb helper propagate as they always did. The two reads are capped (200 codes,
+// 500 redemptions) and the caller is told whether each cap was hit, so a UI can label a limited history as limited.
+export const CODES_CAP = 200, REDEMPTIONS_CAP = 500;
+export class CodesReadError extends Error { constructor(code, detail) { super(code); this.name = 'CodesReadError'; this.code = code; this.detail = detail || null; } }
 export async function listCodes(sb, retailerId) {
   const rid = encodeURIComponent(retailerId);
-  const codes = await sb(`booking_codes?retailer_id=eq.${rid}&select=id,code,waives_fee,waives_lead_time,max_uses,use_count,expires_at,active,note,created_by,created_by_email,created_at,deactivated_at&order=created_at.desc&limit=200`);
-  const reds = await sb(`booking_code_redemptions?retailer_id=eq.${rid}&select=code_id,booking_id,brand_name,waived_fee,waived_lead_time,redeemed_at&order=redeemed_at.desc&limit=500`);
-  const byCode = {}; for (const r of (Array.isArray(reds) ? reds : [])) (byCode[r.code_id] = byCode[r.code_id] || []).push(r);
-  return (Array.isArray(codes) ? codes : []).map(c => ({ ...c, kind: kindOf(c), redemptions: byCode[c.id] || [] }));
+  const codes = await sb(`booking_codes?retailer_id=eq.${rid}&select=id,code,waives_fee,waives_lead_time,max_uses,use_count,expires_at,active,note,created_by,created_by_email,created_at,deactivated_at&order=created_at.desc&limit=${CODES_CAP}`);
+  if (!Array.isArray(codes)) throw new CodesReadError('codes_unreadable', { got: codes === null ? 'null' : typeof codes });
+  const reds = await sb(`booking_code_redemptions?retailer_id=eq.${rid}&select=code_id,booking_id,brand_name,waived_fee,waived_lead_time,redeemed_at&order=redeemed_at.desc&limit=${REDEMPTIONS_CAP}`);
+  if (!Array.isArray(reds)) throw new CodesReadError('redemptions_unreadable', { got: reds === null ? 'null' : typeof reds });
+  const byCode = {}; for (const r of reds) (byCode[r.code_id] = byCode[r.code_id] || []).push(r);
+  return {
+    codes: codes.map(c => ({ ...c, kind: kindOf(c), redemptions: byCode[c.id] || [] })),
+    complete: { codes: codes.length < CODES_CAP, redemptions: reds.length < REDEMPTIONS_CAP },
+  };
 }
 export async function createCode(sb, { retailerId, retailerSlug, body, createdBy, createdByEmail }) {
   const v = validateCreate(body || {}); if (!v.ok) return { ok: false, status: 400, error: v.error };

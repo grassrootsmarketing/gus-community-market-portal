@@ -291,6 +291,75 @@ try {
     const noauth = await callRoute('admin-auth.js', req({ body: { action: 'owner-retailer-profile', retailer_id: retailerId } })); ok('without an owner session the profile is 401', noauth.statusCode === 401);
     const asStaff = await callRoute('admin-auth.js', req({ body: { action: 'owner-retailer-profile', retailer_id: retailerId }, cookies: { dh_retailer_session: staffCookie } })); ok('a retailer staff session is not an owner session', asStaff.statusCode === 401);
     const list = await admin('codes-list', {}, staffCookie, 'GET'); ok('the retailer sees the owner-made code in its own list, created_by owner', list.body.codes.some(c => c.id === oc.body.code.id && c.created_by === 'owner')); }
+
+  console.log('\n:: Codex BC R4: negative paths are not displaced by the approved happy-path fixtures ::');
+  { const pendingSlug = uniq('pend');
+    const pendingRid = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: pendingSlug, name: 'Pending Market', verification_status: 'pending', billing_email: pendingSlug + '@fixture.test', billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
+    const pendingV = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: pendingRid, name: 'Pending Main', address: '1 P St', demo_fee: 30, availability: STANDARD }) })).id);
+    const pc = one(await db('booking_codes', { method: 'POST', body: JSON.stringify({ retailer_id: pendingRid, code: 'PEND-FREE-' + Date.now().toString(36).toUpperCase().slice(-6), waives_fee: true, waives_lead_time: false, max_uses: 1, created_by: 'retailer' }) }));
+    track('booking_codes', pc && pc.id);
+    const r = await callRoute('book.js', req({ body: { retailer_slug: pendingSlug, venue_id: pendingV, demo_date: FAR, demo_time: T, product_skus: FIXTURE_PRODUCTS, booking_code: pc.code, op_key: opKey() }, cookies: { dh_brand_session: brandCookie } }));
+    ok('R4: a code booking at a store that is NOT approved is refused 403 retailer_not_live, nothing written', r.statusCode === 403 && r.body.error === 'retailer_not_live' && ((await db(`bookings?retailer_id=eq.${pendingRid}&select=id`)).body || []).length === 0, `${r.statusCode} ${JSON.stringify(r.body).slice(0, 120)}`);
+    const noProducts = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_date: FAR5, demo_time: T, booking_code: feeCode.code, op_key: opKey() }, cookies: { dh_brand_session: brandCookie } }));
+    const uses0 = (await codesFor()).find(x => x.id === feeCode.id).use_count;
+    ok('R4: a code booking with NO product selection is refused 400 products_required before any redemption', noProducts.statusCode === 400 && noProducts.body.error === 'products_required' && (await codesFor()).find(x => x.id === feeCode.id).use_count === uses0, `${noProducts.statusCode} ${JSON.stringify(noProducts.body).slice(0, 120)}`);
+    const badProducts = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_date: FAR5, demo_time: T, product_skus: [{ name: '' }], booking_code: feeCode.code, op_key: opKey() }, cookies: { dh_brand_session: brandCookie } }));
+    ok('R4: an invalid product selection is refused 400 (products_required or invalid_products), never redeemed', badProducts.statusCode === 400 && /products_required|invalid_products/.test(badProducts.body.error) && (await codesFor()).find(x => x.id === feeCode.id).use_count === uses0, `${badProducts.statusCode} ${JSON.stringify(badProducts.body).slice(0, 120)}`);
+  }
+
+  console.log('\n:: Codex BC R1: the compatible disabled build (BOOKING_CODES_ENABLED not "true") ::');
+  { // three waived bookings made while ON, one per state the disabled build must keep handling
+    const ful = await import('../api/_fulfillment.js?t=' + Date.now());
+    const codeOf = {}; const mk = async (date) => { const c = await admin('codes-create', { kind: 'fee' }); const r = await book({ demo_date: date, booking_code: c.body.code.code }); if (r.statusCode !== 200) throw new Error('fixture waived booking failed: ' + r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 160)); track('bookings', r.body.booking_id); codeOf[r.body.booking_id] = c.body.code.code; return r.body.booking_id; };
+    const drain = async (id) => { const row = one(await db(`booking_fulfillments?booking_id=eq.${id}&select=*`)); if (row) await ful.runFulfillment({ ...row, lease_owner: 'codes-off', generation: row.generation || 1 }, 'codes-off').catch(() => {}); };
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: true }) });
+    const queuedId = await mk(dayP(60));                       // left in pending_payment with its outbox row (not drained yet)
+    const confirmedId = await mk(dayP(61)); await drain(confirmedId);   // confirmed waived
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: false }) });
+    const pendingId = await mk(dayP(62)); await drain(pendingId);       // pending, awaiting manual confirmation
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ auto_confirm_bookings: true }) });
+    const liveCode = (await admin('codes-create', { kind: 'both', note: 'made while on' })).body.code;
+    ok('R1 fixtures: queued (pending_payment, waived), confirmed (waived), pending manual (waived), plus one live code', (await bookingRow(queuedId)).status === 'pending_payment' && (await bookingRow(confirmedId)).status === 'confirmed' && (await bookingRow(pendingId)).status === 'pending' && liveCode && liveCode.active, JSON.stringify([await bookingRow(queuedId), await bookingRow(confirmedId), await bookingRow(pendingId)].map(b => b && b.status)));
+    const stripeOff = spy.calls.stripe.length;
+    ENV.BOOKING_CODES_ENABLED = 'false';
+    try {
+      const gen = await admin('codes-create', { kind: 'fee' });
+      const ogen = await owner('owner-codes-create', { retailer_id: retailerId, kind: 'fee' });
+      ok('R1 issuance OFF: retailer Generate and owner Generate both answer 503 booking_codes_disabled', gen.statusCode === 503 && gen.body.error === 'booking_codes_disabled' && ogen.statusCode === 503 && ogen.body.error === 'booking_codes_disabled', `${gen.statusCode} ${ogen.statusCode}`);
+      const pv = await preview(liveCode.code);
+      ok('R1 redemption OFF: the preview answers 503 booking_codes_disabled with the brand-facing message', pv.statusCode === 503 && pv.body.error === 'booking_codes_disabled' && /not available right now/.test(pv.body.message), `${pv.statusCode} ${JSON.stringify(pv.body)}`);
+      const before = ((await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body || []).length; const att0 = await attemptsFor(brandId);
+      const bk = await book({ demo_date: dayP(63), booking_code: liveCode.code });
+      ok('R1 redemption OFF: a NEW code booking is refused 503, no booking row, no attempt counted, the code unused', bk.statusCode === 503 && bk.body.error === 'booking_codes_disabled' && ((await db(`bookings?retailer_id=eq.${retailerId}&select=id`)).body || []).length === before && (await attemptsFor(brandId)) === att0 && (await codesFor()).find(x => x.id === liveCode.id).use_count === 0, `${bk.statusCode} ${JSON.stringify(bk.body).slice(0, 120)}`);
+      { const prior = one(await db(`booking_operations?booking_id=eq.${queuedId}&select=op_key,fingerprint`));
+        const replay = prior ? await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_date: dayP(60), demo_time: T, product_skus: FIXTURE_PRODUCTS, booking_code: codeOf[queuedId], op_key: prior.op_key }, cookies: { dh_brand_session: brandCookie } })) : null;
+        ok('R1 recovery stays: a retry with the op_key of a committed code booking replays its original result (200, replay:true, same booking id) even while OFF', replay && replay.statusCode === 200 && replay.body.replay === true && replay.body.booking_id === queuedId, replay ? `${replay.statusCode} ${JSON.stringify(replay.body).slice(0, 140)}` : 'no operation row'); }
+      const plain = await book({ demo_date: dayP(64) });
+      ok('R1: an ordinary booking without a code is untouched by the switch (200, next checkout)', plain.statusCode === 200 && plain.body.next === 'checkout', `${plain.statusCode} ${JSON.stringify(plain.body).slice(0, 120)}`); if (plain.body.booking_id) track('bookings', plain.body.booking_id);
+      const list = await admin('codes-list', {}, staffCookie, 'GET');
+      ok('R1 listing stays: codes-list answers 200 with enabled:false and the completeness flags', list.statusCode === 200 && list.body.enabled === false && Array.isArray(list.body.codes) && list.body.codes.some(c => c.id === liveCode.id) && list.body.complete && list.body.complete.codes === true, `${list.statusCode} ${JSON.stringify(list.body).slice(0, 120)}`);
+      const prof = await owner('owner-retailer-profile', { retailer_id: retailerId });
+      ok('R1 owner profile stays: codes listed, codes_enabled false, not marked unavailable', prof.statusCode === 200 && prof.body.codes_enabled === false && prof.body.codes_unavailable === false && Array.isArray(prof.body.codes) && prof.body.codes_complete && prof.body.codes_complete.codes === true, `${prof.statusCode} ${JSON.stringify({ en: prof.body.codes_enabled, un: prof.body.codes_unavailable })}`);
+      const off = await admin('codes-deactivate', { code_id: liveCode.id });
+      ok('R1 deactivation stays: an operator can still turn a code off while the feature is disabled', off.statusCode === 200 && off.body.code.active === false, `${off.statusCode}`);
+      // the three waived bookings keep working
+      await drain(queuedId);
+      const q = await bookingRow(queuedId); const qd = one(await db(`demos?booking_id=eq.${queuedId}&select=demo_fee,status`));
+      ok('R1 queued waived booking: the worker still promotes it to confirmed with a $0 demo, payment_status waived, amount 0', q.status === 'confirmed' && q.payment_status === 'waived' && q.amount_paid === 0 && qd && Number(qd.demo_fee) === 0, JSON.stringify({ q, qd }));
+      const conf = await callRoute('booking-action.js', req({ body: { action: 'confirm', booking_id: pendingId }, cookies: { dh_retailer_session: staffCookie } }));
+      const pd = one(await db(`demos?booking_id=eq.${pendingId}&select=demo_fee`));
+      ok('R1 pending waived booking: manual confirmation still works with a $0 demo', conf.statusCode === 200 && (await bookingRow(pendingId)).status === 'confirmed' && pd && Number(pd.demo_fee) === 0, `${conf.statusCode} ${JSON.stringify(conf.body).slice(0, 100)}`);
+      const co = await callRoute('checkout.js', req({ body: { booking_ids: [confirmedId] }, cookies: { dh_brand_session: brandCookie } }));
+      ok('R1 checkout protection stays: a waived booking is refused by checkout (booking_fee_waived)', co.statusCode === 400 && co.body.error === 'booking_fee_waived', `${co.statusCode} ${JSON.stringify(co.body).slice(0, 100)}`);
+      const can = await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: confirmedId, reason: 'test' }, cookies: { dh_retailer_session: staffCookie } }));
+      const cb = await bookingRow(confirmedId);
+      ok('R1 confirmed waived booking: cancellation still works, still waived and $0, no refund row', can.statusCode === 200 && cb.status === 'cancelled' && cb.payment_status === 'waived' && cb.amount_paid === 0 && (((await db(`refund_operations?booking_id=eq.${confirmedId}&select=id`)).body || []).length === 0), `${can.statusCode} ${JSON.stringify(cb)}`);
+      const groups = (await db(`payment_allocations?booking_id=in.(${queuedId},${confirmedId},${pendingId})&select=id`)).body || [];
+      ok('R1 money: zero Stripe calls, zero payment allocations (so zero payment groups and zero receipt events) for the three waived bookings', spy.calls.stripe.length === stripeOff && groups.length === 0, JSON.stringify({ stripe: spy.calls.stripe.length - stripeOff, allocations: groups.length }));
+    } finally { ENV.BOOKING_CODES_ENABLED = 'true'; }
+    const back = await admin('codes-create', { kind: 'fee' });
+    ok('R1 switch back ON: issuance works again', back.statusCode === 200 && back.body.code && back.body.code.active === true, `${back.statusCode}`);
+  }
 } finally {
   for (const [t, id] of bin) { if (t !== 'bookings') continue; for (const x of ['notification_deliveries', 'notification_events', 'demos', 'booking_fulfillments', 'booking_code_redemptions']) await db(`${x}?booking_id=eq.${id}`, { method: 'DELETE' }); }
   for (const [t, id] of bin) if (t === 'bookings') { await db(`booking_operations?booking_id=eq.${id}`, { method: 'DELETE' }); await db(`payment_allocations?booking_id=eq.${id}`, { method: 'DELETE' }); }

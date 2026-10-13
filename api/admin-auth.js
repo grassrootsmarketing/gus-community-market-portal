@@ -10,6 +10,7 @@
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
+import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
 import {
   setSessionCookie as setRoleCookie,
@@ -1531,7 +1532,9 @@ async function handleOwnerAction(action, req, res, body) {
     const v = await verifyOwnerSession(sessionId);
     if (!v) return res.status(401).json({ error: 'Not authenticated' });
     const rid = String(body?.retailer_id || ''); if (!/^[0-9a-f-]{36}$/i.test(rid)) return res.status(400).json({ error: 'retailer_id required' });
-    const { createCode, deactivateCode } = await import('./_booking-codes.js');
+    const { createCode, deactivateCode, CODE_MESSAGES } = await import('./_booking-codes.js');
+    // Codex BC R1: issuance on a retailer's behalf is part of the switch too. Deactivation stays available when off.
+    if (action === 'owner-codes-create' && !FLAGS.bookingCodes) return res.status(503).json({ error: 'booking_codes_disabled', message: CODE_MESSAGES.booking_codes_disabled });
     const rows = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug`);
     const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     if (action === 'owner-codes-create') { const r = await createCode(sb, { retailerId: rid, retailerSlug: retailer.slug, body, createdBy: 'owner', createdByEmail: v.email || 'owner' }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error }); }
@@ -1639,7 +1642,11 @@ async function handleOwnerAction(action, req, res, body) {
         sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,fee_waived,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
         sbAll(`bookings?retailer_id=eq.${R}&select=brand_id,brand_name&order=id.asc`, { max: 50000 }),
       ]);
-      const codes = await (await import('./_booking-codes.js')).listCodes(sb, id);   // booking codes (0085) for this retailer
+      // Booking codes (0085) for this retailer. Codex BC R3: an unreadable list is reported as unavailable, not as empty;
+      // the rest of the profile still answers, and the caps are reported so the UI can label a limited history.
+      let codes = null, codesComplete = null, codesUnavailable = false;
+      try { const lc = await (await import('./_booking-codes.js')).listCodes(sb, id); codes = lc.codes; codesComplete = lc.complete; }
+      catch (e) { codesUnavailable = true; console.error('owner-retailer-profile codes read failed:', e?.message); }
       const roll = new Map();
       for (const b of allBk.rows) { const k = b.brand_id || ('name:' + (b.brand_name || '')); let a = roll.get(k); if (!a) roll.set(k, a = { brand_id: b.brand_id || null, brand: b.brand_name || '', bookings: 0 }); a.bookings++; }
       // Notification settings at a glance (David, 2026-09-30): the same reading of notification_prefs the outbox
@@ -1657,7 +1664,7 @@ async function handleOwnerAction(action, req, res, body) {
       const b0 = await bind();
       return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
         venues: venuesOut, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
-        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings), codes,
+        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings), codes, codes_complete: codesComplete, codes_unavailable: codesUnavailable, codes_enabled: FLAGS.bookingCodes,
         complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
     } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
   }

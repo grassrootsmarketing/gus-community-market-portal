@@ -58,6 +58,10 @@ export default async function handler(req, res) {
       const next = j.fee_waived ? 'awaiting_confirmation' : (st === 'pending_payment' && cur && cur.payment_status === 'unpaid' ? 'checkout' : 'none');
       return res.status(200).json({ ok: true, booking_id: j.booking_id, next, fee_waived: !!j.fee_waived, target_status: j.target_status || null, code_applied: norm, replay: true, current_status: st, current_payment_status: cur ? cur.payment_status : null });
     }
+    // Codex BC R1: with codes disabled, a NEW code booking is refused here, after the committed-operation recovery
+    // above (a retry of an operation that already committed still replays its original result) and before any
+    // limiter, lookup or write. A request without a code is an ordinary booking and is not touched by the switch.
+    if (!FLAGS.bookingCodes) return res.status(503).json({ error: 'booking_codes_disabled', message: CODE_MESSAGES.booking_codes_disabled });
   }
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active

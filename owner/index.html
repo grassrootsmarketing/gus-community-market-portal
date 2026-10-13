@@ -842,12 +842,19 @@ async function openRetailerProfile(id) {
     + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select>'
     + '<select id="oCodeExpires" title="Expires"><option value="">Never</option><option value="7">In 7 days</option><option value="14">In 14 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
     + '<button class="btn-sm" data-act="gen" data-rid="' + escapeHtml(r.id) + '">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
-  renderOwnerCodes(r.id, p.codes || []);
+  renderOwnerCodes(r.id, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled });
 }
-function renderOwnerCodes(rid, codes) {
+// Codex BC R3: unavailable is said as unavailable (never shown as "no codes"); a capped list says it is capped.
+// Codex BC R1: with issuance switched off, the generate control says so and is disabled.
+function renderOwnerCodes(rid, codes, meta) {
   const el = document.getElementById('oCodesList'); if (!el) return;
-  if (!codes.length) { el.innerHTML = '<div class="sub">No codes yet.</div>'; return; }
-  el.innerHTML = '<div class="tablewrap"><table class="simple"><thead><tr><th>Code</th><th>Does</th><th class="num">Used</th><th>Expires</th><th>State</th><th>By</th><th>Redeemed by</th><th></th></tr></thead><tbody>' + codes.map(c => {
+  meta = meta || {};
+  const gen = document.querySelector('#ownerCodesCard button[data-act=gen]'); if (gen) { gen.disabled = meta.enabled === false; gen.title = meta.enabled === false ? 'Booking codes are switched off (BOOKING_CODES_ENABLED)' : ''; }
+  const offNote = meta.enabled === false ? '<div class="sub" style="color:#a14e2a;">Booking codes are switched off right now: no new codes can be made or applied. Existing codes are listed and can still be turned off.</div>' : '';
+  if (meta.unavailable || !Array.isArray(codes)) { el.innerHTML = offNote + '<div class="sub" style="color:#a14e2a;">The code list could not be read just now, so nothing is shown rather than an empty list. Open the profile again to retry.</div>'; return; }
+  if (!codes.length) { el.innerHTML = offNote + '<div class="sub">No codes yet.</div>'; return; }
+  const capNote = (meta.complete && (meta.complete.codes === false || meta.complete.redemptions === false)) ? '<div class="sub" style="color:#a14e2a;">' + (meta.complete.codes === false ? 'Showing the newest 200 codes only. ' : '') + (meta.complete.redemptions === false ? 'Redemption history is limited to the newest 500 and may be incomplete for older codes.' : '') + '</div>' : '';
+  el.innerHTML = offNote + capNote + '<div class="tablewrap" data-codes-table><table class="simple"><thead><tr><th>Code</th><th>Does</th><th class="num">Used</th><th>Expires</th><th>State</th><th>By</th><th>Redeemed by</th><th></th></tr></thead><tbody>' + codes.map(c => {
     const used = c.use_count || 0, expired = c.expires_at && new Date(c.expires_at) <= new Date();
     const state = !c.active ? 'off' : expired ? 'expired' : (c.max_uses != null && used >= c.max_uses) ? 'used up' : 'active';
     return '<tr><td><code>' + escapeHtml(c.code) + '</code>' + (c.note ? '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(c.note) + '</div>' : '') + '</td><td>' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + '</td><td class="num">' + used + '/' + (c.max_uses == null ? 'unlimited' : c.max_uses) + '</td><td>' + fmtD(c.expires_at) + '</td><td>' + state + '</td><td>' + (c.created_by === 'owner' ? 'Demohub' : 'Retailer') + '</td><td>' + (c.redemptions || []).map(x => escapeHtml(x.brand_name || 'Brand') + ' · ' + fmtD(x.redeemed_at)).join('<br>') + '</td><td class="num">' + (c.active ? '<button class="btn-sm" data-act="off" data-rid="' + escapeHtml(rid) + '" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '') + '</td></tr>';
@@ -857,12 +864,12 @@ async function ownerGenerateCode(rid) {
   const st = document.getElementById('oCodesStatus'); st.textContent = 'Generating…';
   const uses = document.getElementById('oCodeUses').value, exp = document.getElementById('oCodeExpires').value;
   try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: document.getElementById('oCodeNote').value || null });
-    st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
-  catch (e) { st.textContent = 'Could not create the code: ' + e.message; }
+    st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled }); }
+  catch (e) { st.textContent = /booking_codes_disabled|not available right now/.test(e.message) ? 'Booking codes are switched off right now, so no code was made.' : 'Could not create the code: ' + e.message; }
 }
 async function ownerDeactivateCode(rid, id) {
   if (!confirm('Turn this code off?')) return; const st = document.getElementById('oCodesStatus');
-  try { await ownerPost('owner-codes-deactivate', { retailer_id: rid, code_id: id }); st.textContent = 'Code turned off.'; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes || []); }
+  try { await ownerPost('owner-codes-deactivate', { retailer_id: rid, code_id: id }); st.textContent = 'Code turned off.'; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled }); }
   catch (e) { st.textContent = 'Could not turn the code off: ' + e.message; }
 }
 
