@@ -1,7 +1,7 @@
 // Booking codes (0085) + server-side advance-booking rule. Every assertion runs a REAL exported handler against the
 // real TEST database (demohub-rebuild-check) with synthetic fixtures; the money ledger is never touched by a free
 // booking, and that is asserted.
-import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs';
+import { installSpy, callRoute, req, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { STANDARD } from './_fixture_availability.mjs';
 import { generateCode, normalizeCode, validateCreate, kindOf } from '../api/_booking-codes.js';
 // api/_flags.js reads env once per process: checkout + provisional holds must be on BEFORE the first route import.
@@ -29,11 +29,11 @@ ok('earliestBookableYmd: today + N in the retailer zone; 0 = today; default 14',
 // Fixtures: one retailer (auto-confirm ON, 14-day minimum), one venue, one verified brand, one staff admin, owner session.
 // ---------------------------------------------------------------------------
 const slug = uniq('bc');
-const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug, name: 'Codes Fixture Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable' }) })).id);
+const retailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ verification_status: 'approved', slug, name: 'Codes Fixture Market', verification_status: 'approved', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable' }) })).id);
 track('settings', one(await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, demo_fee: 30, demo_duration: '3 hours', advance_booking_days: 14 }) })).id);
 const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, name: 'Codes Main', address: '1 Code St', demo_fee: 30, availability: STANDARD }) })).id);
 const otherSlug = uniq('bx');
-const otherRetailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: otherSlug, name: 'Other Market', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
+const otherRetailerId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ verification_status: 'approved', slug: otherSlug, name: 'Other Market', verification_status: 'approved', billing_email: `${otherSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA }) })).id);
 const staffEmail = `staff-${slug}@fixture.test`;
 track('retailer_admins', one(await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, email: staffEmail, email_normalized: staffEmail, name: 'Codes Staff', role: 'admin' }) })).id);
 const staffTok = one(await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: staffEmail, retailer_id: retailerId }) }));
@@ -52,14 +52,14 @@ const unvTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON
 const unverifiedCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: unvTok.token } }))).cookie('dh_brand_session');
 let ownerCookie;
 { const OWNER_EMAIL = 'david@demohubhq.com'; const ex = await db('retailers?slug=eq.__owner__&select=id');
-  const ownerRid = (ex.body && ex.body[0] && ex.body[0].id) || (await db('retailers', { method: 'POST', body: JSON.stringify({ slug: '__owner__', name: 'Demohub Owner (system)', billing_email: OWNER_EMAIL }) })).body[0].id;
+  const ownerRid = (ex.body && ex.body[0] && ex.body[0].id) || (await db('retailers', { method: 'POST', body: JSON.stringify({ verification_status: 'approved', slug: '__owner__', name: 'Demohub Owner (system)', billing_email: OWNER_EMAIL }) })).body[0].id;
   const tok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: OWNER_EMAIL, retailer_id: ownerRid }) })).body[0];
   ownerCookie = (await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }))).cookie('dh_owner_session'); }
 ok('fixtures: staff, other-retailer staff, brand, unverified brand and owner sessions exist', !!staffCookie && !!otherCookie && !!brandCookie && !!unverifiedCookie && !!ownerCookie);
 
 const T = '11:00 AM'; const FAR = dayP(30), FAR2 = dayP(31), FAR3 = dayP(32), FAR4 = dayP(33), FAR5 = dayP(34), SOON = dayP(3), SOON2 = dayP(4), PAST = (() => { const t = earliestBookableYmd(new Date(), LA, 0); const [y, m, d] = t.split("-").map(Number); return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10); })();   // retailer-local yesterday   // one booking per date (slot capacity is 1)
 const opKey = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
-const book = (body, cookie = brandCookie, headers = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, ...(body.booking_code ? { op_key: opKey() } : {}), ...body }, cookies: { dh_brand_session: cookie }, headers }));
+const book = (body, cookie = brandCookie, headers = {}) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: FIXTURE_PRODUCTS, ...(body.booking_code ? { op_key: opKey() } : {}), ...body }, cookies: { dh_brand_session: cookie }, headers }));
 const preview = (code, cookie = brandCookie, headers = {}) => callRoute('booking-code.js', req({ body: { retailer_slug: slug, code }, cookies: { dh_brand_session: cookie }, headers }));
 const attemptsFor = async (bid) => (await db(`booking_code_attempts?brand_id=eq.${bid}&select=id`)).body.length;
 // api/admin.js answers with a pre-serialised string (send); parse it so assertions read objects.
@@ -90,10 +90,10 @@ try {
 
   console.log('\n— booking with codes —');
   let freeId, soonId, bothId;
-  { const noKey = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, demo_date: FAR5, booking_code: feeCode.code }, cookies: { dh_brand_session: brandCookie } })); ok('a code-bearing request without an op_key is refused (op_key_required) before any attempt is counted', noKey.statusCode === 400 && noKey.body.error === 'op_key_required' && (await attemptsFor(brandId)) === 0, `${noKey.statusCode} ${noKey.body.error}`);
+  { const noKey = await callRoute('book.js', req({ body: { product_skus: FIXTURE_PRODUCTS, retailer_slug: slug, venue_id: V1, demo_time: T, demo_date: FAR5, booking_code: feeCode.code }, cookies: { dh_brand_session: brandCookie } })); ok('a code-bearing request without an op_key is refused (op_key_required) before any attempt is counted', noKey.statusCode === 400 && noKey.body.error === 'op_key_required' && (await attemptsFor(brandId)) === 0, `${noKey.statusCode} ${noKey.body.error}`);
     const wrong = await book({ demo_date: FAR5, booking_code: 'GUS-FREE-ZZZZZZZZ' }); ok('an unknown code is refused before any row is written', wrong.statusCode === 400 && wrong.body.error === 'code_not_found' && typeof wrong.body.message === 'string');
     const junk = await book({ demo_date: FAR5, booking_code: 'not a code!' }); ok('a malformed code is refused as code_invalid_format', junk.statusCode === 400 && junk.body.error === 'code_invalid_format');
-    const foreign = await callRoute('book.js', req({ body: { retailer_slug: otherSlug, venue_id: V1, demo_time: T, demo_date: FAR, booking_code: feeCode.code }, cookies: { dh_brand_session: brandCookie } })); ok('a code is bound to its retailer (other retailer: invalid_venue/code_not_found, never applied)', foreign.statusCode === 400);
+    const foreign = await callRoute('book.js', req({ body: { product_skus: FIXTURE_PRODUCTS, retailer_slug: otherSlug, venue_id: V1, demo_time: T, demo_date: FAR, booking_code: feeCode.code }, cookies: { dh_brand_session: brandCookie } })); ok('a code is bound to its retailer (other retailer: invalid_venue/code_not_found, never applied)', foreign.statusCode === 400);
     const r = await book({ demo_date: FAR2, booking_code: feeCode.code.toLowerCase() }); freeId = r.body.booking_id; if (freeId) track('bookings', freeId);
     const row = await bookingRow(freeId);
     ok('no-fee code (typed lower-case): booking is FREE — next=awaiting_confirmation, payment_status waived, amount_paid 0, fee_waived, code stamped, target confirmed (auto-confirm)', r.statusCode === 200 && r.body.next === 'awaiting_confirmation' && r.body.fee_waived === true && r.body.target_status === 'confirmed' && row && row.payment_status === 'waived' && row.amount_paid === 0 && row.fee_waived === true && row.booking_code_id === feeCode.id && row.status === 'pending_payment', `${r.statusCode} ${JSON.stringify(r.body)} ${JSON.stringify(row)}`);
@@ -195,10 +195,10 @@ try {
 
   console.log('\n— Codex review 2 item 5: frozen clock, same-day on a 0-day store, exact 14-day boundary —');
   { ENV.DEMOHUB_TEST_HOOKS = '1';
-    const zeroSlug2 = uniq('bq'); const zeroId2 = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: zeroSlug2, name: 'Zero Notice 2', billing_email: `${zeroSlug2}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true }) })).id);
+    const zeroSlug2 = uniq('bq'); const zeroId2 = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ verification_status: 'approved', slug: zeroSlug2, name: 'Zero Notice 2', billing_email: `${zeroSlug2}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true }) })).id);
     track('settings', one(await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, demo_fee: 30, demo_duration: '3 hours', advance_booking_days: 0 }) })).id);
     const ZV2 = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, name: 'Zero Main 2', address: '0 St', demo_fee: 30, availability: STANDARD }) })).id);
-    const zb2 = (body, clock) => { ENV.DEMOHUB_CLOCK_OVERRIDE = clock; return callRoute('book.js', req({ body: { retailer_slug: zeroSlug2, venue_id: ZV2, op_key: opKey(), ...body }, cookies: { dh_brand_session: brandCookie } })); };
+    const zb2 = (body, clock) => { ENV.DEMOHUB_CLOCK_OVERRIDE = clock; return callRoute('book.js', req({ body: { product_skus: FIXTURE_PRODUCTS, retailer_slug: zeroSlug2, venue_id: ZV2, op_key: opKey(), ...body }, cookies: { dh_brand_session: brandCookie } })); };
     const zc2 = one(await db('booking_codes', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId2, code: 'ZQ-SOON-' + Date.now().toString(36).toUpperCase().slice(-8), waives_fee: false, waives_lead_time: true, max_uses: 5, created_by: 'owner' }) }));
     const day = dayP(40); const [y, m, d] = day.split('-').map(Number); const clock8 = new Date(Date.UTC(y, m - 1, d, 15, 0, 0)).toISOString();   // 08:00 LA (PDT) on that day
     const sameDay = await zb2({ demo_date: day, demo_time: '5:00 PM', booking_code: zc2.code }, clock8);
@@ -230,13 +230,13 @@ try {
   console.log('\n— BC-6: dates, one policy, retailer-local —');
   { const { earliestBookableYmd: e } = await import('../api/book.js'); const laMidnight = new Date('2026-09-23T06:59:00Z');   // 23:59 LA on the 22nd
     ok('retailer-local "today" straddles UTC midnight correctly (LA 23:59 = still the 22nd; UTC = the 23rd)', e(laMidnight, LA, 0) === '2026-09-22' && e(laMidnight, 'UTC', 0) === '2026-09-23' && e(new Date('2026-03-08T12:00:00Z'), LA, 1) === '2026-03-09');
-    const zeroSlug = uniq('bz'); const zeroId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: zeroSlug, name: 'Zero Notice', billing_email: `${zeroSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true }) })).id);
+    const zeroSlug = uniq('bz'); const zeroId = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ verification_status: 'approved', slug: zeroSlug, name: 'Zero Notice', billing_email: `${zeroSlug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: true, timezone: LA, auto_confirm_bookings: true }) })).id);
     track('settings', one(await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId, demo_fee: 30, demo_duration: '3 hours', advance_booking_days: 0 }) })).id);
     const ZV = track('venues', one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId, name: 'Zero Main', address: '0 St', demo_fee: 30, availability: STANDARD }) })).id);
     const zStaff = `staff-${zeroSlug}@fixture.test`; track('retailer_admins', one(await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: zeroId, email: zStaff, email_normalized: zStaff, name: 'Z', role: 'admin' }) })).id);
     const zTok = one(await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: zStaff, retailer_id: zeroId }) })); const zCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: zTok.token } }))).cookie('dh_retailer_session');
     const zc = await callRoute('admin.js', req({ query: { action: 'codes-create' }, body: { kind: 'lead_time', max_uses: 5 }, cookies: { dh_retailer_session: zCookie } })); const zcode = JSON.parse(zc.body).code;
-    const zb = (body) => callRoute('book.js', req({ body: { retailer_slug: zeroSlug, venue_id: ZV, demo_time: '5:00 PM', op_key: opKey(), ...body }, cookies: { dh_brand_session: brandCookie } }));
+    const zb = (body) => callRoute('book.js', req({ body: { product_skus: FIXTURE_PRODUCTS, retailer_slug: zeroSlug, venue_id: ZV, demo_time: '5:00 PM', op_key: opKey(), ...body }, cookies: { dh_brand_session: brandCookie } }));
     const todayLA = e(new Date(), LA, 0), tomorrowLA = e(new Date(), LA, 1);
     const t0 = await zb({ demo_date: tomorrowLA }); ok('a 0-day store books tomorrow with no code', t0.statusCode === 200, `${t0.statusCode} ${t0.body.error}`); if (t0.body.booking_id) track('bookings', t0.body.booking_id);
     const t1 = await zb({ demo_date: tomorrowLA, booking_code: zcode.code, demo_time: '2:00 PM' }); ok('a short-notice code never TIGHTENS a 0-day store (tomorrow still allowed with the code)', t1.statusCode === 200, `${t1.statusCode} ${t1.body.error}`); if (t1.body.booking_id) track('bookings', t1.body.booking_id);
@@ -283,7 +283,7 @@ try {
 
   console.log('\n— owner portal: retailer profile mirror + codes on the retailer\'s behalf —');
   { const p = await owner('owner-retailer-profile', { retailer_id: retailerId });
-    ok('profile: retailer, settings, venues, booking link, upcoming/recent bookings, brands, codes; no session material', p.statusCode === 200 && p.body.retailer.slug === slug && p.body.settings.advance_booking_days === 14 && p.body.venues.length === 1 && p.body.booking_url.endsWith('/r/' + slug) && p.body.admin_url.endsWith('/admin') && p.body.codes.length >= 6 && p.body.upcoming.some(b => b.id === bothId && b.fee_waived) && p.body.recent.some(b => b.id === freeId && b.status === 'cancelled') && p.body.brands['Codes Brand Co'] >= 2 && !JSON.stringify(p.body).match(/session_id|token/), `${p.statusCode} ${JSON.stringify(p.body).slice(0, 300)}`);
+    ok('profile (owner directory shape): retailer, settings, venues, booking link, upcoming bookings with fee_waived, brands rollup, codes; no session material', p.statusCode === 200 && p.body.retailer.slug === slug && p.body.settings.advance_booking_days === 14 && p.body.venues.length === 1 && p.body.booking_url.endsWith('/r/' + slug) && p.body.admin_url.endsWith('/admin') && p.body.codes.length >= 6 && p.body.upcoming.some(b => b.id === bothId && b.fee_waived) && Array.isArray(p.body.brands) && p.body.brands.some(x => x.brand === 'Codes Brand Co' && x.bookings >= 2) && !JSON.stringify(p.body).match(/session_id|token/), `${p.statusCode} ${JSON.stringify(p.body).slice(0, 300)}`);
     ok('profile: each code carries its redemptions with brand names', p.body.codes.find(c => c.id === feeCode.id).redemptions[0].brand_name === 'Codes Brand Co');
     const oc = await owner('owner-codes-create', { retailer_id: retailerId, kind: 'fee', note: 'owner comp' }); ok('owner generates a code for the retailer, marked created_by owner', oc.statusCode === 200 && oc.body.code.created_by === 'owner' && oc.body.code.retailer_id === retailerId, `${oc.statusCode} ${JSON.stringify(oc.body).slice(0, 200)}`);
     const od = await owner('owner-codes-deactivate', { retailer_id: retailerId, code_id: oc.body.code.id }); ok('owner deactivates it', od.statusCode === 200 && od.body.code.active === false);

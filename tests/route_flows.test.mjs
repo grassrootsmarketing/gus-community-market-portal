@@ -46,9 +46,6 @@ let ownerRetailerId, retailerId, venueId, brandId, retailerSlug;
   // The server now enforces settings.advance_booking_days (default 14); this suite books days ahead, so the fixture store allows same-day bookings.
   track('settings', (await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, demo_fee: 30, advance_booking_days: 0 }) })).body[0].id);
 
-  // Booking codes (0085): /api/book now enforces settings.advance_booking_days (default 14). These flows book a
-  // few days out and are about identity, COI and tenancy, not lead time, so the fixture store takes no advance notice.
-  track('settings', (await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: retailerId, demo_fee: 30, demo_duration: '3 hours', advance_booking_days: 0 }) })).body[0].id);
   venueId = track('venues', (await db('venues', { method: 'POST', body: JSON.stringify({
     retailer_id: retailerId, name: 'Route Main', address: '1 Route St', demo_fee: 30, availability: HOURLY }) })).body[0].id);
 
