@@ -2097,7 +2097,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const saved = loadOutcomes(); const unpaid = saved.paid.map(o => o.id);
             if (!okAll) {
                 const uniq = [...new Set(errors)];
-                const kept = (saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' submitted and awaiting confirmation. ' : '') + (unpaid.length ? unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid — ' : '');
+                const kept = (saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' submitted and awaiting confirmation. ' : '') + (unpaid.length ? unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' : '');
                 window._pendingPaidIds = unpaid;
                 if (coiBlocked) {
                     errMsg.innerHTML = _esc(uniq[0])
