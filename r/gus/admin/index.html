@@ -2742,8 +2742,7 @@ END:VEVENT
                 if (po) po.style.display = 'none';
             }
             renderBilling();
-            populateAvailabilityVenueSelect();
-            renderAvailabilityEditor();
+            refreshAvailabilityEditorFromServer();
             renderPendingBookings();
             renderStores();
             renderWelcomeBanner();
@@ -3066,6 +3065,46 @@ END:VEVENT
         // ===== Store Availability =====
         const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+        // Live refresh vs. the editor (2026-10-15). The editor is a form the retailer may be in the middle of
+        // using, so a background refresh must never rebuild it over their hands. Rules:
+        //   * BUSY (an autosave is pending or in flight, a field inside the card has focus, a copy-to popover is
+        //     open): leave the DOM alone entirely. The fresh server copy still lands in window.state.venues, so
+        //     the pending save sends the CURRENT availability_version and reads its values from the DOM the
+        //     retailer is looking at.
+        //   * IDLE and nothing changed on the server for the selected location (same availability_version and
+        //     capacity as last rendered): leave the DOM alone. There is nothing to show.
+        //   * IDLE and the location changed elsewhere (another tab, a teammate, Apply to all from another
+        //     location): rebuild from the server copy and say so on the status line.
+        //   * The location dropdown is rebuilt only when the list of locations itself changed.
+        let _availRendered = { id: null, version: null, cap: null };
+        let _availSaving = false;
+        function availabilityEditorBusy() {
+            if (_autoSaveTimer || _availSaving) return true;
+            const card = document.getElementById('availabilityCard');
+            const active = document.activeElement;
+            if (card && active && active !== document.body && card.contains(active)) return true;
+            if (document.querySelector('.dh-copy-popover')) return true;
+            return false;
+        }
+        function refreshAvailabilityEditorFromServer() {
+            const sel = document.getElementById('availabilityVenueSelect');
+            if (!sel) return;
+            const venues = window.state.venues || [];
+            const listKey = venues.map(v => v.id + ':' + v.name).join('|');
+            const prevKey = sel.dataset.listKey || '';
+            if (listKey !== prevKey) { populateAvailabilityVenueSelect(); sel.dataset.listKey = listKey; }
+            if (availabilityEditorBusy()) return;
+            const v = getSelectedVenue();
+            if (!v) { renderAvailabilityEditor(); return; }
+            const same = _availRendered.id === v.id && _availRendered.version === _venueVersion(v) && String(_availRendered.cap) === String(v.max_demos_per_slot);
+            if (same) return;
+            const changedElsewhere = _availRendered.id === v.id && _availRendered.version !== null;
+            renderAvailabilityEditor();
+            if (changedElsewhere) {
+                const status = document.getElementById('availabilityAutoSaveStatus');
+                if (status) { status.textContent = 'Updated: this location was changed elsewhere (another tab or teammate). Showing the latest.'; status.style.color = 'var(--clay-700)'; }
+            }
+        }
         function populateAvailabilityVenueSelect() {
             const sel = document.getElementById('availabilityVenueSelect');
             if (!sel) return;
@@ -3122,6 +3161,7 @@ END:VEVENT
                 if (maxInput) maxInput.value = 1;
                 return;
             }
+            _availRendered = { id: v.id, version: _venueVersion(v), cap: v.max_demos_per_slot };
             // F-08: capacity is always an integer >= 1 (legacy null/0 rows display as 1).
             if (maxInput) maxInput.value = String(Math.max(1, parseInt(v.max_demos_per_slot, 10) || 1));
             // If venue has NO saved availability at all, seed the standard 11-2 + 3-6 windows on all 7 days
@@ -3364,7 +3404,7 @@ END:VEVENT
             const status = document.getElementById('availabilityAutoSaveStatus');
             if (status) { status.innerHTML = `<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--clay-600)" stroke-width="3"><circle cx="12" cy="12" r="6"/></svg> Saving…`; status.style.color = 'var(--clay-600)'; }
             if (_autoSaveTimer) clearTimeout(_autoSaveTimer);
-            _autoSaveTimer = setTimeout(() => { saveAvailability(); }, 600);
+            _autoSaveTimer = setTimeout(() => { _autoSaveTimer = null; saveAvailability(); }, 600);
         }
 
 
@@ -3466,6 +3506,10 @@ END:VEVENT
         window.parseCapacityInput = parseCapacityInput;
 
         async function saveAvailability() {
+            _availSaving = true;
+            try { return await _saveAvailabilityInner(); } finally { _availSaving = false; }
+        }
+        async function _saveAvailabilityInner() {
             const v = getSelectedVenue();
             const legacyStatus = document.getElementById('availabilityStatus');
             const status = document.getElementById('availabilityAutoSaveStatus');
@@ -3517,6 +3561,7 @@ END:VEVENT
                     venue_id: v.id, expected_version: _venueVersion(v), schedule, max_demos_per_slot: maxPerSlot,
                 });
                 _applyVenueAvailability(v.id, r.availability, r.availability_version, r.max_demos_per_slot);
+                if (_availRendered.id === v.id) _availRendered = { id: v.id, version: r.availability_version, cap: r.max_demos_per_slot };
                 if (status) {
                     // Persistent trust indicator, shows time of last successful save
                     const now = new Date();
