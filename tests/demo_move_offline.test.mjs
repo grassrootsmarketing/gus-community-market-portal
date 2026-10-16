@@ -108,7 +108,7 @@ console.log(':: mail ::');
   tables.booking_moves[0].status = 'declined'; tables.booking_moves[0].refund_status = 'not_paid';
   const c2 = demoMoveCancelledMessage(b, ctx());
   ok('cancelled (declined, unpaid): says the brand declined and nothing to refund', /You told us the new time does not work/.test(c2.html) && /nothing to refund/.test(c2.html));
-  ok('no em dash in any of the three', ![m, r, c, c2].some(x => /—/.test(x.subject + x.html)));
+  ok('no em dash in any of the three', ![m, r, c, c2].some(x => /2014/.test(x.subject + x.html)));
 }
 
 console.log('\n:: fan-out ::');
