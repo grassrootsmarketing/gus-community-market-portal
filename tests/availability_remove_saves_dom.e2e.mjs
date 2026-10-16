@@ -5,7 +5,7 @@
 //   2. add a shift               -> saved, the day has two windows again
 //   3. quick set on a closed day -> saved, the day has the two standard windows
 // Real browser, local in-process server on :4174, test database only.
-/* global document, onboardingGo */
+/* global document, onboardingGo, localStorage */
 import { createRequire } from 'node:module';
 import pg from 'pg';
 const { Client } = pg;
