@@ -1109,6 +1109,9 @@ function renderOverview() {
         : 'Retailers must be able to reach you, so add your <strong>name</strong> and <strong>phone number</strong> to book. Still needed: <strong>' + _st.profileMissing.join('</strong>, <strong>') + '</strong>.',
       href: '#profile', cta: 'Add details' },
     { key: 'logo', core: true, done: _logoDone, req: false, title: 'Add your brand logo', sub: 'Retailers see it on every booking page. Brands without one look unfinished.', href: '#profile', cta: 'Add logo' },
+    // Items (2026-10-15): the list the booking form pre-fills and the store sees on every demo. Not required to book
+    // (the form lets a brand add items on the spot), but a brand with no list is one more thing to type at checkout.
+    { key: 'products', core: true, done: Array.isArray(profile.products) && profile.products.some(x => x && x.name), req: false, title: 'Add the items you sample', sub: 'The store sees these on every demo you book, with the UPC so your product is on the shelf. Add them once and tick the ones for each demo when you book.', href: '#products', cta: 'Add items' },
   ];
   // Only core items count toward the total, because only core items gate the banner.
   const _coreItems = _checkItems.filter(i => i.core);
@@ -1630,14 +1633,21 @@ function skuRowHtml(p) {
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
     + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
     + inp('sku-code', 'Your brand SKU', p.sku)
-    + inp('sku-upc', 'UPC / product barcode', p.upc, 'inputmode="numeric"')
+    + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric"')
     + '<select class="input sku-distributor">' + sel + '</select>'
     + inp('sku-distributor-other', 'Distributor name (if Other)', p.distributor_other)
     + inp('sku-item-number', 'Distributor item number', p.distributor_item_number)
     + inp('sku-case-pack', 'Units per case', Number.isInteger(p.case_pack) ? p.case_pack : '', 'inputmode="numeric"')
     + '<div style="grid-column:1 / -1;">' + inp('sku-notes', 'Notes for the store (optional, shared with the retailer)', p.notes) + '</div>'
+    // UPC nudge (2026-10-15): shown while the UPC is empty, hidden as soon as one is typed. Never blocks a save.
+    + '<div class="sku-upc-hint" style="grid-column:1 / -1; font-size:0.8rem; color:#a14e2a; line-height:1.45;' + (p.upc ? ' display:none;' : '') + '">No UPC yet. Stores use the barcode to find your item in their ordering system; without it the buyer has to ask you. It is on the product label, usually 12 digits.</div>'
     + '</div>';
 }
+document.addEventListener('input', (e) => {
+  const t = e.target; if (!t || !t.classList || !t.classList.contains('sku-upc')) return;
+  const row = t.closest('.sku-row'); const hint = row && row.querySelector('.sku-upc-hint');
+  if (hint) hint.style.display = t.value.trim() ? 'none' : '';
+});
 
 function renderSkuList(products) {
   const wrap = document.getElementById('skuList');
@@ -2083,7 +2093,7 @@ async function saveProfile() {
     delete payload.expected_products_version;
     Object.assign(_data.profile, payload);
     // The server's normalised list (with stable ids) and version replace what we sent (Codex P-3 / PL-C1).
-    if (_resp && Array.isArray(_resp.products)) { _data.profile.products = _resp.products; if (Number.isInteger(_resp.products_version)) _data.profile.products_version = _resp.products_version; _data.profile.updated_at = _resp.updated_at || _data.profile.updated_at; renderSkuList(_resp.products); }
+    if (_resp && Array.isArray(_resp.products)) { _data.profile.products = _resp.products; if (_resp.products.some(x => x && x.name)) { try { markChecklistDone('products'); } catch (_) {} } if (Number.isInteger(_resp.products_version)) _data.profile.products_version = _resp.products_version; _data.profile.updated_at = _resp.updated_at || _data.profile.updated_at; renderSkuList(_resp.products); }
     if (saved) { saved.classList.add('show'); setTimeout(() => saved.classList.remove('show'), 2500); }
     if (typeof renderCoiWidget === 'function') renderCoiWidget();
   } catch (err) {
