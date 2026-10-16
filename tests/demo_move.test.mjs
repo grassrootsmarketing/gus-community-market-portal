@@ -25,6 +25,8 @@ import { sweepMoves } from '../api/_booking-moves.js';
 ENV.NOTIFICATION_WORKER_ENABLED = 'true';
 ENV.RETAILER_MOVES_ENABLED = 'true';   // Codex RM-7: creation is behind a switch; the suite turns it on, and proves OFF below
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
+// Captured BEFORE the first callRoute (the harness replaces process.env wholesale on every call).
+const SB_DB_URL = process.env.SB_DB_URL || '';
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
 const db = async (path, opts = {}) => {
   const r = await fetch(`${SB}/rest/v1/${path}`, { ...opts, headers: { ...H, ...(opts.headers || {}) } });
@@ -173,8 +175,9 @@ try {
   const bkDec = await bookingRow(bk.id), mvDec = (await movesFor(bk.id))[2];
   // Codex RM-2: this fixture is recorded as PAID with no payment intent, an inconsistent payment state. The
   // cancellation proceeds, the refund obligation is handed to an operator through ONE case, and the move says so.
-  ok('decline: 200, the booking is cancelled, the move declined and settled with refund_status review_required and a reconciliation case (paid, no payment intent), reason recorded, message truthful', dec.statusCode === 200 && dec.body.status === 'declined' && dec.body.cancelled === true && bkDec.status === 'cancelled' && /could not make the new time/.test(bkDec.cancel_reason || '') && mvDec.status === 'declined' && mvDec.settled_at && mvDec.refund_status === 'review_required' && !!mvDec.reconciliation_case_id && /with our team for review/.test(dec.body.message) && bkDec.payment_status === 'refund_pending', JSON.stringify({ body: dec.body, bk: [bkDec.status, bkDec.payment_status], mv: [mvDec.status, mvDec.refund_status, mvDec.reconciliation_case_id] }));
-  ok('the case is deduplicated: one reconciliation case for that move', (await db(`reconciliation_cases?id=eq.${mvDec.reconciliation_case_id}&select=id,kind,reason`)).body.length === 1 && (await db(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent('move_refund:' + mvDec.id)}&select=id`)).body.length <= 1);
+  ok('decline: 200, the booking is cancelled, the move declined and settled with refund_status review_required and a PERSISTED refund case (paid, no payment intent), reason recorded, message truthful', dec.statusCode === 200 && dec.body.status === 'declined' && dec.body.cancelled === true && bkDec.status === 'cancelled' && /could not make the new time/.test(bkDec.cancel_reason || '') && mvDec.status === 'declined' && mvDec.settled_at && mvDec.refund_status === 'review_required' && !!mvDec.refund_case_id && /with our team for review/.test(dec.body.message) && bkDec.payment_status === 'refund_pending', JSON.stringify({ body: dec.body, bk: [bkDec.status, bkDec.payment_status], mv: [mvDec.status, mvDec.refund_status, mvDec.refund_case_id] }));
+  ok('the refund case is the move_refund case for that move, exactly one', (await db(`reconciliation_cases?id=eq.${mvDec.refund_case_id}&select=id,kind,reason,dedupe_key`)).body[0].dedupe_key === 'move_refund:' + mvDec.id && (await db(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent('move_refund:' + mvDec.id)}&select=id`)).body.length === 1);
+  ok('the brand cancellation event names the refund case', ((await db(`notification_events?transition_id=eq.${mvDec.id}:cancelled&select=payload`)).body[0] || {}).payload.refund_case_id === mvDec.refund_case_id);
   ok('events: demo_cancelled (store contacts, from the status trigger) and demo_move_cancelled (brand)', (await eventsFor(bk.id, 'demo_cancelled')).length >= 1 && (await eventsFor(bk.id, 'demo_move_cancelled')).length === 1);
   ok('no Stripe refund call for a booking without a payment intent', !spy.calls.stripe.some(c => /refunds/.test(c.url)), JSON.stringify(spy.calls.stripe.map(c => c.url)));
   await fanOutEvents(b, { now: new Date() });
@@ -293,6 +296,86 @@ try {
     const swOff = await sweepMoves(b, { now: new Date(), limit: 25 });
     ok('switch off: the sweep still runs clean', swOff.failed === 0 && !swOff.claim_failed && !swOff.read_failed, JSON.stringify(swOff));
     ENV.RETAILER_MOVES_ENABLED = 'true';
+  }
+
+  console.log('\n:: Codex C1: the finalizer refuses a settlement without its financial handoff ::');
+  {
+    const { demo: d10, booking: bk10 } = await confirmedBooking(dayP(75), '10:00');
+    const m10 = await move({ demo_id: d10.id, new_date: dayP(76), new_time: '10:00' });
+    await rpc('respond_booking_move', { p_move_id: m10.body.move_id, p_brand_id: brandId, p_decision: 'decline', p_actor: 'test' });
+    const claim = one(await rpc('claim_move_settlement', { p_move_id: m10.body.move_id, p_owner: 'c1', p_lease_seconds: 120 }));
+    ok('claimed for the direct finalizer calls', claim && claim.ok === true, JSON.stringify(claim));
+    const fin = (args) => rpc('finalize_move_settlement', { p_move_id: m10.body.move_id, p_owner: 'c1', p_settled: true, p_refund_status: 'review_required', p_refund_request_id: null, p_case_id: null, p_refund_case_id: null, p_error: null, p_event_payload: null, ...args });
+    const unsettledRow = async () => one(await db(`booking_moves?id=eq.${m10.body.move_id}&select=settled_at,refund_status,settle_lease_owner`));
+    const noEvent = async () => (await db(`notification_events?transition_id=eq.${m10.body.move_id}:cancelled&select=id`)).body.length === 0;
+    const f1 = one(await fin({}));
+    ok('booking still active: refused booking_still_active, nothing stamped, no event', f1 && f1.ok === false && f1.reason === 'booking_still_active' && !(await unsettledRow()).settled_at && await noEvent(), JSON.stringify(f1));
+    await rpc('booking_transition', { p_booking_id: bk10.id, p_retailer_id: retailerId, p_action: 'cancel', p_fields: { cancelled_at: new Date().toISOString(), cancel_reason: 'test' }, p_demo_fee: null });
+    const f2 = one(await fin({}));
+    ok('review_required with no case: refused case_required, nothing stamped, no event', f2 && f2.ok === false && f2.reason === 'case_required' && !(await unsettledRow()).settled_at && await noEvent(), JSON.stringify(f2));
+    const scalar = (r) => (r && (Array.isArray(r.body) ? r.body[0] : r.body)) || null;   // _open_case returns a bare uuid
+    const wrongCase = scalar(await rpc('_open_case', { p_kind: 'settlement_exception', p_dedupe: 'move_settle:' + m10.body.move_id, p_reason: 'test_transition_case', p_group: null, p_request: null, p_operation: null, p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null, p_details: { move_id: m10.body.move_id } }));
+    const f3 = one(await fin({ p_refund_case_id: wrongCase }));
+    ok('review_required with a transition-error case instead of the refund case: refused case_invalid', f3 && f3.ok === false && f3.reason === 'case_invalid' && !(await unsettledRow()).settled_at, JSON.stringify(f3));
+    const f4 = one(await fin({ p_refund_status: 'submitted', p_refund_request_id: '00000000-0000-4000-8000-000000000001' }));
+    ok('submitted with a request that does not exist: refused request_invalid', f4 && f4.ok === false && f4.reason === 'request_invalid', JSON.stringify(f4));
+    const f5 = one(await fin({ p_refund_status: 'not_paid' }));
+    ok('not_paid while the booking is recorded as paid: refused not_paid_inconsistent', f5 && f5.ok === false && f5.reason === 'not_paid_inconsistent', JSON.stringify(f5));
+    const f6 = one(await fin({ p_refund_status: 'bogus' }));
+    ok('an unknown refund status word: refused refund_status_unknown', f6 && f6.ok === false && f6.reason === 'refund_status_unknown', JSON.stringify(f6));
+    const goodCase = scalar(await rpc('_open_case', { p_kind: 'settlement_exception', p_dedupe: 'move_refund:' + m10.body.move_id, p_reason: 'move_refund_inconsistent_payment_state', p_group: null, p_request: null, p_operation: null, p_session: null, p_pi: null, p_charge: null, p_refund: null, p_amount: null, p_currency: null, p_details: { move_id: m10.body.move_id } }));
+    const f7 = await rpc('finalize_move_settlement', { p_move_id: m10.body.move_id, p_owner: 'c1', p_settled: true, p_refund_status: 'review_required', p_refund_request_id: null, p_case_id: null, p_refund_case_id: goodCase, p_error: null, p_event_payload: { _inject_failure: 'true' } });
+    ok('C4: an injected failure AFTER the stamp and the event insert rolls the whole finalizer back (not stamped, no event, lease kept)', f7.ok === false && !(await unsettledRow()).settled_at && await noEvent() && (await unsettledRow()).settle_lease_owner === 'c1', JSON.stringify({ status: f7.status, body: f7.body && (f7.body.message || f7.body) }).slice(0, 200));
+    const f8 = one(await fin({ p_refund_case_id: goodCase }));
+    const after10 = one(await db(`booking_moves?id=eq.${m10.body.move_id}&select=*`));
+    ok('with the real move_refund case: finalized once, event written naming the case, pending settlement cleared', f8 && f8.ok === true && f8.event_written === true && after10.settled_at && after10.refund_case_id === goodCase && (await bookingRow(bk10.id)).pending_move_settlement === null && !(await noEvent()), JSON.stringify(f8));
+  }
+
+  console.log('\n:: Codex C4: the deadline is judged on the clock after the lock; exact deadline; DST boundary ::');
+  if (SB_DB_URL && SB_DB_URL.includes('tileejdviuvijumjeplv')) {
+    const pg = (await import('pg')).default;
+    const client = new pg.Client({ connectionString: SB_DB_URL, ssl: { rejectUnauthorized: false }, application_name: 'demo-move-barrier' });
+    await client.connect();
+    try {
+      const { demo: d11, booking: bk11 } = await confirmedBooking(dayP(80), '10:00');
+      const m11 = await move({ demo_id: d11.id, new_date: dayP(81), new_time: '10:00' });
+      // the deadline is 3 seconds away; the brand's confirmation STARTS before it but waits on the booking lock until after it
+      await client.query(`UPDATE booking_moves SET reconfirm_due_at = clock_timestamp() + interval '3 seconds' WHERE id = $1`, [m11.body.move_id]);
+      await client.query('BEGIN');
+      await client.query('SELECT id FROM bookings WHERE id = $1 FOR UPDATE', [bk11.id]);
+      const startedAt = Date.now();
+      const pendingConfirm = respond({ move_id: m11.body.move_id, decision: 'confirm' });
+      await new Promise(r => setTimeout(r, 4500));
+      await client.query('COMMIT');
+      const c11 = await pendingConfirm;
+      const m11After = one(await db(`booking_moves?id=eq.${m11.body.move_id}&select=status,lapsed_at`));
+      ok('a confirmation that began before the deadline but acquired the lock after it is judged on the post-lock clock: refused move_lapsed, move lapsed', c11.statusCode === 409 && c11.body.error === 'move_lapsed' && m11After.status === 'lapsed' && (Date.now() - startedAt) >= 4000, JSON.stringify({ c11: c11.body, m11After }));
+      // exact deadline: due = the database clock now -> the response is a lapse (>=)
+      const { demo: d12 } = await confirmedBooking(dayP(85), '10:00');
+      const m12 = await move({ demo_id: d12.id, new_date: dayP(86), new_time: '10:00' });
+      await client.query(`UPDATE booking_moves SET reconfirm_due_at = clock_timestamp() WHERE id = $1`, [m12.body.move_id]);
+      const c12 = await respond({ move_id: m12.body.move_id, decision: 'confirm' });
+      ok('at the exact deadline instant (or after): a confirmation is refused', c12.statusCode === 409 && c12.body.error === 'move_lapsed', JSON.stringify(c12.body));
+      const { demo: d13 } = await confirmedBooking(dayP(90), '10:00');
+      const m13 = await move({ demo_id: d13.id, new_date: dayP(91), new_time: '10:00' });
+      await client.query(`UPDATE booking_moves SET reconfirm_due_at = clock_timestamp() + interval '20 seconds' WHERE id = $1`, [m13.body.move_id]);
+      const c13 = await respond({ move_id: m13.body.move_id, decision: 'confirm' });
+      ok('one instant before the deadline: the confirmation is accepted', c13.statusCode === 200 && c13.body.status === 'confirmed', JSON.stringify(c13.body));
+      // DST boundary in the store zone (America/Los_Angeles leaves daylight time on 2026-11-01): a move onto that
+      // day resolves the slot on the standard-time side and the deadline is computed from that instant.
+      if (dayP(0) < '2026-11-01') {
+        const { demo: d14 } = await confirmedBooking('2026-11-10', '10:00');
+        const m14 = await move({ demo_id: d14.id, new_date: '2026-11-01', new_time: '11:00' });
+        const bk14 = m14.body && await bookingRow(m14.body.booking_id);
+        const m14Row = m14.body && one(await db(`booking_moves?id=eq.${m14.body.move_id}&select=moved_at,reconfirm_due_at`));
+        const expected = m14Row && (await rpc('move_reconfirm_deadline', { p_now: m14Row.moved_at, p_start: bk14.start_at, p_hours: 72 })).body;   // a bare timestamptz
+        ok('DST boundary: the slot resolves to 11:00 PST (19:00Z) on 2026-11-01 and the stored deadline equals the policy function applied to that start', m14.statusCode === 200 && bk14.start_at && Date.parse(bk14.start_at) === Date.parse('2026-11-01T19:00:00Z') && typeof expected === 'string' && Date.parse(m14Row.reconfirm_due_at) === Date.parse(expected), JSON.stringify({ status: m14.statusCode, start: bk14 && bk14.start_at, due: m14Row && m14Row.reconfirm_due_at, expected }));
+      } else {
+        ok('DST boundary case skipped: 2026-11-01 is no longer in the future', true);
+      }
+    } finally { await client.end().catch(() => {}); }
+  } else {
+    ok('C4 lock-barrier cases require SB_DB_URL (demohub-rebuild-check)', false, 'SB_DB_URL not set');
   }
 } finally {
   console.log('\n:: teardown ::');

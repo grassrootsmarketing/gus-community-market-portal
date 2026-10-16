@@ -24,8 +24,8 @@
 // Run from the repository root:  node tests/demo_move_offline.test.mjs   (no credentials needed)
 import { fanOutEvents, scheduleMoveReminders, processClaimed, makeCache, MOVE_REMINDER_KIND } from '../api/_notification-outbox.js';
 import { demoMovedMessage, moveReminderMessage, demoMoveCancelledMessage } from '../api/_notification-mail.js';
-import { settleMove, sweepMoves, SETTLE_MAX_ATTEMPTS } from '../api/_booking-moves.js';
-import { reserveAndRefund } from '../api/_booking-refund.js';
+import { settleMove, sweepMoves, SETTLE_MAX_ATTEMPTS, noticeUndeliverable } from '../api/_booking-moves.js';
+import { reserveAndRefund, refundPaymentIntent, normalizeMinorUnits } from '../api/_booking-refund.js';
 let _pass = 0, _fail = 0;
 const ok = (n, c, d) => { if (c) { _pass++; console.log('  ok   ' + n); } else { _fail++; console.log('  FAIL ' + n + (d ? ' ' + d : '')); } };
 const summary = (label) => { console.log(`\n${label}: ${_pass} passed, ${_fail} failed`); process.exit(_fail ? 1 : 0); };
@@ -35,7 +35,7 @@ const now = new Date('2026-10-16T18:00:00Z');   // 11:00 PDT
 const movedAt = '2026-10-16T17:00:00Z';
 const due = '2026-10-19T17:00:00Z';              // +72h
 const data = () => ({
-  booking_moves: [{ id: 'mv1', booking_id: 'bk1', retailer_id: 'gus', brand_id: 'brand', demo_id: 'd1', from_date: '2026-10-24', from_time: '10:00 AM', to_date: '2026-10-31', to_time: '2:00 PM', schedule_revision: 2, note: 'Agreed with Maria <by phone>', moved_by: 'staff@gus.test', moved_at: movedAt, reconfirm_due_at: due, status: 'pending', settled_at: null, refund_status: null, refund_request_id: null, reconciliation_case_id: null, settle_attempts: 0, settle_lease_owner: null, settle_lease_until: null }],
+  booking_moves: [{ id: 'mv1', booking_id: 'bk1', retailer_id: 'gus', brand_id: 'brand', demo_id: 'd1', from_date: '2026-10-24', from_time: '10:00 AM', to_date: '2026-10-31', to_time: '2:00 PM', schedule_revision: 2, note: 'Agreed with Maria <by phone>', moved_by: 'staff@gus.test', moved_at: movedAt, reconfirm_due_at: due, status: 'pending', settled_at: null, refund_status: null, refund_request_id: null, reconciliation_case_id: null, settle_attempts: 0, settle_lease_owner: null, settle_lease_until: null, refund_case_id: null, notice_case_id: null, notice_checked_at: null }],
   bookings: [{ id: 'bk1', brand_id: 'brand', retailer_id: 'gus', venue_id: 'v1', status: 'confirmed', payment_status: 'paid', payment_intent_id: 'pi_1', fee_waived: false, demo_date: '2026-10-31', demo_time: '2:00 PM', product: 'Cold Brew', schedule_revision: 2, timezone: 'America/Los_Angeles', pending_move_settlement: null }],
   brands: [{ id: 'brand', email: 'brand@example.test', company_name: 'Alpha & Co', contact_name: 'Rep' }],
   brand_members: [{ id: 'mate', brand_id: 'brand', email: 'mate@example.test' }],
@@ -45,7 +45,7 @@ const data = () => ({
   notification_deliveries: [],
   refund_requests: [],
 });
-let tables = data(), patches = [], inserts = [], events = [], sent = [], rpc = [], stripe = [], fail = {}, reserveReply = null;
+let tables = data(), patches = [], inserts = [], events = [], sent = [], rpc = [], stripe = [], fail = {}, reserveReply = null, cases = [];
 function applyFilters(rows, qs) {
   let out = rows;
   for (const part of qs.split('&')) {
@@ -60,6 +60,17 @@ function applyFilters(rows, qs) {
     else if (op === 'lt') out = out.filter(r => r[key] != null && Number(r[key]) < Number(v));
     else if (op === 'lte') out = out.filter(r => r[key] != null && String(r[key]) <= v);
   }
+  const order = /(?:^|&)order=([a-z_]+)\.(asc|desc)(\.nullsfirst|\.nullslast)?/.exec(qs);
+  if (order) {
+    const [, k, dir, nulls] = order; const sign = dir === 'desc' ? -1 : 1; const nullsFirst = nulls === '.nullsfirst';
+    out = [...out].sort((x, y) => {
+      const a = x[k], bb = y[k];
+      if (a == null && bb == null) return 0; if (a == null) return nullsFirst ? -1 : 1; if (bb == null) return nullsFirst ? 1 : -1;
+      return (String(a) < String(bb) ? -1 : String(a) > String(bb) ? 1 : 0) * sign;
+    });
+  }
+  const lim = /(?:^|&)limit=(\d+)/.exec(qs);
+  if (lim) out = out.slice(0, Number(lim[1]));
   return out;
 }
 const mv = () => tables.booking_moves[0];
@@ -83,7 +94,7 @@ globalThis.fetch = async (url, opts = {}) => {
     }
     if (fn === 'apply_refund_event') { const r = tables.refund_requests.find(x => x.id === args.p_meta_request_id); if (r) { r.status = 'succeeded'; r.stripe_refund_id = args.p_refund_id; } return new Response('[]', { status: 200 }); }
     if (fn === 'booking_transition') { const bb = tables.bookings.find(x => x.id === args.p_booking_id); const before = bb.status; if (bb) { bb.status = 'cancelled'; Object.assign(bb, args.p_fields || {}); } return new Response(JSON.stringify([{ ok: true, reason: before === 'cancelled' ? 'already_applied' : null, status_before: before, status_after: 'cancelled' }]), { status: 200 }); }
-    if (fn === '_open_case') return new Response(JSON.stringify(['case-' + args.p_dedupe]), { status: 200 });
+    if (fn === '_open_case') { let c = cases.find(x => x.dedupe === args.p_dedupe); if (!c) { c = { id: 'c0000000-0000-4000-8000-' + String(cases.length + 1).padStart(12, '0'), dedupe: args.p_dedupe, reason: args.p_reason }; cases.push(c); } return new Response(JSON.stringify(c.id), { status: 200 }); }
     if (fn === 'claim_move_settlement') {
       const m = tables.booking_moves.find(x => x.id === args.p_move_id); const bb = m && tables.bookings.find(x => x.id === m.booking_id);
       const reply = (okv, reason) => new Response(JSON.stringify([{ ok: okv, reason, move: m ? { ...m } : null, booking: bb ? { ...bb } : null }]), { status: 200 });
@@ -100,8 +111,14 @@ globalThis.fetch = async (url, opts = {}) => {
       const m = tables.booking_moves.find(x => x.id === args.p_move_id);
       if (!m) return new Response(JSON.stringify([{ ok: false, reason: 'not_found', event_written: false }]), { status: 200 });
       if (m.settle_lease_owner !== args.p_owner) return new Response(JSON.stringify([{ ok: false, reason: 'lease_lost', event_written: false }]), { status: 200 });
-      if (!args.p_settled) { m.settle_attempts++; m.settle_last_error = args.p_error; m.refund_request_id = args.p_refund_request_id || m.refund_request_id; m.reconciliation_case_id = args.p_case_id || m.reconciliation_case_id; m.settle_lease_owner = null; m.settle_lease_until = null; return new Response(JSON.stringify([{ ok: true, reason: null, event_written: false }]), { status: 200 }); }
-      m.settled_at = now.toISOString(); m.refund_status = args.p_refund_status; m.refund_request_id = args.p_refund_request_id || m.refund_request_id; m.reconciliation_case_id = args.p_case_id || m.reconciliation_case_id; m.settle_lease_owner = null; m.settle_lease_until = null;
+      if (!args.p_settled) { m.settle_attempts++; m.settle_last_error = args.p_error; m.refund_request_id = args.p_refund_request_id || m.refund_request_id; m.reconciliation_case_id = args.p_case_id || m.reconciliation_case_id; m.refund_case_id = args.p_refund_case_id || m.refund_case_id; m.settle_lease_owner = null; m.settle_lease_until = null; return new Response(JSON.stringify([{ ok: true, reason: null, event_written: false }]), { status: 200 }); }
+      const bb0 = tables.bookings.find(x => x.id === m.booking_id);
+      const refuse = (reason) => new Response(JSON.stringify([{ ok: false, reason, event_written: false }]), { status: 200 });
+      if (!['cancelled', 'declined', 'expired', 'auth_canceled'].includes(bb0.status)) return refuse('booking_still_active');
+      if (!['not_paid', 'already_refunded', 'submitted', 'succeeded', 'pending_worker', 'review_required'].includes(args.p_refund_status)) return refuse('refund_status_unknown');
+      if (['submitted', 'succeeded', 'pending_worker'].includes(args.p_refund_status) && !tables.refund_requests.some(r => r.id === args.p_refund_request_id)) return refuse(args.p_refund_request_id ? 'request_invalid' : 'request_required');
+      if (args.p_refund_status === 'review_required' && !cases.some(c => c.id === args.p_refund_case_id && c.dedupe === 'move_refund:' + m.id)) return refuse(args.p_refund_case_id ? 'case_invalid' : 'case_required');
+      m.settled_at = now.toISOString(); m.refund_status = args.p_refund_status; m.refund_request_id = args.p_refund_request_id || m.refund_request_id; m.reconciliation_case_id = args.p_case_id || m.reconciliation_case_id; m.refund_case_id = args.p_refund_case_id || m.refund_case_id; m.settle_lease_owner = null; m.settle_lease_until = null;
       const bb = tables.bookings.find(x => x.id === m.booking_id); if (bb && bb.pending_move_settlement === m.id) bb.pending_move_settlement = null;
       const tid = m.id + ':cancelled'; let written = false;
       if (!events.some(e => e.transition_id === tid)) { events.push({ kind: 'demo_move_cancelled', transition_id: tid, payload: { ...(args.p_event_payload || {}), move_id: m.id, outcome: m.status, refund_status: args.p_refund_status } }); written = true; }
@@ -117,6 +134,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   if (opts.method === 'PATCH') {
     const p = JSON.parse(opts.body); patches.push({ table: path, qs, p });
+    if (fail['patch:' + path]) return new Response(JSON.stringify({ message: 'simulated write failure' }), { status: 503 });
     if (path === 'booking_moves') { const m = /id=eq\.([^&]+)/.exec(qs); const row = tables.booking_moves.find(x => x.id === decodeURIComponent(m[1])); if (row) Object.assign(row, p); }
     if (path === 'refund_requests') { const m = /id=eq\.([^&]+)/.exec(qs); const row = tables.refund_requests.find(x => x.id === decodeURIComponent(m[1])); if (row) Object.assign(row, p); }
     if (path === 'notification_events') { const m = /id=eq\.([^&]+)/.exec(qs); const row = tables.notification_events.find(x => x.id === decodeURIComponent(m[1])); if (row) Object.assign(row, p); }
@@ -128,7 +146,7 @@ globalThis.fetch = async (url, opts = {}) => {
   return new Response(JSON.stringify(applyFilters(tables[path], qs)), { status: 200 });
 };
 const mailer = async (msg, o) => { sent.push({ msg, key: o && o.idempotencyKey }); return { ok: true, id: 'fake' }; };
-const reset = () => { tables = data(); patches = []; inserts = []; events = []; sent = []; rpc = []; stripe = []; fail = {}; reserveReply = null; };
+const reset = () => { tables = data(); patches = []; inserts = []; events = []; sent = []; rpc = []; stripe = []; fail = {}; reserveReply = null; cases = []; };
 const row = (extra = {}) => ({ id: 'delivery', event_id: 'ev1', retailer_id: 'gus', booking_id: 'bk1', recipient_kind: 'brand', recipient_id: 'brand', recipient_email: 'brand@example.test', kind: 'demo_moved', occurrence_key: 'mv1', attempts: 0, ...extra });
 const run = (r, o = {}) => processClaimed(b, r, { now: o.now || now, token: 'token', mailer, cache: makeCache() });
 const ctx = () => ({ brand: tables.brands[0], retailer: tables.retailers[0], venue: tables.venues[0], booking: bk(), move: mv(), now });
@@ -265,7 +283,7 @@ console.log('\n:: settlement: no-money and review branches (RM-2) ::');
   ok('already refunded: already_refunded, no money step', (await settle()).refund_status === 'already_refunded' && rpcs('refund_reserve_cas').length === 0);
   reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; bk().payment_intent_id = null;   // paid, no intent
   const r4 = await settle();
-  ok('paid but no payment intent: ONE deduplicated case, review_required, cancelled with refund_pending, finalized with the case id', r4.ok && r4.refund_status === 'review_required' && r4.case_id === 'case-move_refund:mv1' && rpcs('_open_case').length === 1 && stripe.length === 0 && bk().payment_status === 'refund_pending' && mv().settled_at && mv().reconciliation_case_id === 'case-move_refund:mv1' && events[0].payload.refund_status === 'review_required', JSON.stringify(r4));
+  ok('paid but no payment intent: ONE deduplicated move_refund case, review_required, cancelled with refund_pending, finalized with the refund case id', r4.ok && r4.refund_status === 'review_required' && r4.refund_case_id && cases.some(c => c.id === r4.refund_case_id && c.dedupe === 'move_refund:mv1') && rpcs('_open_case').length === 1 && stripe.length === 0 && bk().payment_status === 'refund_pending' && mv().settled_at && mv().refund_case_id === r4.refund_case_id && events[0].payload.refund_status === 'review_required', JSON.stringify(r4));
   reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; reserveReply = { outcome: 'no_allocation', requires_review: true };
   const r5 = await settle();
   ok('paid with no allocation: one case, review_required, finalized (durable operator handoff)', r5.ok && r5.refund_status === 'review_required' && rpcs('_open_case').length === 1 && rpcs('_open_case')[0].args.p_reason === 'move_refund_no_allocation' && stripe.length === 0, JSON.stringify(r5));
@@ -312,12 +330,84 @@ console.log('\n:: sweep (RM-6) ::');
   ok('a per-item settlement failure counts as failed, with the move id in the diagnostic', s5.failed === 1 && /settle mv1: transition_failed/.test(s5.errors[0]), JSON.stringify(s5));
   reset(); mv().status = 'declined'; mv().settle_attempts = SETTLE_MAX_ATTEMPTS; mv().settle_last_error = 'transition_failed';
   const s6 = await sweepMoves(b, { now });
-  ok('a move at the attempt cap is parked behind ONE case and no longer processed', s6.parked === 1 && s6.settled === 0 && s6.failed === 0 && rpcs('_open_case').length === 1 && rpcs('_open_case')[0].args.p_reason === 'move_settlement_attempts_exhausted' && mv().reconciliation_case_id === 'case-move_settle:mv1', JSON.stringify(s6));
+  ok('a move at the attempt cap is parked behind ONE case and no longer processed', s6.parked === 1 && s6.settled === 0 && s6.failed === 0 && rpcs('_open_case').length === 1 && rpcs('_open_case')[0].args.p_reason === 'move_settlement_attempts_exhausted' && mv().reconciliation_case_id && cases.some(c => c.id === mv().reconciliation_case_id && c.dedupe === 'move_settle:mv1'), JSON.stringify(s6));
   const s7 = await sweepMoves(b, { now });
   ok('parked once: a second sweep opens no second case', s7.parked === 0 && rpcs('_open_case').length === 1);
-  reset(); tables.notification_deliveries.push({ id: 'dl', kind: 'demo_moved', occurrence_key: 'mv1', status: 'failed', next_attempt_at: null, skip_reason: 'max_attempts' });
+  reset(); mv().moved_at = '2026-10-16T10:00:00Z'; tables.notification_deliveries.push({ id: 'dl', kind: 'demo_moved', occurrence_key: 'mv1', status: 'failed', next_attempt_at: null, skip_reason: 'max_attempts' });
   const s8 = await sweepMoves(b, { now });
-  ok('RM-8: an undeliverable "please confirm" notice for a pending move opens one operator case', s8.notice_cases === 1 && rpcs('_open_case').some(x => x.args.p_dedupe === 'move_notice:mv1' && x.args.p_reason === 'move_notice_undeliverable'), JSON.stringify(s8));
+  ok('RM-8: an undeliverable "please confirm" notice for a pending move opens one operator case, linked on the move', s8.notice_cases === 1 && s8.notice_checked === 1 && rpcs('_open_case').some(x => x.args.p_dedupe === 'move_notice:mv1' && x.args.p_reason === 'move_notice_undeliverable') && mv().notice_case_id && mv().notice_checked_at, JSON.stringify(s8));
+  const s8b = await sweepMoves(b, { now });
+  ok('the scan does not re-examine a move that already has its notice case', s8b.notice_checked === 0 && s8b.notice_cases === 0, JSON.stringify(s8b));
+}
+
+console.log('\n:: Codex C1: no completion without the persisted refund case ::');
+{
+  for (const mode of ['500', 'malformed', 'timeout']) {
+    reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; bk().payment_intent_id = null;   // paid, no intent
+    fail._open_case = mode === 'malformed' ? 'malformed' : true;
+    if (mode === 'timeout') fail._open_case = true;
+    const r = await settle();
+    ok(`paid without a payment intent and the case service ${mode}: NOT finalized, no event, booking untouched, attempts + 1, retryable`, !r.ok && r.retry && /case_failed|case_malformed/.test(r.error) && !mv().settled_at && events.length === 0 && bk().status === 'confirmed' && mv().settle_attempts === 1, JSON.stringify(r));
+  }
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; bk().payment_intent_id = null; fail._open_case = true;
+  await settle(); fail = {};
+  const r2 = await settle();
+  ok('recovery on the next attempt: exactly one move_refund case, finalized with it, one event naming it', r2.ok && r2.refund_status === 'review_required' && cases.filter(c => c.dedupe === 'move_refund:mv1').length === 1 && mv().settled_at && mv().refund_case_id === r2.refund_case_id && events.length === 1 && events[0].payload.refund_status === 'review_required', JSON.stringify(r2));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; reserveReply = { outcome: 'no_allocation', requires_review: true }; fail._open_case = true;
+  const r3 = await settle();
+  ok('no allocation and the case service down: NOT finalized, retryable, no provider call', !r3.ok && r3.retry && stripe.length === 0 && !mv().settled_at, JSON.stringify(r3));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; mv().refund_request_id = 'rr-gone'; fail._open_case = true;
+  const r4 = await settle();
+  ok('request missing and the case write fails: NOT finalized, retryable', !r4.ok && r4.retry && !mv().settled_at, JSON.stringify(r4));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; bk().payment_intent_id = null;
+  // a pre-existing transition-error case is NOT the refund handoff: a fresh move_refund case is still required
+  mv().reconciliation_case_id = 'c0000000-0000-4000-8000-00000000ffff';
+  const r5 = await settle();
+  ok('a previously opened transition-error case is not reused as the refund handoff: a move_refund case is opened', r5.ok && cases.some(c => c.dedupe === 'move_refund:mv1') && mv().refund_case_id !== mv().reconciliation_case_id, JSON.stringify(r5));
+}
+
+console.log('\n:: Codex C2: parking and the notice scan report their own failures ::');
+{
+  reset(); mv().status = 'declined'; mv().settle_attempts = SETTLE_MAX_ATTEMPTS; fail._open_case = true;
+  const s1 = await sweepMoves(b, { now });
+  ok('case service unavailable while parking: failed + 1, parked 0, diagnostic names the move', s1.parked === 0 && s1.failed === 1 && /park mv1: case_failed/.test(s1.errors[0]), JSON.stringify(s1));
+  reset(); mv().status = 'declined'; mv().settle_attempts = SETTLE_MAX_ATTEMPTS; fail['patch:booking_moves'] = true;
+  const s2 = await sweepMoves(b, { now });
+  ok('the case link write fails: failed + 1, parked 0 (parked only after a durable outcome)', s2.parked === 0 && s2.failed === 1 && /park mv1: link_failed/.test(s2.errors[0]), JSON.stringify(s2));
+  reset(); mv().moved_at = '2026-10-16T10:00:00Z'; fail.booking_moves = true;
+  const s3 = await sweepMoves(b, { now });
+  ok('the notice query fails: notice_failed (and read_failed for the unsettled scan)', s3.notice_failed === true && s3.errors.some(e => /notice:/.test(e)), JSON.stringify(s3));
+  reset(); mv().moved_at = '2026-10-16T10:00:00Z'; fail.notification_deliveries = 'malformed';
+  const s4 = await sweepMoves(b, { now });
+  ok('malformed notice results: notice_failed', s4.notice_failed === true, JSON.stringify(s4));
+  reset(); mv().moved_at = '2026-10-16T10:00:00Z'; tables.notification_deliveries.push({ id: 'dl', kind: 'demo_moved', occurrence_key: 'mv1', status: 'failed', next_attempt_at: null }); fail._open_case = true;
+  const s5 = await sweepMoves(b, { now });
+  ok('an undeliverable notice whose case cannot be opened: notice_failed, examined again next sweep', s5.notice_failed === true && !mv().notice_case_id, JSON.stringify(s5));
+  // progress: many old pending moves already examined, a new one is reached (ordered by notice_checked_at nulls first)
+  reset();
+  for (let i = 0; i < 30; i++) tables.booking_moves.push({ ...data().booking_moves[0], id: 'old' + i, booking_id: 'bk1', moved_at: '2026-10-10T10:00:00Z', notice_checked_at: '2026-10-16T17:00:00Z', notice_case_id: null });
+  mv().moved_at = '2026-10-16T10:00:00Z'; mv().notice_checked_at = null;
+  tables.notification_deliveries.push({ id: 'dl', kind: 'demo_moved', occurrence_key: 'mv1', status: 'failed', next_attempt_at: null });
+  const s6 = await sweepMoves(b, { now, limit: 5 });
+  ok('bounded scan makes progress: never-examined moves come first (nulls first), the batch is 5, the new move gets its case', s6.notice_checked === 5 && mv().notice_case_id && mv().notice_checked_at && s6.notice_cases >= 1 && s6.notice_cases <= 5, JSON.stringify(s6));
+  ok('retryable vs terminal: a failed delivery with a retry scheduled is NOT undeliverable; one with none is; an accepted one never is', noticeUndeliverable([{ status: 'failed', next_attempt_at: '2026-10-17T00:00:00Z' }], 0, 1e13) === false && noticeUndeliverable([{ status: 'failed', next_attempt_at: null }], 0, 1e13) === true && noticeUndeliverable([{ status: 'unknown', next_attempt_at: '2026-10-17T00:00:00Z' }], 0, 1e13) === false && noticeUndeliverable([{ status: 'accepted' }, { status: 'failed', next_attempt_at: null }], 0, 1e13) === false && noticeUndeliverable([], 0, 1e13) === true && noticeUndeliverable([], Date.parse('2026-10-16T17:30:00Z'), Date.parse('2026-10-16T18:00:00Z')) === false);
+}
+
+console.log('\n:: Codex C3: the refund amount is normalised once and never omitted ::');
+{
+  ok('normalizeMinorUnits: integer and digit strings pass; null, 0, negative, fractional, nonfinite, unsafe, other strings fail', normalizeMinorUnits(3000) === 3000 && normalizeMinorUnits('3000') === 3000 && normalizeMinorUnits(' 42 ') === 42 && normalizeMinorUnits(null) === null && normalizeMinorUnits(0) === null && normalizeMinorUnits(-5) === null && normalizeMinorUnits(12.5) === null && normalizeMinorUnits(Infinity) === null && normalizeMinorUnits(NaN) === null && normalizeMinorUnits(2 ** 53) === null && normalizeMinorUnits('30.00') === null && normalizeMinorUnits('abc') === null && normalizeMinorUnits({}) === null);
+  for (const bad of [null, 0, -1, 12.5, Infinity, NaN, 2 ** 53, '30.00', 'abc']) {
+    reset(); reserveReply = { outcome: 'reserved', payment_intent: 'pi_1', keeps_all: true, idempotency_key: 'k', refund_request_id: 'rrX', amount: bad };
+    const r = await reserveAndRefund(b, bk(), 'x', 'y', 'cancel');
+    ok(`reservation amount ${JSON.stringify(bad)}: reserve_malformed, zero provider calls`, !r.ok && r.error === 'reserve_malformed' && stripe.length === 0, JSON.stringify(r));
+  }
+  reset(); reserveReply = { outcome: 'reserved', payment_intent: 'pi_1', keeps_all: true, idempotency_key: 'k', refund_request_id: 'rrX', amount: '2500' };
+  const r = await reserveAndRefund(b, bk(), 'x', 'y', 'cancel');
+  ok('a digit-string amount is normalised and sent as the exact integer amount', r.ok && stripe.length === 1 && /(^|&)amount=2500(&|$)/.test(stripe[0].body), JSON.stringify(stripe));
+  reset(); const d1 = await refundPaymentIntent(b, 'pi_1', { amountCents: 'x', requireAmount: true, idempotencyKey: 'k' });
+  ok('refundPaymentIntent with requireAmount refuses an invalid amount before any provider call', !d1.ok && d1.error === 'amount_invalid' && stripe.length === 0);
+  reset(); await refundPaymentIntent(b, 'pi_1', { amountCents: 777, requireAmount: true, idempotencyKey: 'k' });
+  ok('refundPaymentIntent sends the exact amount', stripe.length === 1 && /(^|&)amount=777(&|$)/.test(stripe[0].body));
 }
 
 summary('retailer demo moves (offline)');

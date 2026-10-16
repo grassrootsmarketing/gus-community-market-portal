@@ -29,17 +29,29 @@ export async function sbRpc(b, fn, args) {
   try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
 }
 
+// Codex C3: minor units, normalised ONCE. An integer number, or a string of digits, becomes a positive safe
+// integer; anything else (null, zero, negative, fractional, nonfinite, unsafe, other strings) is null.
+export function normalizeMinorUnits(v) {
+  let n = null;
+  if (typeof v === 'number') n = v;
+  else if (typeof v === 'string' && /^\d{1,15}$/.test(v.trim())) n = Number(v.trim());
+  else return null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 export async function refundPaymentIntent(b, paymentIntentId, opts = {}) {
   const key = (b && b.stripeKey) || null;
   if (!key) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
   if (!paymentIntentId) return { ok: false, error: 'payment_intent_id required' };
   const params = new URLSearchParams();
   params.set('payment_intent', paymentIntentId);
-  // DH-04: when several bookings share one PaymentIntent (batch checkout), refund only this
-  // booking's share. Omitted -> Stripe does a full refund (correct for single-booking PIs).
-  if (opts.amountCents != null && Number.isFinite(opts.amountCents) && opts.amountCents > 0) {
-    params.set('amount', String(Math.round(opts.amountCents)));
-  }
+  // DH-04: when several bookings share one PaymentIntent (batch checkout), refund only this booking's
+  // share. Codex C3: the ledger-backed path (requireAmount) can never omit the amount; an invalid amount
+  // is refused before any provider call. The amount-less form (Stripe refunds the whole intent) is only
+  // reachable when a caller deliberately omits requireAmount AND the amount; no caller does today.
+  const amount = normalizeMinorUnits(opts.amountCents);
+  if (opts.requireAmount && amount == null) return { ok: false, error: 'amount_invalid', detail: { amount: opts.amountCents == null ? null : String(opts.amountCents) } };
+  if (amount != null) params.set('amount', String(amount));
   // Keeps-all retailers take a plain platform charge: no transfer, no application fee. Sending
   // reverse_transfer / refund_application_fee on those charges makes Stripe reject the refund outright.
   if (!opts.keepsAll) {
@@ -83,16 +95,17 @@ export async function reserveAndRefund(b, booking, actor, reason, opName, opts =
   // Codex RM-4: the reservation's shape is checked BEFORE any provider call. A full refund is the affected
   // allocation's remaining entitlement, an explicit amount; an amount-less request would refund a shared
   // payment in full and is refused here.
+  const amount = row ? normalizeMinorUnits(row.amount) : null;
   if (!row || (outcome !== 'reserved' && outcome !== 'existing') || typeof row.payment_intent !== 'string' || !row.payment_intent
-      || !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 || typeof row.idempotency_key !== 'string' || !row.idempotency_key || !row.refund_request_id) {
-    return { ok: false, error: 'reserve_malformed', requires_review: true, outcome: outcome || null };
+      || amount == null || typeof row.idempotency_key !== 'string' || !row.idempotency_key || !row.refund_request_id) {
+    return { ok: false, error: 'reserve_malformed', requires_review: true, outcome: outcome || null, refund_request_id: (row && row.refund_request_id) || null };
   }
   if (outcome === 'existing' && opts.onExisting === 'defer') {
     return { ok: false, error: 'existing', deferred: true, refund_request_id: row.refund_request_id };
   }
 
   const r = await refundPaymentIntent(b, row.payment_intent, {
-    keepsAll: !!row.keeps_all, amountCents: row.amount, idempotencyKey: row.idempotency_key,
+    keepsAll: !!row.keeps_all, amountCents: amount, requireAmount: true, idempotencyKey: row.idempotency_key,
     reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
   });
   if (r.ok) {
