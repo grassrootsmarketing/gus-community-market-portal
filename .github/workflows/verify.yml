@@ -106,8 +106,9 @@ env:
   # 2026-09-20 (Codex storage-backup work order BAK-4): 0084_backup_reader_storage_select.sql -> 85.
   # 2026-09-22 (booking codes): 0085_booking_codes.sql -> 86.
   # 2026-10-16: the count had not been kept current through 0086 .. 0092 (92 files on main);
-  #   0094_retailer_demo_move.sql (retailer-initiated demo moves) -> 93 on this branch (94 once 0093, owner COI expiry pings, merges too).
-  EXPECTED_MIGRATIONS: '93'
+  #   0094_retailer_demo_move.sql (retailer-initiated demo moves) + 0095_retailer_demo_move_corrections.sql (Codex RM-1..RM-7)
+  #   -> 94 on this branch (95 once 0093, owner COI expiry pings, merges too).
+  EXPECTED_MIGRATIONS: '94'
 
 jobs:
   # --------------------------------------------------------------------------

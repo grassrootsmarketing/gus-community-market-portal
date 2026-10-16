@@ -805,26 +805,47 @@ export default async function handler(req, res) {
         console.error('respond_booking_move failed:', (e && e.message) || e);
         return jsonResp(res, 500, { error: 'move_respond_failed', message: 'We could not save that. Try again in a moment.' });
       }
+      // Codex RM-8: every message states the PERSISTED state of the move, never a promise about a worker.
+      const moveWords = (m) => {
+        if (!m) return 'This move could not be updated.';
+        if (m.status === 'lapsed' || m.status === 'declined') {
+          const why = m.status === 'lapsed' ? 'The reconfirmation window has passed, so this demo is' : 'You told us you cannot make the new time, so this demo is';
+          if (!m.settled_at) return `${why} being cancelled; the refund is being processed and you will get an email when it is done.`;
+          const refund = m.refund_status === 'submitted' || m.refund_status === 'succeeded' ? 'the full refund has been submitted to your card provider'
+            : m.refund_status === 'pending_worker' ? 'the full refund is being processed and you will get an email when it is done'
+            : m.refund_status === 'not_paid' ? 'no charge was captured, so there is nothing to refund'
+            : m.refund_status === 'already_refunded' ? 'this booking had already been refunded'
+            : 'the refund is with our team for review and you will get an email when it is done';
+          return `${why.replace(' is', ' was')} cancelled; ${refund}.`;
+        }
+        return null;
+      };
+      // A decline at or after the deadline is recorded as a lapse by the database (same entitlement).
+      const lapsedNow = verdict && verdict.ok === true && verdict.status === 'lapsed';
       if (!verdict || verdict.ok !== true) {
         const reason = (verdict && verdict.reason) || 'move_respond_failed';
-        const msg = {
+        let msg = {
           not_found: 'This move no longer exists.', forbidden: 'This demo is not yours.',
-          move_confirmed: 'You already confirmed this move.', move_declined: 'You already declined this move.',
-          move_lapsed: 'The reconfirmation window has passed; this demo was cancelled and refunded.',
+          move_confirmed: 'You already confirmed this move.',
           move_superseded: 'The store has moved this demo again. Please review the newest time.',
           booking_not_active: 'This booking is no longer active.',
-        }[reason] || 'This move could not be updated.';
+        }[reason] || null;
+        if (!msg) { const m = await loadMove(_b, moveId).catch(() => null); msg = moveWords(m) || 'This move could not be updated.'; }
+        // A late confirmation lapsed the move just now: settle it here as well, so the brand's cancellation
+        // and refund do not wait for the worker (the worker still owns any retry).
+        if (reason === 'move_lapsed') { try { const m = await loadMove(_b, moveId); if (m) await settleMove(_b, m, { owner: 'brand-respond:' + brandId }); } catch (e) { console.error('move settle after late confirm failed:', (e && e.message) || e); } }
         return jsonResp(res, reason === 'forbidden' ? 403 : reason === 'not_found' ? 404 : 409, { error: reason, message: msg });
       }
       if (decision === 'confirm') return jsonResp(res, 200, { ok: true, move_id: moveId, status: 'confirmed' });
       let settle = null;
       try {
         const move = await loadMove(_b, moveId);
-        settle = move ? await settleMove(_b, move, { outcome: 'declined', actor: 'brand:' + brandId }) : null;
+        settle = move ? await settleMove(_b, move, { owner: 'brand-respond:' + brandId }) : null;
       } catch (e) { console.error('move settle failed:', (e && e.message) || e); }
-      return jsonResp(res, 200, { ok: true, move_id: moveId, status: 'declined',
-        cancelled: !!(settle && settle.ok), refund_status: settle ? settle.refund_status : 'pending',
-        message: settle && settle.ok ? 'The demo is cancelled.' + (settle.refund_status === 'submitted' ? ' Your full refund has been submitted.' : '') : 'Your answer is saved. The cancellation and refund are being processed and you will get an email when they complete.' });
+      const after = await loadMove(_b, moveId).catch(() => null);
+      return jsonResp(res, 200, { ok: true, move_id: moveId, status: lapsedNow ? 'lapsed' : 'declined',
+        cancelled: !!(settle && settle.ok), refund_status: (after && after.refund_status) || (settle ? settle.refund_status : null) || 'pending',
+        message: moveWords(after) || 'Your answer is saved. The cancellation and refund are being processed and you will get an email when they complete.' });
     }
 
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
@@ -876,6 +897,7 @@ export default async function handler(req, res) {
         const reason = (verdict && verdict.reason) || 'reschedule_failed';
         const MESSAGES = {
           no_proposal:     'There is no reschedule to respond to.',
+          cancellation_pending: 'This demo is being cancelled and refunded after a move you could not make, so the proposal cannot be accepted.',
           stale_proposal:  'The store has changed this proposal since you loaded the page. Reload to see the current one.',
           slot_full:       'That slot just filled up. Ask the store to propose another date.',
           // Release B (0075): the venue's offering changed after the proposal was made.

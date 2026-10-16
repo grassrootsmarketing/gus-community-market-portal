@@ -5237,8 +5237,9 @@ function escapeHtml(s) {
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
                 + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" onchange="reschedRenderTimes()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time</label>'
-                + '<select id="reschedTime" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;background:#fff;"></select>'
+                + '<select id="reschedTime" onchange="reschedDeadlinePreview()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;background:#fff;"></select>'
                 + '<div id="reschedTimeNote" style="font-size:0.78rem;color:var(--ink-500);margin:-2px 0 6px;"></div>'
+                + '<div id="reschedDeadline" style="font-size:0.8rem;color:var(--forest-800);margin:4px 0 6px;"></div>'
                 + '<div id="reschedNoteWrap"><label for="reschedNote" style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin:10px 0 5px;">Note to the brand (optional)</label>'
                 + '<textarea id="reschedNote" maxlength="500" rows="2" placeholder="e.g. Agreed with Maria by phone on Tuesday; the Saturday crew is short-staffed." style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.9rem;resize:vertical;"></textarea></div>'
                 + '<div id="reschedErr" style="display:none;font-size:0.82rem;color:var(--clay-700);margin:6px 0 0;"></div>'
@@ -5252,6 +5253,49 @@ function escapeHtml(s) {
             document.body.appendChild(wrap);
             wrap._venue = reschedVenue; wrap._curTime = curTime || ''; wrap._mode = 'move';
             reschedRenderTimes();
+            // Codex RM-7: when move creation is switched off, the dialog is the ask-first proposal only.
+            if (window.state.features && window.state.features.retailer_moves === false) {
+                reschedToggleMode();
+                const t = document.getElementById('reschedModeToggle'); if (t) t.style.display = 'none';
+            }
+        }
+        // The store's zone (from the admin data), used to resolve a slot to an instant for the deadline preview.
+        function reschedStoreZone() {
+            const tz = window.state.retailer && window.state.retailer.timezone;
+            try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch (_) { return 'America/Los_Angeles'; }
+        }
+        function reschedZoneOffsetMin(date, tz) {
+            const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(date).filter(x => x.type !== 'literal').map(x => [x.type, x.value]));
+            return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - date.getTime()) / 60000);
+        }
+        function reschedSlotInstant(ymd, minutes, tz) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '')); if (!m || minutes == null) return null;
+            const naive = Date.UTC(+m[1], +m[2] - 1, +m[3], Math.floor(minutes / 60), minutes % 60);
+            let off = reschedZoneOffsetMin(new Date(naive), tz); let inst = new Date(naive - off * 60000);
+            const off2 = reschedZoneOffsetMin(inst, tz); if (off2 !== off) inst = new Date(naive - off2 * 60000);
+            return inst;
+        }
+        // The SAME policy as the database (0095 move_reconfirm_deadline):
+        //   deadline = min(start, max(now + 12h, min(now + 72h, start - 24h)))
+        function reschedDeadlineFor(start, now) {
+            const H = 3600e3;
+            if (!(start instanceof Date) || Number.isNaN(start.getTime())) return null;
+            return new Date(Math.min(start.getTime(), Math.max(now.getTime() + 12 * H, Math.min(now.getTime() + 72 * H, start.getTime() - 24 * H))));
+        }
+        function reschedDeadlinePreview() {
+            const wrap = document.getElementById('reschedModal'), el = document.getElementById('reschedDeadline');
+            const dateEl = document.getElementById('reschedDate'), sel = document.getElementById('reschedTime');
+            if (!wrap || !el) return;
+            if (wrap._mode === 'propose' || !sel || sel.disabled || !sel.value) { el.textContent = ''; return; }
+            const tz = reschedStoreZone();
+            const start = reschedSlotInstant(dateEl ? dateEl.value : '', DhSlots.minutes(sel.value), tz);
+            const now = new Date();
+            if (!start || start.getTime() <= now.getTime()) { el.textContent = start ? 'That slot has already started.' : ''; return; }
+            const due = reschedDeadlineFor(start, now);
+            let label = '';
+            try { label = due.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (_) { label = due.toISOString(); }
+            const hours = Math.round((due.getTime() - now.getTime()) / 3600e3);
+            el.innerHTML = 'The brand has until <strong>' + escapeHtml(label) + '</strong> (' + hours + ' hours) to confirm. After that the demo is cancelled and refunded in full.';
         }
         function reschedToggleMode() {
             const wrap = document.getElementById('reschedModal'); if (!wrap) return;
@@ -5265,6 +5309,7 @@ function escapeHtml(s) {
             if (btn) { btn.textContent = move ? 'Move demo' : 'Propose to brand'; btn.title = move ? 'Move the demo now and email the brand.' : 'Send this proposed date to the brand for approval.'; }
             if (toggle) toggle.textContent = move ? 'Prefer to ask the brand first? Propose instead' : 'Move it now instead (no waiting on the brand)';
             if (noteWrap) noteWrap.style.display = move ? '' : 'none';
+            reschedDeadlinePreview();
         }
 
         // Fill the reschedule modal's time <select> with the slots offered on the picked date.
@@ -5302,6 +5347,7 @@ function escapeHtml(s) {
                 sel.appendChild(o);
             });
             if (note) note.textContent = res.slots.length === 1 ? 'The only slot offered that day.' : '';
+            if (typeof reschedDeadlinePreview === 'function') reschedDeadlinePreview();
         }
 
         async function submitReschedule(demoId) {

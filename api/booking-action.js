@@ -14,6 +14,7 @@ import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
 import { sbRpc as sbRpcShared, reserveAndRefund as reserveAndRefundShared } from './_booking-refund.js';
+import { FLAGS } from './_flags.js';
 let _b = null;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
@@ -202,6 +203,7 @@ async function handleReschedulePropose(req, res, body) {
     if (reason === 'not_found') return res.status(404).json({ error: 'Demo not found' });
     if (reason === 'date_in_past') return res.status(400).json({ error: 'The new date must be in the future.' });
     if (reason === 'no_booking') return res.status(409).json({ error: 'no_booking', message: 'This demo has no linked booking, so it cannot be rescheduled from here. Cancel and rebook instead.' });
+    if (reason === 'cancellation_pending') return res.status(409).json({ error: reason, message: MOVE_REFUSALS.cancellation_pending[1] });
     return res.status(409).json({ error: reason, message: 'Only a confirmed demo with an active booking can be rescheduled.' });
   }
   const proposalVersion = proposal.proposal_version;
@@ -246,8 +248,12 @@ export const MOVE_REFUSALS = {
   slot_config_invalid: [503, 'This location\'s demo slots are misconfigured. Fix them under Location availability.'],
   venue_hours_not_set: [409, 'This location has no hours set, so no slot can be resolved.'],
   invalid_local_time: [400, 'That local time does not exist on that date (daylight saving change). Pick another slot.'],
+  unresolvable_start: [400, 'That slot could not be resolved to a start time at this location. Pick another slot.'],
+  cancellation_pending: [409, 'The brand could not make the last new time (or never answered), so this demo is being cancelled and refunded. Nothing can be moved until that completes; book a new slot instead.'],
 };
 async function handleMove(req, res, body) {
+  // Codex RM-7: creation only. Existing moves settle, lapse and notify whatever this says.
+  if (!FLAGS.retailerMoves) return res.status(503).json({ error: 'retailer_moves_disabled', message: 'Moving a demo directly is switched off right now. You can still propose a new date and let the brand accept it.' });
   const { demo_id, new_date, new_time, note } = body || {};
   if (!demo_id || !isUuid(demo_id)) return res.status(400).json({ error: 'Invalid demo_id' });
   if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date)) return res.status(400).json({ error: 'new_date (YYYY-MM-DD) required' });

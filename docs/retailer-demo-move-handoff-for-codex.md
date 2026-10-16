@@ -6,7 +6,7 @@ Branch `feat/retailer-demo-move` (feature commit `e12ec81`, two test-label follo
 
 The store owns its calendar. A retailer may move a confirmed (or paid pending) demo to any slot its location offers, immediately, without asking the brand first and without any lead-time restriction. The brand is told at once and has a reconfirmation window to confirm or say it cannot make it. Silence at the deadline, or a decline, cancels the demo with a FULL refund (the store changed the terms; a kept charge is a chargeback). The existing "propose a new date, brand accepts" flow (0074) stays available from the same dialog for stores that prefer to ask first. The owner acts through the existing "Open as retailer" support access, never through a new bypass.
 
-Window: 72 hours from the move, capped at 24 hours before the new demo start, never shorter than 12 hours (a demo inside the next day keeps the start itself as the deadline). Nudges to the brand at +24h and +48h while unanswered.
+Window (corrected after the Codex review, 0095 `move_reconfirm_deadline`): deadline = min(start, max(now + 12h, min(now + 72h, start - 24h))). In words: 72 hours, capped a day before the demo, but never under 12 hours, and never after the demo starts; the 12-hour floor beats the 24-hour buffer, the start beats the floor. Nudges to the brand at +24h and +48h while unanswered. The current round's closure is docs/retailer-demo-move-codex-closure.md.
 
 ## 2. What was built
 

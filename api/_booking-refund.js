@@ -66,7 +66,11 @@ export async function refundPaymentIntent(b, paymentIntentId, opts = {}) {
 // Reserve against the booking's immutable allocation and submit. opName is the per-booking operation
 // identity ('cancel', 'decline', 'move_declined', 'move_lapsed'): the same (booking, opName) always
 // maps to the same reservation and the same Stripe idempotency key.
-export async function reserveAndRefund(b, booking, actor, reason, opName) {
+// opts.onExisting: 'submit' (default, the retailer cancel/decline path: a replayed reservation is
+// resubmitted under its stored idempotency key, which Stripe deduplicates) or 'defer' (the demo-move
+// settlement: an existing reservation is NEVER resubmitted here; the leased refund worker owns its
+// recovery, with provider-id lookup and aged-request reconciliation). Codex RM-4.
+export async function reserveAndRefund(b, booking, actor, reason, opName, opts = {}) {
   const opKey = booking.id + ':' + opName;
   let rr;
   try { rr = await sbRpc(b, 'refund_reserve_cas', { p_booking_id: booking.id, p_op_key: opKey, p_actor: actor || null, p_reason: reason || null }); }
@@ -76,6 +80,16 @@ export async function reserveAndRefund(b, booking, actor, reason, opName) {
   if (outcome === 'no_allocation' || outcome === 'not_charged') return { ok: false, error: outcome, requires_review: true };
   if (outcome === 'nothing_refundable') return { ok: false, error: 'nothing_refundable' };
   if (outcome === 'no_booking' || outcome === 'booking_state_conflict') return { ok: false, error: outcome };
+  // Codex RM-4: the reservation's shape is checked BEFORE any provider call. A full refund is the affected
+  // allocation's remaining entitlement, an explicit amount; an amount-less request would refund a shared
+  // payment in full and is refused here.
+  if (!row || (outcome !== 'reserved' && outcome !== 'existing') || typeof row.payment_intent !== 'string' || !row.payment_intent
+      || !Number.isFinite(Number(row.amount)) || Number(row.amount) <= 0 || typeof row.idempotency_key !== 'string' || !row.idempotency_key || !row.refund_request_id) {
+    return { ok: false, error: 'reserve_malformed', requires_review: true, outcome: outcome || null };
+  }
+  if (outcome === 'existing' && opts.onExisting === 'defer') {
+    return { ok: false, error: 'existing', deferred: true, refund_request_id: row.refund_request_id };
+  }
 
   const r = await refundPaymentIntent(b, row.payment_intent, {
     keepsAll: !!row.keeps_all, amountCents: row.amount, idempotencyKey: row.idempotency_key,
@@ -90,9 +104,9 @@ export async function reserveAndRefund(b, booking, actor, reason, opName) {
         p_meta_request_id: row.refund_request_id, p_event_id: null,
       });
     } catch (_) { /* webhook/worker will still converge */ }
-    return { ok: true, ledger: true, submitted: true, refund_id: r.refund_id };
+    return { ok: true, ledger: true, submitted: true, refund_id: r.refund_id, refund_request_id: row.refund_request_id };
   }
   // Submit failed: leave the reservation for the LEASED worker to retry with the same key.
   await sbRaw(b, `refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
-  return { ok: false, error: 'refund_failed', requires_review: true, retrying: true };
+  return { ok: false, error: 'refund_failed', requires_review: true, retrying: true, refund_request_id: row.refund_request_id };
 }

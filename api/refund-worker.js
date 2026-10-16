@@ -270,7 +270,8 @@ export default async function handler(req, res) {
     // then booking_transition cancel). Idempotent per step; a failure stays unsettled for the next run.
     try {
       const mv = await sweepMoves(_b, { now: new Date(), limit: 25 });
-      out.moves_lapsed = mv.lapsed; out.moves_settled = mv.settled; out.moves_failed = mv.failed;
+      out.moves_lapsed = mv.lapsed; out.moves_settled = mv.settled; out.moves_failed = mv.failed; out.moves_parked = mv.parked; out.moves_retired = mv.retired; out.moves_notice_cases = mv.notice_cases;
+      out.moves_claim_failed = !!mv.claim_failed; out.moves_read_failed = !!mv.read_failed;
       if (mv.errors.length) noteError('moves: ' + mv.errors[0]);
     } catch (e) { out.errors++; noteError('moves: ' + ((e && e.message) || e)); console.error('move sweep error:', (e && e.message) || e); }
 
@@ -282,7 +283,8 @@ export default async function handler(req, res) {
     // (requires_review) and lost-lease rows are designed outcomes, not run failures.
     const fulfilmentFailed = (out.fulfillments_failed || 0) > 0 || out.fulfillments_claim_failed === true;
     const alertsFailed = (out.alerts_failed || 0) > 0 || out.alerts_claim_failed === true;
-    const movesFailed = (out.moves_failed || 0) > 0;
+    // Codex RM-6: a failed move scan (claim or read), a malformed reply or any per-item failure is a failed run.
+    const movesFailed = (out.moves_failed || 0) > 0 || out.moves_claim_failed === true || out.moves_read_failed === true;
     const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed;
     if (runOk) {
       await heartbeat('succeeded', startMs, out);
