@@ -1630,14 +1630,21 @@ function skuRowHtml(p) {
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
     + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
     + inp('sku-code', 'Your brand SKU', p.sku)
-    + inp('sku-upc', 'UPC / product barcode', p.upc, 'inputmode="numeric"')
+    + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric"')
     + '<select class="input sku-distributor">' + sel + '</select>'
     + inp('sku-distributor-other', 'Distributor name (if Other)', p.distributor_other)
     + inp('sku-item-number', 'Distributor item number', p.distributor_item_number)
     + inp('sku-case-pack', 'Units per case', Number.isInteger(p.case_pack) ? p.case_pack : '', 'inputmode="numeric"')
     + '<div style="grid-column:1 / -1;">' + inp('sku-notes', 'Notes for the store (optional, shared with the retailer)', p.notes) + '</div>'
+    // UPC nudge (2026-10-15): shown while the UPC is empty, hidden as soon as one is typed. Never blocks a save.
+    + '<div class="sku-upc-hint" style="grid-column:1 / -1; font-size:0.8rem; color:#a14e2a; line-height:1.45;' + (p.upc ? ' display:none;' : '') + '">No UPC yet. Stores use the barcode to find your item in their ordering system; without it the buyer has to ask you. It is on the product label, usually 12 digits.</div>'
     + '</div>';
 }
+document.addEventListener('input', (e) => {
+  const t = e.target; if (!t || !t.classList || !t.classList.contains('sku-upc')) return;
+  const row = t.closest('.sku-row'); const hint = row && row.querySelector('.sku-upc-hint');
+  if (hint) hint.style.display = t.value.trim() ? 'none' : '';
+});
 
 function renderSkuList(products) {
   const wrap = document.getElementById('skuList');

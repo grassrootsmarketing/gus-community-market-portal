@@ -4642,7 +4642,8 @@ END:VEVENT
 function _productLineHtml(p) {
   if (!p || !p.name) return '';
   const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
-  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : (p.distributor_item_number ? 'item #' + escapeHtml(p.distributor_item_number) : ''), Number.isInteger(p.case_pack) ? p.case_pack + '/case' : '', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : ''].filter(Boolean).join(' &middot; ');
+  // UPC visibility (2026-10-15): a missing barcode is said out loud, so the buyer knows to ask rather than assume.
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : (p.distributor_item_number ? 'item #' + escapeHtml(p.distributor_item_number) : ''), Number.isInteger(p.case_pack) ? p.case_pack + '/case' : '', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : ''].filter(Boolean).join(' &middot; ');
   return '<div>' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.76rem;color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.76rem;color:var(--ink-500);">' + escapeHtml(p.notes) + '</div>' : '') + '</div>';
 }
 function escapeHtml(s) {

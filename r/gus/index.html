@@ -555,6 +555,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     <label class="form-label">Which items are you sampling? *</label>
                     <div id="bookSkuList" style="border:1px solid rgba(15,44,23,0.14); border-radius:10px; padding:6px 4px; max-height:190px; overflow-y:auto;"></div>
                     <div id="bookSkuCapNote" style="display:none; font-size:0.78rem; color:#a14e2a; margin-top:6px;">You can select up to 40 items for one demo. Untick some to continue.</div>
+                    <div id="bookSkuUpcNote" style="display:none; font-size:0.8rem; color:#a14e2a; margin-top:6px; line-height:1.45;"></div>
                     <div id="bookNewItems" style="margin-top:8px;"></div>
                     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; margin-top:6px;">
                         <a href="#" id="bookAddItemLink" style="font-size:0.84rem; color:var(--forest-700); text-decoration:underline;">+ Add an item not on your list</a>
@@ -2319,7 +2320,7 @@ function supportMailto(a) {
             window._bookSkuSource = items;
             const keep = opts && Array.isArray(opts.keepSelection) ? new Set(opts.keepSelection.map(function (p) { return p.id; }).filter(Boolean)) : null;
             list.innerHTML = items.map(function (p, i) {
-                const meta = [p.size, p.sku ? 'brand SKU ' + p.sku : '', p.upc ? 'UPC ' + p.upc : ''].filter(Boolean).join(' \u00b7 ');
+                const meta = [p.size, p.sku ? 'brand SKU ' + p.sku : '', p.upc ? 'UPC ' + p.upc : 'no UPC'].filter(Boolean).join(' \u00b7 ');
                 const checked = keep ? keep.has(p.id) : i < 40;
                 return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
                     + '<input type="checkbox" class="book-sku" data-i="' + i + '"' + (checked ? ' checked' : '') + ' style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
@@ -2338,6 +2339,18 @@ function supportMailto(a) {
             if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
             const err = document.getElementById('bookSkuError'); if (err) err.style.display = 'none';
             grp.style.display = 'block';
+            _updateBookUpcNote();
+            if (!list.dataset.upcWired) { list.dataset.upcWired = '1'; list.addEventListener('change', _updateBookUpcNote); }
+        }
+        // UPC nudge (2026-10-15): counts the ticked catalog items that have no UPC and says so. A note, not a gate:
+        // the booking is accepted either way, and the store sees "UPC not provided" on its side.
+        function _updateBookUpcNote() {
+            const note = document.getElementById('bookSkuUpcNote'); if (!note) return;
+            const src = window._bookSkuSource || [];
+            const missing = Array.from(document.querySelectorAll('#bookSkuList input.book-sku:checked')).map(function (b) { return src[Number(b.dataset.i)]; }).filter(function (p) { return p && !String(p.upc || '').trim(); });
+            if (!missing.length) { note.style.display = 'none'; note.textContent = ''; return; }
+            note.textContent = (missing.length === 1 ? '1 of the items you picked has no UPC. ' : missing.length + ' of the items you picked have no UPC. ') + 'The store uses the barcode to find your item in its ordering system and will see "UPC not provided" otherwise. You can book now and add it later under Products in your portal.';
+            note.style.display = 'block';
         }
         // Returns { items, newItems, save } or { error }. items are full objects (catalog fields carried through).
         function collectBookingProducts() {
