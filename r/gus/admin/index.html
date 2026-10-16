@@ -227,7 +227,9 @@
         .status-completed { background:var(--sand-200); color:var(--bark-600); }
         .status-held { background:#fff0e6; color:#b4531f; }
         /* Cards pulled out of .settings-grid into tab panes lost the grid's 24px rhythm. */
-        .admin-pane > .settings-card, .admin-pane > .billing-card { margin-bottom: 24px; }
+        .admin-pane > .settings-card, .admin-pane > .billing-card, .admin-pane > #policySetupCallout { margin-bottom: 24px; }
+        /* An empty status line takes no room (the Cancellation policy card had a blank band under its options). */
+        #cancellationPolicyStatus:empty { display: none; }
         .status-confirmed { background: var(--forest-100); color: var(--forest-700); }
         
         /* Masonry-style pack: cards fill columns bottom-up, avoiding awkward vertical gaps. */
@@ -1103,7 +1105,7 @@
                                     <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">All bookings are final immediately. No refunds for cancellations. Brands see this clearly before signing.</div>
                                 </div>
                             </label>
-                            <div id="cancellationPolicyStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
+                            <div id="cancellationPolicyStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px;"></div>
                         </div>
                     </div>
                     <div class="settings-card" id="demoPolicyCard" data-tab="policiesSection">
