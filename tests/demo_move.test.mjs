@@ -88,7 +88,7 @@ const brandData = async (cookie = brandCookie) => (await callRoute('brand-accoun
 try {
   ok('fixtures exist', !!retailerId && !!V1 && !!brandId && !!staffCookie && !!brandCookie && !!b);
 
-  console.log('\n— the move —');
+  console.log('\n:: the move ::');
   const D1 = dayP(20), D2 = dayP(22);
   const { booking: bk, demo } = await confirmedBooking(D1, '10:00');
   ok('fixture: a confirmed paid booking with a calendar demo', !!demo && demo.status === 'confirmed', JSON.stringify(demo && demo.status));
@@ -125,7 +125,7 @@ try {
   ok('the old occurrence\'s pending delivery was retired (skipped rescheduled)', (one(await db(`notification_deliveries?id=eq.${retired.id}&select=status,skip_reason`)) || {}).skip_reason === 'rescheduled');
   ok('no mail was sent from the request path', spy.calls.resend.length === 0, String(spy.calls.resend.length));
 
-  console.log('\n— outbox: brand notice and reminders —');
+  console.log('\n:: outbox: brand notice and reminders ::');
   const f = await fanOutEvents(b, { now: new Date() });
   const dMoved = await deliveriesFor(bk.id, 'demo_moved');
   ok('fan-out: one demo_moved delivery to the brand, keyed on the move', f.errors.length === 0 && dMoved.length === 1 && dMoved[0].recipient_email === brandEmail && dMoved[0].occurrence_key === moves1[0].id, JSON.stringify(dMoved.map(d => [d.recipient_email, d.status])));
@@ -138,7 +138,7 @@ try {
   const rem = await deliveriesFor(bk.id, 'demo_move_reminder');
   ok('reminders scheduled: +24h and +48h, pending', sr.errors.length === 0 && rem.length === 2 && rem.every(r => r.status === 'pending') && rem.map(r => r.offset_key).sort().join(',') === 'h24,h48', JSON.stringify(rem.map(r => [r.offset_key, r.status, r.due_at])));
 
-  console.log('\n— the brand answers —');
+  console.log('\n:: the brand answers ::');
   const data = await brandData();
   const mine = (data.demos || []).find(d => d.booking_id === bk.id);
   ok('brand data: the demo carries pending_move with id, slots, note and deadline', mine && mine.pending_move && mine.pending_move.id === moves1[0].id && mine.pending_move.from_date === D1 && mine.pending_move.to_date === D2 && mine.pending_move.note === 'Agreed with Rep M by phone' && mine.pending_move.reconfirm_due_at, JSON.stringify(mine && mine.pending_move));
@@ -159,7 +159,7 @@ try {
     ok('the +24h reminder that came due after the brand confirmed is skipped move_confirmed, not sent; the +48h one is simply not due yet', !spy.calls.resend.slice(n1).some(m => /Reminder: confirm your moved demo/.test(m.subject)) && h24 && h24.status === 'skipped' && h24.skip_reason === 'move_confirmed' && h48 && h48.status === 'pending', JSON.stringify(remAfter.map(r => [r.offset_key, r.status, r.skip_reason])));
   }
 
-  console.log('\n— a second move supersedes; the brand declines —');
+  console.log('\n:: a second move supersedes; the brand declines ::');
   const D3 = dayP(24);
   const mv2 = await move({ demo_id: demo.id, new_date: D3, new_time: '13:00' });
   ok('second move: 200', mv2.statusCode === 200, JSON.stringify(mv2.body));
@@ -179,7 +179,7 @@ try {
   const sentCancel = spy.calls.resend.slice(n2).find(m => /was cancelled/.test(m.subject));
   ok('the brand is emailed that the demo was cancelled because they declined', !!sentCancel && /You told us the new time does not work/.test(sentCancel.html), JSON.stringify(spy.calls.resend.slice(n2).map(m => m.subject)));
 
-  console.log('\n— lapse: the deadline passes with no answer —');
+  console.log('\n:: lapse: the deadline passes with no answer ::');
   const { booking: bk2, demo: demo2 } = await confirmedBooking(dayP(30), '10:00');
   const mv4 = await move({ demo_id: demo2.id, new_date: dayP(31), new_time: '10:00' });
   ok('a move on the second booking', mv4.statusCode === 200, JSON.stringify(mv4.body));
@@ -196,7 +196,7 @@ try {
   const moveCancelled = await move({ demo_id: demo2.id, new_date: dayP(32), new_time: '10:00' });
   ok('moving a cancelled demo: 409 not_active', moveCancelled.statusCode === 409 && moveCancelled.body.error === 'not_active', JSON.stringify(moveCancelled.body));
 } finally {
-  console.log('\n— teardown —');
+  console.log('\n:: teardown ::');
   for (const [t, id] of bin) {
     if (t !== 'bookings') continue;
     await db(`notification_deliveries?booking_id=eq.${id}`, { method: 'DELETE' });
