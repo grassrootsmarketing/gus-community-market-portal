@@ -75,7 +75,7 @@ const makeDue = (id, now) => db(`notification_deliveries?id=eq.${id}`, { method:
 try {
   ok('fixtures exist', !!retailerId && !!V1 && !!brandId && !!booking && !!b);
 
-  console.log('\n— sweep: one row per offset, brand-scoped, past offsets recorded as skipped —');
+  console.log('\n,  sweep: one row per offset, brand-scoped, past offsets recorded as skipped , ');
   const now = new Date();
   const s1 = await scheduleCoiExpiryPings(b, { now });
   const r1 = await rowsFor(EXP1);
@@ -88,7 +88,7 @@ try {
   const s2 = await scheduleCoiExpiryPings(b, { now });
   ok('a second sweep adds nothing (idempotent on dedupe_key)', s2.errors.length === 0 && (await rowsFor(EXP1)).length === 3, JSON.stringify(s2));
 
-  console.log('\n— dispatch: claim, recheck, freeze, send once —');
+  console.log('\n,  dispatch: claim, recheck, freeze, send once , ');
   {
     await makeDue(d3.id, now);
     const rec = recordingMailer(b);
@@ -99,13 +99,13 @@ try {
     ok('accepted: one provider call, key = delivery id, frozen to the owner', r && r.outcome === 'accepted' && after.status === 'accepted' && rec.calls.length === 1 && keyOf(rec.calls[0]) === after.id && after.frozen_payload && after.frozen_payload.to === OWNER_ALERT_EMAIL && after.idempotency_key === after.id, JSON.stringify({ r, calls: rec.calls.length }));
     const html = (after.frozen_payload && after.frozen_payload.html) || '';
     ok('subject: brand, 3 days, demo count', /^COI expiring in 3 days: Expiry Brand & Co \(1 upcoming demo\)$/.test(after.frozen_payload.subject), after.frozen_payload.subject);
-    ok('body: escaped brand name, the expiry date, the demo date and store, the COI Review link, no em dash', html.includes('Expiry Brand &amp; Co') && html.includes('Expiry Fixture Market, Expiry Main') && /href="[^"]+\/owner#coi"/.test(html) && !/—/.test(html), html.slice(0, 200));
+    ok('body: escaped brand name, the expiry date, the demo date and store, the COI Review link, no em dash', html.includes('Expiry Brand &amp; Co') && html.includes('Expiry Fixture Market, Expiry Main') && /href="[^"]+\/owner#coi"/.test(html) && !/\u2014/.test(html), html.slice(0, 200));
     // Re-run on the accepted row: nothing is claimable, nothing is sent.
     const again = await claimOurs(d3.dedupe_key, now);
     ok('an accepted row is never claimed again', again === null);
   }
 
-  console.log('\n— renewal: the old date stops, the new date gets its own rows —');
+  console.log('\n,  renewal: the old date stops, the new date gets its own rows , ');
   {
     await db(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify({ default_coi_expires: EXP2 }) });
     await makeDue(d3.id, now);   // pretend the 3-day ping had not gone out yet
@@ -134,7 +134,7 @@ try {
     await db(`brands?id=eq.${brandId}`, { method: 'PATCH', body: JSON.stringify({ default_coi_expires: EXP1 }) });
   }
 
-  console.log('\n— owner panel: Expiring in the next 30 days —');
+  console.log('\n,  owner panel: Expiring in the next 30 days , ');
   {
     let ownerCookie;
     { const OWNER_EMAIL = 'david@demohubhq.com'; const ex = await db('retailers?slug=eq.__owner__&select=id'); const ownerRid = (ex.body && ex.body[0] && ex.body[0].id) || (await db('retailers', { method: 'POST', body: JSON.stringify({ slug: '__owner__', name: 'Demohub Owner (system)', billing_email: OWNER_EMAIL }) })).body[0].id; const tok = (await db('admin_tokens', { method: 'POST', body: JSON.stringify({ email: OWNER_EMAIL, retailer_id: ownerRid }) })).body[0]; ownerCookie = (await callRoute('admin-auth.js', req({ body: { action: 'owner-verify', token: tok.token } }))).cookie('dh_owner_session'); }
@@ -150,7 +150,7 @@ try {
     ok('owner: every listed brand expires today or later within the horizon', Array.isArray(j.expiring) && j.expiring.every(x => x.expiry >= today && x.days_left <= 30));
   }
 } finally {
-  console.log('\n— teardown —');
+  console.log('\n,  teardown , ');
   await db(`notification_deliveries?kind=eq.coi_expiry_owner&occurrence_key=like.${encodeURIComponent(brandId + ':*')}`, { method: 'DELETE' });
   for (const [t, id] of bin) {
     if (t !== 'bookings') continue;

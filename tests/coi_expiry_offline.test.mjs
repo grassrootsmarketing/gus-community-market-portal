@@ -139,7 +139,7 @@ console.log('\n:: dispatch ::');
   ok('subject names the brand, the days and the demo count', m && m.subject === 'COI expiring in 14 days: Alpha Snacks & Co (2 upcoming demos)', m && m.subject);
   const html = (m && m.html) || '';
   ok('body: brand (escaped), expiry date, both demos with date and store, the one after the expiry date flagged', /Alpha Snacks &amp; Co/.test(html) && /Tuesday, November 10, 2026/.test(html) && /Saturday, November 7, 2026<\/strong> at 11:00 AM, Gus&#39;s Community Market, Mission District/.test(html) && /Saturday, November 14, 2026<\/strong> at 2:00 PM, Gus&#39;s Community Market, Noe Valley.*after the expiry date/.test(html) && /1 after the expiry date/.test(html), html.slice(html.indexOf('Demos this'), html.indexOf('Demos this') + 500));
-  ok('body links to the owner COI Review section, never to a certificate file, and contains no em dash', /href="https:\/\/example\.test\/owner#coi"/.test(html) && !/coi-file|\.pdf|signed/.test(html) && !/—/.test(html + m.subject));
+  ok('body links to the owner COI Review section, never to a certificate file, and contains no em dash', /href="https:\/\/example\.test\/owner#coi"/.test(html) && !/coi-file|\.pdf|signed/.test(html) && !/\u2014/.test(html + m.subject));
   ok('the frozen payload is the exact message sent', patches.some(p => p.frozen_payload && p.frozen_payload.to === OWNER_ALERT_EMAIL && p.frozen_payload.subject === m.subject && p.frozen_payload.html === html));
 }
 {
