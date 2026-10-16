@@ -38,6 +38,16 @@ try {
   ok('1d. typing a UPC hides the hint', !(await hintVisible(1)));
   await rows.nth(1).locator('.sku-upc').fill('');
   ok('1e. clearing it brings the hint back', await hintVisible(1));
+  // quieter rule (2026-10-16): a blank new row says nothing until it has a product name
+  await p.locator('#skuAddBtn').click();
+  const blank = rows.nth(2);
+  ok('1g. a brand-new blank row shows NO hint', !(await blank.locator('.sku-upc-hint').isVisible()));
+  await blank.locator('.sku-name').fill('Cold Brew Concentrate');
+  ok('1h. naming the item (no UPC yet) brings the hint', await blank.locator('.sku-upc-hint').isVisible());
+  await blank.locator('.sku-upc').fill('850000000099');
+  ok('1i. typing its UPC hides it again', !(await blank.locator('.sku-upc-hint').isVisible()));
+  ok('1j. the name field asks for the product with flavor or variety, and warns off the brand name', /flavor or variety/.test(await blank.locator('.sku-name').getAttribute('placeholder')) && /Not your brand name/.test(await blank.locator('.sku-name').getAttribute('title')));
+  ok('1k. the list opens with the brand\'s own name', /Your brand is\s*Fire Season Goods/.test((await p.locator('#skuList').locator('xpath=preceding-sibling::div[contains(@class,"help")]').first().textContent()).replace(/\s+/g, ' ')));
   ok('1f. no page errors', e1.length === 0, e1.join(' | '));
 
   // 2. booking form picker

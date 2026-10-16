@@ -1676,24 +1676,29 @@ function skuRowHtml(p) {
   const sel = SKU_DISTRIBUTORS.map(o => '<option value="' + o[0] + '"' + ((p.distributor || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('');
   const inp = (cls, ph, val, extra) => '<input class="input ' + cls + '" placeholder="' + ph + '" value="' + v(val) + '" ' + (extra || '') + '>';
   return '<div class="sku-row" data-id="' + v(p.id) + '" style="border:1px solid rgba(15,44,23,0.12); border-radius:12px; padding:12px; margin-bottom:10px; display:grid; grid-template-columns:repeat(auto-fit, minmax(170px, 1fr)); gap:8px;">'
-    + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Item name *', p.name, 'style="flex:1;"')
+    // Name (2026-10-16): brands kept typing their company here. The field asks for the product, with its flavor or variety.
+    + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Product name, with flavor or variety (e.g. Smoked Serrano Hot Sauce) *', p.name, 'style="flex:1;" title="One product as it appears on the shelf, with its flavor or variety. Not your brand name."')
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
     + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
     + inp('sku-code', 'Your brand SKU', p.sku)
-    + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric"')
+    + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric" title="The barcode number on the product label, usually 12 digits."')
     + '<select class="input sku-distributor">' + sel + '</select>'
     + inp('sku-distributor-other', 'Distributor name (if Other)', p.distributor_other)
     + inp('sku-item-number', 'Distributor item number', p.distributor_item_number)
     + inp('sku-case-pack', 'Units per case', Number.isInteger(p.case_pack) ? p.case_pack : '', 'inputmode="numeric"')
     + '<div style="grid-column:1 / -1;">' + inp('sku-notes', 'Notes for the store (optional, shared with the retailer)', p.notes) + '</div>'
-    // UPC nudge (2026-10-15): shown while the UPC is empty, hidden as soon as one is typed. Never blocks a save.
-    + '<div class="sku-upc-hint" style="grid-column:1 / -1; font-size:0.8rem; color:#a14e2a; line-height:1.45;' + (p.upc ? ' display:none;' : '') + '">No UPC yet. Stores use the barcode to find your item in their ordering system; without it the buyer has to ask you. It is on the product label, usually 12 digits.</div>'
+    // UPC nudge (2026-10-15, quieter 2026-10-16): shown only once the row has a product name and still no UPC. A blank
+    // new row says nothing. Hidden the moment a UPC is typed. Never blocks a save.
+    + '<div class="sku-upc-hint" style="grid-column:1 / -1; font-size:0.8rem; color:#a14e2a; line-height:1.45;' + (_skuHintWanted(p.name, p.upc) ? '' : ' display:none;') + '">No UPC yet. Stores use the barcode to find your item in their ordering system.</div>'
     + '</div>';
 }
+function _skuHintWanted(name, upc) { return !!String(name == null ? '' : name).trim() && !String(upc == null ? '' : upc).trim(); }
 document.addEventListener('input', (e) => {
-  const t = e.target; if (!t || !t.classList || !t.classList.contains('sku-upc')) return;
+  const t = e.target; if (!t || !t.classList || !(t.classList.contains('sku-upc') || t.classList.contains('sku-name'))) return;
   const row = t.closest('.sku-row'); const hint = row && row.querySelector('.sku-upc-hint');
-  if (hint) hint.style.display = t.value.trim() ? 'none' : '';
+  if (!hint) return;
+  const name = row.querySelector('.sku-name'), upc = row.querySelector('.sku-upc');
+  hint.style.display = _skuHintWanted(name && name.value, upc && upc.value) ? '' : 'none';
 });
 
 function renderSkuList(products) {
@@ -1836,7 +1841,7 @@ function renderProducts() {
       </div>
       <div class="form-row">
         <label class="label">Items you sample</label>
-        <div class="help" style="margin:0 0 10px;">The specific products you bring to a demo. The store checks stock and arranges any order from this list, so the ordering details matter: UPC (the barcode number), the distributor you sell through, the distributor's item number, and units per case. Everything here, including notes, is shared with the retailers you book and their notification contacts. Don't put passwords, payment details, confidential pricing or personal information in it.</div>
+        <div class="help" style="margin:0 0 10px;">${profile.company_name ? 'Your brand is <strong>' + escapeHtml(profile.company_name) + '</strong>. ' : ''}Each row below is one product you sample at demos, with its flavor or variety. The store checks stock and arranges any order from this list, so the ordering details matter: UPC (the barcode number), the distributor you sell through, the distributor's item number, and units per case. Everything here, including notes, is shared with the retailers you book and their notification contacts. Don't put passwords, payment details, confidential pricing or personal information in it.</div>
         <div id="skuList"></div>
         <button type="button" class="btn btn-ghost" id="skuAddBtn" style="margin-top:10px;">+ Add item</button>
       </div>
