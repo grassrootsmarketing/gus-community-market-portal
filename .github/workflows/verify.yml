@@ -104,7 +104,9 @@ env:
   # 2026-09-12 (Codex round 4, R4-04 rehearsal finding): 0082_backfill_active_booking_snapshots.sql -> 83.
   # 2026-09-17 (Codex F-1, fixed before launch by David's decision): 0083_fulfillment_frozen_outbound.sql -> 84.
   # 2026-09-20 (Codex storage-backup work order BAK-4): 0084_backup_reader_storage_select.sql -> 85.
-  EXPECTED_MIGRATIONS: '85'
+  # 2026-10-16: the count had not been kept current through 0086, 0087, 0090, 0091 and 0092 (90 files on main);
+  #   0093_coi_expiry_owner_pings.sql (owner COI expiry pings) -> 91.
+  EXPECTED_MIGRATIONS: '91'
 
 jobs:
   # --------------------------------------------------------------------------

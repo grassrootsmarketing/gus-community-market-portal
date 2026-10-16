@@ -284,6 +284,48 @@ export function coiRejectedMessage(b, { brand, verification }) {
 }
 
 // ---------------------------------------------------------------------------
+// Owner COI expiry ping (2026-10-16). One per brand at 30 / 14 / 3 days before the approved certificate
+// lapses, only while the brand has upcoming paid demos. Facts come from api/_coi-expiry.js at dispatch
+// (the brand's CURRENT expiry and CURRENT demos), never from the row that scheduled the ping. Links to
+// the owner panel's COI Review section; never to the certificate file.
+// ---------------------------------------------------------------------------
+export function coiExpiryOwnerMessage(b, { brand, expiry, offsetDays, demos = [], now = new Date() }) {
+  const name = (brand && brand.company_name) || 'A brand';
+  const expiryYmd = String(expiry || '').slice(0, 10);
+  const expiryLabel = dateLabel(expiryYmd, { year: true });
+  const days = Number(offsetDays);
+  const when = days === 1 ? 'tomorrow' : `in ${days} days`;
+  const n = demos.length;
+  const isAfter = (d) => !!(d && d.demo_date && String(d.demo_date).slice(0, 10) > expiryYmd);
+  const items = demos.slice(0, 25).map(d => {
+    const date = d.demo_date ? dateLabel(String(d.demo_date).slice(0, 10), { year: true }) : 'date not recorded';
+    const time = d.demo_time ? ` at ${H(String(d.demo_time))}` : '';
+    const store = [d.retailer_name, d.venue_name].filter(Boolean).map(H).join(', ') || 'store not recorded';
+    const after = isAfter(d) ? ' <span style="color:#a14e2a;font-weight:700;">(after the expiry date)</span>' : '';
+    return `<li style="margin:0 0 6px;"><strong>${H(date)}</strong>${time}, ${store}${after}</li>`;
+  }).join('');
+  const more = n > 25 ? `<li style="margin:0 0 6px;color:#6b6a64;">and ${n - 25} more</li>` : '';
+  const uncovered = demos.filter(isAfter).length;
+  const table = `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${[
+    ['Brand', H(name)], ['COI expires', H(expiryLabel)], ['Days left', H(String(days))],
+    ['Upcoming paid demos', H(String(n)) + (uncovered ? ` <span style="color:#a14e2a;font-weight:700;">(${uncovered} after the expiry date)</span>` : '')],
+  ].map(([k, v], i) => row(k, v, i === 0)).join('')}</table>`;
+  const list = `<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;margin:0 0 8px;">Demos this certificate covers</div><ul style="margin:0 0 22px;padding-left:20px;font-size:14px;line-height:1.5;color:#1c1c1a;">${items}${more}</ul>`;
+  const body = table + list + `<p style="font-size:14px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Ask ${H(name)} for a renewed certificate before ${H(expiryLabel)}. When they upload one, it lands in COI Review for your approval, and the new expiry date replaces this schedule. Nothing is cancelled automatically.</p>`;
+  return {
+    subject: `COI expiring ${when}: ${name} (${n} upcoming demo${n === 1 ? '' : 's'})`,
+    html: shell({
+      eyebrow: 'Certificate of Insurance expiring', tone: days <= 3 ? 'clay' : 'green',
+      heading: `The certificate of insurance for ${H(name)} expires ${H(when)}, on ${H(expiryLabel)}.`,
+      intro: `This brand has ${n} upcoming paid demo${n === 1 ? '' : 's'} on Demohub. Once the certificate lapses, stores will see those demos as uncovered.`,
+      body,
+      cta: { href: link(b, '/owner#coi'), label: 'Open COI Review' },
+      footer: `<p style="font-size:12px;color:#6b6a64;line-height:1.55;margin:0;">Sent to the Demohub owner at 30, 14 and 3 days before an approved certificate expires, while the brand has paid demos ahead. Facts as of ${H(dateLabel(now, { year: true, tz: 'America/Los_Angeles' }))}.</p>`,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Brand payment receipt (2026-10-11). One per payment group, sent by the outbox when the ledger
 // records the group as paid (0091). The figures come from the LEDGER (payment_groups +
 // payment_allocations), never from a client; the card line and the Stripe receipt link are

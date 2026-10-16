@@ -44,8 +44,19 @@ import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notificatio
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
-  coiApprovedMessage, coiRejectedMessage, receiptMessage,
+  coiApprovedMessage, coiRejectedMessage, receiptMessage, coiExpiryOwnerMessage,
 } from './_notification-mail.js';
+import {
+  COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS, OWNER_TZ, coiExpiryWindow, coiExpiryOffsetKey,
+  coiExpiryOccurrenceKey, coiExpiryDedupeKey, parseCoiExpiryOccurrence, expiringCoiBrands, loadUpcomingDemos,
+} from './_coi-expiry.js';
+
+// Owner COI expiry pings (2026-10-16): 30 / 14 / 3 days before an approved certificate lapses, while the
+// brand has upcoming paid demos. Scheduled by scheduleCoiExpiryPings() below straight into deliveries
+// (no event row, like reminders) and rechecked against the brand's CURRENT expiry, status and demos at
+// dispatch. The schedule is derived from brands.default_coi_expires, so a renewal that moves the date
+// later retires the old date's rows ('coi_renewed') and the next sweep schedules the new date's.
+export const COI_EXPIRY_KINDS = [COI_EXPIRY_KIND];
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
 export const COI_KINDS = ['coi_approved', 'coi_rejected'];
@@ -447,6 +458,60 @@ export async function scheduleReminders(b, { now = new Date(), batch = DEFAULTS.
 }
 
 // ---------------------------------------------------------------------------
+// 2b. OWNER COI EXPIRY PINGS: approved brands expiring within the horizon x upcoming paid demos x offsets.
+// ---------------------------------------------------------------------------
+// Runs every worker run (cheap: a handful of brands at most) and is idempotent through dedupe_key, so a
+// re-run inserts nothing new. The horizon is the farthest offset plus one day, so the 30-day ping is
+// scheduled ahead of its due time rather than discovered on the day. Brands without an upcoming paid
+// demo get no rows (eligibility is re-judged at dispatch, so a demo booked later still earns the pings
+// whose due times have not passed).
+export async function scheduleCoiExpiryPings(b, { now = new Date(), tz = OWNER_TZ, horizonDays = COI_EXPIRY_HORIZON_DAYS + 1 } = {}) {
+  const out = { brands: 0, eligible: 0, rows_pending: 0, rows_skipped: 0, errors: [] };
+  const query = (path) => sb(b, path).then(rows => rowsOf(rows, path));
+  let list;
+  try { list = await expiringCoiBrands(query, { now, horizonDays, tz }); }
+  catch (e) { out.errors.push(`coi_expiry:${errCode(e)}`); return out; }
+  for (const item of list) {
+    out.brands++;
+    if (!item.demos.length) continue;
+    out.eligible++;
+    try {
+      const rows = [];
+      for (const days of COI_EXPIRY_OFFSET_DAYS) {
+        const win = coiExpiryWindow(item.expiry, days, tz);
+        // Every row carries the SAME keys: PostgREST refuses a bulk insert of mixed shapes.
+        const row = {
+          event_id: null, retailer_id: null, booking_id: null,
+          recipient_kind: 'owner', recipient_id: null, recipient_email: OWNER_ALERT_EMAIL,
+          kind: COI_EXPIRY_KIND, offset_key: coiExpiryOffsetKey(days), occurrence_key: coiExpiryOccurrenceKey(item.brand.id, item.expiry),
+          dedupe_key: coiExpiryDedupeKey(item.brand.id, item.expiry, days),
+          attempts: 0, due_at: null, expires_at: null, status: 'pending', skip_reason: null,
+        };
+        if (!win.ok) {
+          Object.assign(row, { due_at: now.toISOString(), expires_at: now.toISOString(), status: 'skipped', skip_reason: win.skip });
+        } else if (win.due_at.getTime() <= now.getTime()) {
+          // First rollout / late approval / late booking: never a backlog burst, always an explainable row.
+          Object.assign(row, { due_at: win.due_at.toISOString(), expires_at: win.expires_at.toISOString(), status: 'skipped', skip_reason: 'due_before_scheduling' });
+        } else {
+          Object.assign(row, { due_at: win.due_at.toISOString(), expires_at: win.expires_at.toISOString() });
+        }
+        rows.push(row);
+      }
+      const inserted = await insertDeliveriesRows(b, rows);
+      for (const r of inserted) { if (r.status === 'skipped') out.rows_skipped++; else out.rows_pending++; }
+    } catch (e) { out.errors.push(`coi_expiry:${errCode(e)}`); }
+  }
+  return out;
+}
+async function insertDeliveriesRows(b, rows) {
+  if (!rows.length) return [];
+  const inserted = await sb(b, 'notification_deliveries?on_conflict=dedupe_key', {
+    method: 'POST', headers: { Prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(rows),
+  });
+  return Array.isArray(inserted) ? inserted : [];
+}
+
+// ---------------------------------------------------------------------------
 // 3. DISPATCH: claim due rows, recheck, freeze, send, record.
 // ---------------------------------------------------------------------------
 // A row is claimable when it is due and either pending (never claimed), failed/unknown with its
@@ -619,6 +684,29 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     const v = { ...verification, expires_at: payload.expires_at || verification.policy_expiry || null, brand_note: verification.brand_note != null ? verification.brand_note : (payload.brand_note || null) };
     const message = row.kind === 'coi_approved' ? coiApprovedMessage(b, { brand, verification: v }) : coiRejectedMessage(b, { brand, verification: v });
     return { ok: true, to, message };
+  }
+  if (row.recipient_kind === 'owner' && COI_EXPIRY_KINDS.includes(row.kind)) {
+    // Judged on the brand's CURRENT certificate and CURRENT demos at dispatch. The row only says which
+    // brand, which expiry date and which offset it was scheduled for; everything in the email is read now.
+    //   * the brand must still be approved and still expire on the date the row was scheduled for
+    //     (a renewal that moved the date later is 'coi_renewed'; any other change is 'coi_expiry_changed');
+    //   * the brand must still have at least one upcoming paid demo ('no_upcoming_demos' otherwise);
+    //   * a row past its catch-up window is 'expired', never a stale burst after an outage.
+    const occ = parseCoiExpiryOccurrence(row.occurrence_key);
+    if (!occ) return { skip: 'invalid_occurrence' };
+    if (row.expires_at && new Date(row.expires_at).getTime() < now.getTime()) return { skip: 'expired' };
+    const brand = await loadFresh(b, 'brands', occ.brandId, 'id,company_name,email,default_coi_expires,coi_verification_status');
+    if (!brand) return { skip: 'brand_missing' };
+    if (String(brand.coi_verification_status || '').toLowerCase() !== 'approved') return { skip: 'coi_not_approved' };
+    const currentExpiry = brand.default_coi_expires ? String(brand.default_coi_expires).slice(0, 10) : null;
+    if (currentExpiry !== occ.expiry) return { skip: currentExpiry && currentExpiry > occ.expiry ? 'coi_renewed' : 'coi_expiry_changed' };
+    const query = (path) => sb(b, path).then(rows => rowsOf(rows, path));
+    const demos = (await loadUpcomingDemos(query, [brand.id], { now, tz: OWNER_TZ })).get(brand.id) || [];
+    if (!demos.length) return { skip: 'no_upcoming_demos' };
+    if (replay) return { ok: true, to: OWNER_ALERT_EMAIL };
+    const offsetDays = Number(String(row.offset_key || '').replace(/^d/, '')) || null;
+    const message = coiExpiryOwnerMessage(b, { brand, expiry: occ.expiry, offsetDays, demos, now });
+    return { ok: true, to: OWNER_ALERT_EMAIL, message };
   }
   if (row.recipient_kind === 'owner') {
     // Codex H2: judged on the CURRENT booking at dispatch. A hold captured before this send goes out
@@ -847,8 +935,9 @@ export async function runWorker(b, { now = new Date(), mailer = sendMail, budget
   await step('fanout', () => fanOutEvents(b, { now, cache, batch: budgets.fanoutBatch }));
   await step('schedule', () => scheduleReminders(b, { now, cache, batch: budgets.scheduleBatch }));
   await step('dispatch', () => dispatchDue(b, { now, clock, cache, mailer, batch: budgets.dispatchBatch, maxAttempts: budgets.maxAttemptsPerRun, sendTimeoutMs: budgets.sendTimeoutMs }));
+  await step('coi_expiry', () => scheduleCoiExpiryPings(b, { now }));
   await step('metrics', () => collectMetrics(b, { now }));
-  for (const k of ['fanout', 'schedule', 'dispatch']) if (summary[k] && Array.isArray(summary[k].errors)) summary[k].errors = summary[k].errors.length;
+  for (const k of ['fanout', 'schedule', 'coi_expiry', 'dispatch']) if (summary[k] && Array.isArray(summary[k].errors)) summary[k].errors = summary[k].errors.length;
   summary.errors = errors.length;
   summary.first_error = errors.length ? String(errors[0]).slice(0, 200) : null;
   summary.ok = errors.length === 0;

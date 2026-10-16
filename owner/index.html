@@ -705,6 +705,13 @@ function renderDashboard(d) {
         Certificates awaiting a decision. One item per brand, showing the brand&rsquo;s current document.
         Approving lets that brand book; rejecting does not.
       </p>
+      <div id="coiExpiring" style="margin:0 0 16px; padding:12px 14px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; background:#fbf7f0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <strong style="font-size:14px;">Expiring in the next 30 days</strong>
+          <span style="font-size:12px; color:var(--forest-700);">You get one email per brand at 30, 14 and 3 days before an approved certificate expires, while that brand has paid demos ahead.</span>
+        </div>
+        <div id="coiExpiringBody" style="margin-top:8px;">Loading&hellip;</div>
+      </div>
       <div id="coiLastDecision" aria-live="polite" style="margin:0 0 8px; font-size:13px; font-weight:600;"></div>
       <div id="coiPaymentWarnings" role="alert" aria-live="polite" hidden style="margin:0 0 12px; padding:12px 14px; border:1px solid #c25a1c; border-left:5px solid #c25a1c; border-radius:8px; background:#fff3ed; color:#1c1c1a; font-size:13px;"></div>
       <div id="coiQueueBody">Loading&hellip;</div>
@@ -966,7 +973,7 @@ const NOTIF_LIST_META = {
 };
 const OFFSET_LABELS = { w1: '1 week before', d14: '2 weeks before', d7: '1 week before', d3: '3 days before', d1: '1 day before', morning_of: 'Morning of', h1: '1 hour before' };
 const offsetWords = (k) => { if (!k) return ''; if (OFFSET_LABELS[k]) return OFFSET_LABELS[k]; const m = /^d(\d+)$/.exec(k); return m ? m[1] + ' days before' : k; };
-const kindWords = (kind, offset) => kind === 'reminder' ? 'Reminder: ' + offsetWords(offset) : kind === 'demo_confirmed' ? 'Demo confirmed' : kind === 'demo_cancelled' ? 'Demo cancelled' : kind === 'demo_rescheduled' ? 'Demo rescheduled' : kind === 'coi_approved' ? 'COI approved' : kind === 'coi_rejected' ? 'COI rejected' : kind;
+const kindWords = (kind, offset) => kind === 'reminder' ? 'Reminder: ' + offsetWords(offset) : kind === 'demo_confirmed' ? 'Demo confirmed' : kind === 'demo_cancelled' ? 'Demo cancelled' : kind === 'demo_rescheduled' ? 'Demo rescheduled' : kind === 'coi_approved' ? 'COI approved' : kind === 'coi_rejected' ? 'COI rejected' : kind === 'coi_expiry_owner' ? 'COI expiring (owner): ' + offsetWords(offset) : kind;
 const ERROR_WORDS = { provider_rejected: 'Email provider rejected it', provider_unreachable: 'Email provider unreachable', provider_ack_unverified: 'Provider answer could not be verified', provider_not_configured: 'Email provider not configured', idempotency_window_expired: 'Retry window closed before a send could complete', review_required: 'Needs manual review', max_attempts: 'Gave up after repeated attempts', recipient_changed: 'Recipient changed or was removed', settings_unreadable: 'Store settings could not be read', send_failed: 'Send failed', other: 'Failed (details in server logs)' };
 // A UTC instant shown in the store's zone, labelled: "Tue, Oct 6, 9:00 AM PDT". Falls back to UTC with a label.
 function inStoreTime(iso, tz) {
@@ -1082,6 +1089,15 @@ function wireTabs() {
       if (tab === 'coi') loadCoiQueue();
     });
   });
+  // A link into a section (the COI expiry email points at /owner#coi) opens that tab directly, on load
+  // and when the hash changes in an already open panel.
+  const openTabFromHash = () => {
+    const wanted = String(window.location.hash || '').replace(/^#/, '').replace(/[^a-z]/g, '');
+    const target = wanted ? document.querySelector('.owner-tab[data-tab="' + wanted + '"]') : null;
+    if (target && !target.classList.contains('active')) target.click();
+  };
+  openTabFromHash();
+  if (!window._ownerHashWired) { window._ownerHashWired = true; window.addEventListener('hashchange', openTabFromHash); }
 }
 
 // Status incidents management (owner panel)
@@ -1404,10 +1420,56 @@ async function doImpersonate(retailer_id, retailer_name) {
 // ---------------------------------------------------------------------------
 let _coiQueue = [];
 
+// Expiring in the next 30 days (2026-10-16): the same facts the owner's expiry emails are built from
+// (api/_coi-expiry.js via owner-coi-expiring), with the recorded state of each ping per brand.
+async function loadCoiExpiring() {
+  const el = document.getElementById('coiExpiringBody');
+  if (!el) return;
+  el.textContent = 'Loading…';
+  try {
+    const r = await fetch('/api/admin-auth', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'owner-coi-expiring' }),
+    });
+    const j = await r.json();
+    if (!r.ok) { el.textContent = 'Could not load the expiry list: ' + (j.error || r.status); return; }
+    renderCoiExpiring(Array.isArray(j.expiring) ? j.expiring : []);
+  } catch (e) {
+    el.textContent = 'Could not load the expiry list.';
+  }
+}
+function coiPingWords(p) {
+  if (!p) return 'not scheduled';
+  if (p.status === 'accepted') return 'sent ' + fmtD(String(p.updated_at || '').slice(0, 10));
+  if (p.status === 'pending' || p.status === 'claimed') return 'scheduled ' + fmtD(String(p.due_at || '').slice(0, 10));
+  if (p.status === 'skipped') return p.skip_reason === 'due_before_scheduling' ? 'date already passed when scheduled' : p.skip_reason === 'coi_renewed' ? 'stopped, certificate renewed' : p.skip_reason === 'no_upcoming_demos' ? 'skipped, no paid demos' : 'skipped (' + (p.skip_reason || 'no reason recorded') + ')';
+  if (p.status === 'failed' || p.status === 'unknown') return 'send ' + p.status + ', see Notifications';
+  return p.status === 'not_scheduled' ? 'not scheduled' : String(p.status);
+}
+function renderCoiExpiring(list) {
+  const el = document.getElementById('coiExpiringBody');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = '<p style="margin:0; color:var(--forest-700); font-size:13px;">No approved certificate expires in the next 30 days.</p>'; return; }
+  el.innerHTML = '<table class="simple" style="margin:0;"><thead><tr><th>Brand</th><th>Expires</th><th>Days left</th><th>Upcoming paid demos</th><th>Emails</th></tr></thead><tbody>'
+    + list.map(x => {
+      const n = Number(x.demo_count) || 0;
+      const demos = n ? (x.demos || []).map(d => _esc(fmtD(d.demo_date)) + (d.demo_time ? ' ' + _esc(d.demo_time) : '') + ' at ' + _esc([d.retailer_name, d.venue_name].filter(Boolean).join(', ') || 'store not recorded') + (d.demo_date && String(d.demo_date).slice(0, 10) > String(x.expiry || '') ? ' <span style="color:var(--clay-700); font-weight:700;">(after the expiry date)</span>' : '')).join('<br>') + (n > (x.demos || []).length ? '<br>and ' + (n - (x.demos || []).length) + ' more' : '') : '';
+      const pill = n ? '<span class="pill ' + (x.days_left <= 3 ? 'bad' : x.days_left <= 14 ? 'warn' : 'ok') + '">' + n + ' demo' + (n === 1 ? '' : 's') + '</span>' : '<span class="pill">none, no emails</span>';
+      const pings = (x.pings || []).map(p => p.days + ' days: ' + _esc(coiPingWords(p))).join('<br>');
+      return '<tr><td><strong>' + _esc(x.company_name || 'Unnamed brand') + '</strong><div class="brand-email" style="font-size:0.78rem; color:var(--ink-500);">' + _esc(x.email || '') + '</div></td>'
+        + '<td>' + _esc(fmtD(x.expiry)) + '</td><td class="num">' + _esc(String(x.days_left == null ? 'n/a' : x.days_left)) + '</td>'
+        + '<td>' + pill + (demos ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">' + demos + '</div>' : '') + '</td>'
+        + '<td style="font-size:0.78rem; color:var(--ink-500);">' + pings + '</td></tr>';
+    }).join('')
+    + '</tbody></table>';
+}
+
 async function loadCoiQueue() {
   const el = document.getElementById('coiQueueBody');
   if (!el) return;
   el.textContent = 'Loading…';
+  loadCoiExpiring();
   try {
     const r = await fetch('/api/admin-auth', {
       method: 'POST', credentials: 'same-origin',

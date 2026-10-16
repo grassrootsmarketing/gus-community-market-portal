@@ -24,6 +24,7 @@ import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
 import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
 import { listAction as ownerNotificationsList, summaryAction as ownerNotificationsSummary, bookingAction as ownerBookingNotifications } from './_owner-notifications.js';
+import { expiringCoiBrands, coiExpiryOccurrenceKey, COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS } from './_coi-expiry.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind(), the exported guards work even when this file's own handler
@@ -847,6 +848,40 @@ export default async function handler(req, res) {
     // another authentication system. Every action re-verifies the owner cookie; none of
     // them trusts a body or query parameter for identity.
     // ========================================================================
+
+    // ---- OWNER-COI-EXPIRING: approved certificates that lapse in the next 30 days (2026-10-16) ----
+    // The same facts the outbox emails from (api/_coi-expiry.js), plus the recorded state of each ping
+    // (30 / 14 / 3 days) for this brand and expiry date, so the operator can see what was sent, what is
+    // scheduled and why a brand got nothing (no upcoming paid demo, or the ping's time had already passed
+    // when it was first scheduled). Read-only; no document URL, no frozen bodies, no provider ids.
+    if (action === 'owner-coi-expiring') {
+      const owner = await verifyOwnerSession(getOwnerSessionIdFromReq(req));
+      if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
+      try {
+        const now = new Date();
+        const list = await expiringCoiBrands(sb, { now, horizonDays: COI_EXPIRY_HORIZON_DAYS });
+        const occ = list.map(x => coiExpiryOccurrenceKey(x.brand.id, x.expiry));
+        const pingRows = occ.length
+          ? (await sb(`notification_deliveries?kind=eq.${COI_EXPIRY_KIND}&occurrence_key=in.(${occ.map(encodeURIComponent).join(',')})&select=occurrence_key,offset_key,status,skip_reason,due_at,updated_at&order=due_at.asc&limit=1000`)) || []
+          : [];
+        const byOcc = {};
+        for (const r of (Array.isArray(pingRows) ? pingRows : [])) { (byOcc[r.occurrence_key] = byOcc[r.occurrence_key] || {})[r.offset_key] = r; }
+        return res.status(200).json({ ok: true, horizon_days: COI_EXPIRY_HORIZON_DAYS, offsets: COI_EXPIRY_OFFSET_DAYS, expiring: list.map(x => {
+          const pings = byOcc[coiExpiryOccurrenceKey(x.brand.id, x.expiry)] || {};
+          return {
+            brand_id: x.brand.id, company_name: x.brand.company_name, email: x.brand.email,
+            expiry: x.expiry, days_left: x.days_left, demo_count: x.demos.length,
+            demos: x.demos.slice(0, 10).map(d => ({ booking_id: d.booking_id, demo_date: d.demo_date, demo_time: d.demo_time, status: d.status, retailer_name: d.retailer_name, venue_name: d.venue_name })),
+            pings: COI_EXPIRY_OFFSET_DAYS.map(days => {
+              const p = pings['d' + days] || null;
+              return { days, status: p ? p.status : 'not_scheduled', skip_reason: p ? (p.skip_reason || null) : null, due_at: p ? p.due_at : null, updated_at: p ? p.updated_at : null };
+            }),
+          };
+        }) });
+      } catch (e) {
+        return res.status(500).json({ error: 'Query failed: ' + (e?.message || e) });
+      }
+    }
 
     // ---- OWNER-COI-QUEUE: the newest un-reviewed record per brand ----
     if (action === 'owner-coi-queue') {
