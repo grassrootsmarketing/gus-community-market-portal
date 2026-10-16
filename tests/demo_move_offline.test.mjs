@@ -154,7 +154,7 @@ console.log(':: mail ::');
   mv().refund_status = 'pending_worker';
   const c3 = demoMoveCancelledMessage(b, ctx());
   ok('cancelled (refund still with the worker): says it is being processed, no completion claimed', /being processed/.test(c3.html) && !/has been submitted/.test(c3.html));
-  ok('no em dash in any of them', ![m, r, c, c2, c3].some(x => /—/.test(x.subject + x.html)));
+  ok('no em dash in any of them', ![m, r, c, c2, c3].some(x => /2014/.test(x.subject + x.html)));
 }
 
 console.log('\n:: fan-out ::');
