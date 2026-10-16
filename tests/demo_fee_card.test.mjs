@@ -26,7 +26,7 @@ ok('standard: the sentence says flat $5, brands pay $35, store receives $30', /f
 const zero = run(0, false);
 ok('standard with a $0 store fee: brands pay $5, store receives $0', zero.feeBrandPays.textContent === '$5' && /receives \$0/.test(zero.feeArrangement.textContent), zero.feeArrangement.textContent);
 ok('the three-box split is gone from the markup', !/id="feePlatform"|id="feeRetailerKeeps"|>You keep</.test(src));
-ok('no em dashes in the card code', !/, /.test(fn[0]));
+ok('no em dashes in the card code', !/—/.test(fn[0]));
 const admin = readFileSync('api/admin.js', 'utf8');
 ok('api/admin.js sends platform_keeps_all with the retailer row', /retailers\?id=eq\.[^`]*select=[^`]*platform_keeps_all/.test(admin));
 console.log(`\ndemo fee card: ${pass} passed, ${fail} failed`);
