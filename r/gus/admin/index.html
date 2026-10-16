@@ -4762,9 +4762,10 @@ function escapeHtml(s) {
             const today = new Date();
             if ((st === 'approved' || st === 'passed') && (!exp || exp >= today)) {
                 const soon = exp && (exp - today) < 30 * 86400000;
+                const expTxt = exp ? ' <span style="font-weight:500; opacity:0.85;">&middot; expires ' + escapeHtml(_coiDateLabel(c.coi_expires)) + '</span>' : '';
                 return soon
-                    ? '<span class="comp-badge soon"><span class="comp-dot"></span>COI expiring</span>'
-                    : '<span class="comp-badge ok"><span class="comp-dot"></span>COI verified</span>';
+                    ? '<span class="comp-badge soon"><span class="comp-dot"></span>COI expires soon' + expTxt + '</span>'
+                    : '<span class="comp-badge ok"><span class="comp-dot"></span>COI approved' + expTxt + '</span>';
             }
             // Not verified, show a hazard so an uninsured brand can't be missed.
             const label = (exp && exp < today) ? 'COI expired' : 'No COI on file';
@@ -5312,11 +5313,11 @@ function escapeHtml(s) {
                 if (!r.ok) throw new Error('coi-status ' + r.status);
                 const j = await r.json();
                 const m = new Map();
-                for (const p of (j.pending || [])) m.set(_coiKey(p.brand_name, p.demo_date), { bk: p.booking_id, url: p.coi_url || null, expires: p.coi_expires || null });
+                for (const p of (j.pending || [])) m.set(_coiKey(p.brand_name, p.demo_date), { bk: p.booking_id, url: p.coi_url || null, expires: p.coi_expires || null, status: p.coi_status || null });
                 window._coiPending = m;
                 // Certificates on file, so staff can open and eyeball the actual document.
                 const d = new Map();
-                for (const x of (j.docs || [])) d.set(_coiKey(x.brand_name, x.demo_date), { url: x.coi_url, expires: x.coi_expires || null, v: x.verification || null });
+                for (const x of (j.docs || [])) d.set(_coiKey(x.brand_name, x.demo_date), { url: x.coi_url, expires: x.coi_expires || null, status: x.coi_status || null, verified: !!x.verified, v: x.verification || null });
                 window._coiDocs = d;
             } catch (_) {
                 window._coiPending = new Map();   // no badges, never block the admin
@@ -5386,61 +5387,55 @@ function escapeHtml(s) {
             tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time, b.dataset.venue); }); });
         }
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
+        // COI badge on a demo row (2026-10-16). One plain statement from the approval and the expiry, shown on every
+        // upcoming demo. No automatic-reader stamp: the store does not need to know HOW the certificate was checked,
+        // only that Demohub approved it and when it runs out.
+        //   green  COI approved, expires <date>            approved and covers the demo date
+        //   orange COI expires before this demo (<date>)   approved, but the expiry falls before the demo
+        //   amber  COI awaiting Demohub review              uploaded, not yet decided
+        //   red    COI rejected / COI expired / No COI on file
+        function _coiDateLabel(ymd) { if (!ymd) return ''; const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(ymd)); if (!m) return String(ymd); return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+        function _coiPill(text, tone, title) {
+            const css = tone === 'ok' ? 'background:var(--forest-100,#e6f0e4); color:var(--forest-700,#2a5b32); border:1px solid rgba(42,91,50,0.25);'
+                : tone === 'warn' ? 'background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55;'
+                : tone === 'amber' ? 'background:#fff8e6; color:#7a5a00; border:1px solid #e6c766;'
+                : 'background:#fdebe5; color:#a14e2a; border:1px solid #ed682f55;';
+            return '<span title="' + escapeHtml(title || '') + '" style="display:inline-block; ' + css + ' font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">' + escapeHtml(text) + '</span>';
+        }
         function _coiBadgeHtml(d) {
             try {
                 const key = _coiKey(d.company, d.date);
-                // Certificate on file and current: let staff open the actual document.
                 const doc = window._coiDocs && window._coiDocs.get(key);
+                const viewLink = (url, tone) => url ? ' <a href="' + escapeHtml(url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:' + (tone === 'ok' ? 'var(--forest-700)' : '#a14e2a') + '; text-decoration:underline;">View COI</a>' : '';
                 if (doc && doc.url) {
-                    // Verified = the brand completed everything a store needs to trust them
-                    // (current COI + contact details + logo). Computed server-side in
-                    // _coi-lib.js so this badge and the brand portal cannot disagree.
+                    // Covers this demo. Approved by Demohub (hand review) or passed by the reader, both read the same.
                     const verifiedMark = doc.verified
-                        ? '<span title="Verified brand: current COI, complete contact details and logo on file" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:0.74rem;font-weight:700;color:#2a5b32;background:#eef7f0;border:1px solid #2a5b3233;border-radius:6px;padding:2px 7px;vertical-align:middle;"><svg width="11" height="11" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>Verified</span>'
+                        ? '<span title="Verified brand: current COI, complete contact details and logo on file" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:0.74rem;font-weight:700;color:#2a5b32;background:#eef7f0;border:1px solid #cfe3d3;border-radius:999px;padding:1px 8px;">' + verifiedBadgeSvg(12) + 'Verified</span>'
                         : '';
-                    const exp = doc.expires ? (' &middot; expires ' + escapeHtml(String(doc.expires))) : '';
                     const v = doc.v || null;
-                    const flagged = v && v.status === 'flagged';
-                    const badgeTxt = flagged ? 'COI needs review' : (v && v.status === 'passed' ? 'COI verified' : 'COI on file');
-                    const badgeCss = flagged
-                        ? 'background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55;'
-                        : 'background:var(--forest-100,#e6f0e4); color:var(--forest-700,#2a5b32); border:1px solid rgba(42,91,50,0.25);';
-                    // Human-readable reasons so staff know what to look at.
-                    const FLAG_TXT = {
-                        insured_name_mismatch: 'insured name does not match the brand',
-                        possible_tampering: 'possible edits to the document',
-                        low_gl_limit: 'liability limit under $1M',
-                        low_confidence: 'could not read it clearly',
-                        no_naic: 'no carrier NAIC number found',
-                        no_acord_markers: 'no ACORD markings',
-                        verification_pending: 'not auto-checked yet',
-                    };
-                    const reasons = (v && Array.isArray(v.flags) && v.flags.length)
-                        ? '<div style="font-size:0.68rem; color:#a14e2a; margin-top:2px;">' + escapeHtml(v.flags.map(fl => FLAG_TXT[fl] || fl).join(' &middot; ')) + '</div>'
-                        : '';
                     const detail = (v && (v.insurer || v.gl_each_occurrence))
-                        ? '<div style="font-size:0.68rem; color:var(--ink-500); margin-top:2px;">'
-                          + (v.insurer ? escapeHtml(v.insurer) : '')
-                          + (v.gl_each_occurrence ? ' &middot; $' + Number(v.gl_each_occurrence).toLocaleString() + ' each occurrence' : '')
-                          + '</div>'
+                        ? '<div style="font-size:0.68rem; color:var(--ink-500); margin-top:2px;">' + (v.insurer ? escapeHtml(v.insurer) : '') + (v.gl_each_occurrence ? ' &middot; $' + Number(v.gl_each_occurrence).toLocaleString() + ' each occurrence' : '') + '</div>'
                         : '';
                     return '<div style="margin-top:5px;">'
-                        + '<span title="Certificate of Insurance on file" style="display:inline-block; ' + badgeCss + ' font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">' + badgeTxt + '</span>' + verifiedMark
-                        + ' <a href="' + escapeHtml(doc.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline;">View COI</a>'
-                        + '<span style="font-size:0.68rem; color:var(--ink-500);">' + exp + '</span>'
-                        + detail + reasons
-                        + '</div>';
+                        + _coiPill('COI approved', 'ok', 'Certificate of Insurance approved by Demohub and current for this demo') + viewLink(doc.url, 'ok')
+                        + (doc.expires ? '<span style="font-size:0.68rem; color:var(--ink-500);"> &middot; expires ' + escapeHtml(_coiDateLabel(doc.expires)) + '</span>' : '')
+                        + verifiedMark + detail + '</div>';
                 }
                 const p = window._coiPending && window._coiPending.get(key);
                 if (!p) return '';
-                const bk = (p && p.bk) ? p.bk : p;   // tolerate older shape
-                const viewOld = (p && p.url)
-                    ? ' <a href="' + escapeHtml(p.url) + '" target="_blank" rel="noopener" style="font-size:0.7rem; color:#a14e2a; text-decoration:underline;">View expired COI</a>'
-                    : '';
-                return '<div style="margin-top:5px;">'
-                    + '<span title="This brand has no current Certificate of Insurance on file. This demo is subject to automatic cancellation 72 hours before it runs." '
-                    + 'style="display:inline-block; background:#fff3ed; color:#a14e2a; border:1px solid #ed682f55; font-size:0.66rem; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; padding:2px 7px; border-radius:6px;">COI pending</span>'
-                    + viewOld
+                const bk = (p && p.bk) ? p.bk : p;
+                const st = String(p.status || '').toLowerCase();
+                const exp = p.expires ? String(p.expires).slice(0, 10) : null;
+                const demoYmd = String(d.date || '').slice(0, 10);
+                let text, tone, title;
+                if ((st === 'approved' || st === 'passed') && exp && exp < demoYmd && exp >= new Date().toISOString().slice(0, 10)) { text = 'COI expires before this demo'; tone = 'warn'; title = 'The approved certificate expires ' + _coiDateLabel(exp) + ', before this demo. The brand needs to upload a renewal.'; }
+                else if (st === 'rejected') { text = 'COI rejected'; tone = 'bad'; title = 'Demohub could not accept the certificate on file. The brand has been asked for a corrected one.'; }
+                else if (st === 'pending' || st === 'flagged') { text = 'COI awaiting Demohub review'; tone = 'amber'; title = 'A certificate is uploaded and waiting for Demohub to review it.'; }
+                else if (exp && exp < demoYmd) { text = 'COI expired'; tone = 'bad'; title = 'The certificate on file expired ' + _coiDateLabel(exp) + '.'; }
+                else { text = 'No COI on file'; tone = 'bad'; title = 'This brand has no current Certificate of Insurance on file. This demo is subject to automatic cancellation 72 hours before it runs.'; }
+                return '<div style="margin-top:5px;">' + _coiPill(text, tone, title)
+                    + (exp ? '<span style="font-size:0.68rem; color:var(--ink-500);"> &middot; ' + (exp < new Date().toISOString().slice(0, 10) ? 'expired ' : 'expires ') + escapeHtml(_coiDateLabel(exp)) + '</span>' : '')
+                    + viewLink(p.url, tone)
                     + ' <a onclick="waiveCoi(\'' + bk + '\')" style="font-size:0.7rem; color:var(--forest-700); text-decoration:underline; cursor:pointer;">Waive</a>'
                     + '</div>';
             } catch (_) { return ''; }

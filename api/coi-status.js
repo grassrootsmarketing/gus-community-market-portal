@@ -70,9 +70,10 @@ export default async function handler(req, res) {
   }
 
   // ---- Status list (COI-pending upcoming demos) ----
+  // Every upcoming demo (2026-10-16): the badge used to stop at 30 days out, so a demo booked six weeks ahead
+  // showed nothing about insurance until it got close. The list is bounded by the retailer's own upcoming bookings.
   const today = ymd(new Date());
-  const max = ymd(new Date(Date.now() + 30 * 86400000));
-  const bookings = await sb(`bookings?select=id,brand_id,demo_date,brand_name,coi_waived_at&retailer_id=eq.${encodeURIComponent(retailerId)}&status=in.(confirmed,pending)&payment_status=eq.paid&demo_date=gte.${today}&demo_date=lte.${max}`);
+  const bookings = await sb(`bookings?select=id,brand_id,demo_date,brand_name,coi_waived_at&retailer_id=eq.${encodeURIComponent(retailerId)}&status=in.(confirmed,pending)&payment_status=eq.paid&demo_date=gte.${today}&order=demo_date.asc&limit=500`);
   const rows = (bookings || []).filter(b => !b.coi_waived_at && b.brand_id);
   const brandIds = [...new Set(rows.map(b => b.brand_id))];
   let brandsById = {};
@@ -98,6 +99,7 @@ export default async function handler(req, res) {
         docs.push({
           booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date,
           coi_url: brand.default_coi_url ? `/api/coi-file?brand_id=${brand.id}` : null, coi_expires: brand.default_coi_expires || null,
+          coi_status: brand.coi_verification_status || null,
           verified: brandVerifiedState(brand, b.demo_date).verified,
           verification: v ? {
             status: v.status || null, insurer: v.insurer_name || null, naic: v.insurer_naic || null,
@@ -109,7 +111,7 @@ export default async function handler(req, res) {
       continue;
     }
     // Not covered for this demo, but they may still have an expired document worth seeing.
-    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url ? `/api/coi-file?brand_id=${brand.id}` : null, coi_expires: brand.default_coi_expires || null, verified: false });
+    pending.push({ booking_id: b.id, brand_name: b.brand_name, demo_date: b.demo_date, coi_url: brand.default_coi_url ? `/api/coi-file?brand_id=${brand.id}` : null, coi_expires: brand.default_coi_expires || null, coi_status: brand.coi_verification_status || null, verified: false });
   }
   return res.status(200).json({ ok: true, pending, docs, pending_booking_ids: pending.map(p => p.booking_id) });
 }
