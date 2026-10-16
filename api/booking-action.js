@@ -13,53 +13,13 @@ import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
+import { sbRpc as sbRpcShared, reserveAndRefund as reserveAndRefundShared } from './_booking-refund.js';
 let _b = null;
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
 const REFUND_CUTOFF_DAYS = 14;
 
-async function refundPaymentIntent(paymentIntentId, opts = {}) {
-  if (!STRIPE_SECRET_KEY) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
-  if (!paymentIntentId) return { ok: false, error: 'payment_intent_id required' };
-  const params = new URLSearchParams();
-  params.set('payment_intent', paymentIntentId);
-  // DH-04: when several bookings share one PaymentIntent (batch checkout), refund only this
-  // booking's share. Omitted -> Stripe does a full refund (correct for single-booking PIs).
-  if (opts.amountCents != null && Number.isFinite(opts.amountCents) && opts.amountCents > 0) {
-    params.set('amount', String(Math.round(opts.amountCents)));
-  }
-  // Keeps-all retailers (e.g. Gus) take a plain platform charge: no transfer, no application
-  // fee. Sending reverse_transfer / refund_application_fee on those charges makes Stripe reject
-  // the refund outright, so only send them for connected (destination-charge) retailers.
-  if (!opts.keepsAll) {
-    params.set('refund_application_fee', 'true');
-    params.set('reverse_transfer', 'true');
-  }
-  if (opts.reason) params.set('reason', opts.reason);
-  if (opts.metadata) {
-    for (const [k, v] of Object.entries(opts.metadata)) params.set('metadata[' + k + ']', String(v));
-  }
-  try {
-    const _headers = {
-      Authorization: 'Bearer ' + STRIPE_SECRET_KEY,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    };
-    // R2-03: idempotency key so two concurrent decline/cancel requests can't double-refund the
-    // same booking. Keyed on the booking + operation, stable across Stripe/our own retries.
-    if (opts.idempotencyKey) _headers['Idempotency-Key'] = String(opts.idempotencyKey).slice(0, 255);
-    const r = await fetch('https://api.stripe.com/v1/refunds', {
-      method: 'POST',
-      headers: _headers,
-      body: params.toString(),
-    });
-    const json = await r.json();
-    if (!r.ok) return { ok: false, error: (json && json.error && json.error.message) || ('HTTP ' + r.status), detail: json };
-    return { ok: true, refund_id: json.id, amount: json.amount, refund: json };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
+// Stripe refund submission lives in api/_booking-refund.js (shared with the demo-move settlement, 2026-10-16).
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error so a transient DB
 // blip never locks out the primary owner (who has no retailer_admins row).
@@ -264,6 +224,81 @@ async function handleReschedulePropose(req, res, body) {
   return res.status(200).json({ ok: true, demo_id, booking_id: proposal.booking_id, new_date, new_time: proposal.new_time || new_time || demo.demo_time, proposal_version: proposalVersion });
 }
 
+// Retailer-initiated move (0094, 2026-10-16). The store owns its calendar: the demo moves at once, on the
+// store's authority, with no lead-time rule. The database does the whole move in ONE transaction
+// (move_booking_by_retailer: lock, active check, COI on the new date, the slot/capacity triggers,
+// projection, the store-contact "rescheduled" event, the brand's "please confirm" event, the old
+// reminders retired, the move row with its deadline). Nothing is emailed from here; the outbox does it.
+export const MOVE_REFUSALS = {
+  not_found: [404, 'Demo not found'],
+  no_booking: [409, 'This demo has no linked booking, so it cannot be moved from here. Cancel and rebook instead.'],
+  not_active: [409, 'Only a confirmed or paid pending demo can be moved.'],
+  date_in_past: [400, 'The new date must be today or later.'],
+  time_in_past: [400, 'That time has already passed today. Pick a later slot.'],
+  same_slot: [400, 'That is the slot the demo is already in.'],
+  note_too_long: [400, 'Keep the note under 500 characters.'],
+  coi_not_covered: [409, "The brand's certificate of insurance does not cover the new date. Ask them for a renewal, or pick a date inside their coverage."],
+  slot_full: [409, 'That slot is full at this location. Pick another time.'],
+  slot_not_offered: [400, 'That time is not a slot this location offers on that date.'],
+  slot_outside_hours: [400, 'That time is outside this location\'s hours on that date.'],
+  date_blackout: [400, 'That date is blocked at this location.'],
+  venue_closed: [400, 'This location is closed that day.'],
+  slot_config_invalid: [503, 'This location\'s demo slots are misconfigured. Fix them under Location availability.'],
+  venue_hours_not_set: [409, 'This location has no hours set, so no slot can be resolved.'],
+  invalid_local_time: [400, 'That local time does not exist on that date (daylight saving change). Pick another slot.'],
+};
+async function handleMove(req, res, body) {
+  const { demo_id, new_date, new_time, note } = body || {};
+  if (!demo_id || !isUuid(demo_id)) return res.status(400).json({ error: 'Invalid demo_id' });
+  if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date)) return res.status(400).json({ error: 'new_date (YYYY-MM-DD) required' });
+  const noteText = note == null ? null : String(note);
+  if (noteText != null && noteText.length > 500) return res.status(400).json({ error: 'note_too_long', message: MOVE_REFUSALS.note_too_long[1] });
+  if (noteText != null && /[^\P{Cc}\n\r\t]/u.test(noteText)) return res.status(400).json({ error: 'note_invalid', message: 'The note contains characters that cannot be sent.' });
+
+  const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
+  if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+  const sess = { retailer_id: _auth.retailer_id, email: _auth.email };
+
+  let demo;
+  try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=id,retailer_id,venue_id,booking_id,status,demo_date,demo_time,retailers(timezone)`); demo = Array.isArray(rows) ? rows[0] : null; }
+  catch (_) { return res.status(404).json({ error: 'Demo not found' }); }
+  if (!demo) return res.status(404).json({ error: 'Demo not found' });
+  if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+  if (!demo.booking_id) return res.status(409).json({ error: 'no_booking', message: MOVE_REFUSALS.no_booking[1] });
+
+  // The destination must be a slot the venue OFFERS on that date (canonical spelling). The database
+  // re-checks under the venue lock inside the move; this is the friendly early refusal.
+  let moveTime = null;
+  {
+    let venueRow = null;
+    try { const vr = await sb(`venues?id=eq.${encodeURIComponent(demo.venue_id)}&retailer_id=eq.${encodeURIComponent(sess.retailer_id)}&select=id,availability`); venueRow = Array.isArray(vr) ? vr[0] : null; }
+    catch (_) { venueRow = null; }
+    if (!venueRow) return res.status(409).json({ error: 'no_venue', message: 'This demo has no location on file, so it cannot be moved from here.' });
+    const requested = (typeof new_time === 'string' && new_time.trim()) ? new_time.trim() : (demo.demo_time || '');
+    const slotRes = resolveRequestedSlot(venueRow.availability, new_date, requested, demo.retailers && demo.retailers.timezone);
+    if (!slotRes.ok) {
+      const code = slotRes.reason === 'invalid_time' ? 'invalid_new_time' : slotRes.reason;
+      return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: code, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available at this location.' });
+    }
+    moveTime = slotRes.time;
+  }
+
+  let verdict;
+  try {
+    const rows = await sbRpc('move_booking_by_retailer', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: moveTime, p_note: noteText, p_actor: sess.email || null, p_reconfirm_hours: 72 });
+    verdict = Array.isArray(rows) ? rows[0] : rows;
+  } catch (e) {
+    console.error('move_booking_by_retailer failed:', (e && e.message) || e);
+    return res.status(503).json({ error: 'move_unavailable', message: 'The move could not be saved. Nothing was changed. Try again in a moment.' });
+  }
+  if (!verdict || verdict.ok !== true) {
+    const reason = (verdict && verdict.reason) || 'move_failed';
+    const [status, message] = MOVE_REFUSALS[reason] || [409, 'The demo could not be moved.'];
+    return res.status(status).json({ error: reason, message });
+  }
+  return res.status(200).json({ ok: true, demo_id, booking_id: verdict.booking_id, new_date, new_time: moveTime, schedule_revision: verdict.schedule_revision, move_id: verdict.move_id, reconfirm_due_at: verdict.reconfirm_due_at });
+}
+
 function dateLabelOf(d) {
   if (!d) return '';
   try { return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
@@ -290,56 +325,11 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 </table></body></html>`;
 }
 
-async function sbRpc(fn, args) {
-  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(args),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error('rpc ' + fn + ' ' + r.status + ' ' + text.slice(0, 200));
-  try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
-}
-
-// Ledger-backed refund: refund_reserve_cas reserves the exact amount against the booking's immutable
-// allocation and returns a canonical request; we submit the Stripe refund with the durable
-// idempotency key and converge via apply_refund_event(). Booking payment_status is flipped only by
-// verified success (webhook/worker), never optimistically here. No allocation -> requires_review.
-async function reserveAndRefund(booking, retailer, actor, reason, opName) {
-  // R10-P1-2/P0-4: one idempotent CAS command. refund_reserve_cas creates-or-RETURNS the operation
-  // for this (booking, opName), reserves the exact allocation amount, and hands back everything
-  // needed to submit a canonical Stripe request. A retry returns the existing request (never
-  // "nothing_refundable"). Missing allocation / uncharged group -> requires_review, ZERO Stripe calls.
-  const opKey = booking.id + ':' + opName;
-  let rr;
-  try { rr = await sbRpc('refund_reserve_cas', { p_booking_id: booking.id, p_op_key: opKey, p_actor: actor || null, p_reason: reason || null }); }
-  catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
-  const row = Array.isArray(rr) ? rr[0] : rr;
-  const outcome = row && row.outcome;
-  if (outcome === 'no_allocation' || outcome === 'not_charged') return { ok: false, error: outcome, requires_review: true };
-  if (outcome === 'nothing_refundable') return { ok: false, error: 'nothing_refundable' };
-  if (outcome === 'no_booking' || outcome === 'booking_state_conflict') return { ok: false, error: outcome };
-
-  const r = await refundPaymentIntent(row.payment_intent, {
-    keepsAll: !!row.keeps_all, amountCents: row.amount, idempotencyKey: row.idempotency_key,
-    reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
-  });
-  if (r.ok) {
-    // Converge the ledger now via the VERIFIED apply RPC (idempotent with the later charge.refunded
-    // webhook + the worker). Never flips the booking to 'refunded' here, only a verified success does.
-    try {
-      await sbRpc('apply_refund_event', {
-        p_refund_id: r.refund_id, p_status: (r.refund && r.refund.status) || 'pending',
-        p_amount: row.amount, p_currency: (r.refund && r.refund.currency) || 'usd',
-        p_pi: row.payment_intent, p_charge: (r.refund && r.refund.charge) || row.charge_id || null,
-        p_meta_request_id: row.refund_request_id, p_event_id: null,
-      });
-    } catch (_) { /* webhook/worker will still converge */ }
-    return { ok: true, ledger: true, submitted: true };
-  }
-  // Submit failed: leave the reservation for the LEASED worker to retry with the same key.
-  await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
-  return { ok: false, error: 'refund_failed', requires_review: true, retrying: true };
-}
+const sbRpc = (fn, args) => sbRpcShared(_b, fn, args);
+// Ledger-backed refund, shared implementation (api/_booking-refund.js); same semantics as before: reserve
+// against the immutable allocation under a per-(booking, operation) key, submit with the durable
+// idempotency key, converge through apply_refund_event, never flip payment_status here.
+const reserveAndRefund = (booking, retailer, actor, reason, opName) => reserveAndRefundShared(_b, booking, actor, reason, opName);
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -371,6 +361,10 @@ export default async function handler(req, res) {
     // Distinct from cancel: no money moves. The brand accepts/declines from their dashboard.
     if (body && body.action === 'reschedule') {
       return await handleReschedulePropose(req, res, body);
+    }
+    // ===== Move (retailer moves the demo NOW; the brand reconfirms or the demo cancels with a refund) =====
+    if (body && body.action === 'move') {
+      return await handleMove(req, res, body);
     }
     const { booking_id, action, reason, demo_fee, force_refund } = body || {};
     if (!booking_id || !['confirm', 'decline', 'cancel'].includes(action)) {

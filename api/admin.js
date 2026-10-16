@@ -308,6 +308,13 @@ export default async function handler(req, res) {
         filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
         filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
       }
+      // 0094: a retailer-initiated move still waiting on the brand rides on its demo as pending_move so the
+      // calendar can say "moved, awaiting the brand's reconfirmation by <deadline>".
+      try {
+        const mv = await sb(`booking_moves?retailer_id=eq.${encodeURIComponent(rid)}&status=eq.pending&select=id,booking_id,to_date,to_time,note,moved_at,reconfirm_due_at`);
+        const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
+        if (byBooking.size) filteredDemos = (filteredDemos || []).map(d => (d && d.booking_id && byBooking.has(d.booking_id)) ? { ...d, pending_move: byBooking.get(d.booking_id) } : d);
+      } catch (_) { /* non-fatal: the badge is simply absent */ }
       // Enrich HELD (provisional-hold) bookings with the brand's real COI verification status so the
       // admin inbox can distinguish "ready to confirm" (COI approved → Confirm captures) from "still
       // pending". Without this the badge was a hardcoded "COI pending" that never updated on approval.

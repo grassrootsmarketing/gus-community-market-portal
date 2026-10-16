@@ -10,6 +10,8 @@ import { FLAGS } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import { sbRpc as sbRpcShared } from './_booking-refund.js';
+import { loadMove, settleMove } from './_booking-moves.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -698,6 +700,16 @@ export default async function handler(req, res) {
       } catch (e) { console.warn('reschedule_proposal_version lookup failed:', (e && e.message) || e); }
       const contacts = await readList(contactsR, 'contacts');
       const pending_bookings = await readList(pendingR, 'pending_bookings');
+      // 0094: a retailer-initiated move awaiting this brand's answer rides on the demo as pending_move
+      // (id, deadline, old slot, note), so the dashboard can show Confirm / Can't make it.
+      try {
+        const mv = await (await sb(`booking_moves?brand_id=eq.${brandId}&status=eq.pending&select=id,booking_id,from_date,from_time,to_date,to_time,note,moved_at,reconfirm_due_at,schedule_revision&order=moved_at.desc`)).json();
+        const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
+        for (const d of (Array.isArray(demos) ? demos : [])) {
+          const m = d && d.booking_id ? byBooking.get(d.booking_id) : null;
+          if (m) d.pending_move = { id: m.id, from_date: m.from_date, from_time: m.from_time, to_date: m.to_date, to_time: m.to_time, note: m.note || null, moved_at: m.moved_at, reconfirm_due_at: m.reconfirm_due_at };
+        }
+      } catch (e) { console.warn('pending move lookup failed:', (e && e.message) || e); }
       // Payments and receipts (2026-10-11): every settled payment group of this brand, read from the ledger,
       // with the demos it covered. Powers the Account tab's receipts list and its "Email receipt" button.
       // Codex PR-3: every dependent read is checked for HTTP success AND shape; a failure puts 'payments' in
@@ -771,6 +783,48 @@ export default async function handler(req, res) {
       if (o.outcome === 'requester_not_a_contact') return jsonResp(res, 403, { error: 'requester_not_a_contact' });
       console.error('receipt-resend unexpected outcome:', JSON.stringify(o).slice(0, 200));
       return jsonResp(res, 500, { error: 'receipt_queue_failed' });
+    }
+
+    // ===== Move response (0094): the brand confirms a retailer-initiated move, or cannot make it =====
+    // confirm -> the move is confirmed, nothing else changes. decline -> the move is recorded declined,
+    // then the booking is cancelled and refunded IN FULL through the shared settlement
+    // (api/_booking-moves.js); if that step fails here, the refund worker retries it within 15 minutes.
+    if (action === 'move-respond') {
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const moveId = String(body.move_id || '');
+      const decision = String(body.decision || '');
+      if (!/^[0-9a-f-]{36}$/i.test(moveId)) return jsonResp(res, 400, { error: 'Invalid move_id' });
+      if (!['confirm', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'decision must be confirm or decline' });
+      let verdict;
+      try {
+        const rows = await sbRpcShared(_b, 'respond_booking_move', { p_move_id: moveId, p_brand_id: brandId, p_decision: decision, p_actor: 'brand:' + brandId });
+        verdict = Array.isArray(rows) ? rows[0] : rows;
+      } catch (e) {
+        console.error('respond_booking_move failed:', (e && e.message) || e);
+        return jsonResp(res, 500, { error: 'move_respond_failed', message: 'We could not save that. Try again in a moment.' });
+      }
+      if (!verdict || verdict.ok !== true) {
+        const reason = (verdict && verdict.reason) || 'move_respond_failed';
+        const msg = {
+          not_found: 'This move no longer exists.', forbidden: 'This demo is not yours.',
+          move_confirmed: 'You already confirmed this move.', move_declined: 'You already declined this move.',
+          move_lapsed: 'The reconfirmation window has passed; this demo was cancelled and refunded.',
+          move_superseded: 'The store has moved this demo again. Please review the newest time.',
+          booking_not_active: 'This booking is no longer active.',
+        }[reason] || 'This move could not be updated.';
+        return jsonResp(res, reason === 'forbidden' ? 403 : reason === 'not_found' ? 404 : 409, { error: reason, message: msg });
+      }
+      if (decision === 'confirm') return jsonResp(res, 200, { ok: true, move_id: moveId, status: 'confirmed' });
+      let settle = null;
+      try {
+        const move = await loadMove(_b, moveId);
+        settle = move ? await settleMove(_b, move, { outcome: 'declined', actor: 'brand:' + brandId }) : null;
+      } catch (e) { console.error('move settle failed:', (e && e.message) || e); }
+      return jsonResp(res, 200, { ok: true, move_id: moveId, status: 'declined',
+        cancelled: !!(settle && settle.ok), refund_status: settle ? settle.refund_status : 'pending',
+        message: settle && settle.ok ? 'The demo is cancelled.' + (settle.refund_status === 'submitted' ? ' Your full refund has been submitted.' : '') : 'Your answer is saved. The cancellation and refund are being processed and you will get an email when they complete.' });
     }
 
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
