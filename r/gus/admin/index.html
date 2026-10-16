@@ -3300,17 +3300,23 @@ END:VEVENT
             // Smart defaults: if no shifts yet, suggest 11–2.
             // If one shift ending at/before 14:00 exists, suggest 15–18 next.
             // Otherwise fall back to a generic afternoon window.
-            let next = { open: '11:00', close: '14:00' };
-            if (current.length === 1) {
-                const c0 = current[0].close;
-                if (c0 && c0 <= '14:30') next = { open: '15:00', close: '18:00' };
-                else next = { open: c0 || '15:00', close: '18:00' };
-            } else if (current.length === 2) {
-                next = { open: '18:00', close: '20:00' };
+            // 2026-10-16: the suggestion is always a VALID window (end after start), so an added shift can save at
+            // once. The old rule suggested 18:00 to 18:00 after a lone afternoon shift and the save refused it.
+            const has = (o, c) => current.some(w => w.open === o && w.close === c);
+            const plusHours = (hhmm, h) => { const m = /^(\d{2}):(\d{2})$/.exec(hhmm || ''); if (!m) return null; const t = Math.min(23 * 60, Number(m[1]) * 60 + Number(m[2]) + h * 60); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
+            let next = null;
+            if (!has('11:00', '14:00') && current.every(w => w.open >= '14:00')) next = { open: '11:00', close: '14:00' };
+            else if (!has('15:00', '18:00') && current.every(w => w.close <= '15:00')) next = { open: '15:00', close: '18:00' };
+            else {
+                const last = current.map(w => w.close).sort().pop() || '15:00';
+                const close = plusHours(last, 3);
+                if (close && close > last) next = { open: last, close };
             }
+            if (!next || next.close <= next.open || has(next.open, next.close)) next = !has('11:00', '14:00') ? { open: '11:00', close: '14:00' } : { open: '18:00', close: '20:00' };
             current.push(next);
             const cell = document.getElementById('availTimes-' + day);
             if (cell) cell.innerHTML = renderDayWindowsHtml(day, current);
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();   // 2026-10-16: an added shift saves too
         }
 
         // Quick-set helper: apply the standard 11–2 + 3–6 shift pair to a day
@@ -3364,6 +3370,7 @@ END:VEVENT
                 { open: '11:00', close: '14:00' },
                 { open: '15:00', close: '18:00' },
             ]);
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();   // 2026-10-16: quick set on one day saves too
         }
 
         // Toggle preferred-shift star on a window, visual indicator only, stored in availability.schedule
@@ -3379,6 +3386,9 @@ END:VEVENT
             current.splice(idx, 1);
             const cell = document.getElementById('availTimes-' + day);
             if (cell) cell.innerHTML = current.length > 0 ? renderDayWindowsHtml(day, current) : renderClosedDayHtml(day);
+            // 2026-10-16: a removed shift is an edit like any other. Without this the removal only lived on screen
+            // (the Remove button fires no form change event) and the store still offered the slot to brands.
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
         }
 
         function onAvailabilityToggle(day) {
