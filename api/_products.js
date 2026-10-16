@@ -1,4 +1,4 @@
-// api/_products.js — the ONE validator for brand product items (Codex product-list review P-2, 2026-10-07).
+// api/_products.js: the ONE validator for brand product items (Codex product-list review P-2, 2026-10-07).
 //
 // Two writers share it: the brand profile catalog (api/brand-account.js profile-update, mode 'catalog', up to 60
 // items) and the booking snapshot (api/book.js, mode 'booking', 1 to 40 items). Historical rows are NOT passed
