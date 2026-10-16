@@ -2462,7 +2462,7 @@ function supportMailto(a) {
             const opts = _DISTRIBUTORS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
             const inp = function (cls, ph, extra) { return '<input class="form-input ' + cls + '" placeholder="' + ph + '" ' + (extra || '') + ' style="padding:7px 9px; font-size:0.86rem;">'; };
             return '<div class="book-new-item" style="border:1px dashed rgba(15,44,23,0.25); border-radius:10px; padding:10px; margin-bottom:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">'
-                + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Item name *') + '</div>'
+                + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Product name, with flavor or variety *') + '</div>'
                 + inp('bni-size', 'Size (12 oz jar)') + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
                 + '<select class="form-input bni-distributor" style="padding:7px 9px; font-size:0.86rem;">' + opts + '</select>'
                 + inp('bni-distributor-other', 'Distributor name (if Other)')
