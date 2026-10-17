@@ -377,6 +377,69 @@ try {
   } else {
     ok('C4 lock-barrier cases require SB_DB_URL (demohub-rebuild-check)', false, 'SB_DB_URL not set');
   }
+
+  console.log('\n:: Codex R2-1: a real ledger allocation; reserved money is not completed money; the finalizer refuses mismatched labels ::');
+  {
+    // A paid group with TWO allocations (a shared payment): only the moved booking's allocation may be touched.
+    const { demo: d15, booking: bk15 } = await confirmedBooking(dayP(95), '10:00');
+    const { booking: bk16 } = await confirmedBooking(dayP(96), '10:00');   // the sibling, same payment
+    const PI = 'pi_' + RUN, CH = 'ch_' + RUN;
+    const group = one(await db('payment_groups', { method: 'POST', body: JSON.stringify({ brand_id: brandId, retailer_id: retailerId, currency: 'usd', total_customer_amount: 6000, platform_keeps_all: true, status: 'paid', stripe_payment_intent_id: PI, stripe_charge_id: CH }) }));
+    ok('ledger fixture: a paid group for two bookings', !!group, 'group insert failed');
+    if (group) {
+      track('payment_groups', group.id);
+      const a15 = one(await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: group.id, booking_id: bk15.id, customer_amount: 3000, venue_amount: 3000, platform_fee_amount: 0, currency: 'usd' }) }));
+      const a16 = one(await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: group.id, booking_id: bk16.id, customer_amount: 3000, venue_amount: 3000, platform_fee_amount: 0, currency: 'usd' }) }));
+      if (a15) track('payment_allocations', a15.id); if (a16) track('payment_allocations', a16.id);
+      await db(`bookings?id=in.(${bk15.id},${bk16.id})`, { method: 'PATCH', body: JSON.stringify({ payment_intent_id: PI }) });
+      ok('ledger fixture: two allocations of 3000 on one payment intent', !!a15 && !!a16, JSON.stringify([a15, a16]));
+      const m15 = await move({ demo_id: d15.id, new_date: dayP(97), new_time: '10:00' });
+      // concurrent ordinary cancellation (retailer, refundable) vs the move's decline settlement
+      await rpc('respond_booking_move', { p_move_id: m15.body.move_id, p_brand_id: brandId, p_decision: 'decline', p_actor: 'test' });
+      const stripeBefore = spy.calls.stripe.filter(c => /\/refunds/.test(c.url)).length;
+      const [cancelRes, sw15] = await Promise.all([
+        callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: bk15.id, reason: 'store cancelled too', force_refund: true }, cookies: { dh_retailer_session: staffCookie } })),
+        sweepMoves(b, { now: new Date(), limit: 25 }),
+      ]);
+      const reqs = (await db(`refund_requests?booking_id=eq.${bk15.id}&select=id,status,amount,op_key&order=created_at.asc`)).body || [];
+      const alloc15 = one(await db(`payment_allocations?booking_id=eq.${bk15.id}&select=customer_amount,refunded_amount,reserved_refund_amount`));
+      const alloc16 = one(await db(`payment_allocations?booking_id=eq.${bk16.id}&select=customer_amount,refunded_amount,reserved_refund_amount`));
+      const m15After = one(await db(`booking_moves?id=eq.${m15.body.move_id}&select=*`));
+      const stripeCalls = spy.calls.stripe.filter(c => /\/refunds/.test(c.url)).length - stripeBefore;
+      ok('cancel vs move settlement: exactly ONE refund request for the booking, at most one provider refund call, no over-refund (refunded + reserved <= 3000)', reqs.length === 1 && stripeCalls <= 1 && alloc15 && Number(alloc15.refunded_amount) + Number(alloc15.reserved_refund_amount) <= 3000 && Number(alloc15.refunded_amount) + Number(alloc15.reserved_refund_amount) === 3000, JSON.stringify({ cancel: cancelRes.statusCode, sw15, reqs, alloc15, stripeCalls }));
+      ok('the move is settled with a LINKED obligation whose label matches the request state (never already_refunded while money is merely reserved or in flight)', m15After.settled_at && m15After.refund_request_id === reqs[0].id && ((reqs[0].status === 'succeeded' && ['succeeded', 'submitted', 'pending_worker'].includes(m15After.refund_status)) || (['submitted', 'pending', 'requires_action'].includes(reqs[0].status) && ['submitted', 'pending_worker'].includes(m15After.refund_status)) || (['reserved', 'failed_retryable'].includes(reqs[0].status) && m15After.refund_status === 'pending_worker')) && m15After.refund_status !== 'already_refunded', JSON.stringify({ mv: [m15After.refund_status, m15After.refund_request_id], req: reqs[0] }));
+      ok('the sibling allocation on the shared payment is untouched', alloc16 && Number(alloc16.refunded_amount) === 0 && Number(alloc16.reserved_refund_amount) === 0 && (await bookingRow(bk16.id)).status === 'confirmed', JSON.stringify(alloc16));
+      ok('the brand cancellation event states that same refund state', ((await db(`notification_events?transition_id=eq.${m15.body.move_id}:cancelled&select=payload`)).body[0] || {}).payload.refund_status === m15After.refund_status);
+
+      // the finalizer refuses mismatched labels on a claimed move (sibling booking, reserved request only)
+      const { demo: d17, booking: bk17 } = await confirmedBooking(dayP(100), '10:00');
+      const group2 = one(await db('payment_groups', { method: 'POST', body: JSON.stringify({ brand_id: brandId, retailer_id: retailerId, currency: 'usd', total_customer_amount: 3000, platform_keeps_all: true, status: 'paid', stripe_payment_intent_id: 'pi2_' + RUN, stripe_charge_id: 'ch2_' + RUN }) }));
+      track('payment_groups', group2.id);
+      const a17 = one(await db('payment_allocations', { method: 'POST', body: JSON.stringify({ payment_group_id: group2.id, booking_id: bk17.id, customer_amount: 3000, venue_amount: 3000, platform_fee_amount: 0, currency: 'usd' }) }));
+      track('payment_allocations', a17.id);
+      await db(`bookings?id=eq.${bk17.id}`, { method: 'PATCH', body: JSON.stringify({ payment_intent_id: 'pi2_' + RUN }) });
+      const m17 = await move({ demo_id: d17.id, new_date: dayP(101), new_time: '10:00' });
+      await rpc('respond_booking_move', { p_move_id: m17.body.move_id, p_brand_id: brandId, p_decision: 'decline', p_actor: 'test' });
+      // reserve WITHOUT submitting (another operation's reservation), so the allocation is fully reserved and nothing is completed
+      const rr = await rpc('refund_reserve_cas', { p_booking_id: bk17.id, p_op_key: bk17.id + ':cancel', p_actor: 'test', p_reason: 'test' });   // returns a bare jsonb object
+      const rrRow = rr && rr.body && (Array.isArray(rr.body) ? rr.body[0] : rr.body);
+      const reqId = rrRow && rrRow.refund_request_id;
+      ok('fixture: a reservation exists without a submission', !!reqId && rrRow.outcome === 'reserved', JSON.stringify(rrRow));
+      await rpc('booking_transition', { p_booking_id: bk17.id, p_retailer_id: retailerId, p_action: 'cancel', p_fields: { cancelled_at: new Date().toISOString(), cancel_reason: 'test' }, p_demo_fee: null });
+      const claim17 = one(await rpc('claim_move_settlement', { p_move_id: m17.body.move_id, p_owner: 'r21', p_lease_seconds: 120 }));
+      ok('claimed for the direct finalizer calls', claim17 && claim17.ok === true, JSON.stringify(claim17));
+      const fin17 = (args) => rpc('finalize_move_settlement', { p_move_id: m17.body.move_id, p_owner: 'r21', p_settled: true, p_refund_status: 'pending_worker', p_refund_request_id: reqId, p_case_id: null, p_refund_case_id: null, p_error: null, p_event_payload: null, ...args });
+      const g1 = one(await fin17({ p_refund_status: 'already_refunded', p_refund_request_id: null }));
+      ok('already_refunded with the allocation fully RESERVED but nothing refunded: refused already_refunded_inconsistent', g1 && g1.ok === false && g1.reason === 'already_refunded_inconsistent', JSON.stringify(g1));
+      const g2 = one(await fin17({ p_refund_status: 'succeeded' }));
+      ok('succeeded label on a request that is only reserved: refused request_state_mismatch', g2 && g2.ok === false && g2.reason === 'request_state_mismatch', JSON.stringify(g2));
+      const g3 = one(await fin17({ p_refund_status: 'submitted' }));
+      ok('submitted label on a request that is only reserved: refused request_state_mismatch', g3 && g3.ok === false && g3.reason === 'request_state_mismatch', JSON.stringify(g3));
+      ok('nothing was written by the refusals', !one(await db(`booking_moves?id=eq.${m17.body.move_id}&select=settled_at`)).settled_at && (await db(`notification_events?transition_id=eq.${m17.body.move_id}:cancelled&select=id`)).body.length === 0);
+      const g4 = one(await fin17({ p_refund_status: 'pending_worker' }));
+      ok('pending_worker with the reserved request: accepted, the move links the live obligation', g4 && g4.ok === true && one(await db(`booking_moves?id=eq.${m17.body.move_id}&select=refund_request_id,refund_status`)).refund_request_id === reqId, JSON.stringify(g4));
+    }
+  }
 } finally {
   console.log('\n:: teardown ::');
   for (const [t, id] of bin) {
@@ -384,7 +447,9 @@ try {
     await db(`notification_deliveries?booking_id=eq.${id}`, { method: 'DELETE' });
     await db(`notification_events?booking_id=eq.${id}`, { method: 'DELETE' });
     await db(`booking_moves?booking_id=eq.${id}`, { method: 'DELETE' });
+    await db(`reconciliation_cases?refund_request_id=in.(select)`, { method: 'DELETE' }).catch(() => {});
     await db(`refund_requests?booking_id=eq.${id}`, { method: 'DELETE' }).catch(() => {});
+    await db(`refund_operations?booking_id=eq.${id}`, { method: 'DELETE' }).catch(() => {});
     await db(`demos?booking_id=eq.${id}`, { method: 'DELETE' });
   }
   await db(`notification_deliveries?dedupe_key=like.*${RUN}*`, { method: 'DELETE' });

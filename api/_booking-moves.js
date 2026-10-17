@@ -86,6 +86,30 @@ export async function openCase(b, dedupe, reason, details, kind = 'settlement_ex
   } catch (e) { return { id: null, error: 'case_failed: ' + String((e && e.message) || e).slice(0, 120) }; }
 }
 
+// Codex R2-1: "nothing refundable" means no UNRESERVED balance, which is not the same as completed money.
+// The allocation's accounting decides: completed refunds covering the customer amount -> already_refunded;
+// otherwise the money is held by an existing obligation (another operation's reservation, a refund in
+// flight, a parked request), which is linked to this move and classified by ITS persisted state. A
+// balance that is neither completed nor covered by a live obligation is an operator's (review case).
+const LIVE_REQUEST = ['reserved', 'submitted', 'pending', 'requires_action', 'failed_retryable'];
+const PARKED_REQUEST = ['requires_review', 'failed_terminal', 'failed', 'canceled'];
+async function classifyNothingRefundable(b, move, booking, out, review) {
+  const allocs = rowsOf(await sb(b, `payment_allocations?booking_id=eq.${enc(booking.id)}&select=id,customer_amount,refunded_amount,reserved_refund_amount&order=created_at.asc&limit=1`), 'allocation');
+  const a = allocs[0];
+  if (!a) return review('move_refund_no_allocation', {});
+  if (Number(a.refunded_amount) >= Number(a.customer_amount)) { out.refund_status = 'already_refunded'; return out; }
+  const requests = rowsOf(await sb(b, `refund_requests?booking_id=eq.${enc(booking.id)}&select=id,status,amount,op_key,created_at&order=created_at.desc&limit=20`), 'refund_requests');
+  const live = requests.find(q => LIVE_REQUEST.includes(q.status));
+  if (live) {
+    out.refund_request_id = live.id;
+    out.refund_status = REQUEST_STATUS_TO_REFUND[live.status] || 'pending_worker';
+    return out;
+  }
+  const parked = requests.find(q => PARKED_REQUEST.includes(q.status));
+  if (parked) return review('move_refund_request_' + parked.status, { refund_request_id: parked.id, request_status: parked.status, refunded_amount: a.refunded_amount, reserved_refund_amount: a.reserved_refund_amount });
+  return review('move_refund_balance_unaccounted', { refunded_amount: a.refunded_amount, reserved_refund_amount: a.reserved_refund_amount, customer_amount: a.customer_amount });
+}
+
 // The money step. Returns { refund_status, refund_request_id, refund_case_id, refund_id, retry, error }.
 // A review_required outcome is only returned with a PERSISTED case id (C1); otherwise retry.
 async function refundStep(b, move, booking) {
@@ -118,7 +142,7 @@ async function refundStep(b, move, booking) {
   const r = await reserveAndRefund(b, booking, 'system:move_' + outcome, CANCEL_REASON[outcome], 'move_' + outcome, { onExisting: 'defer' });
   if (r.refund_request_id) out.refund_request_id = r.refund_request_id;
   if (r.ok) { out.refund_status = 'submitted'; out.refund_id = r.refund_id || null; return out; }
-  if (r.error === 'nothing_refundable') { out.refund_status = 'already_refunded'; return out; }
+  if (r.error === 'nothing_refundable') return classifyNothingRefundable(b, move, booking, out, review);
   if (r.error === 'existing' || r.error === 'refund_failed') { out.refund_status = 'pending_worker'; return out; }   // durable request, the worker owns it
   if (r.error === 'no_allocation' || r.error === 'not_charged') return review('move_refund_' + r.error, {});
   // reserve_failed (RPC outage), reserve_malformed, booking_state_conflict, no_booking: recoverable, retried.

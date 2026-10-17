@@ -44,6 +44,7 @@ const data = () => ({
   notification_events: [{ id: 'ev1', kind: 'demo_moved', booking_id: 'bk1', brand_id: 'brand', retailer_id: 'gus', transition_id: 'mv1', payload: { move_id: 'mv1' }, fanned_out_at: null, created_at: movedAt }],
   notification_deliveries: [],
   refund_requests: [],
+  payment_allocations: [{ id: 'al1', booking_id: 'bk1', customer_amount: 3000, refunded_amount: 0, reserved_refund_amount: 0, created_at: '2026-10-01T00:00:00Z' }],
 });
 let tables = data(), patches = [], inserts = [], events = [], sent = [], rpc = [], stripe = [], fail = {}, reserveReply = null, cases = [];
 function applyFilters(rows, qs) {
@@ -408,6 +409,38 @@ console.log('\n:: Codex C3: the refund amount is normalised once and never omitt
   ok('refundPaymentIntent with requireAmount refuses an invalid amount before any provider call', !d1.ok && d1.error === 'amount_invalid' && stripe.length === 0);
   reset(); await refundPaymentIntent(b, 'pi_1', { amountCents: 777, requireAmount: true, idempotencyKey: 'k' });
   ok('refundPaymentIntent sends the exact amount', stripe.length === 1 && /(^|&)amount=777(&|$)/.test(stripe[0].body));
+}
+
+console.log('\n:: Codex R2-1: reserved money is not completed refund money ::');
+{
+  const nothing = () => { reserveReply = { outcome: 'nothing_refundable' }; };
+  const alloc = (refunded, reserved) => { tables.payment_allocations[0].refunded_amount = refunded; tables.payment_allocations[0].reserved_refund_amount = reserved; };
+  const request = (id, status, amount = 3000) => tables.refund_requests.push({ id, op_key: 'bk1:cancel', status, stripe_idempotency_key: 'k-' + id, stripe_refund_id: null, amount, booking_id: 'bk1', created_at: '2026-10-16T12:00:00Z' });
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(0, 3000); request('rrA', 'reserved');
+  const r1 = await settle();
+  ok('fully reserved by another operation, not yet submitted: the existing request is LINKED, pending_worker, no provider call, never already_refunded', r1.ok && r1.refund_status === 'pending_worker' && r1.refund_request_id === 'rrA' && stripe.length === 0 && events[0].payload.refund_status === 'pending_worker', JSON.stringify(r1));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(0, 3000); request('rrB', 'submitted');
+  const r2 = await settle();
+  ok('refund pending with the provider: linked, submitted', r2.ok && r2.refund_status === 'submitted' && r2.refund_request_id === 'rrB' && stripe.length === 0, JSON.stringify(r2));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(0, 3000); request('rrC', 'requires_review');
+  const r3 = await settle();
+  ok('a parked reservation: review case naming the request, review_required, no provider call', r3.ok && r3.refund_status === 'review_required' && cases.some(c => c.dedupe === 'move_refund:mv1' && /requires_review/.test(c.reason)) && stripe.length === 0, JSON.stringify(r3));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(1000, 2000); request('rrD', 'succeeded', 1000); request('rrE', 'reserved', 2000);
+  const r4 = await settle();
+  ok('partial completed plus the remainder reserved: linked to the live remainder, pending_worker (one succeeded part is not full completion)', r4.ok && r4.refund_status === 'pending_worker' && r4.refund_request_id === 'rrE', JSON.stringify(r4));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(3000, 0); request('rrF', 'succeeded');
+  const r5 = await settle();
+  ok('fully completed refund (refunded_amount covers the customer amount): already_refunded', r5.ok && r5.refund_status === 'already_refunded' && events[0].payload.refund_status === 'already_refunded', JSON.stringify(r5));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(0, 3000);
+  const r6 = await settle();
+  ok('no unreserved balance, no request on record at all: review case (balance unaccounted), never already_refunded', r6.ok && r6.refund_status === 'review_required' && cases.some(c => /balance_unaccounted/.test(c.reason)) && stripe.length === 0, JSON.stringify(r6));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); alloc(0, 3000); request('rrG', 'reserved'); fail._open_case = true;
+  const r7 = await settle();
+  ok('the linked-request path needs no case, so a dead case service does not block it', r7.ok && r7.refund_status === 'pending_worker', JSON.stringify(r7));
+  reset(); mv().status = 'declined'; bk().pending_move_settlement = 'mv1'; nothing(); tables.payment_allocations = [];
+  const r8 = await settle();
+  ok('nothing refundable with no allocation at all: review case', r8.ok && r8.refund_status === 'review_required' && cases.some(c => /no_allocation/.test(c.reason)), JSON.stringify(r8));
+  ok('the cancelled email says "already been refunded" only for already_refunded, and "being processed" for a linked live obligation', (() => { reset(); mv().status = 'declined'; mv().refund_status = 'pending_worker'; const a = demoMoveCancelledMessage(b, ctx()).html; mv().refund_status = 'already_refunded'; const c = demoMoveCancelledMessage(b, ctx()).html; return /being processed/.test(a) && !/already been refunded/.test(a) && /already been refunded/.test(c); })());
 }
 
 summary('retailer demo moves (offline)');
