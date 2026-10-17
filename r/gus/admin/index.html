@@ -6880,11 +6880,34 @@ function escapeHtml(s) {
                     const vi = venueIndex(venue);
                     const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
                     const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
-                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ': ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
+                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' role="button" tabindex="0" data-demo-id="' + escapeHtml(d.id || '') + '" onclick="openDemoEventDetail(this.dataset.demoId)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openDemoEventDetail(this.dataset.demoId);}" title="' + escapeHtml(d.company + ': ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
             grid.innerHTML = html;
+        }
+
+        // Calendar event detail (2026-10-16): what the row on the Demos tab shows, in a modal, from the calendar.
+        function _demoEventDetailHtml(d) {
+            const venue = getDemoVenue(d);
+            const items = Array.isArray(d.product_skus) ? d.product_skus.filter(p => p && p.name) : [];
+            const line = (label, val) => val ? '<div style="margin-top:4px;"><span style="color:var(--ink-500);">' + label + '</span> ' + val + '</div>' : '';
+            const dateLabel = d.date ? new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            return '<div style="font-size:0.92rem; line-height:1.5;">'
+                + line('When', escapeHtml(dateLabel) + (d.time ? ' &middot; ' + escapeHtml(d.time) : ''))
+                + line('Store', escapeHtml(venue || 'Unknown location'))
+                + line('Status', escapeHtml(d.status || ''))
+                + line('Contact', [d.contact, d.contact_email, d.contact_phone].filter(Boolean).map(escapeHtml).join(' &middot; '))
+                + line('Category', d.product ? escapeHtml(d.product) : '')
+                + '<div style="margin-top:12px; font-weight:600; color:var(--forest-900);">Items being sampled' + (items.length ? ' (' + items.length + ')' : '') + '</div>'
+                + (items.length ? '<div style="margin-top:6px; line-height:1.45;">' + items.map(p => '<div style="margin-bottom:6px;">' + _productLineHtml(p) + '</div>').join('') + '</div>' : '<div style="color:var(--ink-500); margin-top:4px;">No items listed on this booking. Ask the brand which products they are bringing.</div>')
+                + (d.isSample ? '<div style="margin-top:12px; font-size:0.8rem; color:#a14e2a;">This is an example demo shown while your calendar is empty.</div>' : '')
+                + '</div>';
+        }
+        function openDemoEventDetail(id) {
+            const d = (window.state.demos || []).find(x => String(x.id) === String(id));
+            if (!d) return;
+            DhModal.alert({ title: d.company || 'Demo', extraHTML: _demoEventDetailHtml(d), ok: 'Close' });
         }
 
         const ADVANCE_PRESETS = ['3', '7', '14', '30', '45', '60'];
