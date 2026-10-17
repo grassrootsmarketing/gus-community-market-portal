@@ -540,7 +540,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div class="modal" style="max-width: 540px;">
             <div class="modal-body" style="text-align: left; padding: 32px;">
                 <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;" id="bookModalTitle">Create your account &amp; book</h3>
-                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.</p>
+                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place. One account per brand, created by the brand.</p>
                 <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name *</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe" required></div>
@@ -1739,7 +1739,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 })(); { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
-                if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
+                // Booking as (2026-10-17): the brand this request is made in the name of, said before anything is paid.
+                if (subtitle) subtitle.textContent = 'Booking as ' + (bp.company_name || bp.email) + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {

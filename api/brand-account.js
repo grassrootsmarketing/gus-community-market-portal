@@ -231,6 +231,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
 <p style="margin:0 0 14px;">You're in. Your ${bn} brand profile is live: <strong><a href="${siteLink(_b, '/brand/dashboard')}" style="color:#2a5b32;">${siteLink(_b, '/brand/dashboard')}</a></strong></p>
+<p style="margin:0 0 14px;">One thing to know: this account belongs to ${bn} and is its only sign-in. If an agency or rep books demos for you, they use this account, and every booking is made in your brand's name under your insurance and agreements.</p>
 <p style="margin:0 0 14px;">Here's the idea: you fill out your info once, and that profile follows you to every Demohub retailer. No more re-typing your COI details into the third clipboard at the third store this month.</p>
 <p style="margin:0 0 8px;">Two things to do now so your next booking pre-fills cleanly:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">
@@ -1453,88 +1454,12 @@ export default async function handler(req, res) {
       return jsonResp(res, 200, { ok: true });
     }
 
-    if (action === 'team-list') {
-      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
-      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const members = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&select=*&order=created_at`)).json();
-      return jsonResp(res, 200, { ok: true, members, your_email: v.email });
-    }
-
-    if (action === 'team-invite') {
-      // G0-C2: the brand-invite kill switch has a real consumer here (requires exact "true").
-      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled', message: 'Team invites are temporarily paused.' });
-      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
-      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const email = String(body.email || '').trim().toLowerCase();
-      const name = String(body.name || '').trim() || null;
-      const role = body.role === 'viewer' ? 'viewer' : 'admin';
-      if (!email || !/^[^@]+@[^@]+\.[^@]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
-      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
-      const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role === 'viewer') return jsonResp(res, 403, { error: 'Viewers cannot invite team members' });
-      const existing = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=eq.${encodeURIComponent(email)}&select=id`)).json();
-      if (Array.isArray(existing) && existing.length > 0) return jsonResp(res, 409, { error: 'That email is already on the team' });
-      const createR = await sb('brand_members', {
-        method: 'POST',
-        body: JSON.stringify({ brand_id: v.brand_id, email, name, role, invited_by_email: v.email }),
-      });
-      const created = await createR.json();
-      try {
-        const brand = (await (await sb(`brands?id=eq.${v.brand_id}&select=company_name`)).json())[0];
-        const token = randomToken(24);
-        const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-        await sb('brand_account_tokens', {
-          method: 'POST',
-          body: JSON.stringify({ brand_id: v.brand_id, email, token, expires_at: expires }),
-        });
-        const link = siteLink(_b, `/brand/verify?t=${token}`);
-        if (_b.resendApiKey) {
-          await sendMailQuietly({
-              from: FROM_EMAIL,
-              to: email,
-              replyTo: REPLY_TO,
-              subject: `You've been invited to ${brand?.company_name || 'a brand'}'s Demohub account`,
-              html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
-                <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 12px;">You're invited.</h1>
-                <p style="font-size:15px;line-height:1.5;margin:0 0 22px;color:#3a3a36;">${escapeText(v.email)} added you to <strong>${escapeText(brand?.company_name || 'their brand account')}</strong> on Demohub. Click below to sign in and start managing demos together.</p>
-                <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Accept invite &rarr;</a>
-                <p style="font-size:13px;color:#6b6a64;margin-top:32px;">Link expires in 30 minutes. If you weren't expecting this, you can ignore the email.</p>
-              </div>`,
-          }, { binding: _b });
-        }
-      } catch (e) { console.warn('Invitation email failed:', e); }
-      return jsonResp(res, 200, { ok: true, member: Array.isArray(created) ? created[0] : null });
-    }
-
-    if (action === 'team-remove') {
-      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
-      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const memberId = String(body.member_id || '');
-      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
-      const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can remove team members' });
-      const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
-      if (!target) return jsonResp(res, 404, { error: 'Member not found' });
-      if (target.brand_id !== v.brand_id) return jsonResp(res, 403, { error: 'Wrong brand' });
-      if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot remove the owner' });
-      await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'DELETE' });
-      try { await sb(`brand_account_sessions?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(target.email)}`, { method: 'DELETE' }); } catch (_) {}
-      return jsonResp(res, 200, { ok: true });
-    }
-
-    if (action === 'team-update-role') {
-      const v = await verifySessionFull(getBrandSessionFromReq(req, body) || '');
-      if (!v) return jsonResp(res, 401, { error: 'Not authenticated' });
-      const memberId = String(body.member_id || '');
-      const role = body.role === 'viewer' ? 'viewer' : 'admin';
-      const me = await (await sb(`brand_members?brand_id=eq.${v.brand_id}&email=ilike.${encodeURIComponent(v.email)}&select=role`)).json();
-      const myRow = Array.isArray(me) ? me[0] : null;
-      if (!myRow || myRow.role !== 'owner') return jsonResp(res, 403, { error: 'Only owners can change roles' });
-      const target = (await (await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}&select=*`)).json())[0];
-      if (!target || target.brand_id !== v.brand_id) return jsonResp(res, 404, { error: 'Member not found' });
-      if (target.role === 'owner') return jsonResp(res, 400, { error: 'Cannot change owner role' });
-      await sb(`brand_members?id=eq.${encodeURIComponent(memberId)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
-      return jsonResp(res, 200, { ok: true });
+    // Brand teams retired (David, 2026-10-17). One email per brand: the brand creates the account under its own
+    // email and anyone who books for the brand uses that sign-in. The four team actions answer 410 so an old page
+    // gets a plain refusal, never a half-working roster. brand_members itself stays: the owner row is how sign-in
+    // resolves a brand (0064) and the outbox reads it. Retailer teams (admin-auth) are unchanged.
+    if (action === 'team-list' || action === 'team-invite' || action === 'team-remove' || action === 'team-update-role') {
+      return jsonResp(res, 410, { error: 'brand_teams_retired', message: "Brand accounts have one sign-in, the brand's own email. Anyone booking for the brand uses that sign-in." });
     }
 
     // ---- SET-PASSWORD: claim the account by setting a password ----
