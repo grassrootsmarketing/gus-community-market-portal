@@ -90,7 +90,10 @@ const C1 = track('internal_contacts', one(await db('internal_contacts', { method
 const brandEmail = `${uniq('wbrand')}@fixture.test`;
 const brandId = track('brands', one(await db('brands', { method: 'POST', body: JSON.stringify({ email: brandEmail, company_name: 'Worker Brand Co', contact_name: 'Rep W', phone: '555-0100', default_coi_url: 'brands/w.pdf', default_coi_expires: dayP(400), coi_verification_status: 'approved' }) })).id);
 const memberEmail = `${uniq('wmember')}@fixture.test`;
-track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: memberEmail, name: 'Team Member', role: 'member' }) })).id);
+// The brand's second account contact is a co-OWNER: a role the baseline schema (role text, no check) and the
+// 0097 booker schema (owner | booker) both accept, and one that every recipient contract treats as a COI-decision
+// recipient. The earlier 'member' spelling is refused once 0097 is applied to the test project.
+track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: memberEmail, name: 'Co-owner', role: 'owner' }) })).id);
 
 // The harness binding for the internals.
 await callRoute('find-retailer.js', req({ body: { action: 'status' } }));
