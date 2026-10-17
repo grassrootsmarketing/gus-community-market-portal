@@ -2367,7 +2367,7 @@ function renderAccount() {
       <h2 style="margin:0 0 6px;">Signed in as</h2>
       <div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(p.company_name || 'your brand')}</div>
       <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(p.email || '')}</div>
-      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">This is the only sign-in for ${escapeHtml(p.company_name || 'your brand')}. One account per brand, created by the brand. If an agency or rep books demos for you, they use this sign-in and every booking is made in your brand's name, under your insurance and agreements.</div>
+      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">One account per brand, created by the brand, and this is its owner sign-in. If someone else books demos for you, designate them as your booker below: they get their own sign-in, every booking is still made in your brand's name under your insurance and agreements, and they never see your payments or change your items.</div>
       <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
         <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
         <a class="btn btn-ghost" href="mailto:david@demohubhq.com?subject=Demohub%20account%20question">Email support</a>

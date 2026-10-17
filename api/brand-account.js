@@ -239,7 +239,7 @@ function brandDay0Email({ first_name, brand_name, example_retailer_url }) {
 <tr><td style="padding:36px 36px 28px;font-size:15px;line-height:1.6;color:#3a3a36;">
 <p style="margin:0 0 14px;">Hi ${fn},</p>
 <p style="margin:0 0 14px;">You're in. Your ${bn} brand profile is live: <strong><a href="${siteLink(_b, '/brand/dashboard')}" style="color:#2a5b32;">${siteLink(_b, '/brand/dashboard')}</a></strong></p>
-<p style="margin:0 0 14px;">One thing to know: this account belongs to ${bn} and is its only sign-in. If an agency or rep books demos for you, they use this account, and every booking is made in your brand's name under your insurance and agreements.</p>
+<p style="margin:0 0 14px;">One thing to know: this account belongs to ${bn} and is its owner sign-in. If someone else books demos for you, designate them as your booker under Account: they get their own sign-in, every booking is still made in your brand's name under your insurance and agreements, and they never see your payments or change your items.</p>
 <p style="margin:0 0 14px;">Here's the idea: you fill out your info once, and that profile follows you to every Demohub retailer. No more re-typing your COI details into the third clipboard at the third store this month.</p>
 <p style="margin:0 0 8px;">Two things to do now so your next booking pre-fills cleanly:</p>
 <ol style="margin:0 0 18px;padding-left:22px;">

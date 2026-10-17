@@ -12,12 +12,12 @@ const dash = readFileSync('brand/dashboard/index.html', 'utf8');
 ok('1a. no Team tab in the whitelist', !/'team'/.test(dash));
 ok('1b. no invite modal, no team renderer, no team handlers', !/teamInviteModal|renderTeam|inviteTeammate|removeTeamMember|sendTeamInvite/.test(dash));
 ok('1c. no team API calls from the dashboard', !/team-list|team-invite|team-remove|team-update-role/.test(dash));
-ok('1d. Account tab states the one-brand rule', /only sign-in for/.test(dash) && /One account per brand, created by the brand/.test(dash));
+ok('1d. Account tab states the one-brand rule and points to the designated booker (0097)', /One account per brand, created by the brand/.test(dash) && /designate them as your booker/.test(dash));
 
 const api = readFileSync('api/brand-account.js', 'utf8');
 ok('2a. the four team actions share one 410 branch', /action === 'team-list' \|\| action === 'team-invite' \|\| action === 'team-remove' \|\| action === 'team-update-role'/.test(api) && /410, \{ error: 'brand_teams_retired'/.test(api));
 ok('2b. no team insert or roster read remains', !/brand_members\?brand_id=eq\.\$\{v\.brand_id\}&select=\*/.test(api) && !/invited_by_email: v\.email/.test(api));
-ok('2c. welcome email carries the statement', /its only sign-in/.test(api) && /they use this account/.test(api));
+ok('2c. welcome email carries the statement (owner sign-in; designate a booker for anyone else)', /its owner sign-in/.test(api) && /designate them as your booker/.test(api));
 
 const signup = readFileSync('brand/index.html', 'utf8');
 ok('3a. sign-up page says one account per brand, created by the brand', /One account per brand, created by the brand/.test(signup));
