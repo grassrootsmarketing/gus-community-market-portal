@@ -48,7 +48,8 @@ const ownerCookie = (await acct({ action: 'verify', token: ownerTok.token })).co
 const bookerEmail = `${uniq('booker')}@fixture.test`;
 const T = '11:00 AM';
 let day = 30; const nextDay = () => dayP(day++);
-const book = (body, cookie) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: [CATALOG[0]], ...body }, cookies: { dh_brand_session: cookie } }));
+const opKey = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+const book = (body, cookie) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: [CATALOG[0]], op_key: opKey(), ...body }, cookies: { dh_brand_session: cookie } }));
 const invToken = (mail) => { const m = /\/brand\/accept\?t=([A-Za-z0-9%_-]+)/.exec(mail && mail.html || ''); return m ? decodeURIComponent(m[1]) : null; };
 const codeIn = (mail) => ((/(\d{6})/.exec((mail && mail.html || '').replace(/<[^>]+>/g, ' ')) || [])[1]) || null;
 async function acceptFlow(email) {
@@ -196,6 +197,45 @@ try {
     track('bookings', okAgain.body && okAgain.body.booking_id);
     noticeBookingId = okAgain.body && okAgain.body.booking_id;
     ok('BC-2e once the owner agrees to the new text the booker books again', resign2.statusCode === 200 && okAgain.statusCode === 200, JSON.stringify(okAgain.body));
+  }
+
+  console.log('\n:: BR2-1 retry-safe booker booking ::');
+  {
+    const day0 = nextDay(); const key = opKey();
+    const first = await book({ demo_date: day0, op_key: key }, bookerCookie);
+    track('bookings', first.body && first.body.booking_id);
+    const again = await book({ demo_date: day0, op_key: key }, bookerCookie);
+    const rows = (await db(`bookings?retailer_id=eq.${retailerId}&demo_date=eq.${day0}&booked_by_member_id=eq.${memberId}&select=id`)).body;
+    ok('BR2-1a a retry with the same key replays the same booking: one booking row, replay flagged, no duplicate', first.statusCode === 200 && again.statusCode === 200 && again.body.booking_id === first.body.booking_id && again.body.replay === true && rows.length === 1, JSON.stringify({ first: first.body, again: again.body, rows: rows.length }));
+    const noKey = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: [CATALOG[0]], demo_date: nextDay() }, cookies: { dh_brand_session: bookerCookie } }));
+    ok('BR2-1b a booker request without an operation key is refused', noKey.statusCode === 400 && noKey.body.error === 'op_key_required');
+    const changed = await book({ demo_date: nextDay(), op_key: key }, bookerCookie);
+    ok('BR2-1c the same key with a different request is refused (op_key_reused)', changed.statusCode === 409 && changed.body.error === 'op_key_reused', JSON.stringify(changed.body));
+    // concurrent identical submissions on a slot with capacity for five: exactly one booking
+    const day1 = nextDay(); const key1 = opKey();
+    const twins = await Promise.all([0, 1, 2].map(() => book({ demo_date: day1, op_key: key1 }, bookerCookie)));
+    const twinRows = (await db(`bookings?retailer_id=eq.${retailerId}&demo_date=eq.${day1}&booked_by_member_id=eq.${memberId}&select=id`)).body;
+    track('bookings', twinRows[0] && twinRows[0].id);
+    ok('BR2-1d three concurrent identical submissions yield one booking and three successful answers naming it', twins.every(t => t.statusCode === 200) && new Set(twins.map(t => t.body.booking_id)).size === 1 && twinRows.length === 1, JSON.stringify({ ids: twins.map(t => t.body.booking_id), rows: twinRows.length }));
+    // cross-member recovery: the owner cannot replay the booker's operation key
+    const cross = await book({ demo_date: day1, op_key: key1 }, ownerCookie);
+    ok('BR2-1e another member of the brand cannot recover the booker\'s operation (op_key_reused)', cross.statusCode === 409 && cross.body.error === 'op_key_reused', JSON.stringify(cross.body));
+    // the operation row is bound to brand and member
+    const op = (await db(`booking_operations?op_key=eq.${key1}&select=brand_id,member_id,booking_id`)).body[0];
+    ok('BR2-1f the operation row records the brand, the member and the booking', op && op.brand_id === brandId && op.member_id === memberId && op.booking_id === twinRows[0].id, JSON.stringify(op));
+  }
+
+  console.log('\n:: BR2-3 lookup failure is not a revocation ::');
+  {
+    const day2 = nextDay();
+    const b = await book({ demo_date: day2 }, bookerCookie); track('bookings', b.body && b.body.booking_id);
+    await db(`bookings?id=eq.${b.body.booking_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });
+    const since = spy.calls.resend.length;
+    // the membership read fails once (fault on the member lookup): the booker copy is withheld, the owner copy still goes
+    spy.faults.push({ url: 'brand_members?id=eq.' + memberId, status: 503, once: true, message: 'injected_lookup_outage' });
+    const dec = await callRoute('booking-action.js', req({ body: { action: 'decline', booking_id: b.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
+    const toBooker = mailsTo(bookerEmail, since, /request/i), toOwner = mailsTo(ownerEmail, since, /request/i);
+    ok('BR2-3a with the membership lookup unavailable, nothing goes to the possibly-revoked booker and the owner\'s notice is not discarded', (dec.statusCode === 200 || dec.statusCode === 409) && toBooker.length === 0 && toOwner.length === 1, JSON.stringify({ s: dec.statusCode, b: toBooker.length, o: toOwner.length }));
   }
 
   console.log('\n:: BC-5 payloads and notices ::');

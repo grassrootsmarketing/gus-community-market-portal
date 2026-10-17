@@ -48,7 +48,9 @@ const bookerEmail = `${uniq('booker')}@fixture.test`;
 ok('fixtures: owner and other-brand sessions exist', !!ownerCookie && !!otherCookie);
 
 const T = '11:00 AM', FAR = dayP(30), FAR2 = dayP(31), FAR3 = dayP(32);
-const book = (body, cookie) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: [CATALOG[0]], ...body }, cookies: { dh_brand_session: cookie } }));
+const opKey = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36) + Math.random().toString(36).slice(2);
+// 0100: a booker's booking is keyed (retry-safe); the helper mints a fresh key per call
+const book = (body, cookie) => callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: V1, demo_time: T, product_skus: [CATALOG[0]], op_key: opKey(), ...body }, cookies: { dh_brand_session: cookie } }));
 let bookerCookie = null, memberId = null;
 
 try {

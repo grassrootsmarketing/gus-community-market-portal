@@ -1,5 +1,5 @@
 // tools/make-booker-paste.mjs (2026-10-17): the guarded, single-transaction production paste for the designated brand
-// booker: migrations 0097 and 0098 together, two ledger rows, one COMMIT. Neither file carries its own begin/commit,
+// booker: migrations 0097, 0098 and 0100 together, three ledger rows, one COMMIT. No file carries its own begin/commit,
 // so each body is the file verbatim. The guard checks the objects this release touches and depends on:
 //   * identity, 0085 (booking codes: this release REPLACES booking_create_with_code) and 0092 present
 //   * 0097 and 0098 absent; brand_members without its state column; no invites table; no attribution columns
@@ -14,20 +14,22 @@ import { createHash } from 'node:crypto';
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const f97 = 'C:/Users/David/demohub/supabase/migrations/0097_brand_booker.sql';
 const f98 = 'C:/Users/David/demohub/supabase/migrations/0098_brand_booker_corrections.sql';
-const s97 = readFileSync(f97, 'utf8'), s98 = readFileSync(f98, 'utf8');
-for (const [n, s] of [['0097', s97], ['0098', s98]]) if (s.split('\n').some(l => /^\s*(begin|commit);\s*$/i.test(l))) throw new Error(n + ' must not carry its own begin/commit');
+const f99 = 'C:/Users/David/demohub/supabase/migrations/0100_brand_booker_retry_safe.sql';
+const s97 = readFileSync(f97, 'utf8'), s98 = readFileSync(f98, 'utf8'), s99 = readFileSync(f99, 'utf8');
+for (const [n, s] of [['0097', s97], ['0098', s98], ['0100', s99]]) if (s.split('\n').some(l => /^\s*(begin|commit);\s*$/i.test(l))) throw new Error(n + ' must not carry its own begin/commit');
 const IDENTITY = process.argv[2] || 'production';
 const kit = `-- ============================================================================================
--- DEMOHUB PRODUCTION, migrations 0097 + 0098 (designated brand booker), ONE paste, run ONCE in the SQL editor of demohub-prod
+-- DEMOHUB PRODUCTION, migrations 0097 + 0098 + 0100 (designated brand booker), ONE paste, run ONCE in the SQL editor of demohub-prod
 -- ONE TRANSACTION: guard, both migration bodies, their postconditions and both ledger rows commit together or not at
 -- all. A failure anywhere leaves nothing behind, and the paste can simply be re-run after the cause is fixed.
--- Guard: refuses unless this database identifies as ${IDENTITY}; the ledger holds 0085 and 0092 and holds neither 0097 nor
--- 0098; none of the booker objects exist yet (brand_members.status, brand_booker_invites, bookings.booked_by_member_id);
+-- Guard: refuses unless this database identifies as ${IDENTITY}; the ledger holds 0085 and 0092 and holds none of 0097,
+-- 0098, 0100; none of the booker objects exist yet (brand_members.status, brand_booker_invites, bookings.booked_by_member_id);
 -- the 0085 functions this release builds on (booking_code_check, booking_code_redeem, booking_create_with_code) exist.
 -- The 0097 preconditions then run inside the transaction (every membership row is its brand's canonical owner; one
 -- membership per email) and stop the paste with a count if production differs from the October 17 inventory.
 -- Bodies = supabase/migrations/0097_brand_booker.sql (sha256 ${sha(s97)}) and
---          supabase/migrations/0098_brand_booker_corrections.sql (sha256 ${sha(s98)}), verbatim.
+--          supabase/migrations/0098_brand_booker_corrections.sql (sha256 ${sha(s98)}) and
+--          supabase/migrations/0100_brand_booker_retry_safe.sql (sha256 ${sha(s99)}), verbatim.
 -- Order with the deploy: paste FIRST, then deploy the booker build with BRAND_INVITE_ENABLED unset (nothing changes for
 -- any brand), then set BRAND_INVITE_ENABLED=true on Vercel Production only and redeploy to allow designation.
 -- ============================================================================================
@@ -39,7 +41,7 @@ BEGIN
   IF v_env IS DISTINCT FROM '${IDENTITY}' THEN RAISE EXCEPTION 'CUTOVER GUARD: this database identifies as %, not ${IDENTITY}. STOP', coalesce(v_env, '(none)'); END IF;
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '0085') THEN RAISE EXCEPTION 'CUTOVER GUARD: 0085 (booking codes) is not in the ledger; this release replaces one of its functions. STOP'; END IF;
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '0092') THEN RAISE EXCEPTION 'CUTOVER GUARD: 0092 is not in the ledger. STOP'; END IF;
-  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version IN ('0097','0098')) THEN RAISE EXCEPTION 'CUTOVER GUARD: 0097 or 0098 is already in the ledger. Applied before? STOP and review'; END IF;
+  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version IN ('0097','0098','0100')) THEN RAISE EXCEPTION 'CUTOVER GUARD: 0097, 0098 or 0100 is already in the ledger. Applied before? STOP and review'; END IF;
   SELECT count(*) INTO n FROM pg_proc WHERE proname IN ('booking_code_check','booking_code_redeem','booking_create_with_code');
   IF n <> 3 THEN RAISE EXCEPTION 'CUTOVER GUARD: the 0085 booking-code functions are not all present (%/3). STOP', n; END IF;
   SELECT count(*) INTO n FROM information_schema.columns WHERE table_name = 'brand_members' AND column_name IN ('status','accepted_at','revoked_at','revoked_by_email');
@@ -56,14 +58,19 @@ ${s97.trim()}
 -- ======================= migration 0098: file content, verbatim =======================
 ${s98.trim()}
 
+-- ======================= migration 0100: file content, verbatim =======================
+${s99.trim()}
+
 -- ======================= ledger (same transaction) =======================
 INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0097', 'brand_booker');
 INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0098', 'brand_booker_corrections');
+INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0100', 'brand_booker_retry_safe');
 COMMIT;
 
 -- ======================= verify (read-only) =======================
-SELECT 'OK 0097+0098 RECORDED' AS result,
-       (SELECT string_agg(version, ',' ORDER BY version) FROM supabase_migrations.schema_migrations WHERE version >= '0090') AS ledger_from_0090_expect_0098_last,
+SELECT 'OK 0097+0098+0100 RECORDED' AS result,
+       (SELECT string_agg(version, ',' ORDER BY version) FROM supabase_migrations.schema_migrations WHERE version >= '0090') AS ledger_from_0090_expect_0100_last,
+       (SELECT count(*) FROM information_schema.columns WHERE table_name = 'booking_operations' AND column_name = 'member_id') AS operations_member_column_expect_1,
        (SELECT count(*) FROM information_schema.columns WHERE table_name = 'brand_members' AND column_name IN ('status','accepted_at','revoked_at','revoked_by_email')) AS member_columns_expect_4,
        (SELECT count(*) FROM pg_indexes WHERE tablename = 'brand_members' AND indexname IN ('brand_members_live_identity_idx','brand_members_one_identity_idx','brand_members_one_booker_idx','brand_members_one_owner_idx')) AS member_indexes_expect_4,
        (SELECT count(*) FROM information_schema.columns WHERE table_name = 'brand_booker_invites' AND column_name IN ('code_hash','code_expires_at','code_attempts','delivery_status','delivery_detail','delivered_at')) AS invite_columns_expect_6,
@@ -76,9 +83,9 @@ SELECT 'OK 0097+0098 RECORDED' AS result,
 `;
 if (/\u2014/.test(kit)) throw new Error('em dash');
 const dir = 'C:/Users/David/Documents/Codex/cutover-kit/';
-const outPath = process.argv[3] || (dir + '0097-0098-brand-booker-paste.sql');
+const outPath = process.argv[3] || (dir + '0097-0100-brand-booker-paste.sql');
 writeFileSync(outPath, kit);
 if (!process.argv[3]) {
-  writeFileSync(dir + 'MANIFEST-0097-0098.json', JSON.stringify({ generated_at: new Date().toISOString(), atomic: true, guard: 'identity, 0085 + 0092 present, 0097/0098 absent, booker objects absent, 0085 functions present; 0097 file preconditions inside the transaction', migrations: [{ file: 'supabase/migrations/0097_brand_booker.sql', sha256: sha(s97) }, { file: 'supabase/migrations/0098_brand_booker_corrections.sql', sha256: sha(s98) }], paste_file: '0097-0098-brand-booker-paste.sql', paste_sha256: sha(kit), paste_chars: kit.length, supersedes: ['0097-brand-booker-paste.sql', 'MANIFEST-0097.json'], note: 'Both bodies are the migration files verbatim (neither has its own begin/commit); the whole paste is one transaction with two ledger rows.' }, null, 2) + '\n');
+  writeFileSync(dir + 'MANIFEST-0097-0100.json', JSON.stringify({ generated_at: new Date().toISOString(), atomic: true, guard: 'identity, 0085 + 0092 present, 0097/0098/0100 absent, booker objects absent, 0085 functions present; 0097 file preconditions inside the transaction', migrations: [{ file: 'supabase/migrations/0097_brand_booker.sql', sha256: sha(s97) }, { file: 'supabase/migrations/0098_brand_booker_corrections.sql', sha256: sha(s98) }, { file: 'supabase/migrations/0100_brand_booker_retry_safe.sql', sha256: sha(s99) }], paste_file: '0097-0100-brand-booker-paste.sql', paste_sha256: sha(kit), paste_chars: kit.length, supersedes: ['0097-brand-booker-paste.sql', 'MANIFEST-0097.json', '0097-0098-brand-booker-paste.sql', 'MANIFEST-0097-0098.json'], note: 'All three bodies are the migration files verbatim (none has its own begin/commit); the whole paste is one transaction with three ledger rows.' }, null, 2) + '\n');
 }
 console.log('kit written', outPath, 'identity', IDENTITY, 'chars', kit.length);

@@ -45,20 +45,33 @@ export default async function handler(req, res) {
   // recoverable by its key. The fingerprint is built from the REQUEST only (never from current slot config).
   const hasCode = body.booking_code !== undefined && body.booking_code !== null && String(body.booking_code).trim() !== '';
   let norm = null, fingerprint = null;
+  // 0099 (Codex BR2-1): a booker's booking is keyed like a code booking, so a lost response replays instead of
+  // creating a second booking. The owner's plain booking is unchanged.
+  const suppliedKey = body.op_key !== undefined && body.op_key !== null && String(body.op_key) !== '';
+  const keyed = hasCode || auth.role === 'booker' || suppliedKey;   // a key that is sent is always honoured and checked
   if (hasCode) {
     norm = normalizeCode(body.booking_code);
     if (!norm) return res.status(400).json({ error: 'code_invalid_format', message: CODE_MESSAGES.code_invalid_format });
+  }
+  if (keyed) {
     if (!/^[A-Za-z0-9_-]{16,80}$/.test(String(body.op_key || ''))) return res.status(400).json({ error: 'op_key_required', message: 'Please reload the page and try again.' });
     fingerprint = createHash('sha256').update(JSON.stringify({ r: String(body.retailer_slug || '').trim().toLowerCase(), v: String(body.venue_id || ''), d: String(body.demo_date || ''), t: String(body.demo_time || '').trim().toLowerCase(), c: norm, p: body.product || null, s: body.product_skus || null, n: body.notes || null, e: typeof body.needs_electricity === 'boolean' ? body.needs_electricity : null })).digest('hex').slice(0, 40);
-    const prior = await one(`booking_operations?op_key=eq.${encodeURIComponent(String(body.op_key))}&brand_id=eq.${encodeURIComponent(auth.brandId)}&select=result,fingerprint,booking_id`);
+    const prior = await one(`booking_operations?op_key=eq.${encodeURIComponent(String(body.op_key))}&brand_id=eq.${encodeURIComponent(auth.brandId)}&select=result,fingerprint,booking_id,member_id`);
+    if (prior && (prior.fingerprint !== fingerprint || (prior.member_id && String(prior.member_id) !== String(auth.memberId || '')))) {
+      return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' });
+    }
     if (prior && prior.result && prior.result.booking_id) {
       if (prior.fingerprint !== fingerprint) return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' });
+      // 0099: an operation belongs to the person who made it; another member of the brand cannot recover it.
+      if (prior.member_id && String(prior.member_id) !== String(auth.memberId || '')) return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' });
       // Recovery returns the ORIGINAL identity plus its truthful current state; it never creates, pays or reactivates.
       const cur = await one(`bookings?id=eq.${encodeURIComponent(prior.result.booking_id)}&brand_id=eq.${encodeURIComponent(auth.brandId)}&select=status,payment_status,fee_waived`);
       const j = prior.result; const st = cur ? cur.status : 'unknown';
       const next = j.fee_waived ? 'awaiting_confirmation' : (st === 'pending_payment' && cur && cur.payment_status === 'unpaid' ? 'checkout' : 'none');
       return res.status(200).json({ ok: true, booking_id: j.booking_id, next, fee_waived: !!j.fee_waived, target_status: j.target_status || null, code_applied: norm, replay: true, current_status: st, current_payment_status: cur ? cur.payment_status : null });
     }
+  }
+  if (hasCode) {
     // Codex BC R1: with codes disabled, a NEW code booking is refused here, after the committed-operation recovery
     // above (a retry of an operation that already committed still replays its original result) and before any
     // limiter, lookup or write. A request without a code is an ordinary booking and is not touched by the switch.
@@ -223,17 +236,18 @@ export default async function handler(req, res) {
     // duplicate risk here: the booking is unpaid and the brand sees it as pending payment.
     let rr, text = '', j = null;
     try {
-      rr = await rest('rpc/booking_create_as_member', { method: 'POST', signal: globalThis.AbortSignal.timeout(25000), body: JSON.stringify({ p_member_id: auth.memberId, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_item_ids: bookerItemIds, p_payload: payload, p_default_demo: POLICY_HASH_INPUTS.default_demo_policy, p_default_cancel: POLICY_HASH_INPUTS.default_cancellation_policy, p_tos_version: POLICY_HASH_INPUTS.tos_version }) });
+      rr = await rest('rpc/booking_create_as_member', { method: 'POST', signal: globalThis.AbortSignal.timeout(25000), body: JSON.stringify({ p_op_key: String(body.op_key), p_fingerprint: fingerprint, p_member_id: auth.memberId, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_item_ids: bookerItemIds, p_payload: payload, p_default_demo: POLICY_HASH_INPUTS.default_demo_policy, p_default_cancel: POLICY_HASH_INPUTS.default_cancellation_policy, p_tos_version: POLICY_HASH_INPUTS.tos_version }) });
       text = await rr.text(); try { j = JSON.parse(text); } catch (_) {}
-    } catch (e) { console.error('booking_create_as_member transport failure', e && e.name); return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please check your demos before trying again.' }); }
+    } catch (e) { console.error('booking_create_as_member transport failure', e && e.name); return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry; your request will not be duplicated.', retry_with_same_key: true, op_key: String(body.op_key) }); }
     if (!rr.ok) {
+      if (/op_key_reused/.test(text)) return res.status(409).json({ error: 'op_key_reused', message: 'This request was already used for a different booking. Reload and try again.' });
       const mr = memberRefusal(text); if (mr) return res.status(mr[0]).json(mr[1]);
       if (text.includes('slot_full')) return res.status(409).json({ error: 'slot_full' });
       const dbRefusal = slotRefusalFromDbError(text); if (dbRefusal) return res.status(409).json({ error: dbRefusal, message: SLOT_REFUSAL_MESSAGES[dbRefusal] });
       return res.status(500).json({ error: 'booking_failed' });
     }
-    if (!(j && j.booking_id)) return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please check your demos before trying again.' });
-    return res.status(200).json({ ok: true, booking_id: j.booking_id, next: 'checkout' });
+    if (!(j && j.booking_id)) return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry; your request will not be duplicated.', retry_with_same_key: true, op_key: String(body.op_key) });
+    return res.status(200).json({ ok: true, booking_id: j.booking_id, next: 'checkout', replay: !!j.replay });
   }
   // The owner's plain insert: the database inputs above (item ids, policy defaults) are not bookings columns.
   const insertPayload = (({ item_ids, default_demo_policy, default_cancellation_policy, tos_version, ...rest }) => rest)(payload);

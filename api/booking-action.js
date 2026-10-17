@@ -95,9 +95,13 @@ function brandHeader() {
 async function noticeRecipients(sb, booking) {
   const contact = String(booking.contact_email || '').toLowerCase();
   if (!booking.booked_by_member_id) return { to: contact ? [contact] : [], owner: null, bookedBy: null };
-  let member = null, owner = '';
-  try { const m = await sb(`brand_members?id=eq.${encodeURIComponent(booking.booked_by_member_id)}&select=id,email,name,role,status`); member = Array.isArray(m) && m[0] ? m[0] : null; } catch (_) {}
-  try { if (booking.brand_id) { const b = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`); owner = Array.isArray(b) && b[0] ? String(b[0].email || '').toLowerCase() : ''; } } catch (_) {}
+  let member = null, owner = '', lookupFailed = false;
+  try { const m = await sb(`brand_members?id=eq.${encodeURIComponent(booking.booked_by_member_id)}&select=id,email,name,role,status`); member = Array.isArray(m) && m[0] ? m[0] : null; if (!member) lookupFailed = true; } catch (e) { lookupFailed = true; console.warn('notice recipients: member lookup failed', e && e.message); }
+  try { if (booking.brand_id) { const b = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`); owner = Array.isArray(b) && b[0] ? String(b[0].email || '').toLowerCase() : ''; } } catch (e) { lookupFailed = true; console.warn('notice recipients: owner lookup failed', e && e.message); }
+  // 0099 (Codex BR2-3): an unavailable lookup is not a revocation. Nothing goes to the possibly-revoked booker, the
+  // owner's notice is NOT discarded (brand email, or the booking's recorded booker-email owner fallback), and the
+  // failure is reported so the operator can resend.
+  if (lookupFailed) return { to: [], owner: owner || null, bookedBy: booking.booked_by_name || booking.booked_by_email || null, lookup_failed: true };
   const live = member && member.role === 'booker' && member.status === 'accepted';
   const bookedBy = (member && (member.name || member.email)) || booking.booked_by_name || booking.booked_by_email || null;
   if (member && member.role === 'owner') return { to: contact ? [contact] : (owner ? [owner] : []), owner: null, bookedBy: null };
@@ -756,6 +760,7 @@ export default async function handler(req, res) {
         const r = await sendMailQuietly({ from: FROM_ADDRESS, to: recipients.to[0], replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
         emailOk = r.ok;
       }
+      if (recipients.lookup_failed) { emailOk = false; console.warn('notice recipients: membership lookup unavailable for booking', booking.id, '(owner copy sent, booker copy withheld)'); }
       // 0097/0098 (Codex BK-6, BC-5): a demo booked by a designated booker is also reported to the brand account owner;
       // if the booker was revoked, the owner is the only recipient. The owner's copy carries no refund line (the payer
       // gets that) and says who booked.

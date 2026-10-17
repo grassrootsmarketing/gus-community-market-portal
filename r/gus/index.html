@@ -2064,11 +2064,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     // PREFILLS the toggle; what is sent is what the brand chose for THIS booking.
                     needs_electricity: !!needsElectricity,
                     booking_code: (window._bookingCode && window._bookingCode.itemId === item.id) ? window._bookingCode.code : undefined,
-                    op_key: (window._bookingCode && window._bookingCode.itemId === item.id) ? item.id : undefined,
+                    // 0099 (Codex BR2-1): a booker's request is always keyed by the cart item id, so a lost response is
+                    // retried with the same key and replays instead of making a second booking.
+                    op_key: (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id)) ? item.id : undefined,
                 }),
             }).then(async resp => {
                 // Codex review 2 item 1: remember exactly what was sent, so an unknown outcome can be retried verbatim.
-                if (!item.frozen && window._bookingCode && window._bookingCode.itemId === item.id) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: window._bookingCode.code, op_key: item.id };
+                if (!item.frozen && (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id))) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: window._bookingCode.code, op_key: item.id };
                 const json = await resp.json().catch(() => ({}));
                 return { resp, json, item };
             }).catch(e => ({ error: e.message || String(e), item })));
@@ -2079,7 +2081,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             let coiBlocked = false, freeCount = 0; const freeIds = []; const failedItems = []; const keepItems = [];
             for (const r of results) {
                 const label = r.item ? (r.item.displayDate + ' ' + (r.item.label || r.item.time) + ' · ' + r.item.location) : 'a demo';
-                const isCodeItem = !!(r.item && (r.item.frozen || (window._bookingCode && window._bookingCode.itemId === r.item.id)));
+                const isCodeItem = !!(r.item && (r.item.frozen || window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === r.item.id)));
                 if (r.error) {
                     okAll = false; errors.push(label + ': ' + (isCodeItem ? 'we could not confirm the result. Use "Check status" below' : r.error));
                     // a code-bearing request whose response was lost may have COMMITTED: freeze it for recovery, never resend fresh
