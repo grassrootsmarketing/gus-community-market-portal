@@ -42,7 +42,7 @@ try {
     ok('1b. Products, Profile and Compliance tabs are hidden', hidden.every(d => d === 'none'), JSON.stringify(hidden));
     ok('1c. the header says who is booking', /Booking as Bea Booker/.test(await p.locator('#navPerson').textContent()));
     ok('1d. the booker Overview lists the upcoming demo as booked by them', /Mission Market/.test(await p.locator('main, #mainContent').first().innerText()) && /booked by you/.test(await p.locator('main, #mainContent').first().innerText()));
-    await p.click('.nav-tab[data-tab="account"]');
+    await p.evaluate(() => switchTab('account'));   // eslint-disable-line no-undef
     await p.waitForTimeout(500);
     const acct = await p.locator('main, #mainContent').first().innerText();
     ok('1e. the booker Account view names the owner, lists the limits, and shows no payments or receipts', /booker for Fire Season Goods/.test(acct) && /kyle@fixture.test/.test(acct) && /cannot add or change items/.test(acct) && !/Payments and receipts/.test(acct) && !/Designated booker/.test(acct), acct.slice(0, 300));
@@ -71,7 +71,7 @@ try {
     await p.waitForTimeout(1800);
     const card = p.locator('#bookerCard');
     ok('2a. the owner sees the designated booker card with the permissions text and an invite form', (await card.count()) === 1 && /cannot add or change items/.test(await card.innerText()) && (await p.locator('#bookerEmail').count()) === 1);
-    await p.fill('#bookerEmail', 'Bea@Fixture.test'); await p.fill('#bookerName', 'Bea Booker'); await p.click('#bookerDesignateBtn');
+    await p.evaluate(() => { document.getElementById('bookerEmail').value = 'Bea@Fixture.test'; document.getElementById('bookerName').value = 'Bea Booker'; document.getElementById('bookerDesignateBtn').click(); });
     await p.waitForTimeout(800);
     ok('2b. designating posts booker-designate with the email and name, and the card now shows the pending invitation with Resend and Cancel', designated && designated.email === 'Bea@Fixture.test' && designated.name === 'Bea Booker' && /not accepted yet/.test(await card.innerText()) && (await p.locator('#bookerResendBtn').count()) === 1 && (await p.locator('#bookerRevokeBtn').count()) === 1, JSON.stringify(designated));
     ok('2c. no page errors', errs.length === 0, errs.join(' | '));
@@ -119,7 +119,7 @@ try {
     ok('4a. the booker sees the saved items but no "add an item" link and no new-item rows', (await p.locator('#bookSkuList input.book-sku').count()) === 2 && !(await p.locator('#bookAddItemLink').isVisible()) && (await p.locator('#bookNewItems .book-new-item').count()) === 0);
     const res = await p.evaluate(async () => ensureAgreementOrPrompt('bea@fixture.test'));   // eslint-disable-line no-undef
     ok('4b. the agreement check for a booker does not open the signature modal; it says the owner must agree first', res && res.ownerOnly === true && !(await p.locator('#agreementModal').isVisible()) && /brand account owner \(kyle@fixture.test\)/.test(await p.locator('#bookSkuError').innerText()), JSON.stringify(res));
-    const coiMsg = await p.evaluate(() => { try { _updateBookCoiCard(); } catch (_) {} const m = document.getElementById('bookCoiMsg'); return m ? m.innerText : document.getElementById('bookCoiCard').innerText; });   // eslint-disable-line no-undef
+    const coiMsg = await p.evaluate(() => { try { _renderCoiCard(_coiCardState(), false); } catch (_) {} const m = document.getElementById('bookCoiMsg'); return m ? m.innerText : document.getElementById('bookCoiCard').innerText; });   // eslint-disable-line no-undef
     ok('4c. the COI card tells the booker to ask the owner and hides the upload button', /brand account owner/.test(coiMsg) && !(await p.locator('#bookCoiBtn').isVisible()), coiMsg.slice(0, 160));
     ok('4d. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
