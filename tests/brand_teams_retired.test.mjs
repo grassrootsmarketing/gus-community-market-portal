@@ -36,6 +36,6 @@ else {
   }
 }
 
-ok('5. no em dashes in the touched files', ![dash, api, signup, booking].some(s => /—/.test(s)));
+ok('5. no em dashes in the touched files', ![dash, api, signup, booking].some(s => /, /.test(s)));
 console.log(`\nbrand teams retired: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
