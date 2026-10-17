@@ -983,12 +983,43 @@ async function renderOwnerCalendar() {
     + '<div class="ocal-grid">' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(x => '<div class="ocal-dow">' + x + '</div>').join('') + cells + '</div>'
     + '<div id="ocalDetail" style="margin-top:14px;"></div></div>';
 }
-function showOcalDetail(id) {
-  const b = (ocal.data && ocal.data.bookings || []).find(x => x.id === id); const el = document.getElementById('ocalDetail'); if (!b || !el) return;
-  const zone = tzShort(b.retailer_tz, b.date);
-  el.innerHTML = '<div style="background:rgba(15,44,23,0.04); border-radius:10px; padding:12px 14px;"><strong>' + escapeHtml(b.brand || 'Unnamed brand') + '</strong> at <strong>' + escapeHtml(b.retailer) + '</strong>' + (b.venue ? ' · ' + escapeHtml(b.venue) : '') + '<div class="sub" style="margin:4px 0 0;">' + escapeHtml(fmtD(b.date)) + ' · ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' · ' + escapeHtml(String(b.hours)) + ' h' : '') + ' · status ' + escapeHtml(b.status) + ' · payment ' + escapeHtml(b.payment_status || 'none') + (b.product ? ' · ' + escapeHtml(b.product) : '') + (b.electricity ? ' · needs electricity' : '') + (b.retailer_slug ? ' · <a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">open in that retailer\'s admin</a>' : '') + '</div></div>';
+// One sampled item, as the store would read it (mirrors the retailer admin's _productLineHtml).
+function ocalItemHtml(p) {
+  if (!p || !p.name) return '';
+  const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
+  return '<li style="margin:0 0 6px;">' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.78rem; color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.78rem; color:var(--ink-500); font-style:italic;">' + escapeHtml(p.notes) + '</div>' : '') + '</li>';
 }
-
+// The detail card for one calendar event. Pure: builds HTML from the booking row the calendar already holds.
+function ocalDetailHtml(b) {
+  const zone = tzShort(b.retailer_tz, b.date);
+  const items = Array.isArray(b.items) ? b.items.filter(p => p && p.name) : [];
+  const line = (label, val) => val ? '<div style="margin-top:4px;"><span style="color:var(--ink-500);">' + label + '</span> ' + val + '</div>' : '';
+  return '<div style="font-size:1.05rem; font-weight:700; color:var(--forest-900);">' + escapeHtml(b.brand || 'Unnamed brand') + '</div>'
+    + '<div class="sub" style="margin:2px 0 10px;">' + escapeHtml(b.retailer) + (b.venue ? ' &middot; ' + escapeHtml(b.venue) : '') + '</div>'
+    + line('When', escapeHtml(fmtD(b.date)) + ' &middot; ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' &middot; ' + escapeHtml(String(b.hours)) + ' h' : ''))
+    + line('Status', escapeHtml(b.status) + ' &middot; payment ' + escapeHtml(b.payment_status || 'none') + (b.electricity ? ' &middot; needs electricity' : ''))
+    + line('Contact', b.contact ? escapeHtml(b.contact) : '')
+    + line('Category', b.product ? escapeHtml(b.product) : '')
+    + '<div style="margin-top:12px; font-weight:600; color:var(--forest-900);">Items being sampled' + (items.length ? ' (' + items.length + ')' : '') + '</div>'
+    + (items.length ? '<ul style="margin:6px 0 0; padding-left:18px;">' + items.map(ocalItemHtml).join('') + '</ul>' : '<div class="sub" style="margin:4px 0 0;">No items listed on this booking.</div>')
+    + (b.notes ? '<div style="margin-top:12px;"><span style="color:var(--ink-500);">Booking notes</span><div style="white-space:pre-wrap;">' + escapeHtml(b.notes) + '</div></div>' : '')
+    + (b.retailer_slug ? '<div style="margin-top:14px;"><a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">Open in that retailer\'s admin</a></div>' : '');
+}
+function closeOcalDetail() { const m = document.getElementById('ocalModal'); if (m) m.remove(); document.removeEventListener('keydown', _ocalEsc); }
+function _ocalEsc(e) { if (e.key === 'Escape') closeOcalDetail(); }
+function showOcalDetail(id) {
+  const b = (ocal.data && ocal.data.bookings || []).find(x => x.id === id); if (!b) return;
+  closeOcalDetail();
+  const m = document.createElement('div'); m.id = 'ocalModal';
+  m.style.cssText = 'position:fixed; inset:0; background:rgba(15,44,23,0.45); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px;';
+  m.innerHTML = '<div role="dialog" aria-modal="true" aria-label="Demo details" style="background:white; border-radius:14px; max-width:560px; width:100%; max-height:90vh; overflow:auto; padding:20px 22px; box-shadow:0 20px 60px rgba(0,0,0,0.25); position:relative;">'
+    + '<button type="button" data-close="1" aria-label="Close" style="position:absolute; top:10px; right:12px; background:none; border:0; font-size:1.4rem; line-height:1; cursor:pointer; color:var(--ink-500);">&times;</button>'
+    + ocalDetailHtml(b) + '</div>';
+  m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) closeOcalDetail(); });
+  document.body.appendChild(m);
+  document.addEventListener('keydown', _ocalEsc);
+}
 // ---- Owner notifications (2026-10-03, Codex N-1): read-only view of the demo-notification outbox ----
 // Four bounded lists (scheduled, overdue, needs attention, accepted by provider), exact counts, worker health, and a
 // per-booking drill-down. Every time is shown in the STORE's timezone with a label; nothing is formatted in this

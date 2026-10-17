@@ -1561,7 +1561,7 @@ async function handleOwnerAction(action, req, res, body) {
     let bk, rt, vn;
     try {
       [bk, rt, vn] = await Promise.all([
-        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity&order=demo_date.asc,id.asc`, { max: 5000 }),
+        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity,product_skus,notes,contact_name&order=demo_date.asc,id.asc`, { max: 5000 }),
         sbAll('retailers?select=id,name,slug,timezone&order=name.asc,id.asc', { max: 5000 }),
         sbAll('venues?select=id,name,retailer_id&order=id.asc', { max: 20000 }),
       ]);
@@ -1569,7 +1569,16 @@ async function handleOwnerAction(action, req, res, body) {
     const rm = new Map(rt.rows.map(r => [r.id, r])), vm = new Map(vn.rows.map(x => [x.id, x]));
     return res.status(200).json({ ok: true, from, to,
       retailers: rt.rows.filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug, timezone: r.timezone || null })),
-      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
+      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity,
+        // Event detail (2026-10-16): the items being sampled, the booking notes and the contact's name. Validated shape,
+        // strings only, no email, no phone.
+        items: Array.isArray(b.product_skus) ? b.product_skus.filter(p => p && typeof p === 'object' && p.name).slice(0, 40).map(p => ({
+          name: String(p.name), size: p.size ? String(p.size) : '', sku: p.sku ? String(p.sku) : '', upc: p.upc ? String(p.upc) : '',
+          distributor: p.distributor ? String(p.distributor) : '', distributor_other: p.distributor_other ? String(p.distributor_other) : '',
+          distributor_item_number: p.distributor_item_number ? String(p.distributor_item_number) : '', case_pack: Number.isInteger(p.case_pack) ? p.case_pack : null, notes: p.notes ? String(p.notes) : '',
+        })) : [],
+        notes: b.notes ? String(b.notes) : '', contact: b.contact_name ? String(b.contact_name) : '',
+        retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
       total: bk.total, complete: { bookings: bk.complete, retailers: rt.complete, venues: vn.complete }, capped: !bk.complete });
   }
 
