@@ -108,8 +108,9 @@ env:
   # 2026-10-16: the count had not been kept current through 0086 .. 0092 (92 files on main);
   #   0094_retailer_demo_move.sql (retailer-initiated demo moves) + 0095_retailer_demo_move_corrections.sql (Codex RM-1..RM-7)
   #   + 0096_retailer_demo_move_finalizer_invariants.sql (Codex closure C1/C2/C4)
-  #   -> 94 on this branch (91 on main at the merge, plus 0094, 0095, 0096; 95 once 0093, owner COI expiry pings, merges too).
-  EXPECTED_MIGRATIONS: '94'
+  #   + 0099_retailer_demo_move_refund_state.sql (Codex revision 2, R2-1; 0097/0098 are the brand booker branch)
+  #   -> 95 on this branch at the merge with main (plus 0093 and the booker files once those branches merge).
+  EXPECTED_MIGRATIONS: '95'
 
 jobs:
   # --------------------------------------------------------------------------
