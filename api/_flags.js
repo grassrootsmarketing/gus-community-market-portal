@@ -15,7 +15,7 @@
 //   coiAiVerification     COI_AI_VERIFICATION_ENABLED     api/brand-account.js verifyCoiWithClaude()  false
 //   checkoutEnabled       CHECKOUT_ENABLED                api/checkout.js (503 when false)            false
 //   coiUploadEnabled      COI_UPLOAD_ENABLED              api/brand-account.js action=upload-coi      false
-//   brandInviteEnabled    BRAND_INVITE_ENABLED            api/brand-account.js action=team-invite     false
+//   brandInviteEnabled    BRAND_INVITE_ENABLED            RETIRED 2026-10-17 (brand teams removed; the env var is ignored)  false
 //   coiAutoEnforcement    COI_AUTO_ENFORCEMENT_ENABLED    api/coi-enforcement.js (dual gate w/ mode)  false
 //   coiEnforcementEffective  (derived)                    same parser the worker uses                 'off'
 //   signinMaintenance     SIGNIN_MAINTENANCE_ENABLED      api/_signin-config.js (503 on brand-signup +  false
