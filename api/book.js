@@ -12,6 +12,8 @@ import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } f
 import { normalizeCode, CODE_MESSAGES, checkAttemptLimit, netHash } from './_booking-codes.js';
 import { createHash } from 'node:crypto';
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
+import { agreementStatus } from './_booking-identity.js';
+import { currentAgreementHash } from './booking.js';
 let _b = null;
 
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
@@ -65,7 +67,7 @@ export default async function handler(req, res) {
   }
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
-  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status`);
+  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status,demo_policy,cancellation_policy`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
   // Go-live gate: a store Demohub has not approved takes no bookings (api/_retailer-live.js).
   if (!retailerIsLive(retailer)) return res.status(403).json(NOT_LIVE_BODY);
@@ -129,7 +131,7 @@ export default async function handler(req, res) {
   }
 
   // 3) COI must be VERIFIED for the authenticated brand
-  const brand = await one(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone`);
+  const brand = await one(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status,company_name,contact_name,email,phone,products`);
   const cov = coiCovered(brand, body.demo_date);
   // Provisional holds (behind PROVISIONAL_HOLDS_ENABLED): a brand may book WITHOUT a verified COI,
   // the booking becomes 'held' (funds authorized, not captured) with a 24h window to get COI-verified
@@ -163,6 +165,18 @@ export default async function handler(req, res) {
   }
   const productSnapshot = productCheck.items;
 
+  // 3d) Designated booker (0097; Codex BK-5): items come from the brand's saved list only (no new items on any
+  // path), and the brand must already hold an active agreement with this store for the current policy. Both are
+  // checked here, at the authoritative creation point, not only in the form.
+  if (auth.role === 'booker') {
+    const catalog = Array.isArray(brand.products) ? brand.products : [];
+    const known = new Set(catalog.map(p => p && p.id).filter(Boolean));
+    const foreign = productSnapshot.filter(p => !(p && p.id && known.has(p.id)));
+    if (foreign.length) return res.status(403).json({ error: 'booker_items_not_allowed', message: 'Pick from the brand\'s saved items. Only the account owner can add new items.' });
+    const ag = await agreementStatus(auth.brandId, retailer.id, await currentAgreementHash(retailer));
+    if (!ag.has_active) return res.status(403).json({ error: 'agreement_required_owner', reason: ag.reason, message: 'The brand account owner needs to agree to this store\'s policies before you can book here.' });
+  }
+
   // 4) create the booking, server sets tenant/brand/state; slot trigger enforces capacity
   const payload = { retailer_id: retailer.id, venue_id: venue.id, brand_id: auth.brandId,
     brand_name: brand.company_name || null, contact_name: brand.contact_name || null, contact_email: auth.email, contact_phone: brand.phone || null,
@@ -171,7 +185,9 @@ export default async function handler(req, res) {
     needs_electricity: needsElectricity,
     status: provisional ? 'held' : 'pending_payment',
     held_expires_at: provisional ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null,
-    payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100) };
+    payment_status: 'unpaid', amount_paid: Math.round(Number(venue.demo_fee||0)*100),
+    // 0097 (Codex BK-5): who booked, from the authenticated identity, never from the body.
+    booked_by_member_id: auth.memberId || null, booked_by_email: auth.email || null, booked_by_name: auth.name || brand.contact_name || null };
   // Codex BC-3: with a code, creation + redemption are ONE database transaction keyed by op_key: a lost response is
   // recovered by replaying the same key; a refused code leaves no booking; nothing is ever deleted to "recover".
   if (codeInfo) {

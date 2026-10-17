@@ -7,6 +7,8 @@
 import { validateProducts, describeErrors } from './_products.js';
 import { randomBytes, randomInt, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
+import { hashCode } from './_verify.js';
+import { resolveBrandIdentity, requireRole, bookingBelongsTo, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
@@ -194,23 +196,29 @@ async function sendMagicLink(email, link, isNew, code) {
   `;
   await sendMailQuietly({ from: FROM_EMAIL, to: email, subject, html: body, replyTo: REPLY_TO }, { binding: _b });
 }
+// 0097 (Codex BK-4): both helpers resolve through the identity boundary. verifySession still answers with the
+// brand id (null when refused) because dozens of owner-only call sites read it that way; verifyIdentity is the
+// full context { ok, brandId, email, memberId, role } for actions that must know the role. A refused identity
+// (pending, revoked, brand gone) is a null here and a deleted session row there.
+const _ctxCache = new Map();   // session token -> { ctx, at }; the gate fills it, the action reads it, 3 s life
+async function verifyIdentity(sessionToken) {
+  const token = String(sessionToken || '');
+  if (!token) return null;
+  const hit = _ctxCache.get(token);
+  if (hit && Date.now() - hit.at < 3000) return hit.ctx;
+  const ctx = await resolveBrandIdentity(token);
+  const out = ctx && ctx.ok ? ctx : null;
+  _ctxCache.set(token, { ctx: out, at: Date.now() });
+  if (_ctxCache.size > 500) { for (const [k, v] of _ctxCache) { if (Date.now() - v.at > 3000) _ctxCache.delete(k); } }
+  return out;
+}
 async function verifySession(sessionToken) {
-  if (!sessionToken) return null;
-  const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,email,expires_at`);
-  const rows = await r.json();
-  const s = Array.isArray(rows) ? rows[0] : null;
-  if (!s) return null;
-  if (new Date(s.expires_at).getTime() < Date.now()) return null;
-  return s.brand_id;
+  const ctx = await verifyIdentity(sessionToken);
+  return ctx ? ctx.brandId : null;
 }
 async function verifySessionFull(sessionToken) {
-  if (!sessionToken) return null;
-  const r = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(sessionToken)}&select=brand_id,email,expires_at`);
-  const rows = await r.json();
-  const s = Array.isArray(rows) ? rows[0] : null;
-  if (!s) return null;
-  if (new Date(s.expires_at).getTime() < Date.now()) return null;
-  return { brand_id: s.brand_id, email: s.email };
+  const ctx = await verifyIdentity(sessionToken);
+  return ctx ? { brand_id: ctx.brandId, email: ctx.email, member_id: ctx.memberId, role: ctx.role } : null;
 }
 
 // ===== Welcome series email templates =====
@@ -414,6 +422,62 @@ async function sha256Hex(str) {
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+// 0097 (Codex BK-4): the authorization contract for this route. See the role matrix in the booker design document.
+const PUBLIC_ACTIONS = new Set(['booking-signup', 'signup', 'login', 'login-password', 'verify-code', 'verify', 'cal', 'cron', 'booker-accept-start', 'booker-accept',
+  // retired team actions answer 410 on their own, with or without a session
+  'team-list', 'team-invite', 'team-remove', 'team-update-role']);
+const ACTION_ROLES = {
+  'data': ['owner', 'booker'],
+  'agreement-list': ['owner', 'booker'],
+  'reschedule-respond': ['owner', 'booker'],
+  'logout': ['owner', 'booker'],
+  'logout-everywhere': ['owner', 'booker'],
+  // everything else is owner-only: profile-update, upload-*, remove-*, receipt-resend, set-password, claim-status,
+  // cal_token, cal_revoke, booker-designate, booker-status, booker-resend, booker-revoke
+};
+const BOOKER_MUTATING_ACTIONS = new Set(['booker-designate', 'booker-resend', 'booker-revoke', 'booker-accept-start', 'booker-accept']);
+async function verifyIdentityOrStatus(sessionToken) {
+  const token = String(sessionToken || '');
+  if (!token) return { ok: false, status: 401 };
+  const ctx = await resolveBrandIdentity(token);
+  if (ctx && ctx.ok) { _ctxCache.set(token, { ctx, at: Date.now() }); return ctx; }
+  return { ok: false, status: (ctx && ctx.status) || 401 };
+}
+// Booker-safe views (Codex BK-4): allowlists, never the owner payload with tabs hidden.
+function bookerProfileView(p) {
+  if (!p) return null;
+  return { id: p.id, company_name: p.company_name || '', logo_url: p.logo_url || null, avatar_url: p.avatar_url || null, is_verified: !!p.is_verified,
+    products: Array.isArray(p.products) ? p.products : [], products_version: Number.isInteger(p.products_version) ? p.products_version : null,
+    default_categories: p.default_categories || '', default_product_info: p.default_product_info || '',
+    coi_on_file: !!p.default_coi_url, coi_status: p.coi_verification_status || null, coi_expires: p.default_coi_expires || null,
+    owner_email: p.email || null, contact_name: p.contact_name || null, phone: p.phone || null };
+}
+function bookerDemoView(d, memberId) {
+  if (!d) return null;
+  return { id: d.id, booking_id: d.booking_id || null, retailer_id: d.retailer_id || null, venue_id: d.venue_id || null,
+    demo_date: d.demo_date, demo_time: d.demo_time, duration_hours: d.duration_hours || null, status: d.status, product: d.product || null,
+    product_skus: Array.isArray(d.product_skus) ? d.product_skus : null, notes: d.notes || null,
+    reschedule_to_date: d.reschedule_to_date || null, reschedule_to_time: d.reschedule_to_time || null,
+    reschedule_proposal_version: d.reschedule_proposal_version ?? null, schedule_revision: d.schedule_revision ?? null,
+    retailers: d.retailers ? { id: d.retailers.id, name: d.retailers.name, slug: d.retailers.slug } : null,
+    venues: d.venues ? { id: d.venues.id, name: d.venues.name, address: d.venues.address } : null,
+    booked_by_me: !!(memberId && d.booked_by_member_id && String(d.booked_by_member_id) === String(memberId)),
+    booked_by_name: d.booked_by_name || null };
+}
+function bookerPendingView(b, memberId) {
+  if (!b) return null;
+  return { id: b.id, retailer_id: b.retailer_id, venue_id: b.venue_id, product: b.product || null, product_skus: Array.isArray(b.product_skus) ? b.product_skus : null,
+    demo_date: b.demo_date, demo_time: b.demo_time, status: b.status, payment_status: b.payment_status, held_expires_at: b.held_expires_at || null, created_at: b.created_at,
+    retailers: b.retailers ? { id: b.retailers.id, name: b.retailers.name, slug: b.retailers.slug } : null, venues: b.venues ? { id: b.venues.id, name: b.venues.name } : null,
+    booked_by_me: !!(memberId && b.booked_by_member_id && String(b.booked_by_member_id) === String(memberId)) };
+}
+function bookerAgreementView(a) {
+  const ret = a.retailers || {};
+  return { id: a.id, retailer_id: a.retailer_id, retailers: { id: ret.id, name: ret.name, slug: ret.slug }, signed_at: a.signed_at, expires_at: a.expires_at,
+    superseded_at: a.superseded_at || null, policy_hash: a.policy_hash, is_active: a.is_active, is_expired: a.is_expired, is_current_policy: a.is_current_policy };
+}
+const BOOKER_PERMISSIONS_TEXT = 'A booker can book demos for this brand, pick from its saved items, and see its demos. A booker cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store\'s policies.';
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   try { _b = await getBinding(); } catch (e) { return sendBindingFailure(res, e); }
@@ -441,6 +505,21 @@ export default async function handler(req, res) {
   const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke']);
   if (MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
     return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
+  }
+  if (BOOKER_MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
+    return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
+  }
+
+  // ---- THE ROLE GATE (0097, Codex BK-4). Every action is classified. Public actions carry no session. Every other
+  // action resolves the identity once, here, and is refused unless the role is listed; an action missing from the
+  // table is owner-only by default (deny by default, never "whatever has a session"). Retired team actions keep
+  // their 410 below. The resolved context is cached for the action body's own verifySession() call.
+  if (!PUBLIC_ACTIONS.has(action)) {
+    const ctx = await verifyIdentityOrStatus(getBrandSessionFromReq(req, body) || '');
+    if (!ctx.ok) return jsonResp(res, ctx.status, { error: ctx.status === 503 ? 'auth_unavailable' : 'Not authenticated' });
+    const allowed = Object.prototype.hasOwnProperty.call(ACTION_ROLES, action) ? ACTION_ROLES[action] : [ROLES.OWNER];
+    const deny = requireRole(ctx, ...allowed);
+    if (deny) return jsonResp(res, deny.status, deny.body);
   }
 
   try {
@@ -488,20 +567,25 @@ export default async function handler(req, res) {
       // EXACT match. This resolves the account for BOTH login flows from an attacker-supplied
       // address, so an ilike wildcard (`%`) would resolve an arbitrary account. Emails are stored
       // lowercased, and callers lowercase before calling, so eq. is correct.
-      try {
-        const mR = await sb(`brand_members?email=eq.${encodeURIComponent(addr)}&select=brand_id,email`);
-        const m = (await mR.json())[0];
-        if (m) return m;
-      } catch (_) {}
+      // 0097 (Codex BK-1, BK-3): the email's OWN brand first (0064's rule, now applied here too), then an ACCEPTED
+      // booker. A pending invitation or a revoked booker gets no sign-in code from this path; acceptance has its
+      // own explicit step (booker-accept).
       try {
         const bR = await sb(`brands?email=eq.${encodeURIComponent(addr)}&select=id,email,contact_name`);
         const brand = (await bR.json())[0];
-        if (!brand) return null;
-        try {
-          await sb('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brand.id, email: brand.email, role: 'owner', name: brand.contact_name || null }) });
-        } catch (_) { /* already exists or blocked; still let them in */ }
-        return { brand_id: brand.id, email: brand.email };
-      } catch (_) { return null; }
+        if (brand) {
+          try {
+            await sb('brand_members', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates' }, body: JSON.stringify({ brand_id: brand.id, email: brand.email, role: 'owner', name: brand.contact_name || null }) });
+          } catch (_) { /* already exists or blocked; still let them in */ }
+          return { brand_id: brand.id, email: brand.email };
+        }
+      } catch (_) {}
+      try {
+        const mR = await sb(`brand_members?email=eq.${encodeURIComponent(addr)}&role=eq.booker&status=eq.accepted&select=brand_id,email&limit=1`);
+        const m = (await mR.json())[0];
+        if (m) return m;
+      } catch (_) {}
+      return null;
     }
 
     if (action === 'signup') {
@@ -644,7 +728,8 @@ export default async function handler(req, res) {
 
     if (action === 'data') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
-      const brandId = await verifySession(sessionToken);
+      const ctx = await verifyIdentity(sessionToken);
+      const brandId = ctx ? ctx.brandId : null;
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const [profileR, demosR, contactsR, pendingR] = await Promise.all([
         sb(`brands?id=eq.${brandId}&select=*`),
@@ -656,7 +741,7 @@ export default async function handler(req, res) {
         // Provisional holds: 'held' bookings (card authorized, not charged, awaiting COI approval)
         // ride along with their payment_status + 24h deadline so the dashboard can show the
         // "upload your COI" state instead of a blank page.
-        sb(`bookings?brand_id=eq.${brandId}&or=(and(status.eq.pending,payment_status.eq.paid),status.eq.held)&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,payment_status,held_expires_at,created_at,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
+        sb(`bookings?brand_id=eq.${brandId}&or=(and(status.eq.pending,payment_status.eq.paid),status.eq.held)&select=id,retailer_id,venue_id,product,product_skus,demo_date,demo_time,status,payment_status,held_expires_at,created_at,booked_by_member_id,retailers(id,name,slug),venues(id,name,address)&order=demo_date.desc`),
       ]);
       // select=* above is deliberate, the client reads fifteen-odd columns and enumerating them
       // here is how one silently goes missing later. But `*` on brands also ships password_hash
@@ -714,7 +799,7 @@ export default async function handler(req, res) {
         if (!Array.isArray(j)) throw new Error(name + '_malformed');
         return j;
       };
-      try {
+      if (ctx.role === ROLES.OWNER) try {
         const groupsAll = await readRows(await sb(`payment_groups?brand_id=eq.${brandId}&status=in.(paid,partially_refunded,refunded)&select=id,retailer_id,status,total_customer_amount,currency,created_at,retailers(id,name,slug)&order=created_at.desc&limit=${PAYMENTS_CAP + 1}`), 'payment_groups');
         if (groupsAll.length > PAYMENTS_CAP) paymentsTruncated = true;
         const groups = groupsAll.slice(0, PAYMENTS_CAP);
@@ -748,7 +833,18 @@ export default async function handler(req, res) {
       if (paymentsTruncated) truncated.push('payments');
       // provisional_holds tells the booking page whether an unverified-COI brand may proceed
       // (server gate in api/book.js stays authoritative either way).
-      return jsonResp(res, 200, { profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds });
+      if (ctx.role === ROLES.BOOKER) {
+        // Codex BK-4: an explicit allowlist. No payments, no receipts, no certificate URL, no private profile fields.
+        return jsonResp(res, 200, {
+          role: 'booker', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId },
+          profile: bookerProfileView(profile),
+          demos: demos.map(d => bookerDemoView(d, ctx.memberId)),
+          contacts: contacts.map(c => ({ retailer_id: c.retailer_id, created_at: c.created_at, retailers: c.retailers ? { id: c.retailers.id, name: c.retailers.name, slug: c.retailers.slug } : null })),
+          pending_bookings: pending_bookings.map(b => bookerPendingView(b, ctx.memberId)),
+          payments: [], unavailable: unavailable.filter(n => n !== 'payments'), truncated: truncated.filter(n => n !== 'payments'), provisional_holds: FLAGS.provisionalHolds,
+        });
+      }
+      return jsonResp(res, 200, { role: 'owner', me: { email: ctx.email, name: ctx.name || null, member_id: ctx.memberId }, profile, demos, contacts, pending_bookings, payments, unavailable, truncated, provisional_holds: FLAGS.provisionalHolds });
     }
 
     // ===== Receipt resend (2026-10-11, Codex PR-4/PR-6): the brand asks for another copy of a receipt =====
@@ -777,7 +873,8 @@ export default async function handler(req, res) {
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
     if (action === 'reschedule-respond') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
-      const brandId = await verifySession(sessionToken);
+      const ctxR = await verifyIdentity(sessionToken);
+      const brandId = ctxR ? ctxR.brandId : null;
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
       const demoId = String(body.demo_id || '');
       const decision = String(body.decision || '');
@@ -796,6 +893,11 @@ export default async function handler(req, res) {
       const demo = Array.isArray(dRows) ? dRows[0] : null;
       if (!demo) return jsonResp(res, 404, { error: 'Demo not found' });
       if (demo.brand_id !== brandId) return jsonResp(res, 403, { error: 'Not your demo' });
+      // 0097 (Codex BK-5): a booker acts only on bookings attributed to them; older bookings carry no attribution and
+      // belong to the owner.
+      if (ctxR.role === ROLES.BOOKER && !(demo.booked_by_member_id && String(demo.booked_by_member_id) === String(ctxR.memberId))) {
+        return jsonResp(res, 403, { error: 'not_your_booking', message: 'Only the person who booked this demo, or the brand account owner, can answer this.' });
+      }
       if (!demo.booking_id) return jsonResp(res, 409, { error: 'no_booking', message: 'This demo has no linked booking and cannot be moved from here. Ask the store to cancel and rebook.' });
 
       // ONE database transaction (0074 accept_reschedule / decline_reschedule): the bookings row is
@@ -882,6 +984,8 @@ export default async function handler(req, res) {
           is_current_policy: r.policy_hash === curHash,
         });
       }
+      const ctxA = await verifyIdentity(sessionToken);
+      if (ctxA && ctxA.role === ROLES.BOOKER) return jsonResp(res, 200, { ok: true, agreements: enriched.map(bookerAgreementView), owner_email: null });
       return jsonResp(res, 200, { ok: true, agreements: enriched });
     }
 
@@ -1566,6 +1670,154 @@ export default async function handler(req, res) {
     // again. brand/dashboard/index.html still calls this action and will now get 400 Unknown
     // action; that call and the localStorage session handling around it must be deleted with it.
 
+    // ===== Designated booker (0097; Codex BK-1 to BK-3) =====
+    // Owner actions: designate, status, resend, revoke. Public, token-bound actions: accept-start, accept.
+    const inviteHash = (token) => hashCode('booker_invite', 'booker_invite', String(token || ''));
+    const bookerRow = (m) => m ? ({ id: m.id, email: m.email, name: m.name || null, status: m.status, invited_at: m.created_at, accepted_at: m.accepted_at || null, revoked_at: m.revoked_at || null }) : null;
+    async function sendBookerInvite(brandName, toEmail, token, inviterEmail) {
+      const link = siteLink(_b, `/brand/accept?t=${encodeURIComponent(token)}`);
+      await sendMailQuietly({
+        from: FROM_EMAIL, to: toEmail, replyTo: REPLY_TO,
+        subject: `${brandName} asked you to book demos on Demohub`,
+        html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
+          <h1 style="font-family:Georgia,serif;font-weight:400;font-size:26px;margin:0 0 12px;">You can book demos for ${escapeText(brandName)}.</h1>
+          <p style="font-size:15px;line-height:1.5;margin:0 0 14px;color:#3a3a36;">${escapeText(inviterEmail)} designated you as the booker for <strong>${escapeText(brandName)}</strong> on Demohub.</p>
+          <p style="font-size:14px;line-height:1.55;margin:0 0 22px;color:#3a3a36;">${escapeText(BOOKER_PERMISSIONS_TEXT)}</p>
+          <a href="${link}" style="display:inline-block;background:#0f2c17;color:white;padding:14px 26px;border-radius:99px;text-decoration:none;font-weight:600;">Review and accept &rarr;</a>
+          <p style="font-size:13px;color:#6b6a64;margin-top:32px;">The link is good for 24 hours and only works with a code we send to this address when you open it. If you were not expecting this, ignore the email and nothing happens.</p>
+        </div>`,
+      }, { binding: _b });
+    }
+    async function createInvite(member, brandId, email, byEmail) {
+      const token = randomToken(32);
+      await sb(`brand_booker_invites?member_id=eq.${encodeURIComponent(member.id)}&used_at=is.null&superseded_at=is.null`, { method: 'PATCH', body: JSON.stringify({ superseded_at: new Date().toISOString() }) });
+      const r = await sb('brand_booker_invites', { method: 'POST', body: JSON.stringify({ member_id: member.id, brand_id: brandId, email, token_hash: inviteHash(token), expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), created_by_email: byEmail }) });
+      if (!r.ok) throw new Error('invite_insert_failed');
+      return token;
+    }
+
+    if (action === 'booker-status') {
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&order=created_at.desc&select=id,email,name,status,created_at,accepted_at,revoked_at&limit=10`)).json();
+      const list = Array.isArray(rows) ? rows : [];
+      const live = list.find(m => m.status !== 'revoked') || null;
+      return jsonResp(res, 200, { ok: true, enabled: !!FLAGS.brandInviteEnabled, booker: bookerRow(live), history: list.filter(m => m.status === 'revoked').slice(0, 5).map(bookerRow), permissions: BOOKER_PERMISSIONS_TEXT });
+    }
+
+    if (action === 'booker-designate') {
+      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled', message: 'Designating a booker is not switched on yet.' });
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const email = String(body.email || '').trim().toLowerCase();
+      const name = String(body.name || '').trim().slice(0, 120) || null;
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return jsonResp(res, 400, { error: 'Valid email required' });
+      if (email === ctxB.email) return jsonResp(res, 400, { error: 'owner_is_owner', message: 'That is the account owner\'s email. The owner can already book.' });
+      const rl = await checkRateLimitByKey('booker-designate:' + ctxB.brandId, 10);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: rl.error || 'too_many_requests' });
+      const live = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&status=in.(pending,accepted)&select=id,email,status&limit=1`)).json();
+      if (Array.isArray(live) && live[0]) return jsonResp(res, 409, { error: 'booker_already_designated', message: 'This brand already has a designated booker. Revoke them first to designate someone else.', booker: { email: live[0].email, status: live[0].status } });
+      // BK-1: one identity per email. The database refuses this too (trigger + index); the check here is for the message.
+      const ownsBrand = await (await sb(`brands?email=eq.${encodeURIComponent(email)}&select=id&limit=1`)).json();
+      const liveElsewhere = await (await sb(`brand_members?email=eq.${encodeURIComponent(email)}&status=in.(pending,accepted)&select=id&limit=1`)).json();
+      if ((Array.isArray(ownsBrand) && ownsBrand[0]) || (Array.isArray(liveElsewhere) && liveElsewhere[0])) {
+        return jsonResp(res, 409, { error: 'email_in_use', message: 'That email already has a Demohub brand account or booking access elsewhere, so it cannot be your booker. Use a different address.' });
+      }
+      const created = await sb('brand_members', { method: 'POST', headers: { Prefer: 'return=representation' }, body: JSON.stringify({ brand_id: ctxB.brandId, email, name, role: 'booker', status: 'pending', invited_by_email: ctxB.email }) });
+      if (created.status === 409) {
+        // One identity per email (BK-1): the address owns a brand or is a live member elsewhere. Say so without
+        // naming the other brand.
+        return jsonResp(res, 409, { error: 'email_in_use', message: 'That email already has a Demohub brand account or booking access elsewhere, so it cannot be your booker. Use a different address.' });
+      }
+      if (!created.ok) return jsonResp(res, 503, { error: 'designate_unavailable' });
+      const member = (await created.json())[0];
+      const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
+      let token;
+      try { token = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.' , booker: bookerRow(member) }); }
+      if (_b.resendApiKey) await sendBookerInvite((brand && brand.company_name) || 'A brand', email, token, ctxB.email).catch(e => console.warn('booker invite email failed:', e && e.message));
+      return jsonResp(res, 200, { ok: true, booker: bookerRow(member) });
+    }
+
+    if (action === 'booker-resend') {
+      if (!FLAGS.brandInviteEnabled) return jsonResp(res, 503, { error: 'brand_invite_disabled' });
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const rl = await checkRateLimitByKey('booker-resend:' + ctxB.brandId, 12);
+      if (!rl.allowed) return jsonResp(res, rl.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests', message: 'You can resend once every five minutes.' });
+      const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&status=eq.pending&select=id,email,name,status,created_at&limit=1`)).json();
+      const member = Array.isArray(rows) ? rows[0] : null;
+      if (!member) return jsonResp(res, 404, { error: 'no_pending_booker', message: 'There is no pending invitation to resend.' });
+      const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
+      let token;
+      try { token = await createInvite(member, ctxB.brandId, member.email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable' }); }
+      if (_b.resendApiKey) await sendBookerInvite((brand && brand.company_name) || 'A brand', member.email, token, ctxB.email).catch(e => console.warn('booker invite email failed:', e && e.message));
+      return jsonResp(res, 200, { ok: true, booker: bookerRow(member) });
+    }
+
+    if (action === 'booker-revoke') {
+      const ctxB = await verifyIdentity(getBrandSessionFromReq(req, body) || '');
+      if (!ctxB) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const memberId = String(body.member_id || '');
+      if (!/^[0-9a-f-]{36}$/i.test(memberId)) return jsonResp(res, 400, { error: 'member_id required' });
+      const rr = await sb('rpc/booker_revoke', { method: 'POST', body: JSON.stringify({ p_brand_id: ctxB.brandId, p_member_id: memberId, p_by_email: ctxB.email }) });
+      if (!rr.ok) return jsonResp(res, 503, { error: 'revoke_unavailable' });
+      const out = await rr.json();
+      if (out.outcome === 'not_found') return jsonResp(res, 404, { error: 'not_found' });
+      if (out.outcome === 'not_a_booker') return jsonResp(res, 400, { error: 'not_a_booker' });
+      if (out.outcome === 'already_revoked') return jsonResp(res, 409, { error: 'already_revoked' });
+      return jsonResp(res, 200, { ok: true, sessions_ended: out.sessions_ended || 0 });
+    }
+
+    // Public: the invited person opened the link. Shows the brand and the permissions, and sends a code to the invited
+    // address. No session is issued here (Codex BK-3). Rate limited by token hash and by IP.
+    if (action === 'booker-accept-start') {
+      const token = String(body.token || '').trim();
+      if (!token || token.length < 16 || token.length > 128) return jsonResp(res, 400, { error: 'invalid_invite' });
+      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 30);
+      if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
+      const h = inviteHash(token);
+      const inv = (await (await sb(`brand_booker_invites?token_hash=eq.${encodeURIComponent(h)}&select=id,member_id,brand_id,email,expires_at,used_at,superseded_at&limit=1`)).json())[0];
+      if (!inv || inv.used_at || inv.superseded_at || new Date(inv.expires_at).getTime() <= Date.now()) return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation link is not valid any more. Ask the brand to send a new one.' });
+      const member = (await (await sb(`brand_members?id=eq.${encodeURIComponent(inv.member_id)}&select=id,status,role,email,name&limit=1`)).json())[0];
+      if (!member || member.role !== 'booker' || member.status !== 'pending') return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation is no longer open.' });
+      const rlTok = await checkRateLimitByKey('booker-accept-code:' + inv.id, 5);
+      if (!rlTok.allowed) return jsonResp(res, 429, { error: 'too_many_requests', message: 'Too many codes requested for this invitation. Try again in an hour.' });
+      const brand = (await (await sb(`brands?id=eq.${inv.brand_id}&select=company_name`)).json())[0];
+      const code = generateLoginCode();
+      await sb('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: inv.brand_id, email: inv.email, token: code, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }) });
+      if (_b.resendApiKey) await sendMailQuietly({ from: FROM_EMAIL, to: inv.email, replyTo: REPLY_TO, subject: 'Your Demohub code to accept booking access',
+        html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText((brand && brand.company_name) || 'a brand')}, ignore this email.</p></div>` }, { binding: _b }).catch(e => console.warn('booker code email failed:', e && e.message));
+      const masked = inv.email.replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
+      return jsonResp(res, 200, { ok: true, brand_name: (brand && brand.company_name) || 'this brand', email_hint: masked, booker_name: member.name || null, permissions: BOOKER_PERMISSIONS_TEXT });
+    }
+
+    // Public: explicit acceptance. The code proves the address; booker_accept (0097) validates the invitation, marks it
+    // used, accepts the membership and issues the session in ONE transaction.
+    if (action === 'booker-accept') {
+      const token = String(body.token || '').trim();
+      const code = String(body.code || '').replace(/\D/g, '').trim();
+      if (!token || token.length < 16 || token.length > 128 || code.length !== 6) return jsonResp(res, 400, { error: 'invite_and_code_required' });
+      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 30);
+      if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
+      const h = inviteHash(token);
+      const inv = (await (await sb(`brand_booker_invites?token_hash=eq.${encodeURIComponent(h)}&select=id,brand_id,email,expires_at,used_at,superseded_at&limit=1`)).json())[0];
+      if (!inv || inv.used_at || inv.superseded_at || new Date(inv.expires_at).getTime() <= Date.now()) return jsonResp(res, 410, { error: 'invite_not_valid' });
+      const rlCode = await checkRateLimitByKey('booker-accept-verify:' + inv.id, 12);
+      if (!rlCode.allowed) return jsonResp(res, 429, { error: 'too_many_requests' });
+      const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=eq.${encodeURIComponent(inv.email)}&brand_id=eq.${inv.brand_id}&used_at=is.null&select=id,expires_at&order=created_at.desc&limit=1`);
+      const tok = (await tR.json())[0];
+      if (!tok) return jsonResp(res, 404, { error: 'invalid_code', message: 'That code is not right. Check the email we just sent.' });
+      if (new Date(tok.expires_at).getTime() < Date.now()) return jsonResp(res, 410, { error: 'code_expired' });
+      await sb(`brand_account_tokens?id=eq.${tok.id}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+      const sessionToken = randomToken(32);
+      const rr = await sb('rpc/booker_accept', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_verified_email: inv.email, p_session_token: sessionToken, p_session_days: 30 }) });
+      if (!rr.ok) return jsonResp(res, 503, { error: 'accept_unavailable' });
+      const out = await rr.json();
+      if (out.outcome !== 'ok') return jsonResp(res, 410, { error: 'invite_not_valid', outcome: out.outcome, message: 'This invitation could not be accepted. Ask the brand to send a new one.' });
+      setBrandSessionCookie(res, sessionToken);
+      return jsonResp(res, 200, { ok: true, brand_id: out.brand_id });
+    }
+
     if (action === 'logout') {
       const sessionToken = getBrandSessionFromReq(req, body);
       if (sessionToken) {
@@ -1580,9 +1832,12 @@ export default async function handler(req, res) {
 
     if (action === 'logout-everywhere') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
-      const brandId = await verifySession(sessionToken);
+      const ctxL = await verifyIdentity(sessionToken);
+      const brandId = ctxL ? ctxL.brandId : null;
       if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
-      await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
+      // 0097 (Codex BK-4): "everywhere" means this identity's devices. A booker never ends the owner's sessions.
+      if (ctxL.role === ROLES.BOOKER) await sb(`brand_account_sessions?brand_id=eq.${brandId}&email=eq.${encodeURIComponent(ctxL.email)}`, { method: 'DELETE' });
+      else await sb(`brand_account_sessions?brand_id=eq.${brandId}`, { method: 'DELETE' });
       // The rows this cookie names are gone, so leaving it set makes the browser keep presenting a
       // secret that can never validate again. Clear it here too.
       clearBrandSessionCookie(res);

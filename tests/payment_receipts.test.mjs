@@ -73,7 +73,8 @@ const V1 = track('venues', one(await db('venues', { method: 'POST', body: JSON.s
 const brandEmail = `${uniq('rbrand')}@fixture.test`;
 const brandId = track('brands', one(await db('brands', { method: 'POST', body: JSON.stringify({ email: brandEmail, company_name: 'Receipt Brand Co', contact_name: 'Rep R', phone: '555-0100' }) })).id);
 const mateEmail = `${uniq('rmate')}@fixture.test`;
-const mateId = track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: mateEmail, name: 'Mate R', role: 'member' }) })).id);
+// 0097: the second contact is a designated BOOKER (accepted). Receipts are the owner's only; the booker never gets one.
+const mateId = track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: mateEmail, name: 'Mate R', role: 'booker', status: 'accepted', accepted_at: new Date().toISOString() }) })).id);
 const otherBrandId = track('brands', one(await db('brands', { method: 'POST', body: JSON.stringify({ email: `${uniq('obrand')}@fixture.test`, company_name: 'Other Brand Co' }) })).id);
 await callRoute('find-retailer.js', req({ body: { action: 'status' } }));
 const b = await getBinding();
@@ -141,10 +142,10 @@ try {
   const f1 = await fan();
   const d1 = await deliveries(gid);
   const emails = d1.map(d => d.recipient_email).sort();
-  ok('R2a one delivery per brand account contact (account email + teammate), recipient_kind brand, retailer carried, no booking id', f1.errors.length === 0 && d1.length === 2 && emails.join('|') === [brandEmail, mateEmail].sort().join('|') && d1.every(d => d.recipient_kind === 'brand' && d.retailer_id === retailerId && d.booking_id === null && d.status === 'pending'), JSON.stringify({ errors: f1.errors, d: d1.map(d => [d.recipient_email, d.recipient_kind, d.status]) }));
+  ok('R2a one delivery, to the account email only (0097: the booker is not a receipt recipient), recipient_kind brand, retailer carried, no booking id', f1.errors.length === 0 && d1.length === 1 && emails.join('|') === brandEmail && d1.every(d => d.recipient_kind === 'brand' && d.retailer_id === retailerId && d.booking_id === null && d.status === 'pending'), JSON.stringify({ errors: f1.errors, d: d1.map(d => [d.recipient_email, d.recipient_kind, d.status]) }));
   ok('R2b stable dedupe keys name the event and the recipient', d1.every(d => d.dedupe_key === `payment_receipt:${gid}:brand:${d.recipient_id}`), JSON.stringify(d1.map(d => d.dedupe_key)));
   await fan();
-  ok('R2c a second fan-out inserts nothing', (await deliveries(gid)).length === 2);
+  ok('R2c a second fan-out inserts nothing', (await deliveries(gid)).length === 1);
 
   console.log('\n:: R3 dispatch ::');
   {
@@ -161,10 +162,9 @@ try {
     ok('R3e card summary + Stripe receipt link come from the charge lookup, which was asked for the ledger charge id', /Visa ending in 4242/.test(html) && html.includes('https://pay.stripe.com/receipts/test/' + a1.ch) && lookups.includes(a1.ch));
     ok('R3f paid date, billed-to brand, reference, portal CTA, "sent to the account contacts" footer; no em dash', /Paid on<\/td>/.test(html) && /Receipt Brand Co/.test(html) && /Reference<\/td>/.test(html) && /brand\/dashboard#account/.test(html) && /account contacts of/.test(html) && !/::/.test(html) && !/::/.test(after.frozen_payload.subject));
     ok('R3g the original receipt is not framed as a copy', !/copy/i.test(html.match(/<div style="font-size:11px[^>]*>[^<]*</)?.[0] || '') && !/sent again at your request/.test(html));
-    // the teammate's copy goes out too, under its own key
+    // 0097: the booker has no delivery at all, and exactly one provider call was made
     const mate = c.rows.find(r => r.recipient_email === mateEmail);
-    const r2 = await processClaimed(b, mate, { now: new Date(), token: c.token, mailer: rec.mailer });
-    ok('R3h the teammate receives the same receipt under a different delivery id / provider key', r2.outcome === 'accepted' && rec.calls.length === 2 && keyOf(rec.calls[1]) === mate.id && keyOf(rec.calls[1]) !== keyOf(rec.calls[0]), JSON.stringify(r2));
+    ok('R3h the booker receives nothing: no delivery row for the booker, one provider call in total', !mate && rec.calls.length === 1, JSON.stringify(c.rows.map(r => r.recipient_email)));
   }
 
   console.log('\n:: R4 recheck against the CURRENT ledger row ::');
@@ -214,7 +214,8 @@ try {
     ok('R5d a repeat inside 10 minutes is throttled (429) and writes nothing', again.statusCode === 429 && again.body.error === 'receipt_recently_requested' && again.body.retry_after_seconds > 0 && (await events(gid)).length === before + 1, JSON.stringify(again.body));
     // foreign group: another brand's session cannot resend ours
     const otherToken = crypto.randomUUID();
-    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: otherBrandId, session_token: otherToken, email: 'other@fixture.test', expires_at: new Date(Date.now() + 36e5).toISOString() }) });
+    const otherBrandEmail = (await db(`brands?id=eq.${otherBrandId}&select=email`)).body[0].email;   // 0097: the session must be the brand's owner to be an identity at all
+    await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: otherBrandId, session_token: otherToken, email: otherBrandEmail, expires_at: new Date(Date.now() + 36e5).toISOString() }) });
     const foreign = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid }, cookies: { dh_brand_session: otherToken } }));
     ok('R5e a different brand gets 404 for our payment (no existence leak, nothing queued)', foreign.statusCode === 404 && (await events(gid)).length === before + 1, JSON.stringify(foreign.body));
     const bad = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: 'nope' }, cookies }));
@@ -224,7 +225,7 @@ try {
     const strangerToken = crypto.randomUUID();
     await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: brandId, session_token: strangerToken, email: 'stranger@fixture.test', expires_at: new Date(Date.now() + 36e5).toISOString() }) });
     const stranger = await callRoute('brand-account.js', req({ body: { action: 'receipt-resend', payment_group_id: gid }, cookies: { dh_brand_session: strangerToken } }));
-    ok('R5f2 a session whose email is not a current account contact gets 403 and queues nothing', stranger.statusCode === 403 && stranger.body.error === 'requester_not_a_contact' && (await events(gid)).length === before + 1, JSON.stringify(stranger.body));
+    ok('R5f2 a session whose email is not a current account contact is refused at the identity boundary (401, 0097) and queues nothing', stranger.statusCode === 401 && (await events(gid)).length === before + 1, JSON.stringify(stranger.body));
     // the copy is delivered through the same path, framed as a copy
     await fan();
     const dAll = await deliveries(gid);
@@ -245,7 +246,7 @@ try {
     const mateEv = (await events(gidR)).find(e => e.transition_id !== gidR);
     await fan();
     const mateCopies = (await deliveries(gidR)).filter(d => mateEv && d.event_id === mateEv.id);
-    ok('R5i a teammate\'s request is recorded with the teammate as recipient and fans out to the teammate only', mr.statusCode === 200 && mr.body.to === mateEmail && mateEv && mateEv.payload.requested_recipient_id === mateId && mateCopies.length === 1 && mateCopies[0].recipient_email === mateEmail, JSON.stringify({ body: mr.body, copies: mateCopies.map(d => d.recipient_email) }));
+    ok('R5i a booker\'s resend request is refused at the role gate (403 role_not_allowed) and records no event', mr.statusCode === 403 && mr.body.error === 'role_not_allowed' && !mateEv && mateCopies.length === 0, JSON.stringify({ body: mr.body, copies: mateCopies.map(d => d.recipient_email) }));
   }
 
   console.log('\n:: R6 concurrency: one event however many simultaneous requests ::');
@@ -297,9 +298,9 @@ try {
     const out = await dispatchDue(b, { now: new Date(), mailer: rec.mailer, batch: 50, maxAttempts: 50 });
     const parked = (await deliveries(gid7)).filter(d => d.status === 'skipped' && /^review_required:/.test(d.skip_reason || ''));
     const after = await collectMetrics(b, { now: new Date() });
-    ok('R7a both contacts\' receipts are parked skipped review_required:allocations_mismatch, zero emails to this brand', parked.length === 2 && parked.every(d => d.skip_reason === 'review_required:allocations_mismatch') && !rec.calls.some(ours), JSON.stringify({ parked: parked.map(d => d.skip_reason), ours: rec.calls.filter(ours).map(c => [c.body.to, String(c.body.subject), String(c.body.html).match(/Booking ref [0-9a-f]+/g)]), all: (await deliveries(gid7)).map(d => [d.recipient_email, d.status, d.skip_reason, d.dedupe_key.slice(-20)]) }));
-    ok('R7b the run that parked them is NOT ok: errors name the deliveries, review_required counted apart from skips', (out.review_required || 0) >= 2 && parked.every(d => out.errors.includes('review_required:' + d.id)), JSON.stringify({ review_required: out.review_required, errors: out.errors.slice(0, 4) }));
-    ok('R7c the durable metric rose by two and stays until resolved', after.review_required_count === before.review_required_count + 2, JSON.stringify({ before: before.review_required_count, after: after.review_required_count }));
+    ok('R7a the owner\'s receipt is parked skipped review_required:allocations_mismatch, zero emails to this brand (0097: one recipient)', parked.length === 1 && parked.every(d => d.skip_reason === 'review_required:allocations_mismatch') && !rec.calls.some(ours), JSON.stringify({ parked: parked.map(d => d.skip_reason), ours: rec.calls.filter(ours).map(c => [c.body.to, String(c.body.subject), String(c.body.html).match(/Booking ref [0-9a-f]+/g)]), all: (await deliveries(gid7)).map(d => [d.recipient_email, d.status, d.skip_reason, d.dedupe_key.slice(-20)]) }));
+    ok('R7b the run that parked them is NOT ok: errors name the deliveries, review_required counted apart from skips', (out.review_required || 0) >= 1 && parked.every(d => out.errors.includes('review_required:' + d.id)), JSON.stringify({ review_required: out.review_required, errors: out.errors.slice(0, 4) }));
+    ok('R7c the durable metric rose by one and stays until resolved', after.review_required_count === before.review_required_count + 1, JSON.stringify({ before: before.review_required_count, after: after.review_required_count }));
     const out2 = await dispatchDue(b, { now: new Date(), mailer: rec.mailer, batch: 50, maxAttempts: 50 });
     ok('R7d a later run does not re-alarm on the same parked rows (terminal) and sends nothing for them', !(out2.errors || []).some(e => parked.some(d => e === 'review_required:' + d.id)) && !rec.calls.some(ours), JSON.stringify(out2.errors));
     // operator resolution: restore the ledger row, then requeue the parked deliveries (the runbook's SQL, here via REST)

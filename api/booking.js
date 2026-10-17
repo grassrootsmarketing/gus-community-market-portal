@@ -192,6 +192,13 @@ async function createBrandMagicLink(brand_id, email) {
 // brace closed nothing and made the whole module unparseable as ESM. node --check accepted it
 // (script goal); native `import()` did not. /api/booking has therefore been a dead route.
 
+// 0097: the current agreement hash for a retailer, shared with api/book.js (a booker may book only under an active one).
+export async function currentAgreementHash(ret) {
+  const dp = (ret && ret.demo_policy) || DEFAULT_DEMO_POLICY;
+  const cp = (ret && ret.cancellation_policy) || DEFAULT_CANCELLATION_POLICY;
+  return sha256Hex(dp + '\n---\n' + cp + '\n---tos:' + DEMOHUB_TOS_VERSION);
+}
+
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -237,6 +244,8 @@ export default async function handler(req, res) {
       // so this endpoint can't be used to enumerate which emails have accounts/agreements.
       const _bAuth = await requireBrandSession(req, body);
       if (!_bAuth.ok) return res.status(200).json({ ok: true, has_active: false, needs_re_sign: true, reason: 'sign_in_required', policies });
+      // 0097: the page needs to know whether the person can sign at all.
+      policies.can_sign = _bAuth.role !== 'booker';
       const aResp = await fetch(`${_b.supabaseUrl}/rest/v1/brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_bAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret.id)}&superseded_at=is.null&select=policy_hash,expires_at&order=signed_at.desc&limit=1`, {
         headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
@@ -259,6 +268,8 @@ export default async function handler(req, res) {
       if (!sn || String(sn).trim().length < 2) return res.status(400).json({ error: 'signed_name required' });
       const _sAuth = await requireBrandSession(req, body);
       if (!_sAuth.ok) return res.status(401).json({ error: 'sign_in_required' });
+      // 0097 (Codex BK-5): a booker cannot bind the brand to a store's policies.
+      if (_sAuth.role === 'booker') return res.status(403).json({ error: 'role_not_allowed', message: 'Only the brand account owner can agree to a store\'s policies. Ask them to agree once, then you can book here.' });
       const retResp2 = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,demo_policy,cancellation_policy,verification_status`, {
         headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });

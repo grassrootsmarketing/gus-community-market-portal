@@ -734,6 +734,24 @@ export default async function handler(req, res) {
       }
       const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
       emailOk = r.ok;
+      // 0097 (Codex BK-6): a demo booked by a designated booker is also reported to the brand account owner. The
+      // owner's copy carries no refund line (the payer gets that) and says who booked.
+      try {
+        if (booking.booked_by_member_id && booking.brand_id) {
+          const ownerRows = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`);
+          const ownerEmail = Array.isArray(ownerRows) && ownerRows[0] ? String(ownerRows[0].email || '').toLowerCase() : '';
+          if (ownerEmail && ownerEmail !== String(booking.contact_email || '').toLowerCase()) {
+            const who = booking.booked_by_name || booking.booked_by_email || 'your designated booker';
+            const note = '<p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:24px 0 0;">This demo was booked by ' + String(who).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) + ' on your brand\'s account. Payment details and any refund go to the person who paid.</p>';
+            let ownerHtml;
+            if (action === 'confirm') ownerHtml = htmlBody;
+            else if (action === 'decline') ownerHtml = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            ownerHtml = ownerHtml.includes('</body>') ? ownerHtml.replace('</body>', note + '</body>') : ownerHtml + note;
+            await sendMailQuietly({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, { binding: _b });
+          }
+        }
+      } catch (e) { console.warn('owner copy of booking notice failed:', e && e.message); }
     }
 
     // The demo failed to cancel AND its durable reconciliation case could not be recorded. Do NOT

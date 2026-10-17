@@ -715,11 +715,21 @@ async function loadData() {
     throw e;
   }
   const profile = _data.profile || {};
+  // 0097: the server says who this session is. A booker sees a narrower portal (tabs below) and the header says so.
+  window._brandRole = _data.role === 'booker' ? 'booker' : 'owner';
+  window._brandMe = _data.me || null;
+  document.body.classList.toggle('role-booker', window._brandRole === 'booker');
+  if (window._brandRole === 'booker') {
+    document.querySelectorAll('.nav-tab').forEach(t => { if (BOOKER_HIDDEN_TABS.includes(t.dataset.tab)) t.style.display = 'none'; });
+    const av = document.getElementById('navAvatar'); if (av) { av.onclick = null; av.title = ''; av.style.cursor = 'default'; const ov = av.querySelector('.avatar-upload-overlay'); if (ov) ov.remove(); }
+  }
   // Grey subheader line = the brand / company name (inline-editable, carries the verified mark).
   navName.textContent = profile.company_name || profile.email || '';
   // Top line = the person / point of contact, falling back to the account email until one is set.
   const navPerson = document.getElementById('navPerson');
-  if (navPerson) navPerson.textContent = profile.contact_name || profile.email || '';
+  if (navPerson) navPerson.textContent = window._brandRole === 'booker'
+    ? ('Booking as ' + ((window._brandMe && (window._brandMe.name || window._brandMe.email)) || 'booker'))
+    : (profile.contact_name || profile.email || '');
   // Add inline verified mark next to brand name in nav if verified
   const navVerifyMark = document.getElementById('navVerifyMark');
   const _st = getBrandStatus(profile);
@@ -737,8 +747,10 @@ async function loadData() {
 }
 
 // ===== Tab Router =====
+const BOOKER_HIDDEN_TABS = ['profile', 'compliance', 'products'];
 function switchTab(name, opts) {
   if (!['overview','calendar','retailers','profile','compliance','products','agreements','account'].includes(name)) name = 'overview';
+  if (window._brandRole === 'booker' && BOOKER_HIDDEN_TABS.includes(name)) name = 'overview';   // 0097: a URL to a hidden view lands on Overview
   _currentTab = name;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   render();
@@ -754,6 +766,8 @@ document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (
 
 // ===== Render dispatch =====
 function render() {
+  if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
+  if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
   if (_currentTab === 'overview') renderOverview();
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'retailers') renderRetailers();
@@ -2111,6 +2125,10 @@ window.removeAvatar = async function() {
 };
 
 // Sign out
+window.brandSignOutEverywhere = async function() {
+  try { await fetch('/api/brand-account?action=logout-everywhere', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', credentials: 'same-origin' }); } catch (_) {}
+  window.location.href = '/brand/signin';
+};
 window.brandSignOut = async function() {
   // The logout call is the whole of sign-out now: it deletes the session row and clears the
   // HttpOnly cookie. There is no browser-side copy left to remove.
@@ -2253,6 +2271,94 @@ async function resendReceipt(gid, btn) {
     say('Could not reach Demohub. Check your connection and try again.', true);
   } finally { if (btn) btn.disabled = false; }
 }
+// ===== 0097: booker views =====
+function renderBookerOverview() {
+  const profile = _data.profile || {};
+  const demos = (_data.demos || []).slice().sort((a, b) => (a.demo_date || '').localeCompare(b.demo_date || ''));
+  const today = new Date().toISOString().slice(0, 10);
+  const upcoming = demos.filter(d => d.demo_date >= today && d.status !== 'cancelled' && d.status !== 'declined');
+  const mine = upcoming.filter(d => d.booked_by_me);
+  const row = (d) => '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
+    + '<div><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
+    + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(d.demo_date || '') + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
+    + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div></div>';
+  main.innerHTML = `
+    <div class="page-head"><div><h1>${escapeHtml(profile.company_name || 'Your brand')}</h1><div class="sub">You book demos for this brand. The brand account owner manages everything else.</div></div></div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Book a demo</h2>
+      <div style="font-size:0.92rem; color:var(--ink-700); line-height:1.5;">Pick a store under Retailers, choose a date and the items you will sample from the brand's saved list, and pay at checkout. Stores the brand has not agreed terms with yet need the account owner first.</div>
+      <div style="margin-top:14px;"><a class="btn btn-primary" href="#retailers">Go to Retailers</a></div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 10px;">Upcoming demos${upcoming.length ? ' (' + upcoming.length + ')' : ''}</h2>
+      ${upcoming.length ? upcoming.map(row).join('') : '<div style="color:var(--ink-500); font-size:0.92rem;">No upcoming demos yet.</div>'}
+      ${mine.length !== upcoming.length && mine.length ? '<div style="font-size:0.82rem; color:var(--ink-500); margin-top:10px;">' + mine.length + ' of these were booked by you.</div>' : ''}
+    </div>`;
+}
+function renderBookerAccount() {
+  const p = _data.profile || {};
+  const me = window._brandMe || {};
+  main.innerHTML = `
+    <div class="page-head"><div><h1>Account</h1><div class="sub">Your booking access for ${escapeHtml(p.company_name || 'this brand')}.</div></div></div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Signed in as</h2>
+      <div style="font-size:1.05rem;color:var(--forest-900);font-weight:700;">${escapeHtml(me.name || me.email || '')}</div>
+      <div style="font-size:0.92rem;color:var(--ink-500);margin-top:2px;">${escapeHtml(me.email || '')} · booker for ${escapeHtml(p.company_name || 'this brand')}</div>
+      <div style="font-size:0.88rem;color:var(--ink-700);margin-top:12px;line-height:1.5;">You can book demos for this brand, pick from its saved items and see its demos. You cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store's policies. The brand account owner (${escapeHtml(p.owner_email || 'the owner')}) manages those, and can end this access at any time.</div>
+      <div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
+        <button class="btn btn-ghost" onclick="window.brandSignOutEverywhere && window.brandSignOutEverywhere()">Sign out on all my devices</button>
+      </div>
+    </div>`;
+}
+// Owner: the designated booker card (status, designate, resend, revoke). Calls booker-status / booker-designate /
+// booker-resend / booker-revoke; the server enforces owner-only.
+async function renderBookerCard() {
+  const el = document.getElementById('bookerCard'); if (!el) return;
+  const post = (body) => fetch('/api/brand-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) }).then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+  const r = await post({ action: 'booker-status' });
+  if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500); font-size:0.9rem;">The booker status could not be loaded right now.</div>'; return; }
+  const st = r.body || {}; const bk = st.booker;
+  const when = (iso) => iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+  const perm = '<div style="font-size:0.86rem; color:var(--ink-700); line-height:1.5; margin:0 0 12px;">' + escapeHtml(st.permissions || '') + '</div>';
+  let body = '';
+  if (bk) {
+    body = '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">'
+      + '<div><div style="font-weight:700; color:var(--forest-900);">' + escapeHtml(bk.name || bk.email) + '</div><div style="font-size:0.9rem; color:var(--ink-500);">' + escapeHtml(bk.email) + '</div>'
+      + '<div style="font-size:0.84rem; margin-top:4px; color:' + (bk.status === 'accepted' ? 'var(--forest-700)' : '#a14e2a') + ';">' + (bk.status === 'accepted' ? 'Active since ' + escapeHtml(when(bk.accepted_at)) : 'Invitation sent ' + escapeHtml(when(bk.invited_at)) + ', not accepted yet') + '</div></div>'
+      + '<div style="display:flex; gap:8px; flex-wrap:wrap;">'
+      + (bk.status === 'pending' ? '<button class="btn btn-secondary" id="bookerResendBtn">Resend invitation</button>' : '')
+      + '<button class="btn btn-ghost" id="bookerRevokeBtn" style="color:#a14e2a;">' + (bk.status === 'accepted' ? 'Revoke access' : 'Cancel invitation') + '</button></div></div>';
+  } else if (!st.enabled) {
+    body = '<div style="font-size:0.9rem; color:var(--ink-500);">Designating a booker is not switched on yet.</div>';
+  } else {
+    body = '<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; max-width:520px;">'
+      + '<input class="input" id="bookerEmail" type="email" placeholder="booker@theircompany.com" style="grid-column:1 / -1;">'
+      + '<input class="input" id="bookerName" type="text" placeholder="Their name (optional)" style="grid-column:1 / -1;">'
+      + '<div style="grid-column:1 / -1;"><button class="btn btn-primary" id="bookerDesignateBtn">Send invitation</button></div></div>';
+  }
+  el.innerHTML = perm + body + '<div id="bookerMsg" style="font-size:0.86rem; margin-top:10px; min-height:1em;"></div>';
+  const msg = (t, bad) => { const m = document.getElementById('bookerMsg'); if (m) { m.textContent = t; m.style.color = bad ? '#a14e2a' : 'var(--forest-700)'; } };
+  const d = document.getElementById('bookerDesignateBtn');
+  if (d) d.addEventListener('click', async () => {
+    const email = (document.getElementById('bookerEmail').value || '').trim(); const name = (document.getElementById('bookerName').value || '').trim();
+    if (!email) { msg('Enter their email address.', true); return; }
+    d.disabled = true; const rr = await post({ action: 'booker-designate', email, name });
+    d.disabled = false;
+    if (!rr.ok) { msg(rr.body.message || rr.body.error || 'Could not send the invitation.', true); return; }
+    renderBookerCard();
+  });
+  const rs = document.getElementById('bookerResendBtn');
+  if (rs) rs.addEventListener('click', async () => { rs.disabled = true; const rr = await post({ action: 'booker-resend' }); rs.disabled = false; msg(rr.ok ? 'Invitation sent again.' : (rr.body.message || 'Could not resend.'), !rr.ok); });
+  const rv = document.getElementById('bookerRevokeBtn');
+  if (rv) rv.addEventListener('click', async () => {
+    if (!confirm(bk.status === 'accepted' ? 'Revoke this person\'s booking access? Their sign-in ends immediately. Demos they booked stay on the calendar under your brand.' : 'Cancel this invitation?')) return;
+    rv.disabled = true; const rr = await post({ action: 'booker-revoke', member_id: bk.id }); rv.disabled = false;
+    if (!rr.ok) { msg(rr.body.message || 'Could not revoke.', true); return; }
+    renderBookerCard();
+  });
+}
+
 function renderAccount() {
   const p = _data.profile || {};
   main.innerHTML = `
@@ -2266,6 +2372,11 @@ function renderAccount() {
         <button class="btn btn-secondary" onclick="window.brandSignOut()">Sign out</button>
         <a class="btn btn-ghost" href="mailto:david@demohubhq.com?subject=Demohub%20account%20question">Email support</a>
       </div>
+    </div>
+    <div class="card" style="margin-bottom:18px;">
+      <h2 style="margin:0 0 6px;">Designated booker</h2>
+      <div style="font-size:0.9rem;color:var(--ink-500);margin:0 0 12px;line-height:1.5;">One other person can book demos for ${escapeHtml(p.company_name || 'your brand')} with their own sign-in. They use your saved items and your insurance certificate; they cannot change them or see your payments.</div>
+      <div id="bookerCard"><div style="font-size:0.9rem;color:var(--ink-500);">Loading</div></div>
     </div>
     <div class="card" style="margin-bottom:18px;">
       <h2 style="margin:0 0 14px;">Notifications</h2>
@@ -2285,6 +2396,7 @@ function renderAccount() {
       <a href="mailto:david@demohubhq.com?subject=${encodeURIComponent('Delete my brand account: ' + (p.company_name || p.email || ''))}&body=${encodeURIComponent('Please permanently delete my Demohub brand account (' + (p.email || '') + ') and erase my data.')}" style="display:inline-block; padding:10px 18px; border:1.5px solid var(--clay-700, #a14e2a); color:var(--clay-700, #a14e2a); border-radius:10px; font-weight:700; font-size:0.9rem; text-decoration:none;">Request account deletion &rarr;</a>
     </div>
   `;
+  if (typeof renderBookerCard === 'function') renderBookerCard();   // 0097
 }
 
 // ===== Post-booking welcome =====

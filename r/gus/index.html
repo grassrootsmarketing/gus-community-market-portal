@@ -782,6 +782,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (card) { card.style.background = green ? '#eef5ee' : '#fff3ed'; card.style.borderColor = green ? '#2a6b3a44' : '#ed682f55'; card.style.borderLeftColor = green ? '#2a6b3a' : '#ed682f'; }
             const col = green ? '#2c4a34' : '#a14e2a'; if (head) head.style.color = green ? '#256b34' : '#a14e2a'; if (msg) { msg.style.color = col; msg.style.marginBottom = '10px'; } if (hint) { hint.style.color = col; hint.style.display = ''; } if (btn) btn.style.display = '';
             let h = '', m = '', b = 'Upload certificate', hn = 'PDF, JPG, PNG or WEBP, up to 10MB.';
+            if (window._brandRole === 'booker') {
+                // 0097: the certificate belongs to the brand account owner; a booker can only ask.
+                h = cs.state === 'pending' ? 'Certificate uploaded, pending review' : 'Certificate of insurance needed';
+                m = 'The brand account owner (' + ((window._brandProfile && window._brandProfile.owner_email) || 'the owner') + ') manages the insurance certificate. Ask them to upload or renew it in the brand portal; you cannot book here until an approved certificate covers your date.';
+                if (head) head.textContent = h; if (msg) msg.innerHTML = m; if (btn) btn.style.display = 'none'; if (hint) hint.textContent = '';
+                _updateCoiGuide(col);
+                return;
+            }
             if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' Booking opens once the store approves it.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
             else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + (holdsOn ? hold : ' Stores need an approved certificate before you can book.'); }
             else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
@@ -1768,6 +1776,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 });
                 const j = await r.json();
                 if (j.has_active) return { needsSigning: false };
+                // 0097: a booker cannot sign for the brand. Say who can, instead of opening the signature modal.
+                if (j.policies && j.policies.can_sign === false) {
+                    const rn0 = (j.policies && j.policies.retailer_name) || 'this store';
+                    const owner = (window._brandProfile && window._brandProfile.owner_email) || 'the brand account owner';
+                    _showSkuError('The brand account owner (' + owner + ') needs to agree to ' + rn0 + '\'s policies once before you can book here. Ask them to open this store\'s page and agree, then try again.');
+                    return { needsSigning: true, ownerOnly: true };
+                }
                 // Need signing , populate modal with policies
                 const dp = (j.policies && j.policies.demo_policy) || '';
                 const cp = (j.policies && j.policies.cancellation_policy) || '';
@@ -1886,7 +1901,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // Remember the category too, so "What are you demoing?" is asked once and then pre-filled
                 // (and hidden) on every later booking, it was only ever stored on the booking row.
                 if (!((bp.default_categories)||'').trim() && product) patch.default_categories = product;
-                if (Object.keys(patch).length) {
+                if (Object.keys(patch).length && window._brandRole !== 'booker') {
                     try {
                         const _pr = await fetch('/api/brand-account?action=profile-update', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1967,7 +1982,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const sel = collectBookingProducts();
             if (sel.error) { _showSkuError(sel.error); btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book'; return; }
             let productSkus = sel.items;
-            if (sel.save && sel.newItems.length && window._brandProfile && !window._bookSkipCatalogSave) {
+            if (sel.save && sel.newItems.length && window._brandProfile && !window._bookSkipCatalogSave && window._brandRole !== 'booker') {
                 const bp = window._brandProfile;
                 const merged = (Array.isArray(bp.products) ? bp.products : []).concat(sel.newItems);
                 let saveResp = null, saveJson = {};
@@ -2509,7 +2524,9 @@ function supportMailto(a) {
             if (!(opts && opts.keepSelection) && !items.length) _addBookNewItem();
             _updateSaveItemsLabel();
             const add = document.getElementById('bookAddItemLink');
-            if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
+            // 0097: a booker picks from the saved list only; the server refuses new items from a booker as well.
+            if (window._brandRole === 'booker') { if (add) add.style.display = 'none'; wrap.innerHTML = ''; if (!items.length) { const e0 = document.getElementById('bookSkuError'); if (e0) { e0.textContent = 'This brand has no saved items yet. Ask the brand account owner to add them under Products in the brand portal.'; e0.style.display = 'block'; } } }
+            else if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
             const err = document.getElementById('bookSkuError'); if (err) err.style.display = 'none';
             grp.style.display = 'block';
             _updateBookUpcNote();
@@ -2574,6 +2591,9 @@ function supportMailto(a) {
                     const j = await r.json();
                     if (j && j.profile) {
                         window._brandProfile = j.profile;
+                        // 0097: a designated booker books from the saved list only and cannot sign agreements or upload a COI.
+                        window._brandRole = j.role === 'booker' ? 'booker' : 'owner';
+                        window._brandMe = j.me || null;
                     }
                     // Provisional holds (24h escrow): when on, an unverified-COI brand may book,
                     // card is AUTHORIZED (held), not charged, with 24h to get the COI approved.

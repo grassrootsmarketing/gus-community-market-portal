@@ -253,7 +253,10 @@ async function markFannedOut(b, ev, now, note) {
   await sb(b, `notification_events?id=eq.${enc(ev.id)}&fanned_out_at=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) });
 }
 
-// Server-resolved brand recipients: the brand's account email plus its team members. Never client input.
+// Server-resolved brand recipients. Never client input.
+// 0097 (Codex BK-6): receipts and COI decisions are the OWNER's business. The brand's account email is the one
+// required recipient; accepted OWNER membership rows with another address are added (there should be none, the owner
+// row is the account email), and bookers, pending and revoked rows are never recipients of these kinds.
 async function brandRecipients(b, brand) {
   const out = [];
   const seen = new Set();
@@ -264,7 +267,7 @@ async function brandRecipients(b, brand) {
   };
   add(brand.id, brand.email);
   try {
-    const members = await sb(b, `brand_members?brand_id=eq.${enc(brand.id)}&select=id,email&order=created_at.asc&limit=50`) || [];
+    const members = await sb(b, `brand_members?brand_id=eq.${enc(brand.id)}&role=eq.owner&status=eq.accepted&select=id,email&order=created_at.asc&limit=50`) || [];
     for (const m of members) add(m.id, m.email);
   } catch (_) { /* members are additive; the primary account email is the required recipient */ }
   return out;
@@ -557,9 +560,11 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     let to = null;
     if (row.recipient_id === brand.id) to = brand.email;
     else {
-      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // 0097 (Codex BK-6): re-read at send time; a booker, a pending or a revoked row never receives this kind.
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
       to = member.email;
     }
     to = String(to || '').trim();
@@ -609,9 +614,11 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     let to = null;
     if (row.recipient_id === brand.id) to = brand.email;
     else {
-      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // 0097 (Codex BK-6): re-read at send time; a booker, a pending or a revoked row never receives this kind.
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
       to = member.email;
     }
     to = String(to || '').trim();

@@ -52,10 +52,14 @@ export default async function handler(req, res) {
 
   try {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
-    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived`);
+    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived,booked_by_member_id`);
     if (!Array.isArray(bookings) || bookings.length === 0) return res.status(404).json({ error: 'booking_not_found' });
     // exact requested==returned set (Codex): no silent partial
     if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
+    // 0097 (Codex BK-4): a booker checks out only bookings attributed to them, every one in the batch.
+    if (auth.role === 'booker' && bookings.some(b => !(b.booked_by_member_id && String(b.booked_by_member_id) === String(auth.memberId)))) {
+      return res.status(403).json({ error: 'not_your_booking', message: 'You can only pay for demos you booked yourself.' });
+    }
     // Booking codes (0085): a fee-waived booking is free and confirms through the outbox; it never enters checkout.
     if (bookings.some(b => b.fee_waived === true)) return res.status(400).json({ error: 'booking_fee_waived', message: 'This booking is free, so no payment is needed.' });
 
