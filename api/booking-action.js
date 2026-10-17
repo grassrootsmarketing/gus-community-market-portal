@@ -90,6 +90,20 @@ function brandHeader() {
 </tr></table>`;
 }
 
+// 0098 (Codex BC-5): where a booking's operational notices go, decided at send time from the LIVE membership row.
+// Returns { to: [addresses for the payer-facing copy], owner: address for the owner copy or null, bookedBy: name }.
+async function noticeRecipients(sb, booking) {
+  const contact = String(booking.contact_email || '').toLowerCase();
+  if (!booking.booked_by_member_id) return { to: contact ? [contact] : [], owner: null, bookedBy: null };
+  let member = null, owner = '';
+  try { const m = await sb(`brand_members?id=eq.${encodeURIComponent(booking.booked_by_member_id)}&select=id,email,name,role,status`); member = Array.isArray(m) && m[0] ? m[0] : null; } catch (_) {}
+  try { if (booking.brand_id) { const b = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`); owner = Array.isArray(b) && b[0] ? String(b[0].email || '').toLowerCase() : ''; } } catch (_) {}
+  const live = member && member.role === 'booker' && member.status === 'accepted';
+  const bookedBy = (member && (member.name || member.email)) || booking.booked_by_name || booking.booked_by_email || null;
+  if (member && member.role === 'owner') return { to: contact ? [contact] : (owner ? [owner] : []), owner: null, bookedBy: null };
+  const to = live && contact ? [contact] : [];
+  return { to, owner: owner && owner !== contact ? owner : (owner && !live ? owner : null), bookedBy };
+}
 function confirmedEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, product }) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
@@ -247,11 +261,15 @@ async function handleReschedulePropose(req, res, body) {
   const proposalVersion = proposal.proposal_version;
 
   // Email the brand to accept/decline.
-  let brandEmail = demo.contact_email || null;
+  // 0098 (Codex BC-5): the proposal goes to the live booker who made the booking (if any) and to the owner; a revoked
+  // booker's address is dropped and the owner alone is asked.
+  const rcp = await noticeRecipients(sb, { contact_email: demo.contact_email, booked_by_member_id: demo.booked_by_member_id, booked_by_name: demo.booked_by_name, booked_by_email: demo.booked_by_email, brand_id: demo.brand_id });
+  let brandEmail = rcp.to[0] || rcp.owner || null;
   if (!brandEmail && demo.brand_id) {
     try { const b = await sb(`brands?id=eq.${encodeURIComponent(demo.brand_id)}&select=email`); brandEmail = (Array.isArray(b) && b[0]) ? b[0].email : null; } catch (_) {}
   }
-  if (brandEmail && _b.resendApiKey) {
+  const proposalCopies = [brandEmail, rcp.to[0] && rcp.owner ? rcp.owner : null].filter(Boolean);
+  for (const brandEmail of proposalCopies) if (brandEmail && _b.resendApiKey) {
     const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
     const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
     const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
@@ -719,7 +737,8 @@ export default async function handler(req, res) {
 
     // 3) Send email (best-effort)
     let emailOk = false;
-    if (_b.resendApiKey && booking.contact_email && !idempotentReplay) {
+    const recipients = (_b.resendApiKey && !idempotentReplay) ? await noticeRecipients(sb, booking) : { to: [], owner: null, bookedBy: null };
+    if (_b.resendApiKey && (recipients.to.length || recipients.owner) && !idempotentReplay) {
       const dateLabel = booking.demo_date ? new Date(booking.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
       let subject, htmlBody;
       if (action === 'confirm') {
@@ -732,16 +751,19 @@ export default async function handler(req, res) {
         subject = `Your ${retailer?.name || 'demo'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       }
-      const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
-      emailOk = r.ok;
-      // 0097 (Codex BK-6): a demo booked by a designated booker is also reported to the brand account owner. The
-      // owner's copy carries no refund line (the payer gets that) and says who booked.
+      emailOk = true;
+      if (recipients.to.length) {
+        const r = await sendMailQuietly({ from: FROM_ADDRESS, to: recipients.to[0], replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+        emailOk = r.ok;
+      }
+      // 0097/0098 (Codex BK-6, BC-5): a demo booked by a designated booker is also reported to the brand account owner;
+      // if the booker was revoked, the owner is the only recipient. The owner's copy carries no refund line (the payer
+      // gets that) and says who booked.
       try {
-        if (booking.booked_by_member_id && booking.brand_id) {
-          const ownerRows = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`);
-          const ownerEmail = Array.isArray(ownerRows) && ownerRows[0] ? String(ownerRows[0].email || '').toLowerCase() : '';
-          if (ownerEmail && ownerEmail !== String(booking.contact_email || '').toLowerCase()) {
-            const who = booking.booked_by_name || booking.booked_by_email || 'your designated booker';
+        if (recipients.owner) {
+          const ownerEmail = recipients.owner;
+          {
+            const who = recipients.bookedBy || 'your designated booker';
             const note = '<p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:24px 0 0;">This demo was booked by ' + String(who).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) + ' on your brand\'s account. Payment details and any refund go to the person who paid.</p>';
             let ownerHtml;
             if (action === 'confirm') ownerHtml = htmlBody;

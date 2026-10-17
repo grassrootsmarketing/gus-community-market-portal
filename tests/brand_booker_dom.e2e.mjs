@@ -7,7 +7,7 @@
 //   3. accept page: shows brand + permissions, no session before the code, accepts with the code
 //   4. booking page as booker: no "add an item" rows, COI card tells them to ask the owner, agreement check says owner only
 // Local in-process server on :4174 (static pages; all /api calls stubbed), PLAYWRIGHT_ROOT for playwright.
-/* global document, window, localStorage */
+/* global document, window, localStorage, getComputedStyle */
 import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4174';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');

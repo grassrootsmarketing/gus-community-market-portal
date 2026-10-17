@@ -2325,7 +2325,7 @@ async function renderBookerCard() {
   if (bk) {
     body = '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;">'
       + '<div><div style="font-weight:700; color:var(--forest-900);">' + escapeHtml(bk.name || bk.email) + '</div><div style="font-size:0.9rem; color:var(--ink-500);">' + escapeHtml(bk.email) + '</div>'
-      + '<div style="font-size:0.84rem; margin-top:4px; color:' + (bk.status === 'accepted' ? 'var(--forest-700)' : '#a14e2a') + ';">' + (bk.status === 'accepted' ? 'Active since ' + escapeHtml(when(bk.accepted_at)) : 'Invitation sent ' + escapeHtml(when(bk.invited_at)) + ', not accepted yet') + '</div></div>'
+      + '<div style="font-size:0.84rem; margin-top:4px; color:' + (bk.status === 'accepted' ? 'var(--forest-700)' : '#a14e2a') + ';">' + (bk.status === 'accepted' ? 'Active since ' + escapeHtml(when(bk.accepted_at)) : (st.delivery && st.delivery.status === 'sent' ? 'Invitation sent ' + escapeHtml(when(st.delivery.delivered_at || bk.invited_at)) + ', not accepted yet' : st.delivery && st.delivery.status === 'failed' ? 'The invitation email could not be sent. Use Resend.' : st.delivery && st.delivery.status === 'not_configured' ? 'Recorded, but email is not configured here, so no invitation went out.' : 'Invitation recorded ' + escapeHtml(when(bk.invited_at)) + ', not accepted yet')) + '</div></div>'
       + '<div style="display:flex; gap:8px; flex-wrap:wrap;">'
       + (bk.status === 'pending' ? '<button class="btn btn-secondary" id="bookerResendBtn">Resend invitation</button>' : '')
       + '<button class="btn btn-ghost" id="bookerRevokeBtn" style="color:#a14e2a;">' + (bk.status === 'accepted' ? 'Revoke access' : 'Cancel invitation') + '</button></div></div>';
@@ -2346,7 +2346,8 @@ async function renderBookerCard() {
     d.disabled = true; const rr = await post({ action: 'booker-designate', email, name });
     d.disabled = false;
     if (!rr.ok) { msg(rr.body.message || rr.body.error || 'Could not send the invitation.', true); return; }
-    renderBookerCard();
+    await renderBookerCard();
+    if (rr.body && rr.body.delivery && rr.body.delivery.status !== 'sent') msg(rr.body.message || 'The invitation could not be sent. Use Resend.', true);
   });
   const rs = document.getElementById('bookerResendBtn');
   if (rs) rs.addEventListener('click', async () => { rs.disabled = true; const rr = await post({ action: 'booker-resend' }); rs.disabled = false; msg(rr.ok ? 'Invitation sent again.' : (rr.body.message || 'Could not resend.'), !rr.ok); });

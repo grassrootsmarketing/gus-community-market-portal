@@ -192,6 +192,8 @@ async function createBrandMagicLink(brand_id, email) {
 // brace closed nothing and made the whole module unparseable as ESM. node --check accepted it
 // (script goal); native `import()` did not. /api/booking has therefore been a dead route.
 
+// 0098 (Codex BC-2): the inputs of the policy hash, so the database can recompute it under lock with the same defaults.
+export const POLICY_HASH_INPUTS = Object.freeze({ default_demo_policy: DEFAULT_DEMO_POLICY, default_cancellation_policy: DEFAULT_CANCELLATION_POLICY, tos_version: DEMOHUB_TOS_VERSION });
 // 0097: the current agreement hash for a retailer, shared with api/book.js (a booker may book only under an active one).
 export async function currentAgreementHash(ret) {
   const dp = (ret && ret.demo_policy) || DEFAULT_DEMO_POLICY;

@@ -450,13 +450,17 @@ function bookerProfileView(p) {
     products: Array.isArray(p.products) ? p.products : [], products_version: Number.isInteger(p.products_version) ? p.products_version : null,
     default_categories: p.default_categories || '', default_product_info: p.default_product_info || '',
     coi_on_file: !!p.default_coi_url, coi_status: p.coi_verification_status || null, coi_expires: p.default_coi_expires || null,
-    owner_email: p.email || null, contact_name: p.contact_name || null, phone: p.phone || null };
+    // Codex BC-5: the owner's address is the ONE contact field a booker sees, so the portal can say whom to ask.
+    // No contact name, no phone, no certificate URL, no password or token fields.
+    owner_email: p.email || null };
 }
 function bookerDemoView(d, memberId) {
   if (!d) return null;
   return { id: d.id, booking_id: d.booking_id || null, retailer_id: d.retailer_id || null, venue_id: d.venue_id || null,
     demo_date: d.demo_date, demo_time: d.demo_time, duration_hours: d.duration_hours || null, status: d.status, product: d.product || null,
-    product_skus: Array.isArray(d.product_skus) ? d.product_skus : null, notes: d.notes || null,
+    product_skus: Array.isArray(d.product_skus) ? d.product_skus : null,
+    // Codex BC-5: free-text notes only on the booker's own demos.
+    notes: (memberId && d.booked_by_member_id && String(d.booked_by_member_id) === String(memberId)) ? (d.notes || null) : null,
     reschedule_to_date: d.reschedule_to_date || null, reschedule_to_time: d.reschedule_to_time || null,
     reschedule_proposal_version: d.reschedule_proposal_version ?? null, schedule_revision: d.schedule_revision ?? null,
     retailers: d.retailers ? { id: d.retailers.id, name: d.retailers.name, slug: d.retailers.slug } : null,
@@ -467,7 +471,7 @@ function bookerDemoView(d, memberId) {
 function bookerPendingView(b, memberId) {
   if (!b) return null;
   return { id: b.id, retailer_id: b.retailer_id, venue_id: b.venue_id, product: b.product || null, product_skus: Array.isArray(b.product_skus) ? b.product_skus : null,
-    demo_date: b.demo_date, demo_time: b.demo_time, status: b.status, payment_status: b.payment_status, held_expires_at: b.held_expires_at || null, created_at: b.created_at,
+    demo_date: b.demo_date, demo_time: b.demo_time, status: b.status, held_expires_at: b.held_expires_at || null, created_at: b.created_at,
     retailers: b.retailers ? { id: b.retailers.id, name: b.retailers.name, slug: b.retailers.slug } : null, venues: b.venues ? { id: b.venues.id, name: b.venues.name } : null,
     booked_by_me: !!(memberId && b.booked_by_member_id && String(b.booked_by_member_id) === String(memberId)) };
 }
@@ -1676,7 +1680,7 @@ export default async function handler(req, res) {
     const bookerRow = (m) => m ? ({ id: m.id, email: m.email, name: m.name || null, status: m.status, invited_at: m.created_at, accepted_at: m.accepted_at || null, revoked_at: m.revoked_at || null }) : null;
     async function sendBookerInvite(brandName, toEmail, token, inviterEmail) {
       const link = siteLink(_b, `/brand/accept?t=${encodeURIComponent(token)}`);
-      await sendMailQuietly({
+      return await sendMailQuietly({
         from: FROM_EMAIL, to: toEmail, replyTo: REPLY_TO,
         subject: `${brandName} asked you to book demos on Demohub`,
         html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;">
@@ -1688,12 +1692,25 @@ export default async function handler(req, res) {
         </div>`,
       }, { binding: _b });
     }
+    // 0098 (Codex BC-3): issued by booker_invite_issue under the membership lock (supersede + insert in one transaction).
     async function createInvite(member, brandId, email, byEmail) {
       const token = randomToken(32);
-      await sb(`brand_booker_invites?member_id=eq.${encodeURIComponent(member.id)}&used_at=is.null&superseded_at=is.null`, { method: 'PATCH', body: JSON.stringify({ superseded_at: new Date().toISOString() }) });
-      const r = await sb('brand_booker_invites', { method: 'POST', body: JSON.stringify({ member_id: member.id, brand_id: brandId, email, token_hash: inviteHash(token), expires_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), created_by_email: byEmail }) });
-      if (!r.ok) throw new Error('invite_insert_failed');
-      return token;
+      const r = await sb('rpc/booker_invite_issue', { method: 'POST', body: JSON.stringify({ p_member_id: member.id, p_brand_id: brandId, p_token_hash: inviteHash(token), p_ttl_hours: 24, p_by_email: byEmail }) });
+      if (!r.ok) throw new Error('invite_issue_failed');
+      const out = await r.json();
+      if (!out || out.outcome !== 'ok') throw new Error('invite_issue_' + ((out && out.outcome) || 'failed'));
+      return { token, inviteId: out.invite_id };
+    }
+    // 0098 (Codex BC-6): the invitation's delivery state is recorded and reported. "sent" means the provider accepted
+    // the message; it is never claimed to be inbox delivery.
+    async function deliverInvite(inviteId, brandName, toEmail, token, inviterEmail) {
+      let status = 'not_configured', detail = null;
+      if (_b.resendApiKey) {
+        try { const r = await sendBookerInvite(brandName, toEmail, token, inviterEmail); status = r && r.ok ? 'sent' : 'failed'; detail = r && !r.ok ? String(r.error || r.status || 'send_failed').slice(0, 120) : null; }
+        catch (e) { status = 'failed'; detail = String(e && e.message || e).slice(0, 120); }
+      }
+      try { await sb(`brand_booker_invites?id=eq.${encodeURIComponent(inviteId)}`, { method: 'PATCH', body: JSON.stringify({ delivery_status: status, delivery_detail: detail, delivered_at: status === 'sent' ? new Date().toISOString() : null }) }); } catch (_) {}
+      return { status, detail };
     }
 
     if (action === 'booker-status') {
@@ -1702,7 +1719,13 @@ export default async function handler(req, res) {
       const rows = await (await sb(`brand_members?brand_id=eq.${ctxB.brandId}&role=eq.booker&order=created_at.desc&select=id,email,name,status,created_at,accepted_at,revoked_at&limit=10`)).json();
       const list = Array.isArray(rows) ? rows : [];
       const live = list.find(m => m.status !== 'revoked') || null;
-      return jsonResp(res, 200, { ok: true, enabled: !!FLAGS.brandInviteEnabled, booker: bookerRow(live), history: list.filter(m => m.status === 'revoked').slice(0, 5).map(bookerRow), permissions: BOOKER_PERMISSIONS_TEXT });
+      let delivery = null;
+      if (live && live.status === 'pending') {
+        const inv = await (await sb(`brand_booker_invites?member_id=eq.${live.id}&used_at=is.null&superseded_at=is.null&order=created_at.desc&select=delivery_status,delivery_detail,delivered_at,expires_at&limit=1`)).json();
+        const i = Array.isArray(inv) ? inv[0] : null;
+        delivery = i ? { status: i.delivery_status || 'unknown', delivered_at: i.delivered_at || null, expires_at: i.expires_at } : { status: 'none' };
+      }
+      return jsonResp(res, 200, { ok: true, enabled: !!FLAGS.brandInviteEnabled, booker: bookerRow(live), delivery, history: list.filter(m => m.status === 'revoked').slice(0, 5).map(bookerRow), permissions: BOOKER_PERMISSIONS_TEXT });
     }
 
     if (action === 'booker-designate') {
@@ -1732,10 +1755,10 @@ export default async function handler(req, res) {
       if (!created.ok) return jsonResp(res, 503, { error: 'designate_unavailable' });
       const member = (await created.json())[0];
       const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
-      let token;
-      try { token = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.' , booker: bookerRow(member) }); }
-      if (_b.resendApiKey) await sendBookerInvite((brand && brand.company_name) || 'A brand', email, token, ctxB.email).catch(e => console.warn('booker invite email failed:', e && e.message));
-      return jsonResp(res, 200, { ok: true, booker: bookerRow(member) });
+      let inv;
+      try { inv = await createInvite(member, ctxB.brandId, email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable', message: 'The booker was recorded but the invitation could not be created. Use Resend.', booker: bookerRow(member), delivery: { status: 'none' } }); }
+      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', email, inv.token, ctxB.email);
+      return jsonResp(res, 200, { ok: true, booker: bookerRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent.' : delivery.status === 'failed' ? 'The booker is recorded but the invitation email could not be sent. Use Resend.' : 'The booker is recorded; email is not configured in this environment, so no invitation went out.' });
     }
 
     if (action === 'booker-resend') {
@@ -1748,10 +1771,10 @@ export default async function handler(req, res) {
       const member = Array.isArray(rows) ? rows[0] : null;
       if (!member) return jsonResp(res, 404, { error: 'no_pending_booker', message: 'There is no pending invitation to resend.' });
       const brand = (await (await sb(`brands?id=eq.${ctxB.brandId}&select=company_name`)).json())[0];
-      let token;
-      try { token = await createInvite(member, ctxB.brandId, member.email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable' }); }
-      if (_b.resendApiKey) await sendBookerInvite((brand && brand.company_name) || 'A brand', member.email, token, ctxB.email).catch(e => console.warn('booker invite email failed:', e && e.message));
-      return jsonResp(res, 200, { ok: true, booker: bookerRow(member) });
+      let inv;
+      try { inv = await createInvite(member, ctxB.brandId, member.email, ctxB.email); } catch (_) { return jsonResp(res, 503, { error: 'invite_unavailable' }); }
+      const delivery = await deliverInvite(inv.inviteId, (brand && brand.company_name) || 'A brand', member.email, inv.token, ctxB.email);
+      return jsonResp(res, 200, { ok: true, booker: bookerRow(member), delivery, message: delivery.status === 'sent' ? 'Invitation sent again.' : 'The invitation could not be sent. Try again in a few minutes.' });
     }
 
     if (action === 'booker-revoke') {
@@ -1773,22 +1796,24 @@ export default async function handler(req, res) {
     if (action === 'booker-accept-start') {
       const token = String(body.token || '').trim();
       if (!token || token.length < 16 || token.length > 128) return jsonResp(res, 400, { error: 'invalid_invite' });
-      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 30);
+      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 60);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
       const h = inviteHash(token);
-      const inv = (await (await sb(`brand_booker_invites?token_hash=eq.${encodeURIComponent(h)}&select=id,member_id,brand_id,email,expires_at,used_at,superseded_at&limit=1`)).json())[0];
-      if (!inv || inv.used_at || inv.superseded_at || new Date(inv.expires_at).getTime() <= Date.now()) return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation link is not valid any more. Ask the brand to send a new one.' });
-      const member = (await (await sb(`brand_members?id=eq.${encodeURIComponent(inv.member_id)}&select=id,status,role,email,name&limit=1`)).json())[0];
-      if (!member || member.role !== 'booker' || member.status !== 'pending') return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation is no longer open.' });
-      const rlTok = await checkRateLimitByKey('booker-accept-code:' + inv.id, 5);
+      const rlTok = await checkRateLimitByKey('booker-accept-code:' + h.slice(0, 32), 5);
       if (!rlTok.allowed) return jsonResp(res, 429, { error: 'too_many_requests', message: 'Too many codes requested for this invitation. Try again in an hour.' });
-      const brand = (await (await sb(`brands?id=eq.${inv.brand_id}&select=company_name`)).json())[0];
+      // 0098 (Codex BC-3): the code is bound to THIS invitation (hash stored on the invitation row, bounded attempts),
+      // set under the membership lock. A login code can never stand in for it.
       const code = generateLoginCode();
-      await sb('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: inv.brand_id, email: inv.email, token: code, expires_at: new Date(Date.now() + 30 * 60 * 1000).toISOString() }) });
-      if (_b.resendApiKey) await sendMailQuietly({ from: FROM_EMAIL, to: inv.email, replyTo: REPLY_TO, subject: 'Your Demohub code to accept booking access',
-        html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText((brand && brand.company_name) || 'a brand')}, ignore this email.</p></div>` }, { binding: _b }).catch(e => console.warn('booker code email failed:', e && e.message));
-      const masked = inv.email.replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
-      return jsonResp(res, 200, { ok: true, brand_name: (brand && brand.company_name) || 'this brand', email_hint: masked, booker_name: member.name || null, permissions: BOOKER_PERMISSIONS_TEXT });
+      const cr = await sb('rpc/booker_invite_code_set', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_code_hash: hashCode(h, 'booker_accept_code', code), p_ttl_minutes: 30 }) });
+      if (!cr.ok) return jsonResp(res, 503, { error: 'accept_unavailable' });
+      const set = await cr.json();
+      if (!set || set.outcome !== 'ok') return jsonResp(res, 410, { error: 'invite_not_valid', message: 'This invitation link is not valid any more. Ask the brand to send a new one.' });
+      if (!_b.resendApiKey) return jsonResp(res, 503, { error: 'mail_not_configured', message: 'The confirmation code could not be sent in this environment.' });
+      const sent = await sendMailQuietly({ from: FROM_EMAIL, to: set.email, replyTo: REPLY_TO, subject: 'Your Demohub code to accept booking access',
+        html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText(set.brand_name || 'a brand')}, ignore this email.</p></div>` }, { binding: _b });
+      if (!sent || !sent.ok) return jsonResp(res, 503, { error: 'code_not_sent', message: 'We could not send the confirmation code just now. Reload the page to try again.' });
+      const masked = String(set.email).replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
+      return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: BOOKER_PERMISSIONS_TEXT });
     }
 
     // Public: explicit acceptance. The code proves the address; booker_accept (0097) validates the invitation, marks it
@@ -1797,22 +1822,21 @@ export default async function handler(req, res) {
       const token = String(body.token || '').trim();
       const code = String(body.code || '').replace(/\D/g, '').trim();
       if (!token || token.length < 16 || token.length > 128 || code.length !== 6) return jsonResp(res, 400, { error: 'invite_and_code_required' });
-      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 30);
+      const rlIp = await checkRateLimit(req, 'booker-accept-ip', 60);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
       const h = inviteHash(token);
-      const inv = (await (await sb(`brand_booker_invites?token_hash=eq.${encodeURIComponent(h)}&select=id,brand_id,email,expires_at,used_at,superseded_at&limit=1`)).json())[0];
-      if (!inv || inv.used_at || inv.superseded_at || new Date(inv.expires_at).getTime() <= Date.now()) return jsonResp(res, 410, { error: 'invite_not_valid' });
-      const rlCode = await checkRateLimitByKey('booker-accept-verify:' + inv.id, 12);
+      const rlCode = await checkRateLimitByKey('booker-accept-verify:' + h.slice(0, 32), 12);
       if (!rlCode.allowed) return jsonResp(res, 429, { error: 'too_many_requests' });
-      const tR = await sb(`brand_account_tokens?token=eq.${encodeURIComponent(code)}&email=eq.${encodeURIComponent(inv.email)}&brand_id=eq.${inv.brand_id}&used_at=is.null&select=id,expires_at&order=created_at.desc&limit=1`);
-      const tok = (await tR.json())[0];
-      if (!tok) return jsonResp(res, 404, { error: 'invalid_code', message: 'That code is not right. Check the email we just sent.' });
-      if (new Date(tok.expires_at).getTime() < Date.now()) return jsonResp(res, 410, { error: 'code_expired' });
-      await sb(`brand_account_tokens?id=eq.${tok.id}`, { method: 'PATCH', body: JSON.stringify({ used_at: new Date().toISOString() }) });
+      // 0098 (Codex BC-3): booker_accept checks the invitation-bound code, consumes the invitation, accepts the
+      // membership and inserts the session in ONE transaction, membership locked first. Wrong codes are counted
+      // there; six of them supersede the invitation.
       const sessionToken = randomToken(32);
-      const rr = await sb('rpc/booker_accept', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_verified_email: inv.email, p_session_token: sessionToken, p_session_days: 30 }) });
+      const rr = await sb('rpc/booker_accept', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_code_hash: hashCode(h, 'booker_accept_code', code), p_session_token: sessionToken, p_session_days: 30, p_max_attempts: 6 }) });
       if (!rr.ok) return jsonResp(res, 503, { error: 'accept_unavailable' });
       const out = await rr.json();
+      if (out.outcome === 'invalid_code') return jsonResp(res, 404, { error: 'invalid_code', attempts_left: out.attempts_left, message: 'That code is not right. Check the email we just sent.' });
+      if (out.outcome === 'code_expired') return jsonResp(res, 410, { error: 'code_expired', message: 'That code has expired. Reload the page to get a new one.' });
+      if (out.outcome === 'too_many_attempts') return jsonResp(res, 410, { error: 'too_many_attempts', message: 'Too many wrong codes. Ask the brand to send a new invitation.' });
       if (out.outcome !== 'ok') return jsonResp(res, 410, { error: 'invite_not_valid', outcome: out.outcome, message: 'This invitation could not be accepted. Ask the brand to send a new one.' });
       setBrandSessionCookie(res, sessionToken);
       return jsonResp(res, 200, { ok: true, brand_id: out.brand_id });
