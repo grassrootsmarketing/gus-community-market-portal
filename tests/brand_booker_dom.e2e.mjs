@@ -168,6 +168,33 @@ try {
     ok('5c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
+  // 6. booker submits one demo: the server answers ok, the page must read it as success (2026-10-17 preview finding:
+  //    the sent-record line dereferenced a missing booking code and a good answer was shown as "result lost")
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
+    const bookBodies = []; const checkoutBodies = [];
+    await p.route('**/api/**', async (route) => {
+      const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
+      if (u.includes('find-retailer')) return json(route, { ok: true, retailer: { id: 'r1', slug: 'gus', name: "Gus's Community Market", timezone: 'America/Los_Angeles', verification_status: 'approved' }, venues: [{ id: 'v1', name: 'Mission Market', address: '1 St', demo_fee: 30, availability: { schedule: {}, blackouts: [] } }], settings: { demo_fee: 30, advance_booking_days: 14 }, accepting: true, name: "Gus's Community Market" });
+      if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, bookerData);
+      if (/\/api\/book(\?|$)/.test(u)) { bookBodies.push(body); return json(route, { ok: true, booking_id: 'bk1', status: 'pending_payment', items: 1 }); }
+      if (u.includes('/api/checkout')) { checkoutBodies.push(body); return json(route, { ok: true, skip: true }); }
+      return json(route, { ok: true, items: [], slots: [] });
+    });
+    await p.goto(`${BASE}/r/gus`, { waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(2200);
+    await p.evaluate((prods) => { window._brandProfile = Object.assign(window._brandProfile || {}, { products: prods }); cart = [{ id: 'c1', dateStr: '2027-01-05', displayDate: 'Jan 5', time: '9:00 AM', location: 'Mission Market', venueId: 'v1', price: 30 }]; window.__c1 = cart[0]; confirmBooking(); _renderBookProducts(window._brandProfile, {}); document.querySelectorAll('#bookSkuList input.book-sku').forEach((i, n) => { i.checked = n === 0; }); window._bookSkipCatalogSave = true; }, products);   // eslint-disable-line no-undef
+    await p.evaluate(() => actuallySubmitBookings());   // eslint-disable-line no-undef
+    await p.waitForTimeout(800);
+    const errText = await p.locator('#bookErrorMsg').innerText().catch(() => '');
+    const sent = await p.evaluate(() => (window.__c1 && window.__c1.sent) || null);   // a succeeded item leaves the cart, so read the handle kept before submitting
+    ok('6a. the booker\'s request is keyed by the cart item id and carries no booking code', bookBodies.length === 1 && bookBodies[0].op_key === 'c1' && bookBodies[0].booking_code === undefined, JSON.stringify(bookBodies[0] || null).slice(0, 200));
+    ok('6b. a good answer is read as success: no "could not confirm the result", and the booking goes to checkout', !/could not confirm/.test(errText) && checkoutBodies.length === 1 && JSON.stringify(checkoutBodies[0].booking_ids) === '["bk1"]', JSON.stringify({ errText: errText.slice(0, 120), checkout: checkoutBodies }));
+    ok('6c. what was sent is recorded for a retry, with the key and without a booking code', sent && sent.op_key === 'c1' && sent.booking_code === undefined && sent.demo_date === '2027-01-05', JSON.stringify(sent));
+    ok('6d. no page errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
 } finally { await browser.close(); }
 console.log(`\nbrand booker (DOM): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

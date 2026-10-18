@@ -2096,7 +2096,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 }),
             }).then(async resp => {
                 // Codex review 2 item 1: remember exactly what was sent, so an unknown outcome can be retried verbatim.
-                if (!item.frozen && (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id))) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: window._bookingCode.code, op_key: item.id };
+                if (!item.frozen && (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id))) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: (window._bookingCode && window._bookingCode.itemId === item.id) ? window._bookingCode.code : undefined, op_key: item.id };
                 const json = await resp.json().catch(() => ({}));
                 return { resp, json, item };
             }).catch(e => ({ error: e.message || String(e), item })));
