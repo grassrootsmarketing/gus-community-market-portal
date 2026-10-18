@@ -121,12 +121,12 @@ try {
   {
     const ctx = await browser.newContext({ viewport: { width: 1000, height: 900 } });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
-    const calls = [];
+    const calls = []; const acceptBodies = [];
     await p.route('**/api/**', async (route) => {
       let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
       calls.push(body.action);
       if (body.action === 'booker-accept-start') return json(route, { ok: true, brand_name: 'Fire Season Goods', email_hint: 'b**@fixture.test', booker_name: 'Bea Booker', permissions: 'A booker can book demos. A booker cannot add or change items, see payments or receipts.' });
-      if (body.action === 'booker-accept') return body.code === '123456' ? json(route, { ok: true, brand_id: 'b' }) : json(route, { error: 'invalid_code', message: 'That code is not right. Check the email we just sent.' }, 404);
+      if (body.action === 'booker-accept') { acceptBodies.push(body); if (body.terms_accepted !== true) return json(route, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' }, 400); return body.code === '123456' ? json(route, { ok: true, brand_id: 'b' }) : json(route, { error: 'invalid_code', message: 'That code is not right. Check the email we just sent.' }, 404); }
       return json(route, { error: 'nope' }, 400);
     });
     await p.goto(`${BASE}/brand/accept?t=abcdefghijklmnop0123456789`, { waitUntil: 'domcontentloaded' });
@@ -134,10 +134,13 @@ try {
     const txt = await p.locator('#form').innerText();
     ok('3a. the page shows the brand, the booker, the permissions and the masked email before any code', /Fire Season Goods/.test(txt) && /Bea Booker/.test(txt) && /cannot add or change items/.test(txt) && /b\*\*@fixture\.test/.test(txt), txt.slice(0, 200));
     ok('3b. opening the page called accept-start only (no accept, no login)', calls.join() === 'booker-accept-start', calls.join());
+    ok('3f. the Accept button stays disabled until the Terms of Service box is ticked, and the box names the brand', (await p.locator('#acceptBtn').isDisabled()) && /Fire Season Goods/.test(await p.locator('label[for="terms"]').innerText()) && /Terms of Service/.test(await p.locator('label[for="terms"]').innerText()));
+    await p.check('#terms');
     await p.fill('#code', '000000'); await p.click('#acceptBtn'); await p.waitForTimeout(500);
     ok('3c. a wrong code shows the server message and stays on the form', /not right/.test(await p.locator('#err').innerText()) && (await p.locator('#form').isVisible()));
     await p.fill('#code', '123456'); await p.click('#acceptBtn'); await p.waitForTimeout(500);
     ok('3d. the right code accepts and shows the done state', await p.locator('#done').isVisible());
+    ok('3g. every accept call carried terms_accepted: true', acceptBodies.length >= 2 && acceptBodies.every(b => b.terms_accepted === true), JSON.stringify(acceptBodies.map(b => b.terms_accepted)));
     ok('3e. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }

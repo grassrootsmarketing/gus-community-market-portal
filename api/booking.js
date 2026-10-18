@@ -20,7 +20,7 @@ const DEFAULT_DEMO_POLICY = 'Arrive 15 minutes before your slot to set up. Confi
 const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
 // Wave 7: include Demohub TOS in agreement scope (and hash) so brand explicitly
 // agrees to platform terms each time the conduct contract is signed.
-const DEMOHUB_TOS_VERSION = '2026-06-29';
+export const DEMOHUB_TOS_VERSION = '2026-06-29';   // also recorded on a booker's membership at acceptance (0101)
 // EXEMPT: this URL is stored on the signed brand_retailer_agreements record as evidence of what
 // the brand agreed to. Making it environment-relative would write a staging URL into a legal
 // record, and the terms a brand accepted are the ones published at the real address.

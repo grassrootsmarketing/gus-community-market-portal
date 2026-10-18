@@ -1,9 +1,9 @@
-// tools/rehearse-booker-paste.mjs (2026-10-17): rehearsal of the combined 0097 + 0098 + 0100 booker paste on demohub-rebuild-check ONLY.
+// tools/rehearse-booker-paste.mjs (2026-10-17): rehearsal of the combined 0097 + 0098 + 0100 + 0101 booker paste on demohub-rebuild-check ONLY.
 // Three guard refusals, each proven to leave the database exactly as it was (a fingerprint of the ledger, the
 // membership columns and indexes, the invites table and the attribution columns is taken before and after):
 //   1. the production-identity guard (this database is not production)
-//   2. the "0097, 0098 or 0100 already in the ledger" guard (identity relaxed to this database's, all present here)
-//   3. a forced failure inside the body: with the ledger rows for 0097 to 0100 temporarily absent inside a transaction that is
+//   2. the "0097, 0098, 0100 or 0101 already in the ledger" guard (identity relaxed to this database's, all present here)
+//   3. a forced failure inside the body: with the ledger rows for 0097 to 0101 temporarily absent inside a transaction that is
 //      rolled back, the paste reaches the migration's own precondition and stops when a non-owner membership row is
 //      planted, leaving nothing behind
 // The forward run itself happened on this database when 0097 and 0098 were applied here (see the ledger rows).
@@ -38,13 +38,13 @@ ok('1b nothing changed', (await fp()) === before);
 
 // 2. already-applied guard (identity relaxed)
 try { await c.query('begin'); await c.query(kitFor(env)); await c.query('rollback'); ok('2 already-applied guard', false, 'paste ran'); }
-catch (e) { await c.query('rollback'); ok('2 with the identity relaxed, the "0097, 0098 or 0100 already in the ledger" guard refuses: ' + e.message.split('\n')[0].slice(0, 80), /0097, 0098 or 0100 is already in the ledger/.test(e.message)); }
+catch (e) { await c.query('rollback'); ok('2 with the identity relaxed, the "0097, 0098, 0100 or 0101 already in the ledger" guard refuses: ' + e.message.split('\n')[0].slice(0, 80), /0097, 0098, 0100 or 0101 is already in the ledger/.test(e.message)); }
 ok('2b nothing changed', (await fp()) === before);
 
 // 3. forced failure inside the body, everything rolled back
 try {
   await c.query('begin');
-  await c.query(`delete from supabase_migrations.schema_migrations where version in ('0097','0098','0100')`);
+  await c.query(`delete from supabase_migrations.schema_migrations where version in ('0097','0098','0100','0101')`);
   // the objects exist here, so the object guards would refuse; strip them to reach the body's own precondition
   const body = kitFor(env).replace(/IF n <> 0 THEN RAISE EXCEPTION 'CUTOVER GUARD: brand_members already has[^\n]*\n/, '').replace(/IF to_regclass\('public\.brand_booker_invites'\) IS NOT NULL[^\n]*\n/, '').replace(/IF n <> 0 THEN RAISE EXCEPTION 'CUTOVER GUARD: % attribution column\(s\)[^\n]*\n/, '');
   // plant a non-owner membership row so the migration's first precondition fires
@@ -59,5 +59,5 @@ try {
 } catch (e) { await c.query('rollback'); ok('3 forced failure rehearsal ran', false, e.message); }
 ok('3b nothing changed after the rolled-back rehearsal', (await fp()) === before);
 await c.end();
-console.log(`\nbooker paste (0097 + 0098 + 0100) rehearsal: ${pass} passed, ${fail} failed`);
+console.log(`\nbooker paste (0097 + 0098 + 0100 + 0101) rehearsal: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

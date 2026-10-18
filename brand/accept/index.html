@@ -41,7 +41,11 @@
     <p>We sent a 6-digit code to <strong id="emailHint"></strong>. Enter it below. The code expires in 30 minutes.</p>
     <label for="code">Your code</label>
     <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="------">
-    <button class="btn" id="acceptBtn">Accept and sign in</button>
+    <label for="terms" style="display:flex; gap:10px; align-items:flex-start; margin:14px 0 12px; font-size:0.92rem; line-height:1.45; cursor:pointer;">
+      <input id="terms" type="checkbox" style="margin-top:3px; flex-shrink:0;">
+      <span>I accept <a href="/terms" target="_blank" rel="noopener">Demohub's Terms of Service</a>. I understand that demos I book are made in <span id="brandName4">this brand</span>'s name, under its insurance and its agreements with each store, which the brand account owner manages.</span>
+    </label>
+    <button class="btn" id="acceptBtn" disabled>Accept and sign in</button>
     <div class="err" id="err"></div>
     <p class="muted" style="margin-top:16px;">Accepting creates your own sign-in for this brand's booking. It does not give you access to the brand's payments, receipts, products, profile or insurance documents. The brand can revoke this at any time. If you were not expecting this, close the page and nothing happens.</p>
   </div>
@@ -63,6 +67,8 @@
     $('brandName').textContent = b.brand_name || 'this brand';
     $('brandName2').textContent = b.brand_name || 'This brand';
     $('brandName3').textContent = b.brand_name || 'this brand';
+    $('brandName4').textContent = b.brand_name || 'this brand';
+    $('terms').addEventListener('change', () => { $('acceptBtn').disabled = !$('terms').checked; });
     $('who').textContent = b.booker_name ? b.booker_name : 'you';
     $('perm').textContent = b.permissions || '';
     $('emailHint').textContent = b.email_hint || 'your email';
@@ -73,8 +79,9 @@
     const code = ($('code').value || '').replace(/\D/g, '');
     const err = $('err'); err.style.display = 'none';
     if (code.length !== 6) { err.textContent = 'Enter the 6-digit code from your email.'; err.style.display = 'block'; return; }
+    if (!$('terms').checked) { err.textContent = 'Tick the box to accept Demohub\'s Terms of Service.'; err.style.display = 'block'; return; }
     $('acceptBtn').disabled = true; $('acceptBtn').textContent = 'Checking';
-    const r = await post({ action: 'booker-accept', token, code }).catch(() => ({ ok: false, body: {} }));
+    const r = await post({ action: 'booker-accept', token, code, terms_accepted: true }).catch(() => ({ ok: false, body: {} }));
     if (!r.ok) {
       $('acceptBtn').disabled = false; $('acceptBtn').textContent = 'Accept and sign in';
       err.textContent = (r.body && r.body.message) || (r.status === 404 ? 'That code is not right. Check the email we just sent.' : 'Something went wrong. Try again, or ask the brand for a new invitation.');
