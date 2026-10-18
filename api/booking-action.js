@@ -752,7 +752,7 @@ export default async function handler(req, res) {
         subject = `Update on your ${retailer?.name || 'demo'} request`;
         htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
-        subject = `Your ${retailer?.name || 'demo'} was cancelled`;
+        subject = `Your demo at ${retailer?.name || 'the store'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       }
       emailOk = true;

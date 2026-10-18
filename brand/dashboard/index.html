@@ -518,6 +518,7 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 <div id="bookerBand" style="display:none;"></div>
+<div id="agreementBand" style="display:none;"></div>
 <div id="persistentCoiNudge" style="display:none;"></div>
 <main class="container" id="mainContent">
   <div class="loading">
@@ -781,6 +782,8 @@ document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (
 // ===== Render dispatch =====
 function render() {
   if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();   // every role, every tab, before any early return
+  if (window._brandRole !== 'booker' && typeof ensureAgreementState === 'function') ensureAgreementState();   // owner: store agreements (band + Retailers pills)
+  if (typeof updateAgreementBand === 'function') updateAgreementBand();
   if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
   if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
   if (_currentTab === 'overview') renderOverview();
@@ -1456,6 +1459,7 @@ function renderRetailers() {
           <div class="retailer-info">
             <div class="retailer-name-row"><span class="retailer-name">${escapeHtml(r.name)}</span>${badge}</div>
             <div class="retailer-meta">${meta}</div>
+            <div class="retailer-agreement" data-retailer-id="${escapeHtml(r.id)}" data-slug="${escapeHtml(r.slug || '')}" data-name="${escapeHtml(r.name)}"></div>
             ${url ? `<div style="margin-top:6px; font-size:0.82rem; color:var(--ink-500); word-break:break-all;">${escapeHtml(url)}</div>` : ''}
           </div>
           ${url ? `<div style="display:flex; gap:8px; flex-shrink:0; align-items:center; flex-wrap:wrap;">
@@ -1465,6 +1469,7 @@ function renderRetailers() {
         </div>`;
       }).join('')}
     </div>`;
+  if (window._brandRole !== 'booker') decorateRetailerAgreements();
   main.querySelectorAll('.btn-copy-link').forEach(btn => {
     btn.addEventListener('click', async () => {
       try {
@@ -2215,8 +2220,10 @@ async function renderAgreements() {
     else if (a.is_expired) { status = 'Expired'; statusColor = '#a01818'; statusBg = '#fdebe5'; }
     else if (!a.is_current_policy) { status = 'Re-sign needed'; statusColor = '#a14e2a'; statusBg = '#fff3ed'; }
     else { status = 'Active'; statusColor = '#1f4a26'; statusBg = '#e3edd6'; }
+    // the owner re-agrees from here when the agreement is live but expired or behind the store's current policies
+    const needsAction = window._brandRole !== 'booker' && a.is_active && (a.is_expired || !a.is_current_policy) && ret.slug;
     return `
-      <details style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; margin-bottom:12px; padding:0; overflow:hidden;">
+      <details${needsAction ? ' open' : ''} style="background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; margin-bottom:12px; padding:0; overflow:hidden;">
         <summary style="padding:18px 22px; display:flex; align-items:center; gap:14px; cursor:pointer; list-style:none;">
           <div style="flex:1; min-width:0;">
             <div style="font-weight:700; color:var(--forest-900); font-size:1.02rem;">${escapeHtml(ret.name || 'Unknown retailer')}</div>
@@ -2225,6 +2232,7 @@ async function renderAgreements() {
           <span style="background:${statusBg}; color:${statusColor}; padding:4px 12px; border-radius:99px; font-size:0.74rem; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; flex-shrink:0;">${status}</span>
         </summary>
         <div style="padding:0 22px 22px;">
+          ${needsAction ? `<div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; background:#fff3ed; border:1px solid #ed682f44; border-radius:10px; padding:12px 14px; margin-bottom:12px; font-size:0.88rem; color:#a14e2a; line-height:1.45;"><span style="flex:1; min-width:200px;">${a.is_expired ? 'This agreement has expired.' : 'This store has updated its policies since you agreed.'} Agree to the current policies to keep booking there.</span><button type="button" class="js-agree-store" data-slug="${escapeHtml(ret.slug)}" data-name="${escapeHtml(ret.name || 'this store')}" style="background:var(--forest-900,#1f4a26); color:#fff; border:none; border-radius:8px; padding:9px 14px; font-weight:700; font-size:0.86rem; cursor:pointer; font-family:inherit;">Review and agree</button></div>` : ''}
           <div style="background:#f9f7f2; border-radius:10px; padding:14px 18px; margin-bottom:10px;">
             <div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin-bottom:6px;">Demo policy (as signed)</div>
             <div style="font-size:0.88rem; line-height:1.55; color:var(--ink-700); white-space:pre-wrap;">${escapeHtml(a.demo_policy_snapshot || '(blank)')}</div>
@@ -2238,6 +2246,128 @@ async function renderAgreements() {
     `;
   }).join('');
   document.getElementById('agreementsList').innerHTML = html;
+  document.querySelectorAll('#agreementsList .js-agree-store').forEach(b => b.addEventListener('click', () => openStoreAgreement(b.dataset.slug, b.dataset.name)));
+}
+
+// ===== Store agreements from the dashboard (2026-10-17) =====
+// The owner agrees, or agrees again, to a store's policies here instead of inside a booking form. State comes from
+// agreement-list (one active row per store at most); the booking gate stays authoritative (agreement-check / -sign).
+let _agreementState = null, _agreementStatePromise = null;
+async function ensureAgreementState(force) {
+  if (window._brandRole === 'booker') return null;
+  if (!force && (_agreementState || _agreementStatePromise)) return _agreementStatePromise || _agreementState;
+  _agreementStatePromise = (async () => {
+    try {
+      const r = await fetch('/api/brand-account?action=agreement-list', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'agreement-list' }), credentials: 'same-origin' });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'agreement-list failed');
+      const byRetailer = {};
+      for (const a of (j.agreements || [])) {
+        if (!a.is_active || !a.retailer_id) continue;
+        if (byRetailer[a.retailer_id]) continue;   // newest first, keep the first
+        const ret = a.retailers || {};
+        byRetailer[a.retailer_id] = { state: a.is_expired ? 'expired' : (!a.is_current_policy ? 'changed' : 'ok'), slug: ret.slug || '', name: ret.name || 'this store', expires_at: a.expires_at || null };
+      }
+      _agreementState = { byRetailer, loaded_at: Date.now() };
+    } catch (_) { _agreementState = { byRetailer: {}, unavailable: true, loaded_at: Date.now() }; }
+    _agreementStatePromise = null;
+    updateAgreementBand();
+    decorateRetailerAgreements();
+    return _agreementState;
+  })();
+  return _agreementStatePromise;
+}
+function agreementNeedFor(retailerId) {
+  if (!_agreementState) return null;
+  return _agreementState.byRetailer[retailerId] || { state: _agreementState.unavailable ? 'unknown' : 'none' };
+}
+function agreementNeedCopy(need) {
+  if (!need) return '';
+  if (need.state === 'ok') return 'Store policies agreed';
+  if (need.state === 'expired') return 'Your agreement with this store has expired';
+  if (need.state === 'changed') return 'This store updated its policies since you agreed';
+  if (need.state === 'none') return 'Store policies not agreed yet';
+  return '';
+}
+function decorateRetailerAgreements() {
+  if (window._brandRole === 'booker' || !_agreementState) return;
+  document.querySelectorAll('.retailer-agreement').forEach(el => {
+    const need = agreementNeedFor(el.dataset.retailerId); const copy = agreementNeedCopy(need);
+    if (!copy) { el.innerHTML = ''; return; }
+    const ok = need.state === 'ok'; const slug = el.dataset.slug || (need && need.slug) || ''; const name = el.dataset.name || (need && need.name) || 'this store';
+    el.innerHTML = '<div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-top:8px;">'
+      + '<span style="display:inline-flex; align-items:center; gap:6px; font-size:0.8rem; font-weight:600; color:' + (ok ? '#1f4a26' : '#a14e2a') + ';">' + (ok ? '&#10003; ' : '') + escapeHtml(copy) + '</span>'
+      + (!ok && slug ? '<button type="button" class="js-agree-store" data-slug="' + escapeHtml(slug) + '" data-name="' + escapeHtml(name) + '" style="background:transparent; border:1.5px solid #ed682f88; color:#a14e2a; border-radius:8px; padding:5px 11px; font-weight:700; font-size:0.8rem; cursor:pointer; font-family:inherit;">Review and agree</button>' : '')
+      + '</div>';
+    const b = el.querySelector('.js-agree-store'); if (b) b.addEventListener('click', () => openStoreAgreement(b.dataset.slug, b.dataset.name));
+  });
+}
+function updateAgreementBand() {
+  const band = document.getElementById('agreementBand'); if (!band) return;
+  if (window._brandRole === 'booker' || !_agreementState) { band.style.display = 'none'; return; }
+  const needs = Object.values(_agreementState.byRetailer).filter(n => n.state === 'expired' || n.state === 'changed');
+  if (!needs.length) { band.style.display = 'none'; band.innerHTML = ''; return; }
+  const first = needs[0];
+  const text = needs.length === 1
+    ? (first.state === 'expired' ? '<strong>' + escapeHtml(first.name) + '</strong>: your agreement to its policies has expired.' : '<strong>' + escapeHtml(first.name) + '</strong> updated its policies since you agreed.')
+    : needs.length + ' of your stores need you to agree to their current policies: ' + needs.map(n => escapeHtml(n.name)).join(', ') + '.';
+  band.innerHTML = '<div style="padding:10px 0; background:#fff3ed; border-bottom:1px solid #ed682f44;">'
+    + '<div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; max-width:1440px; margin:0 auto; padding:0 24px; font-size:0.92rem; line-height:1.45; color:#a14e2a;">'
+    + '<span style="flex:1; min-width:240px;">' + text + ' Agree before your next booking there; a booking form will otherwise stop you' + (window._brandRole === 'owner' ? ' and your designated booker' : '') + '.</span>'
+    + (needs.length === 1 && first.slug ? '<button type="button" id="agreementBandBtn" style="background:var(--forest-900,#1f4a26); color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:0.86rem; cursor:pointer; font-family:inherit;">Review and agree</button>' : '<a href="#retailers" onclick="switchTab(\'retailers\'); return false;" style="color:#a14e2a; font-weight:700;">Open Retailers &rarr;</a>')
+    + '</div></div>';
+  band.style.display = 'block';
+  const b = document.getElementById('agreementBandBtn'); if (b) b.onclick = () => openStoreAgreement(first.slug, first.name);
+}
+// The signature modal: the store's current policies in one scroll box (the checkbox unlocks at the end, or at once
+// when the text fits), a typed name, then agreement-sign. Same rules as the booking page's modal.
+async function openStoreAgreement(slug, name) {
+  if (!slug) return;
+  let j = null;
+  try { const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-check', retailer_slug: slug }) }); j = await r.json(); } catch (_) { j = null; }
+  if (!j) { alert('The store\'s policies could not be loaded right now. Try again in a moment.'); return; }
+  if (j.has_active) { await ensureAgreementState(true); render(); return; }
+  const pol = j.policies || {}; const rn = pol.retailer_name || name || 'this store';
+  const old = document.getElementById('dhAgreementOverlay'); if (old) old.remove();
+  const ov = document.createElement('div'); ov.id = 'dhAgreementOverlay';
+  ov.style.cssText = 'position:fixed; inset:0; background:rgba(15,44,23,0.55); z-index:10010; display:flex; align-items:center; justify-content:center; padding:20px;';
+  ov.innerHTML = '<div role="dialog" aria-modal="true" aria-labelledby="dhAgreementTitle" style="background:#fff; border-radius:16px; max-width:560px; width:100%; max-height:calc(100vh - 40px); overflow-y:auto; box-shadow:0 24px 60px rgba(15,44,23,0.32); font-family:inherit;">'
+    + '<div style="padding:26px 28px 14px;"><div style="font-size:0.72rem; font-weight:800; text-transform:uppercase; letter-spacing:0.14em; color:#ed682f; margin-bottom:8px;">Store policies</div>'
+    + '<h2 id="dhAgreementTitle" style="font-size:1.35rem; font-weight:800; color:#0f2c17; margin:0 0 10px; letter-spacing:-0.02em;">Agree to ' + escapeHtml(rn) + '\'s policies</h2>'
+    + '<div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">Read the store\'s demo and cancellation policies below. Your agreement covers every demo your brand books there, including demos made by your designated booker, until the store changes its policies or a year passes.</div></div>'
+    + '<div style="padding:0 28px;"><div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:6px;"><div style="font-size:0.74rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em;">Demo and cancellation policies</div><button type="button" id="dhAgreementJump" style="background:transparent; border:1px solid rgba(15,44,23,0.18); color:#2a5b32; border-radius:999px; padding:4px 12px; font-family:inherit; font-size:0.78rem; font-weight:700; cursor:pointer;">Scroll to the end &darr;</button></div>'
+    + '<div id="dhAgreementBox" tabindex="0" style="background:#f9f7f2; border:1px solid rgba(15,44,23,0.1); border-radius:10px; padding:14px 16px; max-height:260px; overflow-y:auto; font-size:0.88rem; line-height:1.55; color:#3a3a36;">'
+    + '<div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Demo policy</div><div id="dhAgreementDemo" style="white-space:pre-wrap; margin:0 0 14px;"></div>'
+    + '<div style="font-size:0.7rem; font-weight:700; color:#a14e2a; text-transform:uppercase; letter-spacing:0.1em; margin:0 0 6px;">Cancellation policy</div><div id="dhAgreementCancel" style="white-space:pre-wrap;"></div></div>'
+    + '<div id="dhAgreementHint" style="font-size:0.78rem; color:#6b6a64; margin:6px 0 14px;">Scroll through the policies to enable the checkbox.</div>'
+    + '<label style="display:block; margin-bottom:10px;"><span style="display:block; font-size:0.85rem; font-weight:600; color:#0f2c17; margin-bottom:6px;">Type your full name to sign</span><input id="dhAgreementName" type="text" autocomplete="name" placeholder="e.g., Jordan Garcia" style="width:100%; padding:11px 14px; border:1.5px solid rgba(15,44,23,0.15); border-radius:10px; font-size:0.95rem; font-family:inherit; box-sizing:border-box;"></label>'
+    + '<label style="display:flex; gap:10px; align-items:flex-start; margin-bottom:18px; cursor:pointer; font-size:0.9rem; line-height:1.45; color:#3a3a36;"><input id="dhAgreementCheck" type="checkbox" disabled style="margin-top:3px; flex-shrink:0;"><span>I agree, on behalf of my brand, to follow this store\'s demo conduct and cancellation policies on every demo booked at its stores, and to <a href="/terms" target="_blank" rel="noopener" style="color:#2a5b32; font-weight:600;">Demohub\'s Terms of Service</a>.</span></label>'
+    + '<div id="dhAgreementErr" style="display:none; background:#fdebe5; border-left:3px solid #c93030; padding:10px 14px; border-radius:8px; font-size:0.85rem; color:#a01818; margin-bottom:14px;"></div></div>'
+    + '<div style="padding:16px 28px 22px; display:flex; gap:10px; justify-content:flex-end; border-top:1px solid rgba(15,44,23,0.06); background:#fbfaf6; border-radius:0 0 16px 16px;"><button type="button" id="dhAgreementCancelBtn" style="background:transparent; color:#6b6a64; border:none; padding:11px 18px; font-family:inherit; font-weight:600; font-size:0.92rem; cursor:pointer; border-radius:8px;">Not now</button><button type="button" id="dhAgreementOk" style="background:#0f2c17; color:#fff; border:none; padding:11px 22px; font-family:inherit; font-weight:700; font-size:0.92rem; cursor:pointer; border-radius:10px;">Agree and sign</button></div></div>';
+  document.body.appendChild(ov);
+  document.getElementById('dhAgreementDemo').textContent = pol.demo_policy || '';
+  document.getElementById('dhAgreementCancel').textContent = pol.cancellation_policy || '';
+  const box = document.getElementById('dhAgreementBox'), cb = document.getElementById('dhAgreementCheck'), hint = document.getElementById('dhAgreementHint'), jump = document.getElementById('dhAgreementJump'), err = document.getElementById('dhAgreementErr');
+  let read = false;
+  const onScroll = () => { if (read) return; if (box.scrollHeight - box.scrollTop - box.clientHeight > 8) return; read = true; cb.disabled = false; jump.disabled = true; jump.textContent = 'You reached the end'; hint.textContent = 'Policies read. Type your name and tick the box to sign.'; };
+  box.addEventListener('scroll', onScroll); jump.onclick = () => { box.scrollTop = box.scrollHeight; onScroll(); }; requestAnimationFrame(onScroll);
+  const close = () => ov.remove();
+  document.getElementById('dhAgreementCancelBtn').onclick = close; ov.addEventListener('click', e => { if (e.target === ov) close(); });
+  document.getElementById('dhAgreementOk').onclick = async () => {
+    const nm = (document.getElementById('dhAgreementName').value || '').trim(); err.style.display = 'none';
+    if (nm.length < 2) { err.textContent = 'Please type your full name (used as your signature).'; err.style.display = 'block'; return; }
+    if (!read) { err.textContent = 'Please scroll through the policies first (use "Scroll to the end").'; err.style.display = 'block'; return; }
+    if (!cb.checked) { err.textContent = 'Please tick the box to agree.'; err.style.display = 'block'; return; }
+    const okBtn = document.getElementById('dhAgreementOk'); okBtn.disabled = true; okBtn.textContent = 'Signing';
+    try {
+      const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-sign', retailer_slug: slug, signed_name: nm }) });
+      const jj = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(jj.message || jj.error || ('HTTP ' + r.status));
+      close();
+      await ensureAgreementState(true);
+      render();
+    } catch (e) { okBtn.disabled = false; okBtn.textContent = 'Agree and sign'; err.textContent = 'Could not record your agreement: ' + (e.message || e); err.style.display = 'block'; }
+  };
 }
 
 // Payments and receipts (2026-10-11): the ledger's settled payment groups for this brand, newest first.

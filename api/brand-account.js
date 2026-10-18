@@ -20,6 +20,7 @@ import {
   readCookies as parseCookies,
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
+import { currentAgreementHash } from './booking.js';   // the booking gate's formula (policies + terms version), one definition
 let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
@@ -980,7 +981,7 @@ export default async function handler(req, res) {
       const enriched = [];
       for (const r of (rows || [])) {
         const ret = r.retailers || {};
-        const curHash = await sha256Hex((ret.demo_policy || DEFAULT_DEMO_POLICY) + '\n---\n' + (ret.cancellation_policy || DEFAULT_CANCELLATION_POLICY));
+        const curHash = await currentAgreementHash(ret);   // was a second formula without the terms version: every row read as out of date
         enriched.push({
           ...r,
           is_active: !r.superseded_at,

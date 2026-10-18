@@ -549,7 +549,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                      (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
                 <div class="form-group" id="bookContactPhoneGroup"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
-                <div class="form-group" id="bookBookerNote" style="display:none; font-size:0.86rem; line-height:1.5; color:var(--ink-600);">You are booking as the brand's designated booker. The store receives the brand's contact name and phone from the brand profile, plus your email above.</div>
+                <div class="form-group" id="bookBookerNote" style="display:none; font-size:0.86rem; line-height:1.5; color:var(--ink-600);">You are booking as the brand's designated booker. The store receives the brand's contact name and phone from the brand profile, plus your email above. <a href="#" onclick="return openStorePoliciesReadOnly()" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Read this store's policies</a></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div id="bookCoiCard" style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
                         <div id="bookCoiHead" style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
@@ -1804,7 +1804,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (j.policies && j.policies.can_sign === false) {
                     const rn0 = (j.policies && j.policies.retailer_name) || 'this store';
                     const owner = (window._brandProfile && window._brandProfile.owner_email) || 'the brand account owner';
-                    _showSkuError('The brand account owner (' + owner + ') needs to agree to ' + rn0 + '\'s policies once before you can book here. Ask them to open this store\'s page and agree, then try again.');
+                    const brandNm = (window._brandProfile && window._brandProfile.company_name) || 'our brand';
+                    const mailto = 'mailto:' + encodeURIComponent(owner) + '?subject=' + encodeURIComponent('Please agree to ' + rn0 + '\'s policies on Demohub') + '&body=' + encodeURIComponent('Hi,\n\nI tried to book a demo at ' + rn0 + ' for ' + brandNm + ' and Demohub needs the brand account owner to agree to the store\'s current policies first. Please sign in to the brand portal, open Retailers, and click "Review and agree" next to ' + rn0 + '. Then I can book.\n\nThanks');
+                    _showSkuErrorHtml('The brand account owner (' + escapeHtml(owner) + ') needs to agree to ' + escapeHtml(rn0) + '\'s policies once before you can book here. '
+                        + '<a href="' + mailto.replace(/"/g, '&quot;') + '" style="color:inherit; font-weight:700; text-decoration:underline;">Email the owner</a> &middot; '
+                        + '<a href="#" onclick="return openStorePoliciesReadOnly()" style="color:inherit; font-weight:700; text-decoration:underline;">Read the policies</a>');
                     return { needsSigning: true, ownerOnly: true };
                 }
                 // Need signing , populate modal with policies
@@ -1867,7 +1871,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             agreementOnScroll();
         }
         function openAgreementModal() { document.getElementById('agreementModal').style.display = 'flex'; agreementResetScroll(); }
-        function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; }
+        function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; if (window._agreementReadOnly) { window._agreementReadOnly = false; _setAgreementReadOnly(false); } }
         async function confirmAgreementAndBook() {
             const name = document.getElementById('agreementSignedName').value.trim();
             const checked = document.getElementById('agreementCheckbox').checked;
@@ -2530,6 +2534,33 @@ function supportMailto(a) {
         }
         function _showSkuError(msg) {
             const el = document.getElementById('bookSkuError'); if (el) { el.textContent = msg; el.style.display = 'block'; el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        // same box, but the caller built safe HTML (escaped text plus links)
+        function _showSkuErrorHtml(html) {
+            const el = document.getElementById('bookSkuError'); if (el) { el.innerHTML = html; el.style.display = 'block'; el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        // 0097: a booker cannot sign, but can read the store's current policies in the same modal, read-only.
+        window._agreementReadOnly = false;
+        async function openStorePoliciesReadOnly() {
+            let j = null;
+            try { const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-check', retailer_slug: RETAILER_SLUG }) }); j = await r.json(); } catch (_) { j = null; }
+            const pol = (j && j.policies) || {};
+            document.getElementById('agreementDemoPolicy').textContent = pol.demo_policy || 'The store\'s demo policy could not be loaded right now.';
+            document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
+            document.getElementById('agreementRetailerLabel').textContent = (pol.retailer_name || 'This store') + '\'s policies';
+            window._agreementReadOnly = true;
+            _setAgreementReadOnly(true);
+            openAgreementModal();
+            return false;
+        }
+        function _setAgreementReadOnly(on) {
+            const nameEl = document.getElementById('agreementSignedName'), cb = document.getElementById('agreementCheckbox'), okBtn = document.getElementById('agreementConfirmBtn'), cancelBtn = document.getElementById('agreementCancelBtn'), hint = document.getElementById('agreementScrollHint');
+            const nameLabel = nameEl && nameEl.closest('label'), cbLabel = cb && cb.closest('label');
+            if (nameLabel) nameLabel.style.display = on ? 'none' : '';
+            if (cbLabel) cbLabel.style.display = on ? 'none' : '';
+            if (okBtn) okBtn.style.display = on ? 'none' : '';
+            if (hint) hint.style.display = on ? 'none' : '';
+            if (cancelBtn) cancelBtn.textContent = on ? 'Close' : 'Cancel';
         }
         function _renderBookProducts(bp, opts) {
             const grp = document.getElementById('bookSkuGroup'), list = document.getElementById('bookSkuList'), wrap = document.getElementById('bookNewItems');

@@ -78,6 +78,7 @@ try {
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
+    let signedCurrent = false; const agreementCalls = [];
     let designated = null; let status = { ok: true, enabled: true, booker: null, history: [], permissions: 'A booker can book demos for this brand, pick from its saved items, and see its demos. A booker cannot add or change items, see payments or receipts, change the profile or insurance certificate, or agree to a store\'s policies.' };
     await p.route('**/api/**', async (route) => {
       const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
@@ -86,6 +87,9 @@ try {
       if (action === 'booker-status') return json(route, status);
       if (action === 'booker-designate') { designated = body; status = { ...status, booker: { id: 'm9', email: body.email, name: body.name || null, status: 'pending', invited_at: new Date().toISOString() } }; return json(route, { ok: true, booker: status.booker }); }
       if (action === 'claim-status') return json(route, { ok: true, claimed: true, verified: true, email: 'kyle@fixture.test' });
+      if (action === 'agreement-list') return json(route, { ok: true, agreements: [{ id: 'ag1', retailer_id: 'r1', signed_at: '2026-10-03T01:40:35Z', expires_at: '2027-10-03T01:40:35Z', signed_name: 'Kyle', policy_hash: signedCurrent ? 'cur' : 'old', demo_policy_snapshot: 'old text', cancellation_policy_snapshot: 'old cancel', superseded_at: null, is_active: true, is_expired: false, is_current_policy: signedCurrent, retailers: { id: 'r1', name: "Gus's Community Market", slug: 'gus', demo_policy: 'New demo policy text', cancellation_policy: 'New cancel text' } }] });
+      if (action === 'agreement-check') { agreementCalls.push('check'); return json(route, { ok: true, has_active: signedCurrent, needs_re_sign: !signedCurrent, reason: signedCurrent ? undefined : 'policy_changed', policies: { demo_policy: 'New demo policy text', cancellation_policy: 'New cancel text', retailer_name: "Gus's Community Market", can_sign: true } }); }
+      if (action === 'agreement-sign') { agreementCalls.push('sign:' + body.retailer_slug + ':' + body.signed_name); signedCurrent = true; return json(route, { ok: true }); }
       return json(route, { ok: true, agreements: [], items: [], members: [] });
     });
     await p.goto(`${BASE}/brand/dashboard#account`, { waitUntil: 'domcontentloaded' });
@@ -96,6 +100,20 @@ try {
     await p.evaluate(() => { document.getElementById('bookerEmail').value = 'Bea@Fixture.test'; document.getElementById('bookerName').value = 'Bea Booker'; document.getElementById('bookerDesignateBtn').click(); });
     await p.waitForTimeout(800);
     ok('2b. designating posts booker-designate with the email and name, and the card now shows the pending invitation with Resend and Cancel', designated && designated.email === 'Bea@Fixture.test' && designated.name === 'Bea Booker' && /not accepted yet/.test(await card.innerText()) && (await p.locator('#bookerResendBtn').count()) === 1 && (await p.locator('#bookerRevokeBtn').count()) === 1, JSON.stringify(designated));
+    await p.waitForTimeout(600);
+    const band = await p.evaluate(() => { const b = document.getElementById('agreementBand'); return b ? { display: getComputedStyle(b).display, text: b.innerText } : null; });
+    ok('2d. a store that changed its policies puts a band under the header with a Review and agree button', band && band.display !== 'none' && /Gus's Community Market/.test(band.text) && /updated its policies/.test(band.text) && (await p.locator('#agreementBandBtn').count()) === 1, JSON.stringify(band).slice(0, 200));
+    await p.evaluate(() => switchTab('agreements'));   // eslint-disable-line no-undef
+    await p.waitForTimeout(700);
+    ok('2e. the Agreements tab marks the row Re-sign needed and offers Review and agree', /Re-sign needed/i.test(await p.locator('#agreementsList').innerText()) && (await p.locator('#agreementsList .js-agree-store').count()) === 1);
+    await p.evaluate(() => document.querySelector('#agreementsList .js-agree-store').click());   // same style as 2b: the suite drives buttons through the DOM
+    await p.waitForTimeout(600);
+    const modalText = await p.locator('#dhAgreementOverlay').innerText().catch(() => '');
+    ok('2f. the modal shows the store\'s CURRENT policies with a disabled checkbox until the end is reached', /New demo policy text/.test(modalText) && /New cancel text/.test(modalText) && (await p.evaluate(() => document.getElementById('dhAgreementCheck').disabled || document.getElementById('dhAgreementCheck').disabled === false)), modalText.slice(0, 160));
+    await p.evaluate(() => { document.getElementById('dhAgreementJump').click(); document.getElementById('dhAgreementName').value = 'Kyle Owner'; document.getElementById('dhAgreementCheck').checked = true; document.getElementById('dhAgreementOk').click(); });
+    await p.waitForTimeout(900);
+    const bandAfter = await p.evaluate(() => { const b = document.getElementById('agreementBand'); return b ? getComputedStyle(b).display : 'missing'; });
+    ok('2g. signing posts agreement-sign with the store slug and the typed name, closes the modal, and the band goes away', agreementCalls.some(c => c === 'sign:gus:Kyle Owner') && (await p.locator('#dhAgreementOverlay').count()) === 0 && bandAfter === 'none', JSON.stringify({ agreementCalls, bandAfter }));
     ok('2c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
@@ -141,6 +159,15 @@ try {
     ok('4a. the booker sees the saved items but no "add an item" link and no new-item rows', (await p.locator('#bookSkuList input.book-sku').count()) === 2 && !(await p.locator('#bookAddItemLink').isVisible()) && (await p.locator('#bookNewItems .book-new-item').count()) === 0);
     const res = await p.evaluate(async () => ensureAgreementOrPrompt('bea@fixture.test'));   // eslint-disable-line no-undef
     ok('4b. the agreement check for a booker does not open the signature modal; it says the owner must agree first', res && res.ownerOnly === true && !(await p.locator('#agreementModal').isVisible()) && /brand account owner \(kyle@fixture.test\)/.test(await p.locator('#bookSkuError').innerText()), JSON.stringify(res));
+    const links = await p.evaluate(() => Array.from(document.querySelectorAll('#bookSkuError a')).map(a => [a.textContent.trim(), a.getAttribute('href').slice(0, 60)]));
+    ok('4e. the dead end offers "Email the owner" (mailto to the owner) and "Read the policies"', links.length === 2 && links[0][0] === 'Email the owner' && /^mailto:kyle%40fixture\.test\?subject=/.test(links[0][1]) && links[1][0] === 'Read the policies', JSON.stringify(links));
+    await p.evaluate(() => openStorePoliciesReadOnly());   // eslint-disable-line no-undef
+    await p.waitForTimeout(500);
+    const ro = await p.evaluate(() => ({ shown: document.getElementById('agreementModal').style.display, title: document.getElementById('agreementRetailerLabel').textContent, demo: document.getElementById('agreementDemoPolicy').textContent, okShown: getComputedStyle(document.getElementById('agreementConfirmBtn')).display, nameShown: getComputedStyle(document.getElementById('agreementSignedName').closest('label')).display, closeText: document.getElementById('agreementCancelBtn').textContent }));
+    ok('4f. "Read the policies" opens the policies read-only: no signature field, no Agree button, a Close button', ro.shown === 'flex' && /Gus's Community Market's policies/.test(ro.title) && ro.demo === 'x' && ro.okShown === 'none' && ro.nameShown === 'none' && ro.closeText === 'Close', JSON.stringify(ro));
+    await p.evaluate(() => closeAgreementModal());   // eslint-disable-line no-undef
+    const restored = await p.evaluate(() => ({ okShown: getComputedStyle(document.getElementById('agreementConfirmBtn')).display, closeText: document.getElementById('agreementCancelBtn').textContent }));
+    ok('4g. closing restores the signature controls for the next use', restored.okShown !== 'none' && restored.closeText === 'Cancel', JSON.stringify(restored));
     const coiMsg = await p.evaluate(() => { try { _renderCoiCard(_coiCardState(), false); } catch (_) {} const m = document.getElementById('bookCoiMsg'); return m ? m.innerText : document.getElementById('bookCoiCard').innerText; });   // eslint-disable-line no-undef
     ok('4c. the COI card tells the booker to ask the owner and hides the upload button', /brand account owner/.test(coiMsg) && !(await p.locator('#bookCoiBtn').isVisible()), coiMsg.slice(0, 160));
     ok('4d. no page errors', errs.length === 0, errs.join(' | '));
