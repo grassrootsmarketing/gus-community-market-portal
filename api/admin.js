@@ -15,7 +15,7 @@ import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { validateNotificationPrefs, normalizePrefs } from './_notification-prefs.js';
 import { isValidZone, parseYmd } from './_local-time.js';
-import { isCancellationMode } from './_refund-cutoff.js';
+import { isCancellationMode, cancellationPolicyFor } from './_refund-cutoff.js';
 import { validateSlots } from './_slots.js';
 import { FLAGS } from './_flags.js';
 let _b = null;
@@ -583,6 +583,19 @@ export default async function handler(req, res) {
       // refused on WRITE (the admin page no longer sends it); existing rows keep reading as refundable.
       if ('cancellation_mode' in safe && !isCancellationMode(safe.cancellation_mode)) {
         return send(res, 400, { error: 'invalid_cancellation_mode', message: "cancellation_mode must be 'refundable' (automatic refund when the demo is at least 72 hours away) or 'non_refundable'." });
+      }
+      // Codex RC-2 (2026-10-18): the mode and the sentence brands sign are one write. The server generates the
+      // standard sentence for the mode; a supplied sentence must be exactly that one; a sentence without its mode
+      // is refused. Prose is never interpreted, so a stale refundable sentence cannot sit under non-refundable money.
+      if ('cancellation_mode' in safe) {
+        const wanted = cancellationPolicyFor(safe.cancellation_mode);
+        const given = 'cancellation_policy' in safe ? String(safe.cancellation_policy == null ? '' : safe.cancellation_policy).trim() : '';
+        if (given && given !== wanted) {
+          return send(res, 400, { error: 'policy_text_mismatch', message: 'cancellation_policy must be the standard sentence for the chosen cancellation_mode; the server writes it for you when it is omitted.', expected: wanted });
+        }
+        safe.cancellation_policy = wanted;
+      } else if ('cancellation_policy' in safe) {
+        return send(res, 400, { error: 'policy_text_requires_mode', message: 'cancellation_policy is written together with cancellation_mode; send both.' });
       }
       req.body = JSON.stringify(safe);
     } catch (_) { return send(res, 400, { error: 'Invalid body' }); }

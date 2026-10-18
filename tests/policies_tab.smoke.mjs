@@ -30,8 +30,8 @@ const admin = async (method, query, body) => { const r = await callRoute('admin.
 try {
   // the same PATCH the Cancellation policy card issues (saveBookingPrefs -> /api/admin?table=retailers&id=...)
   const p1 = await admin('PATCH', { table: 'retailers', id: retailerId }, { auto_confirm_bookings: true, cancellation_mode: 'non_refundable' });
-  const g1 = { statusCode: 200, body: { retailer: one(await db(`retailers?id=eq.${retailerId}&select=cancellation_mode,demo_policy`)) } };
-  ok('cancellation policy: save non_refundable, reload shows non_refundable', p1.statusCode === 200 && g1.statusCode === 200 && g1.body.retailer && g1.body.retailer.cancellation_mode === 'non_refundable', `${p1.statusCode} ${g1.statusCode} ${g1.body && g1.body.retailer && g1.body.retailer.cancellation_mode}`);
+  const g1 = { statusCode: 200, body: { retailer: one(await db(`retailers?id=eq.${retailerId}&select=cancellation_mode,cancellation_policy,demo_policy`)) } };
+  ok('cancellation policy: save non_refundable, reload shows non_refundable AND the non-refundable sentence (written by the server with the mode)', p1.statusCode === 200 && g1.statusCode === 200 && g1.body.retailer && g1.body.retailer.cancellation_mode === 'non_refundable' && /not refunded/.test(g1.body.retailer.cancellation_policy || ''), `${p1.statusCode} ${g1.statusCode} ${g1.body && g1.body.retailer && g1.body.retailer.cancellation_mode}`);
   const p2 = await admin('PATCH', { table: 'retailers', id: retailerId }, { cancellation_mode: 'refundable' });
   const g2 = { body: { retailer: one(await db(`retailers?id=eq.${retailerId}&select=cancellation_mode`)) } };
   ok('cancellation policy: back to refundable (the 72-hour rule), reload agrees', p2.statusCode === 200 && g2.body.retailer.cancellation_mode === 'refundable');
@@ -44,6 +44,8 @@ try {
   // 2026-10-18: the gap recorded here on 2026-09-23 (any value accepted) is closed; only the two modes the server reads
   // may be written (api/admin.js, isCancellationMode).
   ok('an unknown cancellation_mode is refused 400 invalid_cancellation_mode', bad.statusCode === 400 && bad.body && bad.body.error === 'invalid_cancellation_mode', `${bad.statusCode} ${JSON.stringify(bad.body).slice(0, 120)}`);
+  const contra = await admin('PATCH', { table: 'retailers', id: retailerId }, { cancellation_mode: 'refundable', cancellation_policy: 'Our own wording.' });
+  ok('a sentence that is not the standard one for the mode is refused 400 policy_text_mismatch', contra.statusCode === 400 && contra.body && contra.body.error === 'policy_text_mismatch', `${contra.statusCode}`);
   await admin('PATCH', { table: 'retailers', id: retailerId }, { cancellation_mode: 'refundable' });
 } finally { for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' }); }
 process.exit(summary('policies tab smoke') ? 0 : 1);

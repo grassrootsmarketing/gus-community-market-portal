@@ -946,7 +946,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // (2026-10-18) No force_refund: the fixture demos are 30+ days out, so the 72-hour rule (api/_refund-cutoff.js)
   // refunds on its own; the fixture retailer carries the database default cancellation_mode, which reads as refundable.
   const rr = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: refundTarget },
+    body: { action: 'cancel', category: 'brand_requested', booking_id: refundTarget },
     cookies: { dh_retailer_session: refundSess } }));
   ok('the cancel+refund route succeeds for one booking', rr.statusCode === 200,
      `${rr.statusCode} ${JSON.stringify(rr.body).slice(0, 200)}`);
@@ -986,7 +986,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // C3: replay/retry of the same cancel must NOT cancel or refund another allocation.
   const stripeBeforeRetry = spy.calls.stripe.length;
   const rr2 = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: refundTarget, force_refund: true },
+    body: { action: 'cancel', category: 'brand_requested', booking_id: refundTarget, force_refund: true, override_reason: 'test override' },
     cookies: { dh_retailer_session: refundSess } }));
   ok('re-cancelling the already-cancelled booking is refused', rr2.statusCode === 409,
      `${rr2.statusCode} ${JSON.stringify(rr2.body).slice(0, 120)}`);
@@ -1004,7 +1004,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // identifier the old admin UI mistakenly sent, which 404'd the real cancel path.
   const aDemoId = ((demos1.find(d => d.booking_id === bookingIds[1]) || demos1[0] || {}).id);
   const wrongId = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: aDemoId }, cookies: { dh_retailer_session: refundSess } }));
+    body: { action: 'cancel', category: 'brand_requested', booking_id: aDemoId }, cookies: { dh_retailer_session: refundSess } }));
   ok('cancel with a DEMO id (not a booking id) is refused 404',
      wrongId.statusCode === 404, `${wrongId.statusCode} ${JSON.stringify(wrongId.body).slice(0, 120)}`);
 
@@ -1015,7 +1015,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   const failBk = bookingIds[1];
   spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure' });
   const f1 = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+    body: { action: 'cancel', category: 'brand_requested', booking_id: failBk, force_refund: true, override_reason: 'test override' }, cookies: { dh_retailer_session: refundSess } }));
   ok('a forced transition failure after the refund step returns a non-success (500 transition_failed)',
      f1.statusCode === 500 && f1.body && f1.body.ok === false && f1.body.error === 'transition_failed', `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 160)}`);
   ok('the response returns a reconciliation_case_id', !!(f1.body && f1.body.reconciliation_case_id), JSON.stringify(f1.body).slice(0, 160));
@@ -1033,12 +1033,12 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   // (Codex #7) Retry without the fault: the cancellation now applies ATOMICALLY (booking + demo),
   // the refund is not submitted twice (ledger idempotency), and no second case is opened.
   const f2 = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+    body: { action: 'cancel', category: 'brand_requested', booking_id: failBk, force_refund: true, override_reason: 'test override' }, cookies: { dh_retailer_session: refundSess } }));
   ok('the retried cancel succeeds atomically (200, demo_cancelled:true)', f2.statusCode === 200 && f2.body && f2.body.demo_cancelled === true, `${f2.statusCode} ${JSON.stringify(f2.body).slice(0, 160)}`);
   const afterRetry = ((await db(`demos?booking_id=eq.${failBk}&select=status`)).body || [])[0];
   ok('the demo was retired in the same transaction', afterRetry && afterRetry.status === 'cancelled', JSON.stringify(afterRetry));
   const f3 = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: failBk, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+    body: { action: 'cancel', category: 'brand_requested', booking_id: failBk, force_refund: true, override_reason: 'test override' }, cookies: { dh_retailer_session: refundSess } }));
   ok('replaying the cancel on an already-cancelled booking is refused', f3.statusCode === 409, `${f3.statusCode}`);
   const caseRows2 = ((await db(`reconciliation_cases?dedupe_key=eq.transition:${failBk}&select=id`)).body) || [];
   ok('retry + replay do NOT create a second reconciliation case', caseRows2.length === 1, `${caseRows2.length}`);
@@ -1050,7 +1050,7 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure' });
   spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 500, message: 'injected_open_case_failure' });
   const g1 = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: failBk2, force_refund: true }, cookies: { dh_retailer_session: refundSess } }));
+    body: { action: 'cancel', category: 'brand_requested', booking_id: failBk2, force_refund: true, override_reason: 'test override' }, cookies: { dh_retailer_session: refundSess } }));
   ok('when BOTH the transition and the reconciliation write fail, the route does NOT return ok:true',
      g1.statusCode >= 400 && !(g1.body && g1.body.ok === true), `${g1.statusCode} ${JSON.stringify(g1.body).slice(0, 160)}`);
   ok('the both-failed response marks reconciliation_recorded:false',

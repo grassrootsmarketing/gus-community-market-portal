@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 let pass = 0, fail = 0;
 const ok = (n, c, d) => { if (c) { pass++; console.log('  ok   ' + n); } else { fail++; console.log('  FAIL ' + n + (d ? ' ' + d : '')); } };
-const files = ['api/booking.js', 'api/brand-account.js', 'api/seed-demo.js', 'r/gus/admin/index.html', 'r/gus/index.html'];
+const files = ['api/booking.js', 'api/brand-account.js', 'api/seed-demo.js', 'r/gus/admin/index.html', 'r/gus/index.html', 'api/_refund-cutoff.js'];
 const texts = Object.fromEntries(files.map(f => [f, readFileSync(f, 'utf8')]));
 const sentence = (texts['api/booking.js'].match(/DEFAULT_CANCELLATION_POLICY = '([^']+)'/) || [])[1];
 ok('the booking route defines the default sentence', !!sentence, 'not found');

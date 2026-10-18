@@ -138,7 +138,7 @@ try {
   log('R3 the paid, confirmed booking is untouched by the revocation and still attributed to the revoked member', stillPaid.status === 'confirmed' && stillPaid.payment_status === 'paid' && stillPaid.booked_by_member_id === memberId, stillPaid);
 
   // ------------------------------------------------------------------ the store cancels; refund to the payer; notices to the owner only
-  const cn = await api('/api/booking-action', { action: 'cancel', booking_id: bookingId }, storeCookie);
+  const cn = await api('/api/booking-action', { action: 'cancel', category: 'brand_requested', booking_id: bookingId }, storeCookie);
   let afterCancel = null; for (let i = 0; i < 15; i++) { afterCancel = (await db(`bookings?id=eq.${bookingId}&select=status,payment_status,cancelled_at`))[0]; if (afterCancel.payment_status === 'refunded') break; await sleep(2000); }
   const refunds = await fetch(`https://api.stripe.com/v1/refunds?payment_intent=${row.payment_intent_id}`, { headers: { Authorization: 'Basic ' + Buffer.from(STRIPE + ':').toString('base64') } }).then(r => r.json());
   const rf = (refunds.data || [])[0] || null; out.refund = rf && { id: rf.id, amount: rf.amount, status: rf.status };

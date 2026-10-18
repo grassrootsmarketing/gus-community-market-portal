@@ -1,18 +1,36 @@
--- 0103_cancellation_mode_72h.sql (2026-10-18)
+-- 0103_cancellation_mode_72h.sql (2026-10-18; reworked after Codex RC-2 / RC-5.6 the same day)
 -- Refund enforcement now matches the 72-hour cancellation policy (api/_refund-cutoff.js, api/booking-action.js).
 -- The server reads exactly two retailers.cancellation_mode values: 'refundable' (automatic refund when the demo
 -- starts at least 72 hours away) and 'non_refundable' (never automatic). The retailer admin used to save the
--- legacy '14_day_refund' value, which the server still READS as refundable, so this migration is housekeeping,
--- not a prerequisite: the code works with or without it. It makes the stored data say what the server does.
+-- legacy '14_day_refund' value. This migration makes the stored data say what the server does, and it is
+-- REQUIRED before the deploy (Codex RC-2): a non-refundable store with no written sentence would otherwise show
+-- brands the refundable sentence (api/booking.js falls back by mode too, belt and braces, but the data must agree).
 --
+--   * every row that is about to change is copied to retailers_cancellation_policy_backup_0103 first, so a
+--     rollback can restore the exact previous cancellation_mode and cancellation_policy (Codex RC-5.6).
 --   * column default: 'refundable' (was '14_day_refund'); api/signup.js writes 'refundable' explicitly.
 --   * backfill: every row that is not 'non_refundable' becomes 'refundable' (null, '14_day_refund', unknown).
---   * a non-refundable store with no written cancellation sentence gets the non-refundable sentence, so the
---     text brands sign (api/booking.js falls back to the 72-hour sentence when the column is null) does not
---     promise a refund the store does not give. The sentence is identical to NON_REFUNDABLE_CANCELLATION_POLICY
---     in api/_refund-cutoff.js and CANCEL_POLICY_NON_REFUNDABLE in r/gus/admin/index.html.
+--   * a non-refundable store with no written cancellation sentence gets the non-refundable sentence; a refundable
+--     store with no sentence is left null (api/booking.js and the admin read null as the 72-hour sentence).
+--     The sentence is identical to NON_REFUNDABLE_CANCELLATION_POLICY in api/_refund-cutoff.js.
 --
--- Idempotent: re-running changes nothing. No begin/commit here (the paste wraps it).
+-- Idempotent: re-running changes nothing (the backup only records rows that are about to change).
+-- No begin/commit here (the paste wraps it).
+
+CREATE TABLE IF NOT EXISTS public.retailers_cancellation_policy_backup_0103 (
+  retailer_id          uuid PRIMARY KEY,
+  cancellation_mode    text,
+  cancellation_policy  text,
+  backed_up_at         timestamptz NOT NULL DEFAULT now()
+);
+REVOKE ALL ON public.retailers_cancellation_policy_backup_0103 FROM public, anon, authenticated;
+
+INSERT INTO public.retailers_cancellation_policy_backup_0103 (retailer_id, cancellation_mode, cancellation_policy)
+SELECT id, cancellation_mode, cancellation_policy
+  FROM public.retailers
+ WHERE (cancellation_mode IS DISTINCT FROM 'non_refundable' AND cancellation_mode IS DISTINCT FROM 'refundable')
+    OR (cancellation_mode = 'non_refundable' AND coalesce(btrim(cancellation_policy), '') = '')
+ON CONFLICT (retailer_id) DO NOTHING;
 
 ALTER TABLE public.retailers ALTER COLUMN cancellation_mode SET DEFAULT 'refundable';
 
@@ -39,4 +57,5 @@ BEGIN
   IF v_bad > 0 THEN RAISE EXCEPTION '0103: % retailers still carry a cancellation_mode the server does not read', v_bad; END IF;
   SELECT count(*) INTO v_bad FROM public.retailers WHERE cancellation_mode = 'non_refundable' AND coalesce(btrim(cancellation_policy), '') = '';
   IF v_bad > 0 THEN RAISE EXCEPTION '0103: % non-refundable retailers have no written cancellation sentence', v_bad; END IF;
+  IF to_regclass('public.retailers_cancellation_policy_backup_0103') IS NULL THEN RAISE EXCEPTION '0103: backup table missing'; END IF;
 END $$;

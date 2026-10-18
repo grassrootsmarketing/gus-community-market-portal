@@ -405,7 +405,7 @@ try {
     const ful = await import('../api/_fulfillment.js?t=' + Date.now());
     const D = futureDow(1, 5), D2 = futureDow(2, 5), D3 = futureDow(3, 5), D4 = futureDow(4, 5);
     const confirmRoute = (id) => callRoute('booking-action.js', req({ body: { booking_id: id, action: 'confirm' }, cookies: { dh_retailer_session: staffCookie } }));
-    const cancelRoute = (id) => callRoute('booking-action.js', req({ body: { booking_id: id, action: 'cancel' }, cookies: { dh_retailer_session: staffCookie } }));
+    const cancelRoute = (id) => callRoute('booking-action.js', req({ body: { booking_id: id, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: staffCookie } }));
     // (a) cancel commits BEFORE the transition: the confirm is refused, no demo.
     {
       const b = await insertBooking(VA, D, '9:00 AM', 'pending');

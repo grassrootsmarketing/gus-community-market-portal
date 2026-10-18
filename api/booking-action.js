@@ -3,9 +3,12 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 // On confirm: flips bookings.status to 'confirmed', creates a demos row, emails the brand.
 // On decline: flips bookings.status to 'declined', emails the brand.
 // On cancel: flips bookings.status to 'cancelled' and, if paid, decides the refund with api/_refund-cutoff.js:
-//            refundable mode refunds automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72)
-//            away in the store's zone; inside that window, and always in non_refundable mode, the refund is
-//            left to the store (pending_manual) unless it ticked "Refund the brand anyway" (force_refund).
+//            the store says WHO asked (category: brand_requested | store_caused) and WHEN the brand's request was
+//            received (requested_at). A store-caused cancellation refunds in full. A brand-requested one refunds
+//            automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72) after the request, in the
+//            store's zone; inside that window, and always in non_refundable mode, the refund is left to the store
+//            (pending_manual) unless it ticked "Refund the brand anyway" (force_refund + override_reason). The
+//            decision is recorded (0104 booking_cancellation_record) BEFORE any refund effect and reused on retry.
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
 // build-bust: 2026-07-09-phase-b
@@ -15,7 +18,7 @@ import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
-import { refundDecision } from './_refund-cutoff.js';
+import { refundDecision, isCancellationCategory, validateRequestedAt } from './_refund-cutoff.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
@@ -143,17 +146,23 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 }
 
 
-function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus, refundReason }) {
-  // pending_manual says WHY there was no automatic refund, in the words of the policy the brand signed.
+function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus, refundReason, category }) {
+  // Codex RC-1 / RC-3 (2026-10-18): the outcome is stated as what it IS. A policy denial is definite (no "they will
+  // follow up" promise without a tracked workflow); a submitted refund is tracked by the refund ledger and
+  // confirmed by email; an unresolved eligibility is a tracked review item, so a follow-up IS promised there.
   const manualLine = refundReason === 'inside_cutoff'
-    ? 'This cancellation came inside the 72-hour window in ' + html(retailerName) + '\'s cancellation policy, so the demo fee is not refunded automatically. ' + html(retailerName) + ' will follow up with you directly if they decide to refund it.'
+    ? 'Because the cancellation came inside the 72-hour window in ' + html(retailerName) + '\'s cancellation policy, the demo fee is not refunded.'
     : refundReason === 'non_refundable'
-    ? html(retailerName) + '\'s cancellation policy is non-refundable, so the demo fee is not refunded automatically. ' + html(retailerName) + ' will follow up with you directly if they decide to refund it.'
-    : html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.';
+    ? html(retailerName) + '\'s cancellation policy is non-refundable, so the demo fee is not refunded.'
+    : 'Per ' + html(retailerName) + '\'s cancellation policy, the demo fee is not refunded automatically.';
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed, typically within 5&ndash;10 business days.</p>'
     : refundStatus === 'auth_released'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged. The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
+    : refundStatus === 'under_review'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">We could not confirm this demo\'s scheduled time, so whether the 72-hour rule applies is being reviewed by Demohub. You will hear from us by email; nothing more is needed from you.</p>'
+    : refundStatus === 'refund_failed'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund is in progress and will be confirmed by email once it completes.</p>'
     : refundStatus === 'pending_manual'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + manualLine + '</p>'
     : refundStatus === 'not_paid'
@@ -165,7 +174,7 @@ function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dat
 '<tr><td style="padding:36px 36px 28px;">' +
 '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Demo cancelled</div>' +
 '<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Your demo has been cancelled' + (contact_name ? ', ' + html(contact_name) : '') + '.</h1>' +
-'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' cancelled your demo for <strong>' + html(brand_name || 'your brand') + '</strong> on ' + html(dateLabel) + ' at ' + html(demo_time) + ' (' + html(venueName) + ').</p>' +
+'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + (category === 'brand_requested' ? 'As you asked, ' + html(retailerName) + ' cancelled' : category === 'store_caused' ? html(retailerName) + ' had to cancel' : html(retailerName) + ' cancelled') + ' your demo for <strong>' + html(brand_name || 'your brand') + '</strong> on ' + html(dateLabel) + ' at ' + html(demo_time) + ' (' + html(venueName) + ').</p>' +
 (reason ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ' + html(reason) + '</p>' : '') +
 refundLine +
 '<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">To pick a different date, head back to <a href="' + link(_b, '/brand/dashboard') + '" style="color:#2a5b32;">your Demohub dashboard</a>.</p>' +
@@ -411,7 +420,7 @@ export default async function handler(req, res) {
     if (body && body.action === 'reschedule') {
       return await handleReschedulePropose(req, res, body);
     }
-    const { booking_id, action, reason, demo_fee, force_refund } = body || {};
+    const { booking_id, action, reason, demo_fee, force_refund, category, requested_at, backdate_note, override_reason } = body || {};
     if (!booking_id || !['confirm', 'decline', 'cancel'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline|cancel required' });
     }
@@ -445,6 +454,24 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'Booking already ' + booking.status });
     }
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+    // Codex RC-1 / RC-3 (2026-10-18): a cancel says WHO asked and WHEN, validated here before anything moves. A
+    // missing or unknown category is refused (never read as the brand's fault); a backdated request needs a note;
+    // "Refund the brand anyway" needs a reason. The shipped admin dialog sends all of these.
+    let cancelCategory = null, cancelRequestedAt = null, cancelBackdateNote = null, cancelOverrideReason = null;
+    if (action === 'cancel') {
+      if (!isCancellationCategory(category)) {
+        return res.status(400).json({ error: 'cancellation_category_required', message: "Say why the demo is being cancelled: category must be 'brand_requested' (the brand asked to cancel) or 'store_caused' (the store cannot host it). Nothing was changed." });
+      }
+      cancelCategory = category;
+      cancelBackdateNote = backdate_note == null ? null : (String(backdate_note).trim().slice(0, 500) || null);
+      const ra = validateRequestedAt(requested_at, { backdateNote: cancelBackdateNote || '' });
+      if (!ra.ok) return res.status(400).json({ error: ra.error, message: ra.message + ' Nothing was changed.' });
+      cancelRequestedAt = ra.requested_at;
+      if (force_refund === true && cancelCategory === 'brand_requested') {
+        cancelOverrideReason = override_reason == null ? '' : String(override_reason).trim().slice(0, 500);
+        if (cancelOverrideReason.length < 3) return res.status(400).json({ error: 'override_reason_required', message: 'Refunding the brand anyway needs a short reason, recorded with the cancellation. Nothing was changed.' });
+      }
+    }
 
     // Codex R4-02 (1): everything this action NEEDS beyond the booking row, the venue (name, fee),
     // the retailer (cancellation mode, ...) and a valid demo fee for a confirm, is read and validated
@@ -554,7 +581,9 @@ export default async function handler(req, res) {
     let refundStatus = 'not_paid';
     let refundInfo = null;
     let refundReason = null;        // cancel path only: why the refund was or was not automatic (api/_refund-cutoff.js)
-    let refundHoursOut = null;      // cancel path only: elapsed hours from the cancellation to the demo's start
+    let refundHoursOut = null;      // cancel path only: elapsed hours from the brand's request to the demo's start
+    let cancelDecisionReplayed = false;   // cancel path only: a retry reused the recorded decision (0104)
+    let refundReviewCaseId = null;        // cancel path only: the durable review item for an unresolved start
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
@@ -594,20 +623,59 @@ export default async function handler(req, res) {
         if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
       }
     } else if (action === 'cancel') {
-      // The 72-hour rule (api/_refund-cutoff.js): refundable mode refunds automatically only when the demo
-      // starts at least 72 elapsed hours from now in the store's zone; inside the window, in non_refundable
-      // mode, or when the start cannot be resolved, the refund is the store's call (pending_manual) unless
-      // it ticked "Refund the brand anyway" (force_refund). Unpaid and fee-waived bookings never refund.
-      const decision = refundDecision({ booking, retailer, forceRefund: force_refund === true });
+      // The 72-hour rule (api/_refund-cutoff.js): a store-caused cancellation refunds in full; a brand-requested
+      // one refunds automatically only when the demo starts at least 72 elapsed hours after the brand's request
+      // was received, in the store's zone; inside the window, or in non_refundable mode, the refund is the store's
+      // call (pending_manual) unless it ticked "Refund the brand anyway"; an unresolvable start goes to review.
+      // Unpaid and fee-waived bookings never refund.
+      const fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
+      // Codex RC-3: the decision is RECORDED before any refund effect, under the booking's row lock (0104). A retry
+      // (a provider timeout, a failed transition) gets the first decision back and resumes it; it never judges the
+      // clock again, so a later store policy change or the passing of the boundary cannot change the outcome.
+      let rec;
+      try {
+        rec = await sbRpc('booking_cancellation_record', { p_booking_id: booking.id, p_retailer_id: session.retailer_id, p_decision: {
+          ...fresh, cancellation_mode: fresh.mode, actor: (session && session.email) || null, force_refund: force_refund === true,
+          override_reason: cancelOverrideReason, backdate_note: cancelBackdateNote, note: reason ? String(reason).trim().slice(0, 500) : null,
+        } });
+      } catch (e) {
+        return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was refunded. Retry in a moment.' });
+      }
+      const recRow = Array.isArray(rec) ? rec[0] : rec;
+      if (!recRow || !['recorded', 'existing'].includes(recRow.outcome)) {
+        if (recRow && recRow.outcome === 'state_conflict') return res.status(409).json({ error: 'state_changed', status: recRow.status, message: 'This booking changed while you were working (now ' + recRow.status + '). Reload and try again. Nothing was refunded.' });
+        return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + ((recRow && recRow.outcome) || 'no result') + '). Nothing was changed and nothing was refunded.' });
+      }
+      cancelDecisionReplayed = recRow.existing === true;
+      const saved = recRow.decision || {};
+      const decision = cancelDecisionReplayed
+        ? { refund: saved.refund === true, status: saved.status, reason: saved.reason, category: saved.category, requested_at: saved.requested_at, hours_before_demo: saved.hours_before_demo == null ? null : Number(saved.hours_before_demo) }
+        : fresh;
       refundReason = decision.reason;
       refundHoursOut = decision.hours_before_demo;
-      if (!wasPaid || decision.reason === 'fee_waived') {
+      cancelCategory = decision.category || cancelCategory;
+      cancelRequestedAt = decision.requested_at ? new Date(decision.requested_at) : cancelRequestedAt;
+      if (!wasPaid || decision.status === 'not_paid') {
         refundStatus = 'not_paid';
       } else if (decision.refund) {
         const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', 'cancel');
         refundInfo = r;
         refundStatus = r.ok ? 'submitted' : 'refund_failed';
         if (!r.ok) console.warn('Refund failed for booking', booking_id, '-', r.error);
+      } else if (decision.status === 'under_review') {
+        // Codex RC-4: no invented deadline. The cancellation proceeds; the refund eligibility is a durable,
+        // visible review item (reconciliation case, deduplicated per booking) that an operator resolves.
+        refundStatus = 'under_review';
+        try {
+          const _c = await sbRpc('_open_case', {
+            p_kind: 'refund_requires_review', p_dedupe: 'refund-eligibility:' + booking.id, p_reason: 'refund_eligibility_unresolved',
+            p_group: null, p_request: null, p_operation: null, p_session: null, p_pi: booking.payment_intent_id || null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+            p_details: { booking_id: booking.id, category: cancelCategory, requested_at: decision.requested_at || null, start_source: fresh.start_source, demo_date: booking.demo_date, demo_time: booking.demo_time, timezone: booking.timezone || (retailer && retailer.timezone) || null },
+          });
+          refundReviewCaseId = Array.isArray(_c) ? _c[0] : _c;
+        } catch (caseErr) {
+          console.error('refund review case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
+        }
       } else {
         refundStatus = 'pending_manual';
       }
@@ -772,7 +840,7 @@ export default async function handler(req, res) {
         htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
         subject = `Your demo at ${retailer?.name || 'the store'} was cancelled`;
-        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus, refundReason });
+        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus, refundReason, category: cancelCategory });
       }
       emailOk = true;
       if (recipients.to.length) {
@@ -792,7 +860,7 @@ export default async function handler(req, res) {
             let ownerHtml;
             if (action === 'confirm') ownerHtml = htmlBody;
             else if (action === 'decline') ownerHtml = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
-            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null, category: cancelCategory });
             ownerHtml = ownerHtml.includes('</body>') ? ownerHtml.replace('</body>', note + '</body>') : ownerHtml + note;
             await sendBrandNotice({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, _b);
           }
@@ -827,6 +895,11 @@ export default async function handler(req, res) {
       // cancel toast reads these so the store is told "inside the 72-hour window" rather than a bare status.
       refund_reason: action === 'cancel' ? refundReason : undefined,
       hours_before_demo: action === 'cancel' ? refundHoursOut : undefined,
+      cancellation_category: action === 'cancel' ? cancelCategory : undefined,
+      requested_at: action === 'cancel' && cancelRequestedAt ? cancelRequestedAt.toISOString() : undefined,
+      decision_replayed: action === 'cancel' ? cancelDecisionReplayed : undefined,
+      refund_review_case_id: refundReviewCaseId || undefined,
+      refund_review_recorded: refundStatus === 'under_review' ? !!refundReviewCaseId : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
       // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was
       // opened. The caller must NOT treat the cancellation as fully complete.

@@ -2,6 +2,7 @@
 // Writes a booking row to Supabase and sends a confirmation email via Resend.
 
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
+import { cancellationPolicyFor } from './_refund-cutoff.js';
 import { randomBytes } from 'node:crypto';
 import { coiCoverageState } from './_coi-lib.js';
 import { verifyAdminSession, verifyRetailerStaff } from './admin-auth.js';
@@ -198,10 +199,14 @@ async function createBrandMagicLink(brand_id, email) {
 
 // 0098 (Codex BC-2): the inputs of the policy hash, so the database can recompute it under lock with the same defaults.
 export const POLICY_HASH_INPUTS = Object.freeze({ default_demo_policy: DEFAULT_DEMO_POLICY, default_cancellation_policy: DEFAULT_CANCELLATION_POLICY, tos_version: DEMOHUB_TOS_VERSION });
+// Codex RC-2 (2026-10-18): the cancellation sentence a store with EMPTY text shows and signs follows its mode (the
+// non-refundable sentence for non_refundable, the 72-hour sentence otherwise). Every reader passes the same default
+// to the database-side hash (p_default_cancel), so the hash agrees wherever it is computed.
+export function defaultCancellationPolicyFor(ret) { return cancellationPolicyFor(ret && ret.cancellation_mode); }
 // 0097: the current agreement hash for a retailer, shared with api/book.js (a booker may book only under an active one).
 export async function currentAgreementHash(ret) {
   const dp = (ret && ret.demo_policy) || DEFAULT_DEMO_POLICY;
-  const cp = (ret && ret.cancellation_policy) || DEFAULT_CANCELLATION_POLICY;
+  const cp = (ret && ret.cancellation_policy) || defaultCancellationPolicyFor(ret);
   return sha256Hex(dp + '\n---\n' + cp + '\n---tos:' + DEMOHUB_TOS_VERSION);
 }
 
@@ -229,14 +234,14 @@ export default async function handler(req, res) {
     if (body?.action === 'agreement-check') {
       const { retailer_slug: rs } = body;
       if (!rs) return res.status(400).json({ error: 'retailer_slug required' });
-      const retResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy`, {
+      const retResp = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy,cancellation_mode`, {
         headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
       });
       const rets = await retResp.json();
       const ret = Array.isArray(rets) ? rets[0] : null;
       if (!ret) return res.status(404).json({ error: 'Retailer not found' });
       const dp = ret.demo_policy || DEFAULT_DEMO_POLICY;
-      const cp = ret.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
+      const cp = ret.cancellation_policy || defaultCancellationPolicyFor(ret);
       const curHash = await sha256Hex(dp + '\n---\n' + cp + '\n---tos:' + DEMOHUB_TOS_VERSION);
       const policies = {
         demo_policy: dp,
@@ -282,7 +287,7 @@ export default async function handler(req, res) {
       // a replay. The client hash is a consistency assertion only, never authorization: the server derives everything else.
       const svcHeaders = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` };
       const readRetailer = async () => {
-        const r = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy,verification_status`, { headers: svcHeaders });
+        const r = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy,cancellation_mode,verification_status`, { headers: svcHeaders });
         const rows = await r.json();
         return Array.isArray(rows) ? rows[0] : null;
       };
@@ -297,7 +302,7 @@ export default async function handler(req, res) {
           p_brand_id: _sAuth.brandId, p_retailer_id: ret2.id,
           p_signed_email: String(_sAuth.email || '').toLowerCase(), p_signed_name: String(sn).trim().slice(0, 200),
           p_signed_ip: clientIp(req), p_user_agent: req.headers['user-agent'] || null,
-          p_expected_hash: expectedHash, p_default_demo: DEFAULT_DEMO_POLICY, p_default_cancel: DEFAULT_CANCELLATION_POLICY, p_tos_version: DEMOHUB_TOS_VERSION,
+          p_expected_hash: expectedHash, p_default_demo: DEFAULT_DEMO_POLICY, p_default_cancel: defaultCancellationPolicyFor(ret2), p_tos_version: DEMOHUB_TOS_VERSION,
         }),
       });
       if (!signResp.ok) return res.status(503).json({ error: 'agreement_save_failed' });
@@ -306,7 +311,7 @@ export default async function handler(req, res) {
         // the store changed its text between display and submission: hand back the CURRENT text and hash for a fresh review
         const now2 = (await readRetailer()) || ret2;
         return res.status(409).json({ error: 'policy_changed', message: 'This store updated its policies while you were reading. The current text is shown; please review it and agree again.',
-          policies: { demo_policy: now2.demo_policy || DEFAULT_DEMO_POLICY, cancellation_policy: now2.cancellation_policy || DEFAULT_CANCELLATION_POLICY, policy_hash: signed.current_hash, retailer_name: now2.name, demohub_tos_version: DEMOHUB_TOS_VERSION, demohub_tos_url: DEMOHUB_TOS_URL, can_sign: true } });
+          policies: { demo_policy: now2.demo_policy || DEFAULT_DEMO_POLICY, cancellation_policy: now2.cancellation_policy || defaultCancellationPolicyFor(now2), policy_hash: signed.current_hash, retailer_name: now2.name, demohub_tos_version: DEMOHUB_TOS_VERSION, demohub_tos_url: DEMOHUB_TOS_URL, can_sign: true } });
       }
       if (signed.outcome === 'already_current') return res.status(200).json({ ok: true, agreement_id: signed.agreement_id, replay: true });
       if (signed.outcome !== 'ok') return res.status(400).json({ error: String(signed.outcome || 'agreement_save_failed') });
@@ -448,7 +453,7 @@ export default async function handler(req, res) {
     // foreign key target for the agreement. Bookings continue regardless if any of
     // this fails, agreement is best-effort, the booking is the primary action.
     const DEMO_POLICY = retailer.demo_policy || DEFAULT_DEMO_POLICY;
-    const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
+    const CURRENT_CANCEL_POLICY = retailer.cancellation_policy || defaultCancellationPolicyFor(retailer);
     if (signed_name && String(signed_name).trim().length >= 2 && _b.serviceKey) {
       try {
         // Ensure we have a brand row

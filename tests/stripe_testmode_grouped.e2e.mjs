@@ -421,7 +421,7 @@ async function run() {
   // ---- 6. Cancel A -> REAL partial refund of A's allocation only ----------------------------
   console.log('\n— 6: cancel A (shipped admin payload) -> real Stripe refund of 700 —');
   const stripeBeforeA = calls.stripe.length;
-  const cA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel A -> 200, refund_status=submitted, demo_cancelled=true', cA.statusCode === 200 && cA.body && cA.body.refund_status === 'submitted' && cA.body.demo_cancelled === true, `${cA.statusCode} ${JSON.stringify(cA.body).slice(0, 200)}`);
   const routeStripeA = calls.stripe.slice(stripeBeforeA);
   ok('the cancel made exactly ONE Stripe write: POST /v1/refunds', routeStripeA.filter(c => c.method === 'POST').length === 1 && routeStripeA.filter(c => c.method === 'POST')[0].url.endsWith('/v1/refunds'), JSON.stringify(routeStripeA));
@@ -464,7 +464,7 @@ async function run() {
     const w = await postWebhook(e);
     ok(`re-posting ${e.type} is a duplicate no-op`, w.statusCode === 200 && w.body && w.body.duplicate === true, JSON.stringify(w.body));
   }
-  const cA2 = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cA2 = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('replaying the cancel of A is refused (409 already cancelled)', cA2.statusCode === 409, `${cA2.statusCode} ${JSON.stringify(cA2.body)}`);
   const wk = await callRoute('refund-worker.js', req({ method: 'POST', headers: { authorization: 'Bearer harness-cron-secret' } }));
   ok('refund-worker runs clean with nothing to resubmit (claimed 0, resubmitted 0)', wk.statusCode === 200 && wk.body && wk.body.claimed === 0 && wk.body.resubmitted === 0, `${wk.statusCode} ${JSON.stringify(wk.body).slice(0, 200)}`);
@@ -476,7 +476,7 @@ async function run() {
 
   // ---- 8. Cancel B -> second refund; total == capture; group refunded ------------------------
   console.log('\n— 8: cancel B -> total refunds == original capture —');
-  const cB = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cB = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel B -> 200, refund_status=submitted, demo_cancelled=true', cB.statusCode === 200 && cB.body && cB.body.refund_status === 'submitted' && cB.body.demo_cancelled === true, `${cB.statusCode} ${JSON.stringify(cB.body).slice(0, 200)}`);
   const refundsB = ((await stripe(`/v1/refunds?payment_intent=${encodeURIComponent(piId)}&limit=100`)).body || {}).data || [];
   const reB = refundsB.find(r => r.id !== reA.id);
@@ -502,7 +502,7 @@ async function run() {
   // ---- 9. Over-refund impossible -------------------------------------------------------------
   console.log('\n— 9: over-refund is refused everywhere —');
   const stripeBeforeOver = calls.stripe.length;
-  const cB2 = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cB2 = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel B again -> 409 (already cancelled), no Stripe call', cB2.statusCode === 409 && calls.stripe.slice(stripeBeforeOver).length === 0, `${cB2.statusCode}`);
   const dA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'decline' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('decline A (alternate refund op) -> 409 (already cancelled), no Stripe call', dA.statusCode === 409 && calls.stripe.slice(stripeBeforeOver).length === 0, `${dA.statusCode}`);

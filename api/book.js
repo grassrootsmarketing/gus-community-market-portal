@@ -12,7 +12,7 @@ import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES, slotRefusalFromDbError } f
 import { normalizeCode, CODE_MESSAGES, checkAttemptLimit, netHash } from './_booking-codes.js';
 import { createHash } from 'node:crypto';
 import { retailerIsLive, NOT_LIVE_BODY } from './_retailer-live.js';
-import { POLICY_HASH_INPUTS } from './booking.js';
+import { POLICY_HASH_INPUTS, defaultCancellationPolicyFor } from './booking.js';
 let _b = null;
 
 const rest=(p,o={})=>fetch(`${_b.supabaseUrl}/rest/v1/${p}`,{...o,headers:{apikey:_b.serviceKey,Authorization:`Bearer ${_b.serviceKey}`,'Content-Type':'application/json',...(o.headers||{})}});
@@ -79,7 +79,7 @@ export default async function handler(req, res) {
   }
 
   // 2) resolve retailer + venue; venue MUST belong to that retailer and be active
-  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status,demo_policy,cancellation_policy`);
+  const retailer = await one(`retailers?slug=eq.${encodeURIComponent(String(body.retailer_slug||''))}&select=id,slug,timezone,verification_status,demo_policy,cancellation_policy,cancellation_mode`);
   if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
   // Go-live gate: a store Demohub has not approved takes no bookings (api/_retailer-live.js).
   if (!retailerIsLive(retailer)) return res.status(403).json(NOT_LIVE_BODY);
@@ -206,7 +206,7 @@ export default async function handler(req, res) {
     // 0097 (Codex BK-5): who booked, from the authenticated identity, never from the body.
     booked_by_member_id: auth.memberId || null, booked_by_email: auth.email || null, booked_by_name: auth.name || brand.contact_name || null,
     // 0098 (Codex BC-1, BC-2): the inputs the database needs to authorize a member and rebuild a booker's items.
-    item_ids: bookerItemIds, default_demo_policy: POLICY_HASH_INPUTS.default_demo_policy, default_cancellation_policy: POLICY_HASH_INPUTS.default_cancellation_policy, tos_version: POLICY_HASH_INPUTS.tos_version };
+    item_ids: bookerItemIds, default_demo_policy: POLICY_HASH_INPUTS.default_demo_policy, default_cancellation_policy: defaultCancellationPolicyFor(retailer), tos_version: POLICY_HASH_INPUTS.tos_version };
   // Codex BC-3: with a code, creation + redemption are ONE database transaction keyed by op_key: a lost response is
   // recovered by replaying the same key; a refused code leaves no booking; nothing is ever deleted to "recover".
   if (codeInfo) {
@@ -236,7 +236,7 @@ export default async function handler(req, res) {
     // duplicate risk here: the booking is unpaid and the brand sees it as pending payment.
     let rr, text = '', j = null;
     try {
-      rr = await rest('rpc/booking_create_as_member', { method: 'POST', signal: globalThis.AbortSignal.timeout(25000), body: JSON.stringify({ p_op_key: String(body.op_key), p_fingerprint: fingerprint, p_member_id: auth.memberId, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_item_ids: bookerItemIds, p_payload: payload, p_default_demo: POLICY_HASH_INPUTS.default_demo_policy, p_default_cancel: POLICY_HASH_INPUTS.default_cancellation_policy, p_tos_version: POLICY_HASH_INPUTS.tos_version }) });
+      rr = await rest('rpc/booking_create_as_member', { method: 'POST', signal: globalThis.AbortSignal.timeout(25000), body: JSON.stringify({ p_op_key: String(body.op_key), p_fingerprint: fingerprint, p_member_id: auth.memberId, p_brand_id: auth.brandId, p_retailer_id: retailer.id, p_item_ids: bookerItemIds, p_payload: payload, p_default_demo: POLICY_HASH_INPUTS.default_demo_policy, p_default_cancel: defaultCancellationPolicyFor(retailer), p_tos_version: POLICY_HASH_INPUTS.tos_version }) });
       text = await rr.text(); try { j = JSON.parse(text); } catch (_) {}
     } catch (e) { console.error('booking_create_as_member transport failure', e && e.name); return res.status(503).json({ error: 'booking_outcome_unknown', message: 'We could not confirm the result. Please retry; your request will not be duplicated.', retry_with_same_key: true, op_key: String(body.op_key) }); }
     if (!rr.ok) {

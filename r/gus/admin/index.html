@@ -5324,63 +5324,109 @@ function escapeHtml(s) {
             }
         }
 
-        // Hours from now to a demo's start in the store's zone (a hint for the cancel dialog only; the server decides
-        // with api/_refund-cutoff.js). null when the date or time cannot be read.
-        function demoHoursAway(dateStr, timeStr) {
+        // The demo's start instant in the store's zone, in ms (a hint for the cancel dialog only; the server decides with
+        // api/_refund-cutoff.js from the recorded request time). null when the date or time cannot be read.
+        function demoStartMs(dateStr, timeStr) {
             const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return null;
             const t = String(timeStr || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/i);
             let hour = 11, minute = 0;
-            if (t) { hour = parseInt(t[1], 10); minute = t[2] ? parseInt(t[2], 10) : 0; const ap = (t[3] || '').toLowerCase().replace(/\./g, ''); if (ap === 'pm' && hour !== 12) hour += 12; if (ap === 'am' && hour === 12) hour = 0; }
+            if (String(timeStr || '').trim()) { if (!t) return null; hour = parseInt(t[1], 10); minute = t[2] ? parseInt(t[2], 10) : 0; const ap = (t[3] || '').toLowerCase().replace(/\./g, ''); if (ap === 'pm' && hour !== 12) hour += 12; if (ap === 'am' && hour === 12) hour = 0; }
             const tz = (window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
             const wall = Date.UTC(+m[1], +m[2] - 1, +m[3], hour, minute, 0);
             const offsetAt = (ms) => { try { const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(ms))) p[x.type] = x.value; return Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second) - ms; } catch (_) { return null; } };
             const o1 = offsetAt(wall); if (o1 == null) return null;
             const o2 = offsetAt(wall - o1); if (o2 == null) return null;
-            return (wall - o2 - Date.now()) / 36e5;
+            return wall - o2;
+        }
+        function demoHoursAway(dateStr, timeStr, fromMs) {
+            const start = demoStartMs(dateStr, timeStr); if (start == null) return null;
+            return (start - (fromMs == null ? Date.now() : fromMs)) / 36e5;
+        }
+        // "YYYY-MM-DDTHH:MM" for a datetime-local input, in the browser's local time.
+        function localDateTimeValue(d) { const p2 = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+        // The cancel dialog's live state (DhModal closes before we can read its inputs, so the inputs write here).
+        window._cancelForm = null;
+        function _cancelFormSync() {
+            const fm = window._cancelForm; if (!fm) return;
+            const brandFields = document.getElementById('cancelBrandFields'); if (brandFields) brandFields.style.display = fm.category === 'brand_requested' ? '' : 'none';
+            const hint = document.getElementById('cancelHoursHint');
+            const backWrap = document.getElementById('cancelBackdateWrap');
+            const overrideWrap = document.getElementById('cancelOverrideWrap');
+            const reqMs = fm.requested_at ? new Date(fm.requested_at).getTime() : NaN;
+            const backdatedH = Number.isFinite(reqMs) ? (Date.now() - reqMs) / 36e5 : 0;
+            if (backWrap) backWrap.style.display = backdatedH > 24 ? '' : 'none';
+            if (overrideWrap) overrideWrap.style.display = fm.force_refund ? '' : 'none';
+            if (hint) {
+                const hrs = demoHoursAway(fm.dateStr, fm.timeStr, Number.isFinite(reqMs) ? reqMs : null);
+                hint.textContent = hrs == null ? 'The demo time could not be read here; the server will decide from the stored schedule.'
+                    : hrs >= 72 ? 'About ' + (Math.floor(hrs * 10) / 10).toFixed(1) + ' hours between when the brand asked and the demo start: outside the 72-hour window, so the brand is refunded automatically if they paid. (The server checks the exact time.)'
+                    : hrs >= 0 ? 'About ' + (Math.floor(hrs * 10) / 10).toFixed(1) + ' hours between when the brand asked and the demo start: inside the 72-hour window, so the fee stays with you unless you tick Refund the brand anyway. (The server checks the exact time.)'
+                    : 'The demo had already started when the brand asked.';
+            }
         }
         async function cancelDemoConfirm(bookingId, brandName, dateStr, timeStr) {
             if (!bookingId) { DhModal.toast('This demo has no linked booking to cancel.', 'error'); return; }
             const mode = cancellationModeOf(window.state.retailer && window.state.retailer.cancellation_mode);
-            const hrs = demoHoursAway(dateStr, timeStr);
-            const hint = hrs == null ? '' : hrs >= 72
-                ? ' This demo is about ' + Math.round(hrs) + ' hours away (' + Math.floor(hrs / 24) + ' days), outside the 72-hour window.'
-                : hrs >= 0 ? ' This demo is about ' + Math.round(hrs) + ' hours away, inside the 72-hour window.' : ' This demo has already started.';
             const ruleLine = mode === 'non_refundable'
-                ? 'Your cancellation policy is non-refundable, so a paid demo fee stays with you unless you tick the box below.'
-                : 'If the brand paid and the demo starts at least 72 hours from now, Stripe refunds them automatically. Inside 72 hours the fee stays with you unless you tick the box below.';
-            window._cancelRefundAnyway = false;
+                ? 'Your cancellation policy is non-refundable: when the brand asks to cancel, a paid demo fee stays with you unless you tick Refund the brand anyway. If you cannot host the demo, the brand is refunded in full.'
+                : 'When the brand asks to cancel, Stripe refunds them automatically if the demo starts at least 72 hours after they asked; inside 72 hours the fee stays with you unless you tick Refund the brand anyway. If you cannot host the demo, the brand is refunded in full.';
+            window._cancelForm = { category: null, requested_at: localDateTimeValue(new Date()), backdate_note: '', force_refund: false, override_reason: '', dateStr, timeStr };
             const ok = await DhModal.confirm({
                 title: 'Cancel this demo?',
                 message: '<div>Cancel the demo with <strong>' + escapeHtml(brandName) + '</strong> on ' + escapeHtml(dateStr) + ' at ' + escapeHtml(timeStr) + '?</div>' +
                     '<div style="margin-top:12px; padding:12px 14px; background:var(--forest-50); border-radius:8px; font-size:0.85rem; color:var(--forest-900); line-height:1.5;">' +
-                        '<strong>What happens:</strong> the brand gets a cancellation email. ' + ruleLine + escapeHtml(hint) +
+                        '<strong>What happens:</strong> the brand gets a cancellation email. ' + ruleLine +
                     '</div>',
-                extraHTML: '<label style="display:flex; gap:10px; align-items:flex-start; margin:14px 0 4px; cursor:pointer;">' +
-                        '<input type="checkbox" id="cancelRefundAnyway" onchange="window._cancelRefundAnyway = this.checked" style="margin-top:3px; accent-color:var(--forest-700);">' +
-                        '<span><strong>Refund the brand anyway</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Sends the full demo fee back to the brand even inside the 72-hour window or under a non-refundable policy. Leave this unticked to keep the fee and decide later.</span></span>' +
-                    '</label>',
+                extraHTML: '<div style="margin:14px 0 6px; font-weight:600; color:var(--forest-900);">Why is this demo being cancelled?</div>' +
+                    '<label style="display:flex; gap:10px; align-items:flex-start; margin:0 0 8px; cursor:pointer;"><input type="radio" name="cancelCategory" value="brand_requested" onchange="window._cancelForm.category = this.value; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>The brand asked to cancel</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Your cancellation policy applies, counted from when they asked.</span></span></label>' +
+                    '<div id="cancelBrandFields" style="display:none; margin:0 0 10px 26px; padding:10px 12px; background:#f9f7f2; border-radius:8px;">' +
+                        '<label style="display:block; font-size:0.85rem; margin-bottom:6px;">When did the brand ask? <span style="color:var(--ink-500);">(your local time)</span><br><input type="datetime-local" id="cancelRequestedAt" value="' + escapeHtml(window._cancelForm.requested_at) + '" onchange="window._cancelForm.requested_at = this.value; _cancelFormSync()" style="margin-top:4px; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                        '<div id="cancelHoursHint" style="font-size:0.8rem; color:var(--forest-900); line-height:1.45; margin-bottom:8px;"></div>' +
+                        '<label id="cancelBackdateWrap" style="display:none; font-size:0.85rem; margin-bottom:8px;">That is more than a day ago. How do you know when they asked (an email, a call)?<br><input type="text" id="cancelBackdateNote" maxlength="200" placeholder="e.g. email from the brand on Tuesday 4pm" oninput="window._cancelForm.backdate_note = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                        '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;"><input type="checkbox" id="cancelRefundAnyway" onchange="window._cancelForm.force_refund = this.checked; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Refund the brand anyway</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Sends the full demo fee back to the brand even inside the 72-hour window or under a non-refundable policy. Recorded with your name and reason.</span></span></label>' +
+                        '<label id="cancelOverrideWrap" style="display:none; font-size:0.85rem; margin:8px 0 0 26px;">Why?<br><input type="text" id="cancelOverrideReason" maxlength="200" placeholder="e.g. first-time brand, goodwill" oninput="window._cancelForm.override_reason = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                    '</div>' +
+                    '<label style="display:flex; gap:10px; align-items:flex-start; margin:0 0 4px; cursor:pointer;"><input type="radio" name="cancelCategory" value="store_caused" onchange="window._cancelForm.category = this.value; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>We can\'t host it</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">The brand is refunded in full if they paid, whatever the timing or your policy.</span></span></label>',
                 ok: 'Yes, cancel demo',
                 cancel: 'Keep demo',
                 kind: 'confirm',
             });
-            if (!ok) return;
-            const refundAnyway = window._cancelRefundAnyway === true;
+            if (!ok) { window._cancelForm = null; return; }
+            const fm = window._cancelForm || {}; window._cancelForm = null;
+            if (fm.category !== 'brand_requested' && fm.category !== 'store_caused') { DhModal.toast('Not cancelled. Pick why the demo is being cancelled (the brand asked, or you cannot host it) and try again.', 'error'); return; }
+            const body = { booking_id: bookingId, action: 'cancel', category: fm.category };
+            if (fm.category === 'brand_requested') {
+                const reqDate = fm.requested_at ? new Date(fm.requested_at) : null;
+                if (!reqDate || Number.isNaN(reqDate.getTime())) { DhModal.toast('Not cancelled. Enter when the brand asked to cancel and try again.', 'error'); return; }
+                if (reqDate.getTime() - Date.now() > 10 * 60 * 1000) { DhModal.toast('Not cancelled. The time the brand asked cannot be in the future.', 'error'); return; }
+                body.requested_at = reqDate.toISOString();
+                if ((Date.now() - reqDate.getTime()) / 36e5 > 24) {
+                    if (String(fm.backdate_note || '').trim().length < 5) { DhModal.toast('Not cancelled. The brand asked more than a day ago, so say how you know when they asked, then try again.', 'error'); return; }
+                    body.backdate_note = String(fm.backdate_note).trim();
+                }
+                body.force_refund = fm.force_refund === true;
+                if (body.force_refund) {
+                    if (String(fm.override_reason || '').trim().length < 3) { DhModal.toast('Not cancelled. Give a short reason for refunding the brand anyway, then try again.', 'error'); return; }
+                    body.override_reason = String(fm.override_reason).trim();
+                }
+            }
             try {
                 const r = await fetch('/api/booking-action', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ booking_id: bookingId, action: 'cancel', force_refund: refundAnyway }),
+                    body: JSON.stringify(body),
                     credentials: 'same-origin',
                 });
                 const j = await r.json();
-                if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status));
                 // Refund copy tracks the BACKEND's exact vocabulary. A merely SUBMITTED refund is not
                 // "issued"/"completed", the charge.refunded webhook confirms it later.
                 let refundMsg = '';
-                if (j.refund_status === 'submitted') refundMsg = ' Refund submitted to the brand. Stripe will confirm it shortly.';
+                if (j.refund_status === 'submitted') refundMsg = j.refund_reason === 'store_caused' ? ' Refund submitted to the brand (the store cancelled). Stripe will confirm it shortly.' : ' Refund submitted to the brand. Stripe will confirm it shortly.';
                 else if (j.refund_status === 'pending_manual') refundMsg = j.refund_reason === 'inside_cutoff'
-                    ? ' The demo was inside the 72-hour window, so the fee was not refunded. Refund it from Stripe if you decide to.'
-                    : j.refund_reason === 'non_refundable' ? ' Your policy is non-refundable, so the fee was not refunded. Refund it from Stripe if you decide to.'
-                    : ' The refund was not made automatically. Refund it from Stripe if you decide to.';
+                    ? ' The brand asked inside the 72-hour window, so the fee was not refunded.'
+                    : j.refund_reason === 'non_refundable' ? ' Your policy is non-refundable, so the fee was not refunded.'
+                    : ' The fee was not refunded automatically.';
+                else if (j.refund_status === 'under_review') refundMsg = ' The demo\'s scheduled time could not be confirmed, so the refund is under review by Demohub' + (j.refund_review_case_id ? ' (case ' + String(j.refund_review_case_id).slice(0, 8) + ').' : '.');
                 else if (j.refund_status === 'refund_failed') refundMsg = ' The refund did NOT go through. Check Stripe.';
                 else if (j.refund_status === 'not_paid') refundMsg = ' No charge was captured, so no refund is needed.';
                 // A partial completion, booking cancelled and any refund maybe submitted, but the calendar

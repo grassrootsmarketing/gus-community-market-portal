@@ -251,7 +251,7 @@ try {
     // the booker's booking is made cancellable (paid and pending with the store), as a real one would be after checkout
     const target = noticeBookingId;
     await db(`bookings?id=eq.${target}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });
-    const cancel = target ? await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: target }, cookies: { dh_retailer_session: staffCookie } })) : { statusCode: 0 };
+    const cancel = target ? await callRoute('booking-action.js', req({ body: { action: 'cancel', category: 'brand_requested', booking_id: target }, cookies: { dh_retailer_session: staffCookie } })) : { statusCode: 0 };
     const toBooker = mailsTo(bookerEmail, since, /cancelled/), toOwner = mailsTo(ownerEmail, since, /cancelled/);
     ok('BC-5c the store cancelling a booker\'s booking emails the booker and the owner; the owner\'s copy names who booked and carries no refund line', (cancel.statusCode === 200 || cancel.statusCode === 409) && toBooker.length === 1 && toOwner.length === 1 && /booked by/i.test(toOwner[0].subject) && !/refund request was submitted/.test(toOwner[0].html), JSON.stringify({ s: cancel.statusCode, b: toBooker.length, o: toOwner.length, subj: toOwner[0] && toOwner[0].subject }));
     // release contract item 7 (2026-10-18): a brand notice whose first send fails is retried once, immediately
@@ -269,7 +269,7 @@ try {
     await db(`bookings?id=eq.${won2.body.booking_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });
     await acct({ action: 'booker-revoke', member_id: memberId }, ownerCookie);
     const since2 = spy.calls.resend.length;
-    const cancel2 = await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: won2.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
+    const cancel2 = await callRoute('booking-action.js', req({ body: { action: 'cancel', category: 'brand_requested', booking_id: won2.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
     ok('BC-5d after revocation, a notice for the former booker\'s booking goes to the owner only', (cancel2.statusCode === 200 || cancel2.statusCode === 409) && mailsTo(bookerEmail, since2, /cancelled/).length === 0 && mailsTo(ownerEmail, since2, /cancelled/).length === 1, JSON.stringify({ s: cancel2.statusCode, b: mailsTo(bookerEmail, since2).length, o: mailsTo(ownerEmail, since2).length }));
   }
 } catch (e) {

@@ -395,7 +395,7 @@ try {
   // =========================================================================
   {
     const n0 = spy.calls.resend.length;
-    const cx = await callRoute('booking-action.js', req({ body: { booking_id: bookingId, action: 'cancel', force_refund: true, reason: 'Store closed for inventory' }, cookies: { dh_retailer_session: staffCookie } }));
+    const cx = await callRoute('booking-action.js', req({ body: { booking_id: bookingId, action: 'cancel', category: 'brand_requested', force_refund: true, override_reason: 'test override', reason: 'Store closed for inventory' }, cookies: { dh_retailer_session: staffCookie } }));
     ok('cancel succeeds', cx.statusCode === 200 && cx.body && cx.body.ok === true, `${cx.statusCode} ${JSON.stringify(cx.body).slice(0, 200)}`);
     const routeMails = mailsSince(n0);
     ok('the brand still got its own cancellation email from the route', routeMails.some(m => subj(m).includes('was cancelled') && !subj(m).includes('Demo cancelled:')), JSON.stringify(routeMails.map(subj)));
