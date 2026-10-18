@@ -50,7 +50,7 @@ try {
   ok('1k. the list opens with the brand\'s own name', /Your brand is\s*Fire Season Goods/.test((await p.locator('#skuList').locator('xpath=preceding-sibling::div[contains(@class,"help")]').first().textContent()).replace(/\s+/g, ' ')));
   // fewer fields, plainer words (2026-10-17)
   ok('1l. no distributor item number is asked', (await blank.locator('.sku-item-number').getAttribute('type')) === 'hidden');
-  ok('1m. the item code field says what it is, not "SKU"', /Your item code (optional)/.test(await blank.locator('.sku-code').getAttribute('placeholder')));
+  ok('1m. the item code field says what it is, not "SKU"', /Your item code \(optional\)/.test(await blank.locator('.sku-code').getAttribute('placeholder')));
   ok('1n. distributor name is hidden until Other is chosen', !(await blank.locator('.sku-distributor-other').isVisible()));
   await blank.locator('.sku-distributor').selectOption('other');
   ok('1o. choosing Other reveals the distributor name box', await blank.locator('.sku-distributor-other').isVisible());
