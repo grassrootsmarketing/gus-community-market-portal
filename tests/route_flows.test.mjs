@@ -943,11 +943,15 @@ console.log('\n— 13: three-booking payment, exact-once fulfilment, mismatch, r
   ok('a retailer admin session was minted for the refund', !!refundSess);
 
   const refundTarget = bookingIds[0];
+  // (2026-10-18) No force_refund: the fixture demos are 30+ days out, so the 72-hour rule (api/_refund-cutoff.js)
+  // refunds on its own; the fixture retailer carries the database default cancellation_mode, which reads as refundable.
   const rr = await callRoute('booking-action.js', req({
-    body: { action: 'cancel', booking_id: refundTarget, force_refund: true },
+    body: { action: 'cancel', booking_id: refundTarget },
     cookies: { dh_retailer_session: refundSess } }));
   ok('the cancel+refund route succeeds for one booking', rr.statusCode === 200,
      `${rr.statusCode} ${JSON.stringify(rr.body).slice(0, 200)}`);
+  ok('the refund was automatic under the 72-hour rule: refund_status submitted, refund_reason outside_cutoff, 72+ hours before the demo',
+     rr.body && rr.body.refund_status === 'submitted' && rr.body.refund_reason === 'outside_cutoff' && rr.body.hours_before_demo >= 72, JSON.stringify(rr.body).slice(0, 200));
 
   const refundedRow = ((await db(`bookings?id=eq.${refundTarget}&select=payment_status,status`)).body || [])[0];
   ok('the targeted booking is refunded', refundedRow && refundedRow.payment_status === 'refunded', JSON.stringify(refundedRow));

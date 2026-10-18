@@ -73,5 +73,26 @@ console.log('\n— admin cancel/refund wiring —');
   check("cancelDemoConfirm no longer mislabels a refund as 'issued'", !/refund_status\s*===\s*'issued'/.test(fn));
 }
 
+// 6. (2026-10-18) the 72-hour rule: the cancel dialog offers "Refund the brand anyway" and posts it as force_refund;
+//    the Policies radios carry the two values the server reads; saveBookingPrefs never writes the legacy value.
+{
+  const fn = slice('async function cancelDemoConfirm(', 'window._coiPending');
+  check('the cancel dialog offers a visible "Refund the brand anyway" checkbox', /Refund the brand anyway/.test(fn) && /id="cancelRefundAnyway"/.test(fn), fn.slice(0, 120));
+  check('the checkbox is unticked by default (window._cancelRefundAnyway reset to false before the dialog opens)', /window\._cancelRefundAnyway = false;/.test(fn) && fn.indexOf('window._cancelRefundAnyway = false;') < fn.indexOf('DhModal.confirm('));
+  check('cancelDemoConfirm posts force_refund from that choice, as a boolean', /force_refund:\s*refundAnyway/.test(fn) && /const refundAnyway = window\._cancelRefundAnyway === true/.test(fn), fn.slice(0, 160));
+  check('the dialog explains the 72-hour rule in plain words', /at least 72 hours from now/.test(fn) && /Inside 72 hours the fee stays with you/.test(fn));
+  check('the dialog tells the store how far away this demo is (demoHoursAway)', /demoHoursAway\(dateStr, timeStr\)/.test(fn) && /function demoHoursAway\(/.test(html));
+  check("the toast explains a pending_manual outcome by refund_reason (inside_cutoff / non_refundable)", /refund_reason === 'inside_cutoff'/.test(fn) && /refund_reason === 'non_refundable'/.test(fn));
+  const card = html.slice(html.indexOf('id="cancellationPolicyCard"'), html.indexOf('id="demoPolicyCard"'));
+  check('the Policies radios are refundable / non_refundable, the values api/_refund-cutoff.js reads', /name="cancellationMode" value="refundable" id="cancelRefund72"/.test(card) && /name="cancellationMode" value="non_refundable" id="cancelNonRefundable"/.test(card));
+  check('the refundable radio is worded as the 72-hour rule and recommended', /Refund if cancelled 72 hours ahead/.test(card) && /RECOMMENDED/.test(card));
+  check('the retired 14_day_refund value and 14-day wording are gone from the markup', !/value="14_day_refund"/.test(html) && !/14-day refund window/.test(html) && !/within 14 days of the booking date/.test(html));
+  const save = slice('async function saveBookingPrefs()', 'DhModal.toast(\'Booking settings saved\'');
+  check("saveBookingPrefs writes 'refundable' or 'non_refundable', never the legacy value", /'non_refundable' : 'refundable'/.test(save) && !/14_day_refund/.test(save), save.slice(0, 200));
+  check('saveBookingPrefs keeps the signed sentence in step with the radio (cancellation_policy in the same PATCH)', /payload\.cancellation_policy = cancellationSentenceFor\(mode\)/.test(save));
+  check('the card shows the sentence brands sign (renderCancellationSentence into #cancellationPolicySentence)', /id="cancellationPolicySentence"/.test(card) && /function renderCancellationSentence\(\)/.test(html));
+  check('the non-refundable sentence in the admin is the one api/_refund-cutoff.js exports', (() => { const a = html.match(/CANCEL_POLICY_NON_REFUNDABLE = '([^']+)'/); const lib = readFileSync(resolve('api/_refund-cutoff.js'), 'utf8').match(/NON_REFUNDABLE_CANCELLATION_POLICY = '([^']+)'/); return !!a && !!lib && a[1] === lib[1]; })());
+}
+
 console.log(`\nadmin cancel wiring: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

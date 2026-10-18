@@ -14,5 +14,15 @@ ok('reschedules are still welcome', /Reschedules are welcome anytime/.test(sente
 for (const f of files) ok(`${f} carries the identical sentence`, texts[f].includes(sentence), 'differs');
 ok('no file still carries the old 48-hour sentence', !files.some(f => /48 hours before the demo/.test(texts[f])));
 ok('no em dashes', !files.some(f => /—/.test(texts[f].split('\n').filter(l => /cancell/i.test(l)).join('\n'))));
+// 2026-10-18: the non-refundable store's sentence (api/_refund-cutoff.js) is the same in the admin page and in the 0103
+// backfill, and it promises no refund; the admin writes it when the store picks Non-refundable.
+const nrFiles = ['api/_refund-cutoff.js', 'r/gus/admin/index.html', 'supabase/migrations/0103_cancellation_mode_72h.sql'];
+const nrTexts = Object.fromEntries(nrFiles.map(f => [f, readFileSync(f, 'utf8')]));
+const nrSentence = (nrTexts['api/_refund-cutoff.js'].match(/NON_REFUNDABLE_CANCELLATION_POLICY = '([^']+)'/) || [])[1];
+ok('api/_refund-cutoff.js defines the non-refundable sentence', !!nrSentence, 'not found');
+ok('it says fees are not refunded, says why, and still welcomes reschedules', /not refunded/.test(nrSentence) && /orders product/.test(nrSentence) && /Reschedules are welcome anytime/.test(nrSentence));
+ok('it does not mention 72 hours (a non-refundable store makes no window promise)', !/72/.test(nrSentence));
+for (const f of nrFiles) ok(`${f} carries the identical non-refundable sentence`, nrTexts[f].includes(nrSentence), 'differs');
+ok('the 72-hour sentence is what the admin writes for the refundable choice', nrTexts['r/gus/admin/index.html'].includes("const CANCEL_POLICY_DEFAULT = '" + sentence + "'"));
 console.log(`\ncancellation policy text: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -2,8 +2,10 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/booking-action, Admin confirms, declines, or cancels a booking.
 // On confirm: flips bookings.status to 'confirmed', creates a demos row, emails the brand.
 // On decline: flips bookings.status to 'declined', emails the brand.
-// On cancel: flips bookings.status to 'cancelled', refunds via Stripe if paid,
-//            respecting the retailer's cancellation_mode (refundable | non_refundable).
+// On cancel: flips bookings.status to 'cancelled' and, if paid, decides the refund with api/_refund-cutoff.js:
+//            refundable mode refunds automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72)
+//            away in the store's zone; inside that window, and always in non_refundable mode, the refund is
+//            left to the store (pending_manual) unless it ticked "Refund the brand anyway" (force_refund).
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
 // build-bust: 2026-07-09-phase-b
@@ -13,11 +15,10 @@ import { sendMailQuietly, link } from './_mail.js';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
+import { refundDecision } from './_refund-cutoff.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
-
-const REFUND_CUTOFF_DAYS = 14;
 
 async function refundPaymentIntent(paymentIntentId, opts = {}) {
   if (!STRIPE_SECRET_KEY) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
@@ -69,12 +70,8 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
 // amounts now come exclusively from the immutable allocation via refund_reserve_cas, so no code
 // path can ever fall back to an unscoped full-PaymentIntent refund.
 
-function daysUntilDemo(demo_date) {
-  if (!demo_date) return 0;
-  const demo = new Date(demo_date + 'T00:00:00Z').getTime();
-  const now = Date.now();
-  return Math.floor((demo - now) / (24 * 60 * 60 * 1000));
-}
+// (2026-10-18) daysUntilDemo() and REFUND_CUTOFF_DAYS are gone: the cancel decision lives in api/_refund-cutoff.js
+// (refundDecision), measured in elapsed hours to the demo's start instant, so the policy sentence and the money agree.
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -146,13 +143,19 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 }
 
 
-function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
+function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus, refundReason }) {
+  // pending_manual says WHY there was no automatic refund, in the words of the policy the brand signed.
+  const manualLine = refundReason === 'inside_cutoff'
+    ? 'This cancellation came inside the 72-hour window in ' + html(retailerName) + '\'s cancellation policy, so the demo fee is not refunded automatically. ' + html(retailerName) + ' will follow up with you directly if they decide to refund it.'
+    : refundReason === 'non_refundable'
+    ? html(retailerName) + '\'s cancellation policy is non-refundable, so the demo fee is not refunded automatically. ' + html(retailerName) + ' will follow up with you directly if they decide to refund it.'
+    : html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.';
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed, typically within 5&ndash;10 business days.</p>'
     : refundStatus === 'auth_released'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged. The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
     : refundStatus === 'pending_manual'
-    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + manualLine + '</p>'
     : refundStatus === 'not_paid'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">No charge was captured for this booking, so nothing needs to be refunded.</p>'
     : '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">If your card was charged, ' + html(retailerName) + ' will follow up about the refund per their cancellation policy.</p>';
@@ -451,7 +454,7 @@ export default async function handler(req, res) {
     try {
       const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
       venue = Array.isArray(venues) ? venues[0] : null;
-      const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
+      const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all,timezone`);
       retailer = Array.isArray(retailers) ? retailers[0] : null;
     } catch (e) {
       return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer details could not be loaded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was charged. Retry in a moment.' });
@@ -550,6 +553,8 @@ export default async function handler(req, res) {
 
     let refundStatus = 'not_paid';
     let refundInfo = null;
+    let refundReason = null;        // cancel path only: why the refund was or was not automatic (api/_refund-cutoff.js)
+    let refundHoursOut = null;      // cancel path only: elapsed hours from the cancellation to the demo's start
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
     const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
@@ -589,16 +594,16 @@ export default async function handler(req, res) {
         if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
       }
     } else if (action === 'cancel') {
-      const mode = (retailer && retailer.cancellation_mode) || 'refundable';
-      const daysOut = daysUntilDemo(booking.demo_date);
-      const shouldRefund = wasPaid && (
-        force_refund === true
-        || mode === 'refundable'
-        || (mode !== 'non_refundable' && daysOut >= REFUND_CUTOFF_DAYS)
-      );
-      if (!wasPaid) {
+      // The 72-hour rule (api/_refund-cutoff.js): refundable mode refunds automatically only when the demo
+      // starts at least 72 elapsed hours from now in the store's zone; inside the window, in non_refundable
+      // mode, or when the start cannot be resolved, the refund is the store's call (pending_manual) unless
+      // it ticked "Refund the brand anyway" (force_refund). Unpaid and fee-waived bookings never refund.
+      const decision = refundDecision({ booking, retailer, forceRefund: force_refund === true });
+      refundReason = decision.reason;
+      refundHoursOut = decision.hours_before_demo;
+      if (!wasPaid || decision.reason === 'fee_waived') {
         refundStatus = 'not_paid';
-      } else if (shouldRefund) {
+      } else if (decision.refund) {
         const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', 'cancel');
         refundInfo = r;
         refundStatus = r.ok ? 'submitted' : 'refund_failed';
@@ -767,7 +772,7 @@ export default async function handler(req, res) {
         htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
         subject = `Your demo at ${retailer?.name || 'the store'} was cancelled`;
-        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
+        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus, refundReason });
       }
       emailOk = true;
       if (recipients.to.length) {
@@ -818,6 +823,10 @@ export default async function handler(req, res) {
       idempotent: idempotentReplay || undefined,
       email_sent: emailOk,
       refund_status: action === 'cancel' ? refundStatus : undefined,
+      // Why the refund was or was not automatic (api/_refund-cutoff.js), and how far away the demo was. The admin
+      // cancel toast reads these so the store is told "inside the 72-hour window" rather than a bare status.
+      refund_reason: action === 'cancel' ? refundReason : undefined,
+      hours_before_demo: action === 'cancel' ? refundHoursOut : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
       // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was
       // opened. The caller must NOT treat the cancellation as fully complete.
