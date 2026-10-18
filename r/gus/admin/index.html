@@ -5774,7 +5774,7 @@ function escapeHtml(s) {
 
         // ===== Cancellation policy =====
         let policyEditing = false;
-        const CANCEL_POLICY_DEFAULT = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+        const CANCEL_POLICY_DEFAULT = 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
         async function loadCancellationPolicy() {
             try {
                 const persisted = window.state.retailer && window.state.retailer.cancellation_policy;
@@ -5800,7 +5800,7 @@ function escapeHtml(s) {
                 status.textContent = '';
             } else {
                 btn.disabled = true; btn.textContent = 'Saving…';
-                const newVal = ta.value.trim() || 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                const newVal = ta.value.trim() || 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
                 fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },

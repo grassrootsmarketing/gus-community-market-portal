@@ -123,7 +123,7 @@ export function describeItem(item, esc) {
   if (!item || typeof item !== 'object') return '';
   const parts = [e(item.name || '')];
   if (item.size) parts.push(' <span style="color:#6b6a64;">(' + e(item.size) + ')</span>');
-  if (item.sku) parts.push(' <span style="color:#6b6a64;">brand SKU ' + e(item.sku) + '</span>');
+  if (item.sku) parts.push(' <span style="color:#6b6a64;">item code ' + e(item.sku) + '</span>');
   return parts.join('');
 }
 // Stacked ordering details for one item (full layout), absent optional details read "Not provided".
