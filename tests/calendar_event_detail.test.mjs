@@ -51,6 +51,8 @@ const items = [
   const pendingOnly = actions({ id: 'd1', booking_id: 'b1', status: 'pending' });
   ok('retailer: a pending demo offers Cancel only', !/js-cal-reschedule/.test(pendingOnly) && /js-cal-cancel/.test(pendingOnly));
   ok('retailer: a cancelled or declined demo and an example demo offer nothing', actions({ id: 'd1', booking_id: 'b1', status: 'cancelled' }) === '' && actions({ id: 'd1', booking_id: 'b1', status: 'declined' }) === '' && actions({ id: 'd1', booking_id: 'b1', status: 'confirmed', isSample: true }) === '');
+  const live = new Function([lift(/function calendarLiveDemos\(list\) \{[\s\S]*?\n        \}\n/), 'return calendarLiveDemos;'].join('\n'))();
+  ok('retailer: the calendar grid draws live demos only; cancelled and declined leave it', JSON.stringify(live([{ id: 1, status: 'confirmed' }, { id: 2, status: 'Cancelled' }, { id: 3, status: 'declined' }, { id: 4, status: 'pending' }, { id: 5 }]).map(d => d.id)) === '[1,4,5]' && /const demosForCal = calendarLiveDemos\(window\.state\.demos \|\| \[\]\);/.test(src));
   ok('retailer: the buttons close the modal and call the Demos-tab flows with the same arguments', /closeCard\(\); openRescheduleModal\(d\.id, d\.company, d\.date, d\.time, d\.venue_id\)/.test(src) && /closeCard\(\); cancelDemoConfirm\(d\.booking_id, d\.company, d\.date, d\.time\)/.test(src));
 }
 

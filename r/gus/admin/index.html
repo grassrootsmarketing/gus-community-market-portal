@@ -6841,6 +6841,9 @@ function escapeHtml(s) {
                 grid.innerHTML = '<div style="padding:24px; color:var(--ink-500); text-align:center; grid-column: 1 / -1; font-style:italic;">Calendar failed to render: ' + (e.message || e) + '</div>';
             }
         }
+        function calendarLiveDemos(list) {
+            return (list || []).filter(d => { const st = String((d && d.status) || '').toLowerCase(); return st !== 'cancelled' && st !== 'declined'; });
+        }
         function _renderBigCalendarInner(grid, label) {
             renderBigLegend();
             const y = bigCalDate.getFullYear(), m = bigCalDate.getMonth();
@@ -6855,8 +6858,9 @@ function escapeHtml(s) {
             const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
             // Index demos by date
             const demosByDay = {};
-            // No sample/example demos on the calendar, it only ever shows real bookings.
-            const demosForCal = window.state.demos || [];
+            // No sample/example demos on the calendar, it only ever shows real bookings, and only live ones: a cancelled
+            // or declined demo leaves the grid (it stays on the Demos tab with its status).
+            const demosForCal = calendarLiveDemos(window.state.demos || []);
             demosForCal.forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
