@@ -124,7 +124,7 @@ async function ensureRetailer() {
       auto_confirm_bookings: true,
       cancellation_mode: 'refundable',
       demo_policy: 'Arrive 15 minutes before your slot to set up. Bring sampling supplies (cups, napkins, ice if needed). Coordinate with the floor lead on arrival. Keep the demo area clean, present products in branded packaging only, and break down promptly at end of slot.',
-      cancellation_policy: 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules welcome anytime.',
+      cancellation_policy: 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.',
     }),
   });
   return Array.isArray(created) ? created[0] : null;

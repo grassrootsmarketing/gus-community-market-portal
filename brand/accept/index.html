@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Accept booking access · Demohub</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root { --forest-900:#0f2c17; --forest-700:#2a5b32; --ink-700:#3a3a36; --ink-500:#6b6a64; --sand-100:#fbf7f0; --clay-700:#a14e2a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:'Plus Jakarta Sans', -apple-system, sans-serif; background:var(--sand-100); color:#1c1c1a; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .card { background:white; border-radius:18px; border:1px solid rgba(15,44,23,0.08); box-shadow:0 20px 60px rgba(15,44,23,0.08); max-width:520px; width:100%; padding:32px 30px; }
+  h1 { font-weight:500; font-size:1.6rem; margin:0 0 8px; color:var(--forest-900); letter-spacing:-0.02em; }
+  p { line-height:1.55; margin:0 0 14px; color:var(--ink-700); font-size:0.95rem; }
+  .perm { background:var(--sand-100); border-radius:12px; padding:14px 16px; font-size:0.9rem; line-height:1.55; color:var(--ink-700); margin:0 0 18px; }
+  label { display:block; font-size:0.82rem; font-weight:700; color:var(--forest-900); margin:0 0 6px; }
+  input { width:100%; font: inherit; font-size:1.3rem; letter-spacing:0.25em; text-align:center; padding:12px 14px; border:1.5px solid rgba(15,44,23,0.2); border-radius:12px; }
+  input[type="checkbox"] { width:auto; padding:0; letter-spacing:0; border:0; border-radius:0; }   /* the code box rule above must not stretch the Terms box */
+  .btn { font: inherit; font-weight:700; background:var(--forest-900); color:white; border:0; border-radius:999px; padding:13px 24px; cursor:pointer; width:100%; margin-top:14px; }
+  .btn[disabled] { opacity:0.6; cursor:default; }
+  .muted { font-size:0.82rem; color:var(--ink-500); }
+  .err { color:var(--clay-700); font-size:0.9rem; margin-top:10px; display:none; }
+  .brand { display:flex; align-items:center; gap:10px; margin-bottom:22px; font-weight:800; color:var(--forest-900); letter-spacing:-0.04em; font-size:1.2rem; }
+  .brand img { width:30px; height:30px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand"><img src="/favicon.svg" alt="" width="30" height="30" style="width:30px;height:30px;display:block;">demohub</div>
+  <div id="loading"><h1>Checking your invitation</h1><p class="muted">One moment.</p></div>
+  <div id="invalid" style="display:none;">
+    <h1>This invitation is not valid any more</h1>
+    <p id="invalidMsg">The link may have expired, been replaced by a newer one, or already been used. Ask the brand to send a new invitation.</p>
+    <p class="muted">Nothing has been changed on any account.</p>
+  </div>
+  <div id="form" style="display:none;">
+    <h1>Book demos for <span id="brandName">this brand</span></h1>
+    <p><span id="brandName2">This brand</span> designated <strong id="who">you</strong> as its booker on Demohub. Before anything is set up, read what that means and confirm you hold this address.</p>
+    <div class="perm" id="perm"></div>
+    <p>We sent a 6-digit code to <strong id="emailHint"></strong>. Enter it below. The code expires in 30 minutes.</p>
+    <label for="code">Your code</label>
+    <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="------">
+    <label for="terms" style="display:flex; gap:10px; align-items:flex-start; margin:14px 0 12px; font-size:0.92rem; font-weight:400; line-height:1.45; cursor:pointer; color:var(--ink-700, #3a3a36);">
+      <input id="terms" type="checkbox" style="margin-top:3px; flex:0 0 auto; width:16px; height:16px;"><span style="flex:1; min-width:0;">
+      I accept <a href="/terms" target="_blank" rel="noopener" id="termsLink">Demohub's Terms of Service</a> <span id="termsVersion" class="muted"></span>. I understand that demos I book are made in <span id="brandName4">this brand</span>'s name, under its insurance and its agreements with each store, which the brand account owner manages.</span>
+    </label>
+    <button class="btn" id="acceptBtn" disabled>Accept and sign in</button>
+    <div class="err" id="err"></div>
+    <p class="muted" style="margin-top:16px;">Accepting creates your own sign-in for this brand's booking. It does not give you access to the brand's payments, receipts, products, profile or insurance documents. The brand can revoke this at any time. If you were not expecting this, close the page and nothing happens.</p>
+  </div>
+  <div id="done" style="display:none;">
+    <h1>You are set up</h1>
+    <p>You can now book demos for <span id="brandName3">this brand</span>. Taking you to your portal.</p>
+  </div>
+</div>
+<script>
+(function () {
+  const token = new URLSearchParams(location.search).get('t') || '';
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => { for (const x of ['loading', 'invalid', 'form', 'done']) $(x).style.display = x === id ? '' : 'none'; };
+  const post = (body) => fetch('/api/brand-account', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) }).then(async (r) => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }));
+  if (!token) { show('invalid'); return; }
+  post({ action: 'booker-accept-start', token }).then((r) => {
+    if (!r.ok) { if (r.body && r.body.message) $('invalidMsg').textContent = r.body.message; show('invalid'); return; }
+    const b = r.body || {};
+    $('brandName').textContent = b.brand_name || 'this brand';
+    $('brandName2').textContent = b.brand_name || 'This brand';
+    $('brandName3').textContent = b.brand_name || 'this brand';
+    $('brandName4').textContent = b.brand_name || 'this brand';
+    window._termsVersion = b.terms_version || '';
+    $('termsVersion').textContent = b.terms_version ? '(version ' + b.terms_version + ')' : '';
+    if (b.terms_url) $('termsLink').setAttribute('href', b.terms_url);
+    $('terms').addEventListener('change', () => { $('acceptBtn').disabled = !$('terms').checked; });
+    $('who').textContent = b.booker_name ? b.booker_name : 'you';
+    $('perm').textContent = b.permissions || '';
+    $('emailHint').textContent = b.email_hint || 'your email';
+    show('form');
+    $('code').focus();
+  }).catch(() => show('invalid'));
+  $('acceptBtn').addEventListener('click', async () => {
+    const code = ($('code').value || '').replace(/\D/g, '');
+    const err = $('err'); err.style.display = 'none';
+    if (code.length !== 6) { err.textContent = 'Enter the 6-digit code from your email.'; err.style.display = 'block'; return; }
+    if (!$('terms').checked) { err.textContent = 'Tick the box to accept Demohub\'s Terms of Service.'; err.style.display = 'block'; return; }
+    $('acceptBtn').disabled = true; $('acceptBtn').textContent = 'Checking';
+    const r = await post({ action: 'booker-accept', token, code, terms_accepted: true, terms_version: window._termsVersion || '' }).catch(() => ({ ok: false, body: {} }));
+    if (!r.ok) {
+      $('acceptBtn').disabled = false; $('acceptBtn').textContent = 'Accept and sign in';
+      err.textContent = (r.body && r.body.message) || (r.status === 404 ? 'That code is not right. Check the email we just sent.' : 'Something went wrong. Try again, or ask the brand for a new invitation.');
+      err.style.display = 'block';
+      if (r.status === 410) { setTimeout(() => show('invalid'), 1500); }
+      if (r.status === 409 && r.body && r.body.error === 'terms_version_mismatch') { $('terms').checked = false; $('acceptBtn').disabled = true; setTimeout(() => location.reload(), 2500); }
+      return;
+    }
+    show('done');
+    setTimeout(() => { location.href = '/brand/dashboard#retailers'; }, 1200);
+  });
+})();
+</script>
+</body>
+</html>

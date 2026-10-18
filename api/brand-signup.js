@@ -233,8 +233,15 @@ export default async function handler(req, res) {
       p_session_days: 30,
       p_max_attempts: 6,
     });
+    // 0097 (Codex BK-1): an email that is a live booker elsewhere cannot create a brand. The function raises a
+    // unique violation (PostgREST 409) in that one case; every other failure stays a 503.
+    if (!r.ok && r.status === 409) return res.status(409).json({ error: 'email_in_use', message: 'This email already has booking access on another brand account. Ask that brand to revoke it first, or use a different email.' });
     if (!r.ok) return res.status(503).json({ error: 'verification_unavailable' });
     const out = r.json || {};
+
+    // 0097 (Codex BK-3): a pending booker invitation is never accepted by signing up. The person has just proved
+    // they hold the address, so telling them where to go reveals nothing to anyone else.
+    if (out.outcome === 'invite_pending') return res.status(409).json({ error: 'invite_pending', message: 'This email has a pending invitation to book for a brand. Open the invitation email and accept it there.' });
 
     if (out.outcome !== 'ok') {
       // One response for every failure mode. Distinguishing "wrong code" from "no challenge"

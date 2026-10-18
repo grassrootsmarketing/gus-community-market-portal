@@ -5391,6 +5391,7 @@ function escapeHtml(s) {
                         '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy: refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
                     '</div>',
                 ok: 'Yes, cancel demo',
+                cancel: 'Keep demo',
                 kind: 'confirm',
             });
             if (!ok) return;
@@ -5861,7 +5862,7 @@ function escapeHtml(s) {
 
         // ===== Cancellation policy =====
         let policyEditing = false;
-        const CANCEL_POLICY_DEFAULT = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+        const CANCEL_POLICY_DEFAULT = 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
         async function loadCancellationPolicy() {
             try {
                 const persisted = window.state.retailer && window.state.retailer.cancellation_policy;
@@ -5887,7 +5888,7 @@ function escapeHtml(s) {
                 status.textContent = '';
             } else {
                 btn.disabled = true; btn.textContent = 'Saving…';
-                const newVal = ta.value.trim() || 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                const newVal = ta.value.trim() || 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
                 fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
@@ -6928,6 +6929,9 @@ function escapeHtml(s) {
                 grid.innerHTML = '<div style="padding:24px; color:var(--ink-500); text-align:center; grid-column: 1 / -1; font-style:italic;">Calendar failed to render: ' + (e.message || e) + '</div>';
             }
         }
+        function calendarLiveDemos(list) {
+            return (list || []).filter(d => { const st = String((d && d.status) || '').toLowerCase(); return st !== 'cancelled' && st !== 'declined'; });
+        }
         function _renderBigCalendarInner(grid, label) {
             renderBigLegend();
             const y = bigCalDate.getFullYear(), m = bigCalDate.getMonth();
@@ -6942,8 +6946,9 @@ function escapeHtml(s) {
             const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
             // Index demos by date
             const demosByDay = {};
-            // No sample/example demos on the calendar, it only ever shows real bookings.
-            const demosForCal = window.state.demos || [];
+            // No sample/example demos on the calendar, it only ever shows real bookings, and only live ones: a cancelled
+            // or declined demo leaves the grid (it stays on the Demos tab with its status).
+            const demosForCal = calendarLiveDemos(window.state.demos || []);
             demosForCal.forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
@@ -6992,10 +6997,30 @@ function escapeHtml(s) {
                 + (d.isSample ? '<div style="margin-top:12px; font-size:0.8rem; color:#a14e2a;">This is an example demo shown while your calendar is empty.</div>' : '')
                 + '</div>';
         }
+        // The same actions the Demos tab offers, under the same rules: Reschedule for a confirmed demo, Cancel for a demo
+        // that is not already cancelled or declined. The modal closes itself and hands over to the existing flows.
+        function _demoEventActionsHtml(d) {
+            if (d.isSample) return '';
+            const status = String(d.status || '').toLowerCase();
+            const canCancel = !!d.booking_id && status !== 'cancelled' && status !== 'declined';
+            const canResched = status === 'confirmed' && !!d.id;
+            if (!canCancel && !canResched) return '';
+            const btn = 'font-size:0.85rem; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; font-family:inherit;';
+            return '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">'
+                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">Reschedule</button>' : '')
+                + (canCancel ? '<button type="button" class="js-cal-cancel" style="' + btn + ' background:#fff; border:1.5px solid #f0d6c6; color:#a14e2a;">Cancel demo</button>' : '')
+                + '</div>'
+                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ' : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
+        }
         function openDemoEventDetail(id) {
             const d = (window.state.demos || []).find(x => String(x.id) === String(id));
             if (!d) return;
-            DhModal.alert({ title: d.company || 'Demo', extraHTML: _demoEventDetailHtml(d), ok: 'Close' });
+            DhModal.alert({ title: d.company || 'Demo', extraHTML: _demoEventDetailHtml(d) + _demoEventActionsHtml(d), ok: 'Close' });
+            // The card is in the document as soon as alert() returns its promise; wire the action buttons to the Demos tab flows.
+            const cards = document.querySelectorAll('.dhm-backdrop .dhm-card'); const card = cards[cards.length - 1]; if (!card) return;
+            const closeCard = () => { const okBtn = card.querySelector('[data-act="ok"]'); if (okBtn) okBtn.click(); };
+            const rs = card.querySelector('.js-cal-reschedule'); if (rs) rs.onclick = () => { closeCard(); openRescheduleModal(d.id, d.company, d.date, d.time, d.venue_id); };
+            const cn = card.querySelector('.js-cal-cancel'); if (cn) cn.onclick = () => { closeCard(); cancelDemoConfirm(d.booking_id, d.company, d.date, d.time); };
         }
 
         const ADVANCE_PRESETS = ['3', '7', '14', '30', '45', '60'];

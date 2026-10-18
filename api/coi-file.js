@@ -18,6 +18,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { getSessionToken } from './_cookies.js';
+import { resolveBrandIdentity } from './_brand-identity.js';
 import { requireSameOrigin } from './_csrf.js';
 let _b = null;
 const BUCKET = 'coi-docs';
@@ -67,10 +68,10 @@ export default async function handler(req, res) {
   // logs, and in the Referer sent to whatever the signed URL redirects to. Cookie only.
   const brandSession = getSessionToken(req, 'brand');
   if (brandSession) {
+    // 0097 (Codex BK-4): the brand's own certificate file is for the OWNER; a booker never reads it.
     try {
-      const rows = await sb(`brand_account_sessions?session_token=eq.${encodeURIComponent(brandSession)}&select=brand_id,expires_at`);
-      const s = Array.isArray(rows) ? rows[0] : null;
-      if (s && s.brand_id === brandId && new Date(s.expires_at).getTime() > Date.now()) allowed = true;
+      const ctx = await resolveBrandIdentity(brandSession);
+      if (ctx && ctx.ok && ctx.brandId === brandId && ctx.role === 'owner') allowed = true;
     } catch (_) {}
   }
 

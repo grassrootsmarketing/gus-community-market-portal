@@ -265,7 +265,10 @@ async function markFannedOut(b, ev, now, note) {
   await sb(b, `notification_events?id=eq.${enc(ev.id)}&fanned_out_at=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) });
 }
 
-// Server-resolved brand recipients: the brand's account email plus its team members. Never client input.
+// Server-resolved brand recipients. Never client input.
+// 0097 (Codex BK-6): receipts and COI decisions are the OWNER's business. The brand's account email is the one
+// required recipient; accepted OWNER membership rows with another address are added (there should be none, the owner
+// row is the account email), and bookers, pending and revoked rows are never recipients of these kinds.
 async function brandRecipients(b, brand) {
   const out = [];
   const seen = new Set();
@@ -276,10 +279,30 @@ async function brandRecipients(b, brand) {
   };
   add(brand.id, brand.email);
   try {
-    const members = await sb(b, `brand_members?brand_id=eq.${enc(brand.id)}&select=id,email&order=created_at.asc&limit=50`) || [];
+    const members = await sb(b, `brand_members?brand_id=eq.${enc(brand.id)}&role=eq.owner&status=eq.accepted&select=id,email&order=created_at.asc&limit=50`) || [];
     for (const m of members) add(m.id, m.email);
   } catch (_) { /* members are additive; the primary account email is the required recipient */ }
   return out;
+}
+
+// The payer of a receipt group, when that payer is the brand's designated booker (Codex shipped-release finding 1):
+// the PAID payment attempt names the authenticated initiator of the checkout (0103, written by api/checkout.js from
+// the session). The booker receives the receipt only when that payer is an accepted booker of the brand AND every
+// demo in the group is that booker's own. An owner paying for a booker's booking, a legacy attempt without a payer,
+// a pending or revoked member, or any ambiguity returns null and the receipt stays the owner's alone. Server-resolved
+// from the ledger, never from who booked, from the booking's contact address, from client input or the event payload.
+async function payerBookerRecipient(b, group) {
+  const paid = rowsOf(await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=payer_member_id,payer_role&order=paid_at.desc.nullslast&limit=1`), 'payment_attempts')[0];
+  if (!paid || !paid.payer_member_id || paid.payer_role !== 'booker') return null;
+  const member = rowsOf(await sb(b, `brand_members?id=eq.${enc(paid.payer_member_id)}&select=id,brand_id,email,role,status`), 'brand_members')[0];
+  if (!member || member.brand_id !== group.brand_id || member.role !== 'booker' || member.status !== 'accepted') return null;
+  const allocs = rowsOf(await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id&limit=500`), 'payment_allocations');
+  const ids = [...new Set(allocs.map(a => a.booking_id).filter(Boolean))];
+  if (!ids.length || ids.length >= 500) return null;
+  const bookings = rowsOf(await sb(b, `bookings?id=in.(${ids.map(enc).join(',')})&select=id,booked_by_member_id`), 'bookings');
+  if (bookings.length !== ids.length || !bookings.every(x => String(x.booked_by_member_id || '') === String(member.id))) return null;
+  const email = String(member.email || '').trim();
+  return email ? { recipient_id: member.id, email } : null;
 }
 
 async function fanOutOne(b, cache, ev, now) {
@@ -336,6 +359,15 @@ async function fanOutOne(b, cache, ev, now) {
     const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
     if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
     let recipients = await brandRecipients(b, brand);
+    // David's release contract item 2 (2026-10-18), Codex's payer-receipt exception: the designated booker who paid
+    // receives the automatic receipt too. Never on an owner's copy request, and the owner's receipt is never held back
+    // by this lookup.
+    if (!payload.resend) {
+      try {
+        const payer = await payerBookerRecipient(b, group);
+        if (payer && !recipients.some(r => String(r.email || '').toLowerCase() === payer.email.toLowerCase())) recipients.push(payer);
+      } catch (_) { /* owner's receipt proceeds */ }
+    }
     // Codex receipts PR-6: the automatic receipt goes to every account contact; a copy a contact asked for
     // goes to that contact only, resolved server-side when the request was recorded (0092) and checked
     // again here against the brand's CURRENT contacts.
@@ -679,9 +711,17 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     let to = null;
     if (row.recipient_id === brand.id) to = brand.email;
     else {
-      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // 0097 (Codex BK-6): re-read at send time; a pending or a revoked row never receives this kind. An accepted
+      // booker receives it only as the group's payer, re-derived from the ledger now (release contract item 2).
+      if (member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      if (member.role !== 'owner') {
+        if (payload.resend) return { skip: 'recipient_not_owner' };
+        const payer = await payerBookerRecipient(b, group);
+        if (!payer || payer.recipient_id !== member.id) return { skip: 'recipient_not_payer' };
+      }
       to = member.email;
     }
     to = String(to || '').trim();
@@ -731,9 +771,11 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     let to = null;
     if (row.recipient_id === brand.id) to = brand.email;
     else {
-      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // 0097 (Codex BK-6): re-read at send time; a booker, a pending or a revoked row never receives this kind.
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
       to = member.email;
     }
     to = String(to || '').trim();
