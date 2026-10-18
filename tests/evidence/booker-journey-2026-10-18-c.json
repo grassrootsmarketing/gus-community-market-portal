@@ -1,0 +1,290 @@
+{
+  "started_at": "2026-10-18T18:53:27.534Z",
+  "steps": [
+    {
+      "name": "setup: the test store is manual-confirm for this run (restored afterwards)",
+      "pass": true,
+      "detail": {
+        "before": true
+      }
+    },
+    {
+      "name": "setup: the deployed candidate reads the minted booker session as role booker",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "role": "booker"
+      }
+    },
+    {
+      "name": "A1 deployed agreement-check hands the owner the current policy hash and reports the agreement active",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "has_active": true
+      }
+    },
+    {
+      "name": "A2 deployed agreement-sign refuses a stale displayed hash (409 policy_changed with the current text) and writes nothing",
+      "pass": true,
+      "detail": {
+        "status": 409,
+        "body": "policy_changed"
+      }
+    },
+    {
+      "name": "A3 deployed agreement-sign with the current hash replays the live agreement (no new row)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "agreement_id": "257fd960-65d6-4c91-85fa-008ac1c79d13",
+        "replay": true
+      }
+    },
+    {
+      "name": "A4 deployed agreement-sign without a displayed hash is refused (400 policy_hash_required)",
+      "pass": true,
+      "detail": {
+        "error": "policy_hash_required",
+        "message": "Reload the store's policies and agree again."
+      }
+    },
+    {
+      "name": "A5 deployed agreement-sign by the booker is refused (403 role_not_allowed)",
+      "pass": true,
+      "detail": {
+        "error": "role_not_allowed",
+        "message": "Only the brand account owner can agree to a store's policies. Ask them to agree once, then you can book here."
+      }
+    },
+    {
+      "name": "T1 deployed booker-accept refuses a Terms version other than the required one (409 terms_version_mismatch) before touching any invitation",
+      "pass": true,
+      "detail": {
+        "error": "terms_version_mismatch",
+        "required_version": "2026-06-29",
+        "message": "Demohub's Terms of Service changed while this page was open. Reload the page to review the current terms."
+      }
+    },
+    {
+      "name": "T2 deployed booker-accept refuses an acceptance without the Terms box (400 terms_required)",
+      "pass": true,
+      "detail": {
+        "error": "terms_required",
+        "message": "Tick the box to accept Demohub's Terms of Service."
+      }
+    },
+    {
+      "name": "B1 the booker books one demo with an operation key (manual-confirm store): pending payment, attributed to the booker",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "booking_id": "effed30b-ae7c-404c-afa7-66cd307480f3",
+          "next": "checkout",
+          "replay": false
+        }
+      }
+    },
+    {
+      "name": "B2 the SAME request with the SAME key replays the same booking: one booking, one operation row, replay flagged, no checkout touched",
+      "pass": true,
+      "detail": {
+        "b2": {
+          "ok": true,
+          "booking_id": "effed30b-ae7c-404c-afa7-66cd307480f3",
+          "next": "checkout",
+          "fee_waived": false,
+          "target_status": null,
+          "code_applied": null,
+          "replay": true,
+          "current_status": "pending_payment",
+          "current_payment_status": "unpaid"
+        },
+        "bookings": 1,
+        "ops": 1
+      }
+    },
+    {
+      "name": "B3 a CHANGED request under the same key is refused (409 op_key_reused), still one booking",
+      "pass": true,
+      "detail": {
+        "error": "op_key_reused",
+        "message": "This request was already used for a different booking. Reload and try again."
+      }
+    },
+    {
+      "name": "B4 the owner replaying the booker's key is refused (409 op_key_reused)",
+      "pass": true,
+      "detail": {
+        "error": "op_key_reused",
+        "message": "This request was already used for a different booking. Reload and try again."
+      }
+    },
+    {
+      "name": "P1 checkout returns a Stripe test-mode session for the booker's booking",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "body": "url"
+      }
+    },
+    {
+      "name": "P2 the test card pays on Stripe's hosted page and returns to the preview",
+      "pass": true,
+      "detail": "https://demohub-booker-preview.vercel.app/r/gus?paid=1&bookings=effed30b-ae7c-404c-afa7-66cd307480f3"
+    },
+    {
+      "name": "P3 the webhook marks the booking paid and it WAITS for the store (manual-confirm): status pending, $30.00",
+      "pass": true,
+      "detail": {
+        "status": "pending",
+        "payment_status": "paid",
+        "payment_intent_id": "pi_3URzDNA6b3orPg0T00cKVZ2n",
+        "stripe_session_id": "cs_test_a1rtjtWABXTpg10EHoNtMEIliEtjd31S4wLaH06E1Gv1B57z8uOniOLqkF",
+        "amount_paid": 3000
+      }
+    },
+    {
+      "name": "C1 the store's confirm action confirms the paid booking",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "body": true,
+        "afterConfirm": {
+          "status": "confirmed",
+          "payment_status": "paid"
+        }
+      }
+    },
+    {
+      "name": "C2 the worker fans out the store notices; no store notice in the outbox addresses the booker",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted"
+        },
+        {
+          "kind": "demo_confirmed",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted"
+        }
+      ]
+    },
+    {
+      "name": "C3 the receipt for the booker's payment goes to the owner AND to the booker who paid, both accepted",
+      "pass": true,
+      "detail": [
+        {
+          "recipient_email": "david+booker2@demohubhq.com",
+          "recipient_kind": "brand",
+          "status": "accepted",
+          "dedupe_key": "payment_receipt:742808de-2f3b-4296-92f6-26843a767e9b:brand:38c6e997-30e3-4f25-8b11-51c176ce5d90"
+        },
+        {
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "recipient_kind": "brand",
+          "status": "accepted",
+          "dedupe_key": "payment_receipt:742808de-2f3b-4296-92f6-26843a767e9b:brand:ddf24429-e22d-4c34-8fef-1a6004b7ae9c"
+        }
+      ]
+    },
+    {
+      "name": "R1 the owner revokes the booker",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "mrow": {
+          "status": "revoked",
+          "revoked_at": "2026-10-18T18:54:04.08611+00:00",
+          "revoked_by_email": "david+walkthrough@demohubhq.com"
+        }
+      }
+    },
+    {
+      "name": "R2 after revocation the booker's replay of the paid booking's key and a fresh booking are both refused (401), and no booker session remains",
+      "pass": true,
+      "detail": {
+        "replay": 401,
+        "fresh": 401,
+        "sessions": 0
+      }
+    },
+    {
+      "name": "R3 the paid, confirmed booking is untouched by the revocation and still attributed to the revoked member",
+      "pass": true,
+      "detail": {
+        "status": "confirmed",
+        "payment_status": "paid",
+        "booked_by_member_id": "38c6e997-30e3-4f25-8b11-51c176ce5d90"
+      }
+    },
+    {
+      "name": "X1 the store cancels: booking cancelled, payment refunded, one Stripe test refund of $30.00 succeeded on the booker's payment",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "afterCancel": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancelled_at": "2026-10-18T18:54:06.796+00:00"
+        },
+        "refund": {
+          "id": "re_3URzDNA6b3orPg0T0NjbrMEl",
+          "amount": 3000,
+          "status": "succeeded"
+        }
+      }
+    },
+    {
+      "name": "X2 the cancellation notice reaches the store contact; no store notice ever addressed the booker",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted"
+        },
+        {
+          "kind": "demo_confirmed",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted"
+        },
+        {
+          "kind": "demo_cancelled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted"
+        }
+      ]
+    }
+  ],
+  "alias": "demohub-ngk6zcdi1-grms-projects-0d18c653.vercel.app    demohub-booker-preview.vercel.app                                             19h",
+  "sha": "62650cb",
+  "checkout_url_host": "checkout.stripe.com",
+  "payment": {
+    "status": "pending",
+    "payment_status": "paid",
+    "payment_intent_id": "pi_3URzDNA6b3orPg0T00cKVZ2n",
+    "stripe_session_id": "cs_test_a1rtjtWABXTpg10EHoNtMEIliEtjd31S4wLaH06E1Gv1B57z8uOniOLqkF",
+    "amount_paid": 3000
+  },
+  "refund": {
+    "id": "re_3URzDNA6b3orPg0T0NjbrMEl",
+    "amount": 3000,
+    "status": "succeeded"
+  },
+  "booking_id": "effed30b-ae7c-404c-afa7-66cd307480f3",
+  "member_id": "38c6e997-30e3-4f25-8b11-51c176ce5d90",
+  "op_key": "journey_11f7ac23f19cca9bab211547",
+  "demo_date": "2026-11-04",
+  "restored_auto_confirm": true,
+  "finished_at": "2026-10-18T18:54:10.629Z"
+}

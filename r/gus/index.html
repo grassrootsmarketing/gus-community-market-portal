@@ -2567,8 +2567,8 @@ function supportMailto(a) {
             document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
             document.getElementById('agreementRetailerLabel').textContent = (pol.retailer_name || 'This store') + '\'s policies';
             window._agreementReadOnly = true;
-            _setAgreementReadOnly(true);
-            openAgreementModal();
+            openAgreementModal();            // resets the scroll box and the hint
+            _setAgreementReadOnly(true);     // then the read-only presentation wins
             return false;
         }
         function _setAgreementReadOnly(on) {
@@ -2579,6 +2579,11 @@ function supportMailto(a) {
             if (okBtn) okBtn.style.display = on ? 'none' : '';
             if (hint) hint.style.display = on ? 'none' : '';
             if (cancelBtn) cancelBtn.textContent = on ? 'Close' : 'Cancel';
+            // the signing copy becomes reading copy: eyebrow and intro, restored on close
+            const title = document.getElementById('agreementRetailerLabel');
+            const eyebrow = title && title.previousElementSibling, intro = title && title.nextElementSibling;
+            if (eyebrow) { if (on) { if (!eyebrow.dataset.orig) eyebrow.dataset.orig = eyebrow.innerHTML; eyebrow.textContent = 'Store policies'; } else if (eyebrow.dataset.orig) { eyebrow.innerHTML = eyebrow.dataset.orig; } }
+            if (intro) { if (on) { if (!intro.dataset.orig) intro.dataset.orig = intro.innerHTML; intro.textContent = 'These are the store\'s current demo and cancellation policies. Only the brand account owner can agree to them; demos you book are made under the owner\'s agreement.'; } else if (intro.dataset.orig) { intro.innerHTML = intro.dataset.orig; } }
         }
         function _renderBookProducts(bp, opts) {
             const grp = document.getElementById('bookSkuGroup'), list = document.getElementById('bookSkuList'), wrap = document.getElementById('bookNewItems');
