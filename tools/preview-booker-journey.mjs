@@ -120,7 +120,11 @@ try {
   log('C1 the store\'s confirm action confirms the paid booking', cf.status === 200 && afterConfirm.status === 'confirmed' && afterConfirm.payment_status === 'paid', { status: cf.status, body: cf.body && (cf.body.error || cf.body.ok), afterConfirm });
   const w1 = await fetch(ALIAS + '/api/notification-worker', { method: 'POST', headers: { 'x-vercel-protection-bypass': BYPASS, Authorization: 'Bearer ' + CRON } }).then(r => r.json());
   const delivConfirm = await db(`notification_deliveries?booking_id=eq.${bookingId}&select=kind,recipient_kind,recipient_email,status&order=created_at.asc`);
-  log('C2 the worker fans out the store notices; nothing in the outbox addresses the booker', w1.ok && delivConfirm.length >= 1 && delivConfirm.every(x => x.recipient_email.toLowerCase() !== BOOKER_EMAIL), delivConfirm);
+  log('C2 the worker fans out the store notices; no store notice in the outbox addresses the booker', w1.ok && delivConfirm.length >= 1 && delivConfirm.every(x => x.recipient_email.toLowerCase() !== BOOKER_EMAIL), delivConfirm);
+  // release contract item 2 (2026-10-18): the booker who PAID receives the Demohub receipt as well as the owner
+  const receiptDeliv = await db(`notification_deliveries?kind=eq.payment_receipt&retailer_id=eq.${RETAILER}&created_at=gte.${encodeURIComponent(out.started_at)}&select=recipient_email,recipient_kind,status,dedupe_key&order=created_at.asc`);
+  const receiptTo = receiptDeliv.map(x => x.recipient_email.toLowerCase()).sort();
+  log('C3 the receipt for the booker\'s payment goes to the owner AND to the booker who paid, both accepted', receiptDeliv.length === 2 && receiptTo.join('|') === [OWNER_EMAIL, BOOKER_EMAIL].sort().join('|') && receiptDeliv.every(x => x.status === 'accepted'), receiptDeliv);
 
   // ------------------------------------------------------------------ the owner revokes; the booker's replay and new requests are refused
   const rv = await api('/api/brand-account?action=booker-revoke', { action: 'booker-revoke', member_id: memberId }, ownerCookie);
@@ -141,7 +145,7 @@ try {
   log('X1 the store cancels: booking cancelled, payment refunded, one Stripe test refund of $30.00 succeeded on the booker\'s payment', cn.status === 200 && afterCancel.status === 'cancelled' && afterCancel.payment_status === 'refunded' && rf && rf.amount === 3000 && rf.status === 'succeeded', { status: cn.status, afterCancel, refund: out.refund });
   const w2 = await fetch(ALIAS + '/api/notification-worker', { method: 'POST', headers: { 'x-vercel-protection-bypass': BYPASS, Authorization: 'Bearer ' + CRON } }).then(r => r.json());
   const delivAll = await db(`notification_deliveries?booking_id=eq.${bookingId}&select=kind,recipient_kind,recipient_email,status&order=created_at.asc`);
-  log('X2 the cancellation notice reaches the store contact; no outbox delivery ever addressed the booker', w2.ok && delivAll.some(x => x.kind === 'demo_cancelled') && delivAll.every(x => x.recipient_email.toLowerCase() !== BOOKER_EMAIL), delivAll);
+  log('X2 the cancellation notice reaches the store contact; no store notice ever addressed the booker', w2.ok && delivAll.some(x => x.kind === 'demo_cancelled') && delivAll.every(x => x.recipient_email.toLowerCase() !== BOOKER_EMAIL), delivAll);
   out.booking_id = bookingId; out.member_id = memberId; out.op_key = key; out.demo_date = demoDate;
 } catch (e) {
   log('journey ran to the end', false, String(e && e.stack || e).slice(0, 400));

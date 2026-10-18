@@ -316,6 +316,33 @@ try {
     const final = await collectMetrics(b, { now: new Date() });
     ok('R7f the metric falls back once the rows are requeued', final.review_required_count === before.review_required_count, JSON.stringify({ before: before.review_required_count, final: final.review_required_count }));
   }
+  console.log('\n:: R8 the designated booker who PAID receives the receipt too (release contract item 2, 2026-10-18) ::');
+  {
+    const rec = recordingMailer(b);
+    const bp1 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
+    const gP = await claimGroup([bp1.id]); const gidP = gP.payment_group_id;
+    const aP = await attempt(gidP); await capture(aP, 3000);
+    const fP = await fan(); const dP = await deliveries(gidP);
+    ok('R8a a group paid by the booker fans out to the owner AND the booker, distinct dedupe keys, recipient_kind brand', fP.errors.length === 0 && dP.length === 2 && dP.map(d => d.recipient_email).sort().join('|') === [brandEmail, mateEmail].sort().join('|') && new Set(dP.map(d => d.dedupe_key)).size === 2 && dP.every(d => d.recipient_kind === 'brand'), JSON.stringify(dP.map(d => [d.recipient_email, d.dedupe_key.slice(-12)])));
+    const cP = await claimMine(gidP);
+    for (const row of cP.rows) await processClaimed(b, row, { now: new Date(), token: cP.token, mailer: rec.mailer });
+    const afterP = await deliveries(gidP);
+    const mateCopy = afterP.find(d => d.recipient_email === mateEmail), ownerCopy = afterP.find(d => d.recipient_email === brandEmail);
+    ok('R8b both are sent: the booker\'s copy is addressed to the booker, the owner\'s to the owner, two provider calls, the same ledger total', mateCopy && ownerCopy && mateCopy.status === 'accepted' && ownerCopy.status === 'accepted' && mateCopy.frozen_payload.to === mateEmail && ownerCopy.frozen_payload.to === brandEmail && rec.calls.length === 2 && /\$30\.00 USD/.test(mateCopy.frozen_payload.subject) && mateCopy.frozen_payload.subject === ownerCopy.frozen_payload.subject, JSON.stringify(afterP.map(d => [d.recipient_email, d.status, d.skip_reason])));
+    const bo = await booking(); const gO = await claimGroup([bo.id]); const aO = await attempt(gO.payment_group_id); await capture(aO, 3000); await fan();
+    ok('R8c a group the owner paid, with the booker still a member, still goes to the owner only', (await deliveries(gO.payment_group_id)).map(d => d.recipient_email).join('|') === brandEmail);
+    const bp2 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
+    const gR = await claimGroup([bp2.id]); const aR = await attempt(gR.payment_group_id); await capture(aR, 3000); await fan();
+    ok('R8d the second booker-paid group also fans out to both before any revocation', (await deliveries(gR.payment_group_id)).length === 2);
+    await db(`brand_members?id=eq.${mateId}`, { method: 'PATCH', body: JSON.stringify({ status: 'revoked', revoked_at: new Date().toISOString() }) });
+    const rec2 = recordingMailer(b); const cR = await claimMine(gR.payment_group_id);
+    for (const row of cR.rows) await processClaimed(b, row, { now: new Date(), token: cR.token, mailer: rec2.mailer });
+    const afterR = await deliveries(gR.payment_group_id);
+    const mateR = afterR.find(d => d.recipient_email === mateEmail), ownerR = afterR.find(d => d.recipient_email === brandEmail);
+    ok('R8e revoked before the send: the booker\'s copy is withheld (skipped recipient_not_payer), the owner\'s is sent, one provider call', mateR && ownerR && mateR.status === 'skipped' && ['recipient_not_owner', 'recipient_not_payer'].includes(mateR.skip_reason) && ownerR.status === 'accepted' && rec2.calls.length === 1, JSON.stringify(afterR.map(d => [d.recipient_email, d.status, d.skip_reason])));
+    await db(`brand_members?id=eq.${mateId}`, { method: 'PATCH', body: JSON.stringify({ status: 'accepted', revoked_at: null }) });
+  }
+
 } finally {
   // cleanup: deliveries + events by group, then the ledger rows, bookings, sessions, fixtures
   for (const gid of groups) {

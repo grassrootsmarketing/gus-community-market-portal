@@ -273,6 +273,27 @@ async function brandRecipients(b, brand) {
   return out;
 }
 
+// The payer of a receipt group, when that payer is the brand's designated booker: every booking in the group was made by
+// the same accepted booker member AND carries that member's address as the booking contact (the address checkout
+// used). Anything else (an owner's booking, a mixed group, a pending or revoked member) returns null and the receipt
+// stays the owner's alone. Server-resolved from the ledger, never from client input or the event payload.
+async function payerBookerRecipient(b, group) {
+  const allocs = rowsOf(await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id&limit=500`), 'payment_allocations');
+  const ids = [...new Set(allocs.map(a => a.booking_id).filter(Boolean))];
+  if (!ids.length || ids.length >= 500) return null;
+  const bookings = rowsOf(await sb(b, `bookings?id=in.(${ids.map(enc).join(',')})&select=id,booked_by_member_id,contact_email`), 'bookings');
+  if (bookings.length !== ids.length) return null;
+  const memberIds = new Set(bookings.map(x => x.booked_by_member_id || ''));
+  if (memberIds.size !== 1) return null;
+  const memberId = [...memberIds][0];
+  if (!memberId) return null;
+  const member = rowsOf(await sb(b, `brand_members?id=eq.${enc(memberId)}&select=id,brand_id,email,role,status`), 'brand_members')[0];
+  if (!member || member.brand_id !== group.brand_id || member.role !== 'booker' || member.status !== 'accepted') return null;
+  const email = String(member.email || '').trim().toLowerCase();
+  if (!email || !bookings.every(x => String(x.contact_email || '').trim().toLowerCase() === email)) return null;
+  return { recipient_id: member.id, email: String(member.email).trim() };
+}
+
 async function fanOutOne(b, cache, ev, now) {
   const payload = ev.payload || {};
   if (LIFECYCLE_KINDS.includes(ev.kind)) {
@@ -327,6 +348,15 @@ async function fanOutOne(b, cache, ev, now) {
     const brand = await loadFresh(b, 'brands', group.brand_id, 'id,email,company_name');
     if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
     let recipients = await brandRecipients(b, brand);
+    // David's release contract item 2 (2026-10-18), Codex's payer-receipt exception: the designated booker who paid
+    // receives the automatic receipt too. Never on an owner's copy request, and the owner's receipt is never held back
+    // by this lookup.
+    if (!payload.resend) {
+      try {
+        const payer = await payerBookerRecipient(b, group);
+        if (payer && !recipients.some(r => String(r.email || '').toLowerCase() === payer.email.toLowerCase())) recipients.push(payer);
+      } catch (_) { /* owner's receipt proceeds */ }
+    }
     // Codex receipts PR-6: the automatic receipt goes to every account contact; a copy a contact asked for
     // goes to that contact only, resolved server-side when the request was recorded (0092) and checked
     // again here against the brand's CURRENT contacts.
@@ -563,8 +593,14 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
       const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
-      // 0097 (Codex BK-6): re-read at send time; a booker, a pending or a revoked row never receives this kind.
-      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      // 0097 (Codex BK-6): re-read at send time; a pending or a revoked row never receives this kind. An accepted
+      // booker receives it only as the group's payer, re-derived from the ledger now (release contract item 2).
+      if (member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      if (member.role !== 'owner') {
+        if (payload.resend) return { skip: 'recipient_not_owner' };
+        const payer = await payerBookerRecipient(b, group);
+        if (!payer || payer.recipient_id !== member.id) return { skip: 'recipient_not_payer' };
+      }
       to = member.email;
     }
     to = String(to || '').trim();
