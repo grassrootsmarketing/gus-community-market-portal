@@ -2313,7 +2313,7 @@ function updateAgreementBand() {
     : needs.length + ' of your stores need you to agree to their current policies: ' + needs.map(n => escapeHtml(n.name)).join(', ') + '.';
   band.innerHTML = '<div style="padding:10px 0; background:#fff3ed; border-bottom:1px solid #ed682f44;">'
     + '<div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 14px; max-width:1440px; margin:0 auto; padding:0 24px; font-size:0.92rem; line-height:1.45; color:#a14e2a;">'
-    + '<span style="flex:1; min-width:240px;">' + text + ' Agree before your next booking there; a booking form will otherwise stop you' + (window._brandRole === 'owner' ? ' and your designated booker' : '') + '.</span>'
+    + '<span style="flex:1; min-width:240px;">' + text + ' The account owner must accept the current store policies before new bookings can be made there.</span>'
     + (needs.length === 1 && first.slug ? '<button type="button" id="agreementBandBtn" style="background:var(--forest-900,#1f4a26); color:#fff; border:none; border-radius:8px; padding:8px 14px; font-weight:700; font-size:0.86rem; cursor:pointer; font-family:inherit;">Review and agree</button>' : '<a href="#retailers" onclick="switchTab(\'retailers\'); return false;" style="color:#a14e2a; font-weight:700;">Open Retailers &rarr;</a>')
     + '</div></div>';
   band.style.display = 'block';
@@ -2360,8 +2360,15 @@ async function openStoreAgreement(slug, name) {
     if (!cb.checked) { err.textContent = 'Please tick the box to agree.'; err.style.display = 'block'; return; }
     const okBtn = document.getElementById('dhAgreementOk'); okBtn.disabled = true; okBtn.textContent = 'Signing';
     try {
-      const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-sign', retailer_slug: slug, signed_name: nm }) });
+      const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-sign', retailer_slug: slug, signed_name: nm, policy_hash: pol.policy_hash || '' }) });
       const jj = await r.json().catch(() => ({}));
+      if (r.status === 409 && jj.error === 'policy_changed') {
+        // 0102: the store changed its text while the owner was reading: load the current text, drop the consent, ask again
+        const np = jj.policies || {}; pol.policy_hash = np.policy_hash || null;
+        document.getElementById('dhAgreementDemo').textContent = np.demo_policy || ''; document.getElementById('dhAgreementCancel').textContent = np.cancellation_policy || '';
+        read = false; cb.checked = false; cb.disabled = true; jump.disabled = false; jump.innerHTML = 'Scroll to the end &darr;'; hint.textContent = 'Scroll through the policies to enable the checkbox.'; box.scrollTop = 0; requestAnimationFrame(onScroll);
+        throw new Error(jj.message || 'This store updated its policies while you were reading. Please review the current text and agree again.');
+      }
       if (!r.ok) throw new Error(jj.message || jj.error || ('HTTP ' + r.status));
       close();
       await ensureAgreementState(true);

@@ -20,7 +20,7 @@ import {
   readCookies as parseCookies,
 } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
-import { currentAgreementHash, DEMOHUB_TOS_VERSION } from './booking.js';   // the booking gate's formula (policies + terms version), one definition
+import { currentAgreementHash, DEMOHUB_TOS_VERSION, DEMOHUB_TOS_DIGEST } from './booking.js';   // the booking gate's formula (policies + terms version), one definition
 let _b = null;
 const CRON_SECRET = process.env.CRON_SECRET;
 const FROM_EMAIL = 'Demohub <noreply@demohubhq.com>';
@@ -1814,7 +1814,7 @@ export default async function handler(req, res) {
         html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#1c1c1a;"><p style="font-size:15px;">Enter this code on the acceptance page to confirm you hold this address. It expires in 30 minutes.</p><div style="font-family:Menlo,Consolas,monospace;font-size:32px;font-weight:700;letter-spacing:0.15em;color:#0f2c17;">${code}</div><p style="font-size:13px;color:#6b6a64;margin-top:24px;">If you did not open an invitation from ${escapeText(set.brand_name || 'a brand')}, ignore this email.</p></div>` }, { binding: _b });
       if (!sent || !sent.ok) return jsonResp(res, 503, { error: 'code_not_sent', message: 'We could not send the confirmation code just now. Reload the page to try again.' });
       const masked = String(set.email).replace(/^(.)(.*)(@.*)$/, (m, a, b2, c) => a + '*'.repeat(Math.min(6, Math.max(1, b2.length))) + c);
-      return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: BOOKER_PERMISSIONS_TEXT });
+      return jsonResp(res, 200, { ok: true, brand_name: set.brand_name || 'this brand', email_hint: masked, booker_name: set.booker_name || null, permissions: BOOKER_PERMISSIONS_TEXT, terms_version: DEMOHUB_TOS_VERSION, terms_url: '/terms' });
     }
 
     // Public: explicit acceptance. The code proves the address; booker_accept (0097) validates the invitation, marks it
@@ -1825,6 +1825,9 @@ export default async function handler(req, res) {
       if (!token || token.length < 16 || token.length > 128 || code.length !== 6) return jsonResp(res, 400, { error: 'invite_and_code_required' });
       // 0101: the booker accepts Demohub's Terms of Service in their own name; the acceptance is recorded with the version.
       if (body.terms_accepted !== true) return jsonResp(res, 400, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' });
+      // 0102 (Codex rev4 item 4): the page names the Terms version it displayed; a mismatch (a deployment changed the terms
+      // while the page was open) is refused and the page reloads. The client version is compared, never trusted.
+      if (String(body.terms_version || '') !== DEMOHUB_TOS_VERSION) return jsonResp(res, 409, { error: 'terms_version_mismatch', required_version: DEMOHUB_TOS_VERSION, message: 'Demohub\'s Terms of Service changed while this page was open. Reload the page to review the current terms.' });
       const rlIp = await checkRateLimit(req, 'booker-accept-ip', 60);
       if (!rlIp.allowed) return jsonResp(res, rlIp.error === 'rate_limit_unavailable' ? 503 : 429, { error: 'too_many_requests' });
       const h = inviteHash(token);
@@ -1834,7 +1837,7 @@ export default async function handler(req, res) {
       // membership and inserts the session in ONE transaction, membership locked first. Wrong codes are counted
       // there; six of them supersede the invitation.
       const sessionToken = randomToken(32);
-      const rr = await sb('rpc/booker_accept', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_code_hash: hashCode(h, 'booker_accept_code', code), p_session_token: sessionToken, p_terms_version: DEMOHUB_TOS_VERSION, p_session_days: 30, p_max_attempts: 6 }) });
+      const rr = await sb('rpc/booker_accept', { method: 'POST', body: JSON.stringify({ p_token_hash: h, p_code_hash: hashCode(h, 'booker_accept_code', code), p_session_token: sessionToken, p_terms_version: DEMOHUB_TOS_VERSION, p_terms_digest: DEMOHUB_TOS_DIGEST, p_session_days: 30, p_max_attempts: 6 }) });
       if (!rr.ok) return jsonResp(res, 503, { error: 'accept_unavailable' });
       const out = await rr.json();
       if (out.outcome === 'terms_required') return jsonResp(res, 400, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' });

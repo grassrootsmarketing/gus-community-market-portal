@@ -1817,6 +1817,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const rn = (j.policies && j.policies.retailer_name) || 'this retailer';
                 document.getElementById('agreementDemoPolicy').textContent = dp;
                 document.getElementById('agreementCancelPolicy').textContent = cp;
+                window._pendingPolicyHash = (j.policies && j.policies.policy_hash) || null;   // 0102: the hash of the text shown, asserted at signing
                 document.getElementById('agreementRetailerLabel').textContent = 'Sign before booking at ' + rn;
                 document.getElementById('agreementSignedName').value = '';
                 document.getElementById('agreementCheckbox').checked = false;
@@ -2067,12 +2068,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // agreement modal reappeared forever. Best-effort: a hiccup here never blocks booking,
             // agreement-check will simply re-prompt next time.
             if (window._pendingSignedName) {
+                let signResp = null, signJson = {};
                 try {
-                    await fetch('/api/booking', {
+                    signResp = await fetch('/api/booking', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                        body: JSON.stringify({ action: 'agreement-sign', retailer_slug: RETAILER_SLUG, signed_name: window._pendingSignedName }),
+                        body: JSON.stringify({ action: 'agreement-sign', retailer_slug: RETAILER_SLUG, signed_name: window._pendingSignedName, policy_hash: window._pendingPolicyHash || '' }),
                     });
+                    signJson = await signResp.json().catch(() => ({}));
                 } catch (_) { /* re-prompted next visit */ }
+                // 0102: the store changed its policies between display and signing: show the CURRENT text, drop the consent, ask again
+                if (signResp && signResp.status === 409 && signJson.error === 'policy_changed') {
+                    const pol = signJson.policies || {};
+                    window._pendingSignedName = null;
+                    window._pendingPolicyHash = pol.policy_hash || null;
+                    document.getElementById('agreementDemoPolicy').textContent = pol.demo_policy || '';
+                    document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
+                    document.getElementById('agreementRetailerLabel').textContent = 'Policies updated, please review them again';
+                    document.getElementById('agreementSignedName').value = '';
+                    const aerr = document.getElementById('agreementError'); if (aerr) { aerr.textContent = signJson.message || 'This store updated its policies while you were reading. Please review the current text and agree again.'; aerr.style.display = 'block'; }
+                    btn.disabled = false; btn.textContent = origLabel;
+                    openAgreementModal();
+                    return;
+                }
+                if (signResp && signResp.ok) window._pendingSignedName = null;
             }
             // PERF: fire all booking requests in parallel, 3-slot cart used to take 3× sequential
             // waits (~4-6s total). Now they complete in parallel, and the checkout redirect fires

@@ -21,6 +21,10 @@ const DEFAULT_CANCELLATION_POLICY = 'Cancellations accepted up to 48 hours befor
 // Wave 7: include Demohub TOS in agreement scope (and hash) so brand explicitly
 // agrees to platform terms each time the conduct contract is signed.
 export const DEMOHUB_TOS_VERSION = '2026-06-29';   // also recorded on a booker's membership at acceptance (0101)
+// sha256 of the visible text of terms/index.html at this version (tools/terms-digest.mjs; tests/terms_digest.test.mjs
+// recomputes it, so a change to the terms text cannot ship without bumping the version and this digest together).
+// Recorded next to the version on a booker's membership (0102) so the acceptance names the content accepted.
+export const DEMOHUB_TOS_DIGEST = 'ae1e4cb4dd06bfd203a3288210632cea119fc53c6d2019c0fe00607a54b82b0b';
 // EXEMPT: this URL is stored on the signed brand_retailer_agreements record as evidence of what
 // the brand agreed to. Making it environment-relative would write a staging URL into a legal
 // record, and the terms a brand accepted are the ones published at the real address.
@@ -272,46 +276,41 @@ export default async function handler(req, res) {
       if (!_sAuth.ok) return res.status(401).json({ error: 'sign_in_required' });
       // 0097 (Codex BK-5): a booker cannot bind the brand to a store's policies.
       if (_sAuth.role === 'booker') return res.status(403).json({ error: 'role_not_allowed', message: 'Only the brand account owner can agree to a store\'s policies. Ask them to agree once, then you can book here.' });
-      const retResp2 = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,demo_policy,cancellation_policy,verification_status`, {
-        headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` },
-      });
-      const rets2 = await retResp2.json();
-      const ret2 = Array.isArray(rets2) ? rets2[0] : null;
+      // 0102 (Codex rev4 item 2): the caller names the policy hash it displayed (agreement-check's policies.policy_hash).
+      // agreement_sign() recomputes the current hash under the retailer's share lock and refuses a stale one WITHOUT
+      // writing; supersession and the replacement row are one transaction; a live row with the same hash is returned as
+      // a replay. The client hash is a consistency assertion only, never authorization: the server derives everything else.
+      const svcHeaders = { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` };
+      const readRetailer = async () => {
+        const r = await fetch(`${_b.supabaseUrl}/rest/v1/retailers?slug=eq.${encodeURIComponent(rs)}&select=id,name,demo_policy,cancellation_policy,verification_status`, { headers: svcHeaders });
+        const rows = await r.json();
+        return Array.isArray(rows) ? rows[0] : null;
+      };
+      const ret2 = await readRetailer();
       if (!ret2) return res.status(404).json({ error: 'Retailer not found' });
       if (!retailerIsLive(ret2)) return res.status(403).json(NOT_LIVE_BODY);
-      const dp2 = ret2.demo_policy || DEFAULT_DEMO_POLICY;
-      const cp2 = ret2.cancellation_policy || DEFAULT_CANCELLATION_POLICY;
-      const hash2 = await sha256Hex(dp2 + '\n---\n' + cp2 + '\n---tos:' + DEMOHUB_TOS_VERSION);
-      const existing2 = await svcCall(`brand_retailer_agreements?brand_id=eq.${encodeURIComponent(_sAuth.brandId)}&retailer_id=eq.${encodeURIComponent(ret2.id)}&superseded_at=is.null&select=id`);
-      const priorId2 = Array.isArray(existing2) && existing2[0] ? existing2[0].id : null;
-      if (priorId2) {
-        await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId2)}`, {
-          method: 'PATCH', body: JSON.stringify({ superseded_at: new Date().toISOString() }),
-        });
-      }
-      const created2 = await svcCall('brand_retailer_agreements', {
-        method: 'POST',
+      const expectedHash = String(body.policy_hash || '').trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(expectedHash)) return res.status(400).json({ error: 'policy_hash_required', message: 'Reload the store\'s policies and agree again.' });
+      const signResp = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/agreement_sign`, {
+        method: 'POST', headers: { ...svcHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          brand_id: _sAuth.brandId,
-          retailer_id: ret2.id,
-          signed_name: String(sn).trim().slice(0, 200),
-          signed_email: String(_sAuth.email || '').toLowerCase(),
-          signed_ip: clientIp(req),
-          signed_user_agent: req.headers['user-agent'] || null,
-          demo_policy_snapshot: dp2,
-          cancellation_policy_snapshot: cp2,
-          policy_hash: hash2,
+          p_brand_id: _sAuth.brandId, p_retailer_id: ret2.id,
+          p_signed_email: String(_sAuth.email || '').toLowerCase(), p_signed_name: String(sn).trim().slice(0, 200),
+          p_signed_ip: clientIp(req), p_user_agent: req.headers['user-agent'] || null,
+          p_expected_hash: expectedHash, p_default_demo: DEFAULT_DEMO_POLICY, p_default_cancel: DEFAULT_CANCELLATION_POLICY, p_tos_version: DEMOHUB_TOS_VERSION,
         }),
       });
-      if (priorId2 && Array.isArray(created2) && created2[0]?.id) {
-        try {
-          await svcCall(`brand_retailer_agreements?id=eq.${encodeURIComponent(priorId2)}`, {
-            method: 'PATCH', body: JSON.stringify({ superseded_by: created2[0].id }),
-          });
-        } catch (_) {}
+      if (!signResp.ok) return res.status(503).json({ error: 'agreement_save_failed' });
+      const signed = await signResp.json();
+      if (signed.outcome === 'policy_changed') {
+        // the store changed its text between display and submission: hand back the CURRENT text and hash for a fresh review
+        const now2 = (await readRetailer()) || ret2;
+        return res.status(409).json({ error: 'policy_changed', message: 'This store updated its policies while you were reading. The current text is shown; please review it and agree again.',
+          policies: { demo_policy: now2.demo_policy || DEFAULT_DEMO_POLICY, cancellation_policy: now2.cancellation_policy || DEFAULT_CANCELLATION_POLICY, policy_hash: signed.current_hash, retailer_name: now2.name, demohub_tos_version: DEMOHUB_TOS_VERSION, demohub_tos_url: DEMOHUB_TOS_URL, can_sign: true } });
       }
-      if (!Array.isArray(created2) || !created2[0]) return res.status(500).json({ error: 'agreement_save_failed' });
-      return res.status(200).json({ ok: true, agreement_id: created2[0].id });
+      if (signed.outcome === 'already_current') return res.status(200).json({ ok: true, agreement_id: signed.agreement_id, replay: true });
+      if (signed.outcome !== 'ok') return res.status(400).json({ error: String(signed.outcome || 'agreement_save_failed') });
+      return res.status(200).json({ ok: true, agreement_id: signed.agreement_id });
     }
 
     const { retailer_slug, brand_name, contact_name, contact_email, contact_phone, product, product_skus, venue, demo_date, demo_time, notes, signed_name, needs_electricity } = body || {};

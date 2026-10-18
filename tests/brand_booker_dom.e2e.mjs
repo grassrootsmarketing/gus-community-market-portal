@@ -88,8 +88,14 @@ try {
       if (action === 'booker-designate') { designated = body; status = { ...status, booker: { id: 'm9', email: body.email, name: body.name || null, status: 'pending', invited_at: new Date().toISOString() } }; return json(route, { ok: true, booker: status.booker }); }
       if (action === 'claim-status') return json(route, { ok: true, claimed: true, verified: true, email: 'kyle@fixture.test' });
       if (action === 'agreement-list') return json(route, { ok: true, agreements: [{ id: 'ag1', retailer_id: 'r1', signed_at: '2026-10-03T01:40:35Z', expires_at: '2027-10-03T01:40:35Z', signed_name: 'Kyle', policy_hash: signedCurrent ? 'cur' : 'old', demo_policy_snapshot: 'old text', cancellation_policy_snapshot: 'old cancel', superseded_at: null, is_active: true, is_expired: false, is_current_policy: signedCurrent, retailers: { id: 'r1', name: "Gus's Community Market", slug: 'gus', demo_policy: 'New demo policy text', cancellation_policy: 'New cancel text' } }] });
-      if (action === 'agreement-check') { agreementCalls.push('check'); return json(route, { ok: true, has_active: signedCurrent, needs_re_sign: !signedCurrent, reason: signedCurrent ? undefined : 'policy_changed', policies: { demo_policy: 'New demo policy text', cancellation_policy: 'New cancel text', retailer_name: "Gus's Community Market", can_sign: true } }); }
-      if (action === 'agreement-sign') { agreementCalls.push('sign:' + body.retailer_slug + ':' + body.signed_name); signedCurrent = true; return json(route, { ok: true }); }
+      if (action === 'agreement-check') { agreementCalls.push('check'); return json(route, { ok: true, has_active: signedCurrent, needs_re_sign: !signedCurrent, reason: signedCurrent ? undefined : 'policy_changed', policies: { demo_policy: 'New demo policy text', cancellation_policy: 'New cancel text', retailer_name: "Gus's Community Market", can_sign: true, policy_hash: 'h'.repeat(64) } }); }
+      if (action === 'agreement-sign') {
+        agreementCalls.push('sign:' + body.retailer_slug + ':' + body.signed_name + ':' + String(body.policy_hash || '').slice(0, 4));
+        // first attempt: the store changed its text in between (409 with the CURRENT text and hash); second attempt with the new hash signs
+        if (body.policy_hash === 'h'.repeat(64)) return json(route, { error: 'policy_changed', message: 'This store updated its policies while you were reading.', policies: { demo_policy: 'Newer demo policy text', cancellation_policy: 'Newer cancel text', retailer_name: "Gus's Community Market", can_sign: true, policy_hash: 'k'.repeat(64) } }, 409);
+        if (body.policy_hash !== 'k'.repeat(64)) return json(route, { error: 'policy_hash_required' }, 400);
+        signedCurrent = true; return json(route, { ok: true });
+      }
       return json(route, { ok: true, agreements: [], items: [], members: [] });
     });
     await p.goto(`${BASE}/brand/dashboard#account`, { waitUntil: 'domcontentloaded' });
@@ -112,8 +118,12 @@ try {
     ok('2f. the modal shows the store\'s CURRENT policies with a disabled checkbox until the end is reached', /New demo policy text/.test(modalText) && /New cancel text/.test(modalText) && (await p.evaluate(() => document.getElementById('dhAgreementCheck').disabled || document.getElementById('dhAgreementCheck').disabled === false)), modalText.slice(0, 160));
     await p.evaluate(() => { document.getElementById('dhAgreementJump').click(); document.getElementById('dhAgreementName').value = 'Kyle Owner'; document.getElementById('dhAgreementCheck').checked = true; document.getElementById('dhAgreementOk').click(); });
     await p.waitForTimeout(900);
+    const afterStale = await p.evaluate(() => ({ open: !!document.getElementById('dhAgreementOverlay'), demo: document.getElementById('dhAgreementDemo').textContent, checked: document.getElementById('dhAgreementCheck').checked, disabled: document.getElementById('dhAgreementCheck').disabled, err: document.getElementById('dhAgreementErr').textContent }));
+    ok('2g. the sign carries the displayed hash; when the store changed its text in between, the modal stays open with the CURRENT text, the consent is dropped and the owner is told', agreementCalls.some(c => c === 'sign:gus:Kyle Owner:hhhh') && afterStale.open && /Newer demo policy text/.test(afterStale.demo) && afterStale.checked === false && /updated its policies/.test(afterStale.err), JSON.stringify({ agreementCalls, afterStale }));
+    await p.evaluate(() => { document.getElementById('dhAgreementJump').click(); document.getElementById('dhAgreementCheck').checked = true; document.getElementById('dhAgreementOk').click(); });
+    await p.waitForTimeout(900);
     const bandAfter = await p.evaluate(() => { const b = document.getElementById('agreementBand'); return b ? getComputedStyle(b).display : 'missing'; });
-    ok('2g. signing posts agreement-sign with the store slug and the typed name, closes the modal, and the band goes away', agreementCalls.some(c => c === 'sign:gus:Kyle Owner') && (await p.locator('#dhAgreementOverlay').count()) === 0 && bandAfter === 'none', JSON.stringify({ agreementCalls, bandAfter }));
+    ok('2h. re-reading and agreeing again signs with the new hash, closes the modal, and the band goes away', agreementCalls.some(c => c === 'sign:gus:Kyle Owner:kkkk') && (await p.locator('#dhAgreementOverlay').count()) === 0 && bandAfter === 'none', JSON.stringify({ agreementCalls, bandAfter }));
     ok('2c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
@@ -125,7 +135,7 @@ try {
     await p.route('**/api/**', async (route) => {
       let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
       calls.push(body.action);
-      if (body.action === 'booker-accept-start') return json(route, { ok: true, brand_name: 'Fire Season Goods', email_hint: 'b**@fixture.test', booker_name: 'Bea Booker', permissions: 'A booker can book demos. A booker cannot add or change items, see payments or receipts.' });
+      if (body.action === 'booker-accept-start') return json(route, { ok: true, brand_name: 'Fire Season Goods', email_hint: 'b**@fixture.test', booker_name: 'Bea Booker', permissions: 'A booker can book demos. A booker cannot add or change items, see payments or receipts.', terms_version: '2026-06-29', terms_url: '/terms' });
       if (body.action === 'booker-accept') { acceptBodies.push(body); if (body.terms_accepted !== true) return json(route, { error: 'terms_required', message: 'Tick the box to accept Demohub\'s Terms of Service.' }, 400); return body.code === '123456' ? json(route, { ok: true, brand_id: 'b' }) : json(route, { error: 'invalid_code', message: 'That code is not right. Check the email we just sent.' }, 404); }
       return json(route, { error: 'nope' }, 400);
     });
@@ -134,13 +144,13 @@ try {
     const txt = await p.locator('#form').innerText();
     ok('3a. the page shows the brand, the booker, the permissions and the masked email before any code', /Fire Season Goods/.test(txt) && /Bea Booker/.test(txt) && /cannot add or change items/.test(txt) && /b\*\*@fixture\.test/.test(txt), txt.slice(0, 200));
     ok('3b. opening the page called accept-start only (no accept, no login)', calls.join() === 'booker-accept-start', calls.join());
-    ok('3f. the Accept button stays disabled until the Terms of Service box is ticked, and the box names the brand', (await p.locator('#acceptBtn').isDisabled()) && /Fire Season Goods/.test(await p.locator('label[for="terms"]').innerText()) && /Terms of Service/.test(await p.locator('label[for="terms"]').innerText()));
+    ok('3f. the Accept button stays disabled until the Terms of Service box is ticked, and the box names the brand and the terms version', (await p.locator('#acceptBtn').isDisabled()) && /Fire Season Goods/.test(await p.locator('label[for="terms"]').innerText()) && /Terms of Service/.test(await p.locator('label[for="terms"]').innerText()) && /version 2026-06-29/.test(await p.locator('label[for="terms"]').innerText()));
     await p.check('#terms');
     await p.fill('#code', '000000'); await p.click('#acceptBtn'); await p.waitForTimeout(500);
     ok('3c. a wrong code shows the server message and stays on the form', /not right/.test(await p.locator('#err').innerText()) && (await p.locator('#form').isVisible()));
     await p.fill('#code', '123456'); await p.click('#acceptBtn'); await p.waitForTimeout(500);
     ok('3d. the right code accepts and shows the done state', await p.locator('#done').isVisible());
-    ok('3g. every accept call carried terms_accepted: true', acceptBodies.length >= 2 && acceptBodies.every(b => b.terms_accepted === true), JSON.stringify(acceptBodies.map(b => b.terms_accepted)));
+    ok('3g. every accept call carried terms_accepted: true and the displayed terms version', acceptBodies.length >= 2 && acceptBodies.every(b => b.terms_accepted === true && b.terms_version === '2026-06-29'), JSON.stringify(acceptBodies.map(b => [b.terms_accepted, b.terms_version])));
     ok('3e. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }

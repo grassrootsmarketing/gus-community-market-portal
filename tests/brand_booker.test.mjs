@@ -99,17 +99,20 @@ try {
     ok('B5 the code email went to the invited address', !!code && /accept booking access/i.test(codeMail.subject));
     const noTerms = await acct({ action: 'booker-accept', token: inviteToken, code });
     ok('B5b accepting without the Terms of Service box is refused (400 terms_required) and nothing is accepted', noTerms.statusCode === 400 && noTerms.body.error === 'terms_required' && (await db(`brand_members?id=eq.${memberId}&select=status`)).body[0].status === 'pending', JSON.stringify(noTerms.body));
-    const wrong = await acct({ action: 'booker-accept', token: inviteToken, code: code === '000000' ? '111111' : '000000', terms_accepted: true });
+    const oldTerms = await acct({ action: 'booker-accept', token: inviteToken, code, terms_accepted: true, terms_version: String('2020-01-01') });   // an outdated version, deliberately
+    ok('B5c accepting against a Terms version other than the required one is refused (409 terms_version_mismatch, names the required version) and nothing is accepted', oldTerms.statusCode === 409 && oldTerms.body.error === 'terms_version_mismatch' && oldTerms.body.required_version === '2026-06-29' && (await db(`brand_members?id=eq.${memberId}&select=status`)).body[0].status === 'pending', JSON.stringify(oldTerms.body));
+    const wrong = await acct({ action: 'booker-accept', token: inviteToken, code: code === '000000' ? '111111' : '000000', terms_accepted: true, terms_version: '2026-06-29' });
     ok('B6 a wrong code is refused and nothing is accepted', wrong.statusCode === 404 && (await db(`brand_members?id=eq.${memberId}&select=status`)).body[0].status === 'pending');
-    const bad = await acct({ action: 'booker-accept', token: 'not-the-token-at-all-0000', code, terms_accepted: true });
+    const bad = await acct({ action: 'booker-accept', token: 'not-the-token-at-all-0000', code, terms_accepted: true, terms_version: '2026-06-29' });
     ok('B7 a wrong token is refused', bad.statusCode === 410);
-    const accept = await acct({ action: 'booker-accept', token: inviteToken, code, terms_accepted: true });
+    const accept = await acct({ action: 'booker-accept', token: inviteToken, code, terms_accepted: true, terms_version: '2026-06-29' });
     bookerCookie = accept.cookie('dh_brand_session');
-    const mrow = (await db(`brand_members?id=eq.${memberId}&select=status,accepted_at,role,terms_accepted_at,terms_version`)).body[0];
-    ok('B8b the acceptance records the Terms of Service version and time on the membership (0101)', !!mrow.terms_accepted_at && mrow.terms_version === (await import('../api/booking.js')).POLICY_HASH_INPUTS.tos_version, JSON.stringify({ at: mrow.terms_accepted_at, v: mrow.terms_version }));
+    const mrow = (await db(`brand_members?id=eq.${memberId}&select=status,accepted_at,role,terms_accepted_at,terms_version,terms_digest`)).body[0];
+    const bookingMod = await import('../api/booking.js');
+    ok('B8b the acceptance records the Terms of Service version, its content digest and the time on the membership (0101, 0102)', !!mrow.terms_accepted_at && mrow.terms_version === bookingMod.DEMOHUB_TOS_VERSION && mrow.terms_digest === bookingMod.DEMOHUB_TOS_DIGEST, JSON.stringify({ at: mrow.terms_accepted_at, v: mrow.terms_version, d: String(mrow.terms_digest).slice(0, 12) }));
     const inv = (await db(`brand_booker_invites?member_id=eq.${memberId}&select=used_at`)).body[0];
     ok('B8 the right code accepts: member accepted with a timestamp, invitation used, session cookie issued', accept.statusCode === 200 && !!bookerCookie && mrow.status === 'accepted' && !!mrow.accepted_at && mrow.role === 'booker' && !!inv.used_at, JSON.stringify(accept.body));
-    const replay = await acct({ action: 'booker-accept', token: inviteToken, code, terms_accepted: true });
+    const replay = await acct({ action: 'booker-accept', token: inviteToken, code, terms_accepted: true, terms_version: '2026-06-29' });
     ok('B9 replaying the acceptance is refused (token used)', replay.statusCode === 410);
     const su2 = await (async () => { await db('email_verifications', { method: 'POST', body: JSON.stringify({ email: bookerEmail, purpose: 'brand_signup', code_hash: hashCode(bookerEmail, 'brand_signup', '654321'), payload: {}, expires_at: new Date(Date.now() + 30 * 60e3).toISOString() }) }); return rpc('redeem_brand_signup', { p_email: bookerEmail, p_code_hash: hashCode(bookerEmail, 'brand_signup', '654321'), p_session_token: 'sess-' + uniq('t'), p_session_days: 30, p_max_attempts: 6 }); })();
     ok('B10 after acceptance the sign-up function signs the booker in to the brand it belongs to and creates nothing', su2.body && su2.body.outcome === 'ok' && su2.body.brand_id === brandId && su2.body.created === false, JSON.stringify(su2.body));
@@ -160,11 +163,13 @@ try {
   {
     const noAg = await book({ demo_date: FAR }, bookerCookie);
     ok('D1 a booker cannot book at a store the brand has not agreed terms with', noAg.statusCode === 403 && noAg.body.error === 'agreement_required_owner', JSON.stringify(noAg.body));
-    const bSign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Bea Booker' }, cookies: { dh_brand_session: bookerCookie } }));
+    // 0102: a signer passes the hash of the text it was shown (agreement-check)
+    const shownHash = async (cookie) => ((await callRoute('booking.js', req({ body: { action: 'agreement-check', retailer_slug: slug }, cookies: { dh_brand_session: cookie } }))).body.policies || {}).policy_hash;
+    const bSign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Bea Booker', policy_hash: await shownHash(bookerCookie) }, cookies: { dh_brand_session: bookerCookie } }));
     ok('D2 a booker cannot sign the agreement', bSign.statusCode === 403 && bSign.body.error === 'role_not_allowed');
     const chk = await callRoute('booking.js', req({ body: { action: 'agreement-check', retailer_slug: slug }, cookies: { dh_brand_session: bookerCookie } }));
     ok('D3 agreement-check tells the booker they cannot sign (can_sign false)', chk.statusCode === 200 && chk.body.policies && chk.body.policies.can_sign === false);
-    const oSign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner' }, cookies: { dh_brand_session: ownerCookie } }));
+    const oSign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner', policy_hash: await shownHash(ownerCookie) }, cookies: { dh_brand_session: ownerCookie } }));
     ok('D4 the owner signs', oSign.statusCode === 200, JSON.stringify(oSign.body));
     const foreign = await book({ demo_date: FAR, product_skus: [{ id: 'draft-9', name: 'Mystery Sauce', size: '8 oz' }] }, bookerCookie);
     ok('D5 a booker cannot book with an item outside the saved list', foreign.statusCode === 403 && foreign.body.error === 'booker_items_not_allowed', JSON.stringify(foreign.body));

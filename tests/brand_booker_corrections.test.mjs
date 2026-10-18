@@ -56,14 +56,16 @@ async function acceptFlow(email) {
   const inv = lastMailFor(email, /asked you to book demos/); const token = invToken(inv);
   const start = await acct({ action: 'booker-accept-start', token });
   const code = codeIn(lastMailFor(email, /code to accept booking access/));
-  const accept = await acct({ action: 'booker-accept', token, code, terms_accepted: true });
+  const accept = await acct({ action: 'booker-accept', token, code, terms_accepted: true, terms_version: '2026-06-29' });
   return { token, code, start, accept, cookie: accept.cookie('dh_brand_session') };
 }
 // test-only: the per-IP and per-invitation rate buckets from earlier runs of this suite (test database)
 await db('rate_limit?bucket_key=like.booker-accept*', { method: 'DELETE' });
 ok('fixtures: owner and staff sessions exist', !!ownerCookie && !!staffCookie);
 // the owner agrees to the store's policy once
-const sign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner' }, cookies: { dh_brand_session: ownerCookie } }));
+// 0102: a signer passes the hash of the text it was shown (agreement-check)
+const shownHash = async (cookie) => ((await callRoute('booking.js', req({ body: { action: 'agreement-check', retailer_slug: slug }, cookies: { dh_brand_session: cookie } }))).body.policies || {}).policy_hash;
+const sign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner', policy_hash: await shownHash(ownerCookie) }, cookies: { dh_brand_session: ownerCookie } }));
 ok('fixtures: the owner signed the agreement', sign.statusCode === 200, JSON.stringify(sign.body));
 
 let memberId = null, bookerCookie = null, noticeBookingId = null;
@@ -95,18 +97,18 @@ try {
     // a login code for this email cannot substitute: the login path mints nothing for a pending address, and the
     // accept path never consults brand_account_tokens
     const login = await acct({ action: 'login', email: bookerEmail });
-    const subst = await acct({ action: 'booker-accept', token: live, code: '123456', terms_accepted: true });
+    const subst = await acct({ action: 'booker-accept', token: live, code: '123456', terms_accepted: true, terms_version: '2026-06-29' });
     ok('BC-3c a code that is not the invitation\'s is refused and counted', login.statusCode === 200 && subst.statusCode === 404 && subst.body.attempts_left === 5, JSON.stringify(subst.body));
     // a second accept-start replaces the code: the old code is dead
     const s2 = await acct({ action: 'booker-accept-start', token: live });
     const code2 = codeIn(lastMailFor(bookerEmail, /code to accept booking access/));
-    const old = await acct({ action: 'booker-accept', token: live, code: code1, terms_accepted: true });
+    const old = await acct({ action: 'booker-accept', token: live, code: code1, terms_accepted: true, terms_version: '2026-06-29' });
     ok('BC-3d after a new code is issued the previous code is dead (attempt counted)', s2.statusCode === 200 && code2 !== code1 && old.statusCode === 404, JSON.stringify(old.body));
     // six wrong codes supersede the invitation
     const outcomes = [];
-    for (let i = 0; i < 6; i++) { const r = await acct({ action: 'booker-accept', token: live, code: String(900000 + i), terms_accepted: true }); outcomes.push(r.body.error || r.body.outcome); }
+    for (let i = 0; i < 6; i++) { const r = await acct({ action: 'booker-accept', token: live, code: String(900000 + i), terms_accepted: true, terms_version: '2026-06-29' }); outcomes.push(r.body.error || r.body.outcome); }
     const invRow = (await db(`brand_booker_invites?token_hash=eq.${encodeURIComponent(hashCode('booker_invite', 'booker_invite', live))}&select=superseded_at,code_attempts`)).body[0];
-    const right = await acct({ action: 'booker-accept', token: live, code: code2, terms_accepted: true });
+    const right = await acct({ action: 'booker-accept', token: live, code: code2, terms_accepted: true, terms_version: '2026-06-29' });
     ok('BC-3e wrong codes are bounded: the sixth wrong code in total supersedes the invitation (earlier misses counted), later tries see it superseded, and even the right code is then refused', outcomes.includes('too_many_attempts') && outcomes[outcomes.length - 1] !== 'invalid_code' && !!invRow.superseded_at && right.statusCode === 410, JSON.stringify({ outcomes, right: right.body }));
     // the owner resends; accept while a revocation holds the membership lock -> the revocation wins
     await acct({ action: 'booker-resend' }, ownerCookie);
@@ -115,7 +117,7 @@ try {
     const code3 = codeIn(lastMailFor(bookerEmail, /code to accept booking access/));
     await pgc.query('begin');
     await pgc.query('select 1 from brand_members where id = $1 for update', [memberId]);
-    const pendingAccept = acct({ action: 'booker-accept', token: live2, code: code3, terms_accepted: true });
+    const pendingAccept = acct({ action: 'booker-accept', token: live2, code: code3, terms_accepted: true, terms_version: '2026-06-29' });
     const raced = await Promise.race([pendingAccept.then(() => 'done'), sleep(1500).then(() => 'blocked')]);
     await pgc.query(`select booker_revoke($1::uuid, $2::uuid, $3::text)`, [brandId, memberId, ownerEmail]);
     await pgc.query('commit');
@@ -188,11 +190,11 @@ try {
     const r2 = await pending2;
     ok('BC-2c an agreement supersession in flight blocks the booking; once committed the booking is refused (agreement_required_owner)', raced2 === 'blocked' && r2.statusCode === 403 && r2.body.error === 'agreement_required_owner', JSON.stringify({ raced2, b: r2.body }));
     // the store changes its policy text: the hash no longer matches the signed agreement
-    const resign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner' }, cookies: { dh_brand_session: ownerCookie } }));
+    const resign = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner', policy_hash: await shownHash(ownerCookie) }, cookies: { dh_brand_session: ownerCookie } }));
     await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ cancellation_policy: 'Three weeks now.' }) });
     const changed = await book({ demo_date: nextDay() }, bookerCookie);
     ok('BC-2d after the store changes its policy text, the booker is refused until the owner agrees again (hash recomputed in the database)', resign.statusCode === 200 && changed.statusCode === 403 && changed.body.reason === 'policy_changed', JSON.stringify(changed.body));
-    const resign2 = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner' }, cookies: { dh_brand_session: ownerCookie } }));
+    const resign2 = await callRoute('booking.js', req({ body: { action: 'agreement-sign', retailer_slug: slug, signed_name: 'Olive Owner', policy_hash: await shownHash(ownerCookie) }, cookies: { dh_brand_session: ownerCookie } }));
     const okAgain = await book({ demo_date: nextDay() }, bookerCookie);
     track('bookings', okAgain.body && okAgain.body.booking_id);
     noticeBookingId = okAgain.body && okAgain.body.booking_id;
