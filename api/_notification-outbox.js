@@ -273,25 +273,24 @@ async function brandRecipients(b, brand) {
   return out;
 }
 
-// The payer of a receipt group, when that payer is the brand's designated booker: every booking in the group was made by
-// the same accepted booker member AND carries that member's address as the booking contact (the address checkout
-// used). Anything else (an owner's booking, a mixed group, a pending or revoked member) returns null and the receipt
-// stays the owner's alone. Server-resolved from the ledger, never from client input or the event payload.
+// The payer of a receipt group, when that payer is the brand's designated booker (Codex shipped-release finding 1):
+// the PAID payment attempt names the authenticated initiator of the checkout (0103, written by api/checkout.js from
+// the session). The booker receives the receipt only when that payer is an accepted booker of the brand AND every
+// demo in the group is that booker's own. An owner paying for a booker's booking, a legacy attempt without a payer,
+// a pending or revoked member, or any ambiguity returns null and the receipt stays the owner's alone. Server-resolved
+// from the ledger, never from who booked, from the booking's contact address, from client input or the event payload.
 async function payerBookerRecipient(b, group) {
+  const paid = rowsOf(await sb(b, `payment_attempts?payment_group_id=eq.${enc(group.id)}&status=eq.paid&select=payer_member_id,payer_role&order=paid_at.desc.nullslast&limit=1`), 'payment_attempts')[0];
+  if (!paid || !paid.payer_member_id || paid.payer_role !== 'booker') return null;
+  const member = rowsOf(await sb(b, `brand_members?id=eq.${enc(paid.payer_member_id)}&select=id,brand_id,email,role,status`), 'brand_members')[0];
+  if (!member || member.brand_id !== group.brand_id || member.role !== 'booker' || member.status !== 'accepted') return null;
   const allocs = rowsOf(await sb(b, `payment_allocations?payment_group_id=eq.${enc(group.id)}&select=booking_id&limit=500`), 'payment_allocations');
   const ids = [...new Set(allocs.map(a => a.booking_id).filter(Boolean))];
   if (!ids.length || ids.length >= 500) return null;
-  const bookings = rowsOf(await sb(b, `bookings?id=in.(${ids.map(enc).join(',')})&select=id,booked_by_member_id,contact_email`), 'bookings');
-  if (bookings.length !== ids.length) return null;
-  const memberIds = new Set(bookings.map(x => x.booked_by_member_id || ''));
-  if (memberIds.size !== 1) return null;
-  const memberId = [...memberIds][0];
-  if (!memberId) return null;
-  const member = rowsOf(await sb(b, `brand_members?id=eq.${enc(memberId)}&select=id,brand_id,email,role,status`), 'brand_members')[0];
-  if (!member || member.brand_id !== group.brand_id || member.role !== 'booker' || member.status !== 'accepted') return null;
-  const email = String(member.email || '').trim().toLowerCase();
-  if (!email || !bookings.every(x => String(x.contact_email || '').trim().toLowerCase() === email)) return null;
-  return { recipient_id: member.id, email: String(member.email).trim() };
+  const bookings = rowsOf(await sb(b, `bookings?id=in.(${ids.map(enc).join(',')})&select=id,booked_by_member_id`), 'bookings');
+  if (bookings.length !== ids.length || !bookings.every(x => String(x.booked_by_member_id || '') === String(member.id))) return null;
+  const email = String(member.email || '').trim();
+  return email ? { recipient_id: member.id, email } : null;
 }
 
 async function fanOutOne(b, cache, ev, now) {

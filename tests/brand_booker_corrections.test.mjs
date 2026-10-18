@@ -263,6 +263,17 @@ try {
       const conf = await callRoute('booking-action.js', req({ body: { action: 'confirm', booking_id: rb.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
       const attempts = mailsTo(bookerEmail, sinceR, /confirmed/i);
       ok('BC-7 a brand notice whose first send fails is sent again once: two provider attempts to the booker with the same subject, the store action succeeds, the owner copy follows', conf.statusCode === 200 && attempts.length === 2 && attempts[0].subject === attempts[1].subject && mailsTo(ownerEmail, sinceR, /confirmed/i).length === 1, JSON.stringify({ s: conf.statusCode, attempts: attempts.map(a => a.subject), owner: mailsTo(ownerEmail, sinceR).length }));
+      const ownerCopy = mailsTo(ownerEmail, sinceR, /confirmed/i)[0];
+      ok('BC-7b the retry reuses the SAME delivery key as the failed attempt (provider deduplication), and the owner\'s copy has its own key', attempts[0].idempotency_key && attempts[0].idempotency_key === attempts[1].idempotency_key && ownerCopy && ownerCopy.idempotency_key && ownerCopy.idempotency_key !== attempts[0].idempotency_key, JSON.stringify({ a: attempts.map(a => String(a.idempotency_key || '').slice(0, 24)), o: String(ownerCopy && ownerCopy.idempotency_key || '').slice(0, 24) }));
+      ok('BC-7c the action reports the delivery per recipient: contact sent, owner sent', conf.body.email_sent === true && conf.body.notice_status && conf.body.notice_status.contact === 'sent' && conf.body.notice_status.owner === 'sent', JSON.stringify(conf.body.notice_status));
+      // both attempts fail: the store action still succeeds, and the response says the notice did not go
+      const rb2 = await book({ demo_date: nextDay() }, bookerCookie); track('bookings', rb2.body && rb2.body.booking_id);
+      await db(`bookings?id=eq.${rb2.body.booking_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });
+      spy.faults.push({ url: 'api.resend.com', status: 500, once: true, message: 'injected_provider_outage' });
+      spy.faults.push({ url: 'api.resend.com', status: 500, once: true, message: 'injected_provider_outage' });
+      const conf2 = await callRoute('booking-action.js', req({ body: { action: 'confirm', booking_id: rb2.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
+      const row2 = (await db(`bookings?id=eq.${rb2.body.booking_id}&select=status`)).body[0];
+      ok('BC-7d when both attempts to the booker fail, the confirmation itself still succeeds and the response says so truthfully (email_sent false, contact failed, owner sent)', conf2.statusCode === 200 && row2.status === 'confirmed' && conf2.body.email_sent === false && conf2.body.notice_status && conf2.body.notice_status.contact === 'failed' && conf2.body.notice_status.owner === 'sent', JSON.stringify({ s: conf2.statusCode, status: row2.status, body: conf2.body.notice_status, email_sent: conf2.body.email_sent }));
     }
     // after revocation, the store's notice goes to the owner only
     const won2 = await book({ demo_date: nextDay() }, bookerCookie); track('bookings', won2.body && won2.body.booking_id);

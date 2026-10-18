@@ -316,12 +316,14 @@ try {
     const final = await collectMetrics(b, { now: new Date() });
     ok('R7f the metric falls back once the rows are requeued', final.review_required_count === before.review_required_count, JSON.stringify({ before: before.review_required_count, final: final.review_required_count }));
   }
-  console.log('\n:: R8 the designated booker who PAID receives the receipt too (release contract item 2, 2026-10-18) ::');
+  console.log('\n:: R8 the designated booker who PAID receives the receipt too (release contract item 2, 2026-10-18; payer from the paid attempt, 0103) ::');
+  // 0103: api/checkout.js records the authenticated initiator on the attempt; the suite registers attempts directly, so it sets the payer the same way
+  const payerOn = (sess, memberId, role, email) => db(`payment_attempts?stripe_checkout_session_id=eq.${sess}`, { method: 'PATCH', body: JSON.stringify({ payer_member_id: memberId, payer_role: role, payer_email: email }) });
   {
     const rec = recordingMailer(b);
     const bp1 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
     const gP = await claimGroup([bp1.id]); const gidP = gP.payment_group_id;
-    const aP = await attempt(gidP); await capture(aP, 3000);
+    const aP = await attempt(gidP); await payerOn(aP.sess, mateId, 'booker', mateEmail); await capture(aP, 3000);
     const fP = await fan(); const dP = await deliveries(gidP);
     ok('R8a a group paid by the booker fans out to the owner AND the booker, distinct dedupe keys, recipient_kind brand', fP.errors.length === 0 && dP.length === 2 && dP.map(d => d.recipient_email).sort().join('|') === [brandEmail, mateEmail].sort().join('|') && new Set(dP.map(d => d.dedupe_key)).size === 2 && dP.every(d => d.recipient_kind === 'brand'), JSON.stringify(dP.map(d => [d.recipient_email, d.dedupe_key.slice(-12)])));
     const cP = await claimMine(gidP);
@@ -332,8 +334,15 @@ try {
     const bo = await booking(); const gO = await claimGroup([bo.id]); const aO = await attempt(gO.payment_group_id); await capture(aO, 3000); await fan();
     ok('R8c a group the owner paid, with the booker still a member, still goes to the owner only', (await deliveries(gO.payment_group_id)).map(d => d.recipient_email).join('|') === brandEmail);
     const bp2 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
-    const gR = await claimGroup([bp2.id]); const aR = await attempt(gR.payment_group_id); await capture(aR, 3000); await fan();
+    const gR = await claimGroup([bp2.id]); const aR = await attempt(gR.payment_group_id); await payerOn(aR.sess, mateId, 'booker', mateEmail); await capture(aR, 3000); await fan();
     ok('R8d the second booker-paid group also fans out to both before any revocation', (await deliveries(gR.payment_group_id)).length === 2);
+    // Codex shipped-release finding 1: the OWNER pays for the booker's booking: owner only, whatever the booking says
+    const bo2 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
+    const gOp = await claimGroup([bo2.id]); const aOp = await attempt(gOp.payment_group_id); await payerOn(aOp.sess, null, 'owner', brandEmail); await capture(aOp, 3000); await fan();
+    ok('R8f a booker-created booking PAID BY THE OWNER sends the receipt to the owner only (payer decided by the paid attempt, not by who booked or the contact address)', (await deliveries(gOp.payment_group_id)).map(d => d.recipient_email).join('|') === brandEmail, JSON.stringify((await deliveries(gOp.payment_group_id)).map(d => d.recipient_email)));
+    const bo3 = await booking({ booked_by_member_id: mateId, booked_by_email: mateEmail, booked_by_name: 'Mate R', contact_email: mateEmail });
+    const gNp = await claimGroup([bo3.id]); const aNp = await attempt(gNp.payment_group_id); await capture(aNp, 3000); await fan();
+    ok('R8g a paid attempt with NO recorded payer (legacy or failed write) keeps the receipt owner-only', (await deliveries(gNp.payment_group_id)).map(d => d.recipient_email).join('|') === brandEmail, JSON.stringify((await deliveries(gNp.payment_group_id)).map(d => d.recipient_email)));
     await db(`brand_members?id=eq.${mateId}`, { method: 'PATCH', body: JSON.stringify({ status: 'revoked', revoked_at: new Date().toISOString() }) });
     const rec2 = recordingMailer(b); const cR = await claimMine(gR.payment_group_id);
     for (const row of cR.rows) await processClaimed(b, row, { now: new Date(), token: cR.token, mailer: rec2.mailer });
