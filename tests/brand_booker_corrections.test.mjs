@@ -254,6 +254,16 @@ try {
     const cancel = target ? await callRoute('booking-action.js', req({ body: { action: 'cancel', booking_id: target }, cookies: { dh_retailer_session: staffCookie } })) : { statusCode: 0 };
     const toBooker = mailsTo(bookerEmail, since, /cancelled/), toOwner = mailsTo(ownerEmail, since, /cancelled/);
     ok('BC-5c the store cancelling a booker\'s booking emails the booker and the owner; the owner\'s copy names who booked and carries no refund line', (cancel.statusCode === 200 || cancel.statusCode === 409) && toBooker.length === 1 && toOwner.length === 1 && /booked by/i.test(toOwner[0].subject) && !/refund request was submitted/.test(toOwner[0].html), JSON.stringify({ s: cancel.statusCode, b: toBooker.length, o: toOwner.length, subj: toOwner[0] && toOwner[0].subject }));
+    // release contract item 7 (2026-10-18): a brand notice whose first send fails is retried once, immediately
+    {
+      const rb = await book({ demo_date: nextDay() }, bookerCookie); track('bookings', rb.body && rb.body.booking_id);
+      await db(`bookings?id=eq.${rb.body.booking_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });
+      const sinceR = spy.calls.resend.length;
+      spy.faults.push({ url: 'api.resend.com', status: 500, once: true, message: 'injected_provider_outage' });
+      const conf = await callRoute('booking-action.js', req({ body: { action: 'confirm', booking_id: rb.body.booking_id }, cookies: { dh_retailer_session: staffCookie } }));
+      const attempts = mailsTo(bookerEmail, sinceR, /confirmed/i);
+      ok('BC-7 a brand notice whose first send fails is sent again once: two provider attempts to the booker with the same subject, the store action succeeds, the owner copy follows', conf.statusCode === 200 && attempts.length === 2 && attempts[0].subject === attempts[1].subject && mailsTo(ownerEmail, sinceR, /confirmed/i).length === 1, JSON.stringify({ s: conf.statusCode, attempts: attempts.map(a => a.subject), owner: mailsTo(ownerEmail, sinceR).length }));
+    }
     // after revocation, the store's notice goes to the owner only
     const won2 = await book({ demo_date: nextDay() }, bookerCookie); track('bookings', won2.body && won2.body.booking_id);
     await db(`bookings?id=eq.${won2.body.booking_id}`, { method: 'PATCH', body: JSON.stringify({ status: 'pending', payment_status: 'paid', amount_paid: 3000 }) });

@@ -277,13 +277,27 @@ async function handleReschedulePropose(req, res, body) {
     const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
     const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
     const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
-    await sendMailQuietly({
+    await sendBrandNotice({
       from: FROM_ADDRESS, to: brandEmail, replyTo: 'bookings@demohubhq.com',
       subject: `${retailerName} proposed a new date for your demo`,
       html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
-    }, { binding: _b });
+    }, _b);
   }
   return res.status(200).json({ ok: true, demo_id, booking_id: proposal.booking_id, new_date, new_time: proposal.new_time || new_time || demo.demo_time, proposal_version: proposalVersion });
+}
+
+// Brand-facing notices (confirm, decline, cancel, reschedule proposal, owner copies) are sent once, immediately, and
+// retried ONCE after a short pause when the first attempt fails (release contract item 7). Still best-effort: a second
+// failure is reported as before (email_sent false, operator re-send), never queued.
+const NOTICE_RETRY_PAUSE_MS = 700;
+async function sendBrandNotice(msg, binding) {
+  let r = await sendMailQuietly(msg, { binding });
+  if (r && r.ok) return r;
+  await new Promise(resolve => setTimeout(resolve, NOTICE_RETRY_PAUSE_MS));
+  const again = await sendMailQuietly(msg, { binding });
+  if (again && again.ok) console.warn('brand notice: sent on the second attempt');
+  else console.warn('brand notice: both attempts failed', JSON.stringify({ first: r && r.code, second: again && again.code }));
+  return again;
 }
 
 function dateLabelOf(d) {
@@ -757,7 +771,7 @@ export default async function handler(req, res) {
       }
       emailOk = true;
       if (recipients.to.length) {
-        const r = await sendMailQuietly({ from: FROM_ADDRESS, to: recipients.to[0], replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
+        const r = await sendBrandNotice({ from: FROM_ADDRESS, to: recipients.to[0], replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, _b);
         emailOk = r.ok;
       }
       if (recipients.lookup_failed) { emailOk = false; console.warn('notice recipients: membership lookup unavailable for booking', booking.id, '(owner copy sent, booker copy withheld)'); }
@@ -775,7 +789,7 @@ export default async function handler(req, res) {
             else if (action === 'decline') ownerHtml = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
             else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
             ownerHtml = ownerHtml.includes('</body>') ? ownerHtml.replace('</body>', note + '</body>') : ownerHtml + note;
-            await sendMailQuietly({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, { binding: _b });
+            await sendBrandNotice({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, _b);
           }
         }
       } catch (e) { console.warn('owner copy of booking notice failed:', e && e.message); }
