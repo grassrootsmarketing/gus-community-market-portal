@@ -23,7 +23,7 @@ const cleanup = [];
 async function shoot(page, role, width, name, opts = {}) {
   const file = `${role}-${width.name}-${name}.png`;
   await page.screenshot({ path: `${outDir}/${file}`, fullPage: opts.fullPage !== false });
-  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);   // eslint-disable-line no-undef
   shots.push({ file, role, width: width.width, page: name, horizontal_overflow: overflow });
   console.log(`  ${file}${overflow ? '   HORIZONTAL OVERFLOW' : ''}`);
 }
@@ -50,14 +50,14 @@ try {
       const tabs = role === 'owner' ? ['overview', 'retailers', 'agreements', 'account'] : ['overview', 'retailers', 'calendar', 'account'];
       for (const tab of tabs) {
         await page.goto(`${ALIAS}/brand/dashboard#${tab}`, { waitUntil: 'networkidle' }).catch(() => {});
-        await page.evaluate((t) => { try { switchTab(t); } catch (_) {} }, tab); await page.waitForTimeout(1200);
+        await page.evaluate((t) => { try { switchTab(t); } catch (_) {} }, tab); await page.waitForTimeout(1200);   // eslint-disable-line no-undef
         await shoot(page, role, W, `dashboard-${tab}`);
       }
       if (role === 'owner') {
         // the signature modal from the Retailers tab (the store's current text; closed without signing)
         await page.goto(`${ALIAS}/brand/dashboard#retailers`, { waitUntil: 'networkidle' }).catch(() => {});
         await page.waitForTimeout(1200);
-        await page.evaluate(() => openStoreAgreement('gus', "Gus's Community Market (TEST)")); await page.waitForTimeout(1500);
+        await page.evaluate(() => openStoreAgreement('gus', "Gus's Community Market (TEST)")); await page.waitForTimeout(1500);   // eslint-disable-line no-undef
         if (await page.locator('#dhAgreementOverlay').count()) await shoot(page, role, W, 'dashboard-agreement-modal', { fullPage: false });
         else console.log('  (owner agreement modal not opened: agreement already current, as expected)');
       }
@@ -65,11 +65,11 @@ try {
       await page.goto(`${ALIAS}/r/gus`, { waitUntil: 'networkidle' }).catch(() => {});
       await page.waitForTimeout(2000);
       await shoot(page, role, W, 'booking-page');
-      await page.evaluate(() => { cart = [{ id: 'v1', dateStr: '2027-01-05', displayDate: 'Jan 5', time: '10:00 AM', location: 'Gus Main Street (TEST)', price: 30 }]; confirmBooking(); }).catch(() => {});
+      await page.evaluate(() => { cart = [{ id: 'v1', dateStr: '2027-01-05', displayDate: 'Jan 5', time: '10:00 AM', location: 'Gus Main Street (TEST)', price: 30 }]; confirmBooking(); }).catch(() => {});   // eslint-disable-line no-undef
       await page.waitForTimeout(800);
       await shoot(page, role, W, 'booking-confirm-form', { fullPage: false });
       if (role === 'booker') {
-        await page.evaluate(() => openStorePoliciesReadOnly()).catch(() => {}); await page.waitForTimeout(1200);
+        await page.evaluate(() => openStorePoliciesReadOnly()).catch(() => {}); await page.waitForTimeout(1200);   // eslint-disable-line no-undef
         await shoot(page, role, W, 'booking-policies-readonly', { fullPage: false });
       }
       await ctx.close();
@@ -93,9 +93,9 @@ try {
       const page = await ctx.newPage();
       await page.goto(`${ALIAS}/r/gus/admin#calendar`, { waitUntil: 'networkidle' }).catch(() => {});
       await page.waitForTimeout(2500);
-      await page.evaluate(() => { try { const t = document.querySelector('[data-tab="calendar"], .tab[data-view="calendar"]'); if (t) t.click(); } catch (_) {} }); await page.waitForTimeout(1200);
+      await page.evaluate(() => { try { const t = document.querySelector('[data-tab="calendar"], .tab[data-view="calendar"]'); if (t) t.click(); } catch (_) {} }); await page.waitForTimeout(1200);   // eslint-disable-line no-undef
       await shoot(page, 'store', W, 'admin-calendar');
-      const opened = await page.evaluate(() => { const d = (window.state && window.state.demos || []).find(x => String(x.status || '').toLowerCase() === 'confirmed' && x.booking_id); if (!d) return false; openDemoEventDetail(d.id); return true; });
+      const opened = await page.evaluate(() => { const d = (window.state && window.state.demos || []).find(x => String(x.status || '').toLowerCase() === 'confirmed' && x.booking_id); if (!d) return false; openDemoEventDetail(d.id); return true; });   // eslint-disable-line no-undef
       await page.waitForTimeout(800);
       if (opened) await shoot(page, 'store', W, 'admin-calendar-modal', { fullPage: false }); else console.log('  (no confirmed demo to open on the store calendar)');
       await ctx.close();
