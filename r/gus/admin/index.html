@@ -5307,6 +5307,7 @@ function escapeHtml(s) {
                         '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy: refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
                     '</div>',
                 ok: 'Yes, cancel demo',
+                cancel: 'Keep demo',
                 kind: 'confirm',
             });
             if (!ok) return;
