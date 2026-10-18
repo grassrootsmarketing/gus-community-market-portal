@@ -43,7 +43,15 @@ const items = [
   ok('retailer: hostile item name escaped', !/<img/.test(h));
   ok('retailer: no items asks the store to check with the brand', /Ask the brand which products/.test(detail({ id: 'd2', date: '2026-11-08', time: '11:00 AM', company: 'X' })));
   ok('retailer: calendar events are clickable buttons with the demo id', /data-demo-id=/.test(src) && /onclick="openDemoEventDetail\(this\.dataset\.demoId\)"/.test(src) && /role="button" tabindex="0"/.test(src));
-  ok('retailer: the detail opens through the shared modal with a Close button', /DhModal\.alert\(\{ title: d\.company \|\| 'Demo', extraHTML: _demoEventDetailHtml\(d\), ok: 'Close' \}\)/.test(src));
+  ok('retailer: the detail opens through the shared modal with a Close button and the action buttons', /DhModal\.alert\(\{ title: d\.company \|\| 'Demo', extraHTML: _demoEventDetailHtml\(d\) \+ _demoEventActionsHtml\(d\), ok: 'Close' \}\)/.test(src));
+  // the modal's actions follow the Demos-tab rules and hand over to the same flows
+  const actions = new Function([lift(/function _demoEventActionsHtml\(d\) \{[\s\S]*?\n        \}\n/), 'return _demoEventActionsHtml;'].join('\n'))();
+  const both = actions({ id: 'd1', booking_id: 'b1', status: 'confirmed' });
+  ok('retailer: a confirmed demo offers Reschedule and Cancel demo', /js-cal-reschedule/.test(both) && /js-cal-cancel/.test(both) && /Cancel demo/.test(both));
+  const pendingOnly = actions({ id: 'd1', booking_id: 'b1', status: 'pending' });
+  ok('retailer: a pending demo offers Cancel only', !/js-cal-reschedule/.test(pendingOnly) && /js-cal-cancel/.test(pendingOnly));
+  ok('retailer: a cancelled or declined demo and an example demo offer nothing', actions({ id: 'd1', booking_id: 'b1', status: 'cancelled' }) === '' && actions({ id: 'd1', booking_id: 'b1', status: 'declined' }) === '' && actions({ id: 'd1', booking_id: 'b1', status: 'confirmed', isSample: true }) === '');
+  ok('retailer: the buttons close the modal and call the Demos-tab flows with the same arguments', /closeCard\(\); openRescheduleModal\(d\.id, d\.company, d\.date, d\.time, d\.venue_id\)/.test(src) && /closeCard\(\); cancelDemoConfirm\(d\.booking_id, d\.company, d\.date, d\.time\)/.test(src));
 }
 
 // the owner-calendar read carries the items
