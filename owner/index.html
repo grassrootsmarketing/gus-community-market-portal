@@ -85,7 +85,11 @@ table.simple td { padding:11px 10px; border-bottom:1px solid rgba(15,44,23,0.06)
 table.simple td.num { text-align:right; font-variant-numeric:tabular-nums; }
 table.simple tr:last-child td { border-bottom:0; }
 /* Brands tab (2026-10-11): no wrapping inside pills, dates, counts or the action buttons; the brand column is bounded. */
-#brandsPane table.simple { table-layout:fixed; min-width:1040px; }
+/* The brands LIST only (inside .tablewrap, which scrolls). The brand profile card below it holds two narrow
+   tables in a grid and must never inherit a 1040px floor: that is what pushed its columns into each other. */
+#brandsPane .tablewrap table.simple { table-layout:fixed; min-width:1040px; }
+#brandProfile table.simple { table-layout:auto; min-width:0; }
+#brandProfile table.simple td { overflow-wrap:anywhere; }
 #brandsPane table.simple th:nth-child(1) { width:17%; } #brandsPane table.simple th:nth-child(2) { width:18%; } #brandsPane table.simple th:nth-child(3) { width:17%; }
 #brandsPane table.simple th:nth-child(4) { width:10%; } #brandsPane table.simple th:nth-child(5) { width:11%; } #brandsPane table.simple th:nth-child(6) { width:10%; } #brandsPane table.simple th:nth-child(7) { width:17%; }
 #brandRows td { vertical-align:middle; overflow-wrap:anywhere; }
@@ -117,6 +121,7 @@ table.simple tr:last-child td { border-bottom:0; }
 .btn-sm:hover { background:rgba(15,44,23,0.05); }
 .dir-h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px; }
 .dir-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+.dir-grid > div { min-width:0; overflow-x:auto; }   /* a grid column never grows past its track; wide content scrolls inside it */
 .dir-search { width:100%; max-width:360px; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; margin-bottom:12px; }
 .pill { display:inline-block; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; background:rgba(15,44,23,0.07); color:var(--forest-900); }
 .pill.ok { background:#e3edd6; color:#1f4a26; }
@@ -987,7 +992,7 @@ async function renderOwnerCalendar() {
 function ocalItemHtml(p) {
   if (!p || !p.name) return '';
   const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
-  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'item code ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
   return '<li style="margin:0 0 6px;">' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.78rem; color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.78rem; color:var(--ink-500); font-style:italic;">' + escapeHtml(p.notes) + '</div>' : '') + '</li>';
 }
 // The detail card for one calendar event. Pure: builds HTML from the booking row the calendar already holds.

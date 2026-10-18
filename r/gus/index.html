@@ -2533,8 +2533,8 @@ function supportMailto(a) {
                 + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Product name, with flavor or variety *') + '</div>'
                 + inp('bni-size', 'Size (12 oz jar)') + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
                 + '<select class="form-input bni-distributor" style="padding:7px 9px; font-size:0.86rem;">' + opts + '</select>'
-                + inp('bni-distributor-other', 'Distributor name (if Other)')
-                + inp('bni-item-number', 'Distributor item number') + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
+                + inp('bni-distributor-other', 'Distributor name', 'style="display:none;"')
+                + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
                 + '<div style="grid-column:1 / -1; display:flex; justify-content:flex-end;"><button type="button" class="bni-remove" style="font: inherit; font-size:0.8rem; background:none; border:none; color:#a14e2a; cursor:pointer;">Remove</button></div>'
                 + '</div>';
         }
@@ -2546,6 +2546,13 @@ function supportMailto(a) {
             _updateSaveItemsLabel();
             const n = row.querySelector('.bni-name'); if (n) n.focus();
         }
+        document.addEventListener('change', function (e) {
+            var t = e.target; if (!t || !t.classList || !t.classList.contains('bni-distributor')) return;
+            var row = t.closest('.book-new-item'); var other = row && row.querySelector('.bni-distributor-other');
+            if (!other) return;
+            other.style.display = t.value === 'other' ? '' : 'none';
+            if (t.value !== 'other') other.value = '';
+        });
         function _updateSaveItemsLabel() {
             const lbl = document.getElementById('bookSaveItemsLabel'); if (!lbl) return;
             lbl.style.display = document.querySelectorAll('#bookNewItems .book-new-item').length ? 'flex' : 'none';
@@ -2567,8 +2574,8 @@ function supportMailto(a) {
             document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
             document.getElementById('agreementRetailerLabel').textContent = (pol.retailer_name || 'This store') + '\'s policies';
             window._agreementReadOnly = true;
-            _setAgreementReadOnly(true);
-            openAgreementModal();
+            openAgreementModal();            // resets the scroll box and the hint
+            _setAgreementReadOnly(true);     // then the read-only presentation wins
             return false;
         }
         function _setAgreementReadOnly(on) {
@@ -2579,6 +2586,11 @@ function supportMailto(a) {
             if (okBtn) okBtn.style.display = on ? 'none' : '';
             if (hint) hint.style.display = on ? 'none' : '';
             if (cancelBtn) cancelBtn.textContent = on ? 'Close' : 'Cancel';
+            // the signing copy becomes reading copy: eyebrow and intro, restored on close
+            const title = document.getElementById('agreementRetailerLabel');
+            const eyebrow = title && title.previousElementSibling, intro = title && title.nextElementSibling;
+            if (eyebrow) { if (on) { if (!eyebrow.dataset.orig) eyebrow.dataset.orig = eyebrow.innerHTML; eyebrow.textContent = 'Store policies'; } else if (eyebrow.dataset.orig) { eyebrow.innerHTML = eyebrow.dataset.orig; } }
+            if (intro) { if (on) { if (!intro.dataset.orig) intro.dataset.orig = intro.innerHTML; intro.textContent = 'These are the store\'s current demo and cancellation policies. Only the brand account owner can agree to them; demos you book are made under the owner\'s agreement.'; } else if (intro.dataset.orig) { intro.innerHTML = intro.dataset.orig; } }
         }
         function _renderBookProducts(bp, opts) {
             const grp = document.getElementById('bookSkuGroup'), list = document.getElementById('bookSkuList'), wrap = document.getElementById('bookNewItems');
@@ -2587,7 +2599,7 @@ function supportMailto(a) {
             window._bookSkuSource = items;
             const keep = opts && Array.isArray(opts.keepSelection) ? new Set(opts.keepSelection.map(function (p) { return p.id; }).filter(Boolean)) : null;
             list.innerHTML = items.map(function (p, i) {
-                const meta = [p.size, p.sku ? 'brand SKU ' + p.sku : '', p.upc ? 'UPC ' + p.upc : 'no UPC'].filter(Boolean).join(' \u00b7 ');
+                const meta = [p.size, p.sku ? 'item code ' + p.sku : '', p.upc ? 'UPC ' + p.upc : 'no UPC'].filter(Boolean).join(' \u00b7 ');
                 const checked = keep ? keep.has(p.id) : i < 40;
                 return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
                     + '<input type="checkbox" class="book-sku" data-i="' + i + '"' + (checked ? ' checked' : '') + ' style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
@@ -2635,7 +2647,7 @@ function supportMailto(a) {
                 const row = rows[r];
                 const g = function (cls) { const el = row.querySelector('.' + cls); return el ? String(el.value || '').trim() : ''; };
                 const name = g('bni-name');
-                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-item-number') || g('bni-case-pack');
+                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-case-pack');
                 if (!name) { if (anyOther) return { error: 'Give item ' + (r + 1) + ' a name.' }; continue; }
                 const cpRaw = g('bni-case-pack');
                 let case_pack = null;
