@@ -8,7 +8,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 //            automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72) after the request, in the
 //            store's zone; inside that window, and always in non_refundable mode, the refund is left to the store
 //            (pending_manual) unless it ticked "Refund the brand anyway" (force_refund + override_reason). The
-//            decision is recorded (0104 booking_cancellation_record) BEFORE any refund effect and reused on retry.
+//            decision is recorded (0105 booking_cancellation_record) BEFORE any refund effect and reused on retry.
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
 // build-bust: 2026-07-09-phase-b
@@ -582,7 +582,7 @@ export default async function handler(req, res) {
     let refundInfo = null;
     let refundReason = null;        // cancel path only: why the refund was or was not automatic (api/_refund-cutoff.js)
     let refundHoursOut = null;      // cancel path only: elapsed hours from the brand's request to the demo's start
-    let cancelDecisionReplayed = false;   // cancel path only: a retry reused the recorded decision (0104)
+    let cancelDecisionReplayed = false;   // cancel path only: a retry reused the recorded decision (0105)
     let refundReviewCaseId = null;        // cancel path only: the durable review item for an unresolved start
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
@@ -629,7 +629,7 @@ export default async function handler(req, res) {
       // call (pending_manual) unless it ticked "Refund the brand anyway"; an unresolvable start goes to review.
       // Unpaid and fee-waived bookings never refund.
       const fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
-      // Codex RC-3: the decision is RECORDED before any refund effect, under the booking's row lock (0104). A retry
+      // Codex RC-3: the decision is RECORDED before any refund effect, under the booking's row lock (0105). A retry
       // (a provider timeout, a failed transition) gets the first decision back and resumes it; it never judges the
       // clock again, so a later store policy change or the passing of the boundary cannot change the outcome.
       let rec;

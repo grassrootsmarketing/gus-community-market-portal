@@ -1,4 +1,4 @@
--- 0104_booking_cancellations.sql (2026-10-18, Codex refund-cutoff review RC-1 / RC-3)
+-- 0105_booking_cancellations.sql (2026-10-18, Codex refund-cutoff review RC-1 / RC-3)
 -- One durable record per cancelled booking: who asked (the brand, or the store could not host), when the request
 -- was received (the effective time the 72-hour clock is measured from), the policy applied, the start instant
 -- used, the decision, and any override. api/booking-action.js records it BEFORE any refund effect and, on a
@@ -67,8 +67,8 @@ REVOKE ALL ON FUNCTION public.booking_cancellation_record(uuid, uuid, jsonb) FRO
 
 DO $$
 BEGIN
-  IF to_regclass('public.booking_cancellations') IS NULL THEN RAISE EXCEPTION '0104: booking_cancellations missing'; END IF;
+  IF to_regclass('public.booking_cancellations') IS NULL THEN RAISE EXCEPTION '0105: booking_cancellations missing'; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = 'booking_cancellation_record') THEN
-    RAISE EXCEPTION '0104: booking_cancellation_record missing';
+    RAISE EXCEPTION '0105: booking_cancellation_record missing';
   END IF;
 END $$;

@@ -23,7 +23,7 @@
 // THE CLOCK (RC-3, David: "time the brand asked"). The 72 hours are measured from `requestedAt`, the instant the
 // store received the brand's request (the store enters it when cancelling; it defaults to now), not from the
 // moment staff clicked. The store's CURRENT mode applies to every cancellation (David, RC-2: "current setting
-// applies"); the route records the decision once (0104) and reuses it on a retry, so a later mode change or a
+// applies"); the route records the decision once (0105) and reuses it on a retry, so a later mode change or a
 // failed provider call cannot change an already-made decision.
 //
 // THE INSTANT. "72 hours before the demo" is measured against the demo's START (demo_date + demo_time in the
