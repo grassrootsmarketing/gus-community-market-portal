@@ -52,10 +52,16 @@ export default async function handler(req, res) {
 
   try {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
-    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status`);
+    const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived,booked_by_member_id`);
     if (!Array.isArray(bookings) || bookings.length === 0) return res.status(404).json({ error: 'booking_not_found' });
     // exact requested==returned set (Codex): no silent partial
     if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
+    // 0097 (Codex BK-4): a booker checks out only bookings attributed to them, every one in the batch.
+    if (auth.role === 'booker' && bookings.some(b => !(b.booked_by_member_id && String(b.booked_by_member_id) === String(auth.memberId)))) {
+      return res.status(403).json({ error: 'not_your_booking', message: 'You can only pay for demos you booked yourself.' });
+    }
+    // Booking codes (0085): a fee-waived booking is free and confirms through the outbox; it never enters checkout.
+    if (bookings.some(b => b.fee_waived === true)) return res.status(400).json({ error: 'booking_fee_waived', message: 'This booking is free, so no payment is needed.' });
 
     // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
     // the whole PaymentIntent, so a held booking can never share a Session with anything else,
@@ -213,6 +219,15 @@ export default async function handler(req, res) {
       console.error('register_payment_attempt failed:', msg);
       return res.status(503).json({ error: 'attempt_persist_failed' });
     }
+    // 0103 (Codex shipped-release finding 1): record WHO initiated this payment attempt, from the authenticated
+    // session, on the durable attempt row. The booker receipt exception is decided from the PAID attempt's payer,
+    // never from who booked or from the booking's contact address. If this write fails the payer stays unknown and
+    // the receipt stays owner-only, which is the safe default.
+    try {
+      const payer = { payer_member_id: auth.memberId || null, payer_email: String(auth.email || '').toLowerCase() || null, payer_role: auth.role === 'booker' ? 'booker' : (auth.role === 'owner' ? 'owner' : null) };
+      const pr = await rest(`payment_attempts?stripe_checkout_session_id=eq.${encodeURIComponent(session.id)}&payment_group_id=eq.${encodeURIComponent(gid)}`, { method: 'PATCH', body: JSON.stringify(payer) });
+      if (!pr || !pr.ok) console.warn('payment attempt payer not recorded (receipt stays owner-only):', pr && pr.status);
+    } catch (e) { console.warn('payment attempt payer not recorded (receipt stays owner-only):', e && e.message); }
     // mirror onto bookings for the existing admin UI (best-effort, non-authoritative)
     await Promise.allSettled(allocs.map(a => rest(`bookings?id=eq.${encodeURIComponent(a.booking_id)}`, { method: 'PATCH', body: JSON.stringify({ stripe_session_id: session.id }) })));
 

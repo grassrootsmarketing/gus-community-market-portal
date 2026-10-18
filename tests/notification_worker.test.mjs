@@ -1,4 +1,4 @@
-// tests/notification_worker.test.mjs — the 0074 notification outbox WORKER MECHANICS, driven through
+// tests/notification_worker.test.mjs, the 0074 notification outbox WORKER MECHANICS, driven through
 // api/_notification-outbox.js internals with injected clocks and fixture rows (Codex Release A).
 //
 // What this proves, against the real test database (tests/_route.mjs; Resend spied):
@@ -13,7 +13,7 @@
 //   * crash before the completion stamp: the row stays claimed, the lease expires, the next worker
 //     re-sends under the SAME key (no new payload, no new key);
 //   * failed enqueue / failed send / lost lease -> the route answers 500 and writes a 'failed'
-//     heartbeat — never a false success;
+//     heartbeat, never a false success;
 //   * bounded retries with backoff (1m, 5m, 15m, 1h, 6h) and a terminal 'failed'/'unknown' after 8;
 //   * schedule identity: A -> B -> A reschedules retire the old occurrence's rows and create new keys;
 //     a cancellation that lands while a row is claimed suppresses the send;
@@ -90,7 +90,8 @@ const C1 = track('internal_contacts', one(await db('internal_contacts', { method
 const brandEmail = `${uniq('wbrand')}@fixture.test`;
 const brandId = track('brands', one(await db('brands', { method: 'POST', body: JSON.stringify({ email: brandEmail, company_name: 'Worker Brand Co', contact_name: 'Rep W', phone: '555-0100', default_coi_url: 'brands/w.pdf', default_coi_expires: dayP(400), coi_verification_status: 'approved' }) })).id);
 const memberEmail = `${uniq('wmember')}@fixture.test`;
-track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: memberEmail, name: 'Team Member', role: 'member' }) })).id);
+// 0097: the second contact is a designated BOOKER (accepted). COI decisions and receipts go to the owner only.
+track('brand_members', one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: memberEmail, name: 'Team Member', role: 'booker', status: 'accepted', accepted_at: new Date().toISOString() }) })).id);
 
 // The harness binding for the internals.
 await callRoute('find-retailer.js', req({ body: { action: 'status' } }));
@@ -122,7 +123,7 @@ try {
   ok('fixtures exist', !!retailerId && !!V1 && !!C1 && !!brandId && !!b);
 
   // =========================================================================
-  console.log('\n— 1: recovery — the trigger wrote the event; the worker fans it out later, no action replayed —');
+  console.log('\n 1: recovery the trigger wrote the event; the worker fans it out later, no action replayed ');
   // =========================================================================
   const D1 = dayP(15), T1 = '11:00 AM';
   const bk1 = await confirmedBooking(D1, T1);
@@ -142,7 +143,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 2: concurrent claims — two workers, disjoint ownership; lease takeover after a crash —');
+  console.log('\n 2: concurrent claims two workers, disjoint ownership; lease takeover after a crash ');
   // =========================================================================
   {
     const now = new Date();
@@ -184,7 +185,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 3: provider accepted, response lost -> unknown; retry reuses the frozen payload AND key; 24h window —');
+  console.log('\n 3: provider accepted, response lost -> unknown; retry reuses the frozen payload AND key; 24h window ');
   // =========================================================================
   {
     const now = new Date();
@@ -222,7 +223,7 @@ try {
     const mine3 = c3.find(r => r.id === oldUnknown.id);
     const r3 = await processClaimed(b, mine3, { now, token: mine3.claim_token, mailer: rec3.mailer });
     const after3 = await delivery(oldUnknown.id);
-    ok('an unknown row whose first attempt was 25h ago: ZERO provider calls (Codex R4-03 — the window is judged BEFORE the send), FINAL unknown (idempotency_window_expired), no further retries', rec3.calls.length === 0 && r3.outcome === 'unknown' && r3.final === true && after3.status === 'unknown' && after3.next_attempt_at === null && after3.skip_reason === 'idempotency_window_expired' && after3.idempotency_key === `oldkey:${slug}` && after3.frozen_payload.subject === 'Demo confirmed: old', JSON.stringify([r3, after3.status, after3.next_attempt_at, after3.skip_reason]));
+    ok('an unknown row whose first attempt was 25h ago: ZERO provider calls (Codex R4-03, the window is judged BEFORE the send), FINAL unknown (idempotency_window_expired), no further retries', rec3.calls.length === 0 && r3.outcome === 'unknown' && r3.final === true && after3.status === 'unknown' && after3.next_attempt_at === null && after3.skip_reason === 'idempotency_window_expired' && after3.idempotency_key === `oldkey:${slug}` && after3.frozen_payload.subject === 'Demo confirmed: old', JSON.stringify([r3, after3.status, after3.next_attempt_at, after3.skip_reason]));
     const c4 = await claimDue(b, { now: at(now, HOUR), batch: 5, claimToken: crypto.randomUUID() });
     ok('the final unknown row is never claimed again', !c4.some(r => r.id === oldUnknown.id));
     const metrics = await collectMetrics(b, { now });
@@ -230,7 +231,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 3b (Codex R4-03): eligibility precedes any provider call, on the per-attempt clock; uncertainty outlives claims and later rejections —');
+  console.log('\n 3b (Codex R4-03): eligibility precedes any provider call, on the per-attempt clock; uncertainty outlives claims and later rejections ');
   // =========================================================================
   {
     const now = new Date();
@@ -243,7 +244,7 @@ try {
     const claimIt = async (row, clockNow = now) => { const c = await claimDue(b, { now: clockNow, batch: 50, claimToken: crypto.randomUUID() }); const mine = c.find(r => r.id === row.id); for (const r of c) if (r.id !== row.id) await db(`notification_deliveries?id=eq.${r.id}`, { method: 'PATCH', body: JSON.stringify({ claim_token: null, lease_until: null, status: 'pending' }) }); return mine; };
     const run = async (row, mode, opts = {}) => { const rec = recordingMailer(b, { mode }); const mine = await claimIt(row, opts.claimNow); const r = await processClaimed(b, mine, { now: opts.claimNow || now, clock: opts.clock, token: mine.claim_token, mailer: rec.mailer }); return { r, calls: rec.calls.length, after: await delivery(row.id) }; };
 
-    // boundary cases, all with a provider WILLING TO ACCEPT — zero calls is the only acceptable count past the cutoff
+    // boundary cases, all with a provider WILLING TO ACCEPT, zero calls is the only acceptable count past the cutoff
     const inside = await run(await seed('inside', { attemptedAt: iso(at(now, -(W - MIN))) }), 'ok');
     ok('just INSIDE the window (W-1min): one call, accepted, uncertainty resolved', inside.calls === 1 && inside.r.outcome === 'accepted' && inside.after.status === 'accepted' && inside.after.frozen_payload.uncertain === false && !!inside.after.frozen_payload.resolved_at, JSON.stringify([inside.r, inside.calls]));
     const atB = await run(await seed('at', { attemptedAt: iso(at(now, -W)) }), 'ok');
@@ -255,7 +256,7 @@ try {
     const noTs = await run(await seed('nots', { attemptedAt: undefined }), 'ok');
     ok('MISSING first-attempt timestamp with uncertain history: ZERO calls, review_required', noTs.calls === 0 && noTs.after.status === 'unknown' && noTs.after.skip_reason === 'review_required', JSON.stringify([noTs.r, noTs.calls]));
     const defOld = await run(await seed('defold', { attemptedAt: iso(at(now, -(W + HOUR))), uncertain: false, status: 'failed' }), 'ok');
-    ok('a definitely-rejected history past the window is ALSO terminal with zero calls — but stays failed, not unknown (no send may have gone out)', defOld.calls === 0 && defOld.r.outcome === 'failed' && defOld.r.final === true && defOld.after.status === 'failed' && defOld.after.skip_reason === 'idempotency_window_expired', JSON.stringify([defOld.r, defOld.calls]));
+    ok('a definitely-rejected history past the window is ALSO terminal with zero calls, but stays failed, not unknown (no send may have gone out)', defOld.calls === 0 && defOld.r.outcome === 'failed' && defOld.r.final === true && defOld.after.status === 'failed' && defOld.after.skip_reason === 'idempotency_window_expired', JSON.stringify([defOld.r, defOld.calls]));
 
     // the per-ATTEMPT clock: claimed inside the window, the attempt itself lands past it
     const late = await run(await seed('lateclock', { attemptedAt: iso(at(now, -(W - MIN))) }), 'ok', { clock: () => at(now, 2 * MIN) });
@@ -305,7 +306,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 4: crash before the completion stamp; definite failures, backoff, terminal states —');
+  console.log('\n 4: crash before the completion stamp; definite failures, backoff, terminal states ');
   // =========================================================================
   {
     const now = new Date();
@@ -315,7 +316,7 @@ try {
     const m1 = c1.find(r => r.id === frozenRow.id);
     const rec = recordingMailer(b);
     // Codex R4-03 B: the attempt is marked durably (attempting_at) BEFORE the send, so the fault must hit
-    // the COMPLETION stamp specifically — the PATCH that carries status 'accepted' — not the first write.
+    // the COMPLETION stamp specifically, the PATCH that carries status 'accepted', not the first write.
     const realFetchStamp = globalThis.fetch; let stampFaults = 0;
     globalThis.fetch = async (url, opts = {}) => {
       const u = String(url);
@@ -353,7 +354,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 5: no false success — a failed send / failed enqueue makes the ROUTE answer 500 with a failed heartbeat —');
+  console.log('\n 5: no false success a failed send / failed enqueue makes the ROUTE answer 500 with a failed heartbeat ');
   // =========================================================================
   {
     // A fresh confirmed booking gives the route real fan-out + dispatch work.
@@ -386,7 +387,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 6: schedule identity — A -> B -> A, cancellation while claimed, DST, early demo, catch-up, first rollout —');
+  console.log('\n 6: schedule identity A -> B -> A, cancellation while claimed, DST, early demo, catch-up, first rollout ');
   // =========================================================================
   {
     // scheduleReminders / dispatchDue operate on EVERY confirmed booking (as in production). To keep
@@ -430,7 +431,7 @@ try {
     const r3 = await dispatchDue(b, { now: wd1A.due_at, mailer: rec.mailer });
     const d1A3 = (await deliveriesFor(bk1.id, `&kind=eq.reminder&occurrence_key=eq.${bk1.id}:3&offset_key=eq.d1`))[0];
     ok('at slot A\'s d1 instant the :3 d1 fires ("Demo tomorrow") even though a :1 d1 for the same instant existed', d1A3.status === 'accepted' && bk1Calls().length === 2 && /Demo tomorrow/.test(bk1Calls()[1].body.subject), JSON.stringify({ r3, subjects: bk1Calls().map(c => c.body.subject) }));
-    ok('the :2 rows for slot B are retired or pending — never sent for a slot the demo is no longer on', (await deliveriesFor(bk1.id, `&kind=eq.reminder&occurrence_key=eq.${bk1.id}:2`)).filter(r => r.status === 'accepted').length === 1);
+    ok('the :2 rows for slot B are retired or pending, never sent for a slot the demo is no longer on', (await deliveriesFor(bk1.id, `&kind=eq.reminder&occurrence_key=eq.${bk1.id}:2`)).filter(r => r.status === 'accepted').length === 1);
 
     // CANCELLATION AFTER CLAIM: claim the :3 morning_of row, then cancel the booking (trigger retires
     // pending/claimed rows); the worker's send is suppressed and nothing is written over the retirement.
@@ -480,7 +481,7 @@ try {
   }
 
   // =========================================================================
-  console.log('\n— 7: COI decisions — approve/reject via review_coi_verification; replay; superseded; hostile note —');
+  console.log('\n 7: COI decisions approve/reject via review_coi_verification; replay; superseded; hostile note ');
   // =========================================================================
   {
     const seed = async () => {
@@ -490,14 +491,14 @@ try {
       track('coi_verifications', vid);
       return vid;
     };
-    const review = (vid, decision, extra = {}) => rpc('review_coi_verification', { p_verification_id: vid, p_decision: decision, p_reviewer: 'owner@fixture.test', p_notes: 'PRIVATE reviewer note — must never be emailed', ...extra });
+    const review = (vid, decision, extra = {}) => rpc('review_coi_verification', { p_verification_id: vid, p_decision: decision, p_reviewer: 'owner@fixture.test', p_notes: 'PRIVATE reviewer note, must never be emailed', ...extra });
     const coiEvents = async (vid) => (await db(`notification_events?transition_id=like.${vid}*&select=*`)).body || [];
     const coiDeliveries = async (vid) => (await db(`notification_deliveries?dedupe_key=like.*${vid}*&select=*&order=recipient_email.asc`)).body || [];
 
     // APPROVE
     const v1 = await seed();
     const exp = dayP(300);
-    const a = await review(v1, 'approved', { p_expiry: exp, p_brand_note: 'Looks good — thanks for the quick turnaround.' });
+    const a = await review(v1, 'approved', { p_expiry: exp, p_brand_note: 'Looks good, thanks for the quick turnaround.' });
     ok('approve via review_coi_verification succeeds', a.ok, JSON.stringify(a.body).slice(0, 200));
     let ev = await coiEvents(v1);
     ok('exactly one coi_approved event with the reviewed expiry and brand_note in its payload', ev.length === 1 && ev[0].kind === 'coi_approved' && ev[0].transition_id === `${v1}:approved` && ev[0].payload.expires_at === exp && /quick turnaround/.test(ev[0].payload.brand_note), JSON.stringify(ev));
@@ -506,12 +507,12 @@ try {
     const now = new Date();
     const f = await fanOutEvents(b, { now });
     const dels = await coiDeliveries(v1);
-    ok('fan-out created one brand delivery per server-resolved account recipient (brand email + team member)', f.errors.length === 0 && dels.length === 2 && dels.every(d => d.recipient_kind === 'brand' && d.retailer_id === null) && dels.some(d => d.recipient_email === brandEmail) && dels.some(d => d.recipient_email === memberEmail), JSON.stringify(dels.map(d => [d.recipient_kind, d.status])));
+    ok('fan-out created one brand delivery, to the owner only (0097: the booker is not a COI recipient)', f.errors.length === 0 && dels.length === 1 && dels.every(d => d.recipient_kind === 'brand' && d.retailer_id === null) && dels.some(d => d.recipient_email === brandEmail) && !dels.some(d => d.recipient_email === memberEmail), JSON.stringify(dels.map(d => [d.recipient_kind, d.recipient_email, d.status])));
     const n = spy.calls.resend.length;
     const rd = await dispatchDue(b, { now });
     // The same fan-out also released this suite's other due lifecycle rows; assert on the approvals.
     const mails = mailsSince(n).filter(m => /Certificate of Insurance is approved/.test(subj(m)));
-    ok('dispatch sent exactly two approval emails (brand + member)', rd.accepted >= 2 && mails.length === 2 && mails.some(m => toContact(m, brandEmail)) && mails.some(m => toContact(m, memberEmail)), JSON.stringify({ rd, subjects: mailsSince(n).map(subj) }));
+    ok('dispatch sent exactly one approval email, to the owner (0097)', rd.accepted >= 1 && mails.length === 1 && mails.some(m => toContact(m, brandEmail)) && !mails.some(m => toContact(m, memberEmail)), JSON.stringify({ rd, subjects: mailsSince(n).map(subj) }));
     const body = String(mails[0].html);
     const expLabel = new Date(exp + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
     ok('the approval names the REVIEWED expiry and links to /brand/dashboard#compliance', body.includes(expLabel) && body.includes('/brand/dashboard#compliance') && subj(mails[0]).includes(expLabel), subj(mails[0]));
@@ -528,7 +529,7 @@ try {
     const n2 = spy.calls.resend.length;
     const rd2 = await dispatchDue(b, { now });
     const rejMails = mailsSince(n2).filter(m => /needs another look/.test(subj(m)));
-    ok('dispatch sent the rejection to both recipients', rd2.accepted >= 2 && rejMails.length === 2 && rejMails.some(m => toContact(m, brandEmail)) && rejMails.some(m => toContact(m, memberEmail)), JSON.stringify({ rd2, subjects: mailsSince(n2).map(subj) }));
+    ok('dispatch sent the rejection to the owner only (0097)', rd2.accepted >= 1 && rejMails.length === 1 && rejMails.some(m => toContact(m, brandEmail)) && !rejMails.some(m => toContact(m, memberEmail)), JSON.stringify({ rd2, subjects: mailsSince(n2).map(subj) }));
     const rbody = String(rejMails[0].html).replace(/Non-production email[\s\S]*?<\/div>/, '');
     ok('the hostile brand_note is rendered as ESCAPED text (no <img, no raw quotes)', rbody.includes('&lt;img src=x onerror=alert(1)&gt;Wrong insured party &amp; &quot;quotes&quot;') && !rbody.includes('<img src=x'), rbody.slice(rbody.indexOf('Note from'), rbody.indexOf('Note from') + 200));
     ok('the rejection links to the compliance/upload screen and never to a certificate', rbody.includes('/brand/dashboard#compliance') && !/coi-file|coi-docs|\.pdf/.test(rbody));
@@ -539,13 +540,13 @@ try {
     ok('approve v3 succeeds', a3.ok);
     const v4 = await seed();
     // finalize_coi_upload supersedes OPEN versions; a decided v3 is retired by the brand's current
-    // pointer moving to v4 — which is what the dispatch recheck reads.
+    // pointer moving to v4, which is what the dispatch recheck reads.
     ok('the brand\'s current certificate is now v4 (v3 is no longer current)', (one(await db(`brands?id=eq.${brandId}&select=current_coi_verification_id`)) || {}).current_coi_verification_id === v4);
     await fanOutEvents(b, { now });
     const n3 = spy.calls.resend.length;
     const rd3 = await dispatchDue(b, { now });
     const d3rows = await coiDeliveries(v3);
-    ok('the superseded approval is NOT emailed: rows skipped "superseded", no approval mail sent', rd3.skip_reasons.superseded >= 2 && d3rows.length === 2 && d3rows.every(d => d.status === 'skipped' && d.skip_reason === 'superseded') && !mailsSince(n3).some(m => /Certificate of Insurance is approved/.test(subj(m))), JSON.stringify({ rd3, rows: d3rows.map(d => d.status) }));
+    ok('the superseded approval is NOT emailed: rows skipped "superseded", no approval mail sent', rd3.skip_reasons.superseded >= 1 && d3rows.length === 1 && d3rows.every(d => d.status === 'skipped' && d.skip_reason === 'superseded') && !mailsSince(n3).some(m => /Certificate of Insurance is approved/.test(subj(m))), JSON.stringify({ rd3, rows: d3rows.map(d => d.status) }));
     // Clean up brand rows the tests inserted (events have no FK to brands; deliveries reference events).
     for (const vid of [v1, v2, v3, v4]) {
       const evs = await coiEvents(vid);
@@ -553,7 +554,7 @@ try {
     }
   }
 } finally {
-  console.log('\n— teardown —');
+  console.log('\n teardown ');
   for (const [t, id] of bin) {
     if (t !== 'bookings') continue;
     await db(`notification_deliveries?booking_id=eq.${id}`, { method: 'DELETE' });

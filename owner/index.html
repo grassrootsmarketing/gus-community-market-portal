@@ -85,7 +85,11 @@ table.simple td { padding:11px 10px; border-bottom:1px solid rgba(15,44,23,0.06)
 table.simple td.num { text-align:right; font-variant-numeric:tabular-nums; }
 table.simple tr:last-child td { border-bottom:0; }
 /* Brands tab (2026-10-11): no wrapping inside pills, dates, counts or the action buttons; the brand column is bounded. */
-#brandsPane table.simple { table-layout:fixed; min-width:1040px; }
+/* The brands LIST only (inside .tablewrap, which scrolls). The brand profile card below it holds two narrow
+   tables in a grid and must never inherit a 1040px floor: that is what pushed its columns into each other. */
+#brandsPane .tablewrap table.simple { table-layout:fixed; min-width:1040px; }
+#brandProfile table.simple { table-layout:auto; min-width:0; }
+#brandProfile table.simple td { overflow-wrap:anywhere; }
 #brandsPane table.simple th:nth-child(1) { width:17%; } #brandsPane table.simple th:nth-child(2) { width:18%; } #brandsPane table.simple th:nth-child(3) { width:17%; }
 #brandsPane table.simple th:nth-child(4) { width:10%; } #brandsPane table.simple th:nth-child(5) { width:11%; } #brandsPane table.simple th:nth-child(6) { width:10%; } #brandsPane table.simple th:nth-child(7) { width:17%; }
 #brandRows td { vertical-align:middle; overflow-wrap:anywhere; }
@@ -117,6 +121,7 @@ table.simple tr:last-child td { border-bottom:0; }
 .btn-sm:hover { background:rgba(15,44,23,0.05); }
 .dir-h3 { font-size:0.78rem; text-transform:uppercase; letter-spacing:0.05em; color:var(--ink-500); margin:0 0 6px; }
 .dir-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+.dir-grid > div { min-width:0; overflow-x:auto; }   /* a grid column never grows past its track; wide content scrolls inside it */
 .dir-search { width:100%; max-width:360px; padding:8px 10px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; font-size:0.9rem; margin-bottom:12px; }
 .pill { display:inline-block; font-size:0.72rem; font-weight:700; padding:2px 8px; border-radius:999px; background:rgba(15,44,23,0.07); color:var(--forest-900); }
 .pill.ok { background:#e3edd6; color:#1f4a26; }
@@ -734,6 +739,7 @@ const yesno = (b) => b ? 'Yes' : 'No';
 const coiPill = (st, exp) => { const s = String(st || '').toLowerCase(); if (s === 'approved' || s === 'passed') { if (!exp) return '<span class="pill warn">COI approved · expiry unknown</span>'; const e = String(exp).slice(0, 10), t = new Date(), today = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); return e < today ? '<span class="pill bad">COI expired ' + fmtD(e) + '</span>' : '<span class="pill ok">COI approved · expires ' + fmtD(e) + '</span>'; } if (s === 'rejected') return '<span class="pill bad">COI rejected</span>'; if (s === 'pending' || s === 'flagged') return '<span class="pill warn">COI pending review</span>'; return '<span class="pill">No COI</span>'; };
 const row = (k, v) => '<tr><td style="color:var(--ink-500); width:42%;">' + k + '</td><td>' + v + '</td></tr>';
 const link = (u, t) => '<a href="' + escapeHtml(u) + '" target="_blank" rel="noopener">' + escapeHtml(t || u) + '</a>';
+const CODE_KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };   // booking codes (0085)
 let _retailersCache = null, _brandsCache = null;
 let _brandRow = { id: null, mode: null, msg: '' }, _brandRedraw = () => {};   // inline edit / delete state for the Brands tab
 // Go-live approval (2026-09-30). A store takes bookings only when approved; self-service sign-ups arrive pending.
@@ -797,7 +803,7 @@ async function renderRetailersTab(selectedId) {
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
   const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || 'n/a') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
   draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); else if (b.dataset.act === 'gen') ownerGenerateCode(b.dataset.rid); else if (b.dataset.act === 'off') ownerDeactivateCode(b.dataset.rid, b.dataset.cid); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
 // Demo length is per location (slot schedule); summarise the distinct slot lengths offered across the venues.
@@ -825,7 +831,7 @@ async function openRetailerProfile(id) {
   const staff = (p.admins || []).map(a => '<tr><td>' + escapeHtml(a.name || '') + (a.name ? '<br>' : '') + '<span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml(a.email) + '</span></td><td>' + escapeHtml(a.role || '') + '</td><td>' + locs(a.locations) + '</td></tr>').join('');
   const notif = (c) => { const n = c.notifications || {}; const life = (n.lifecycle || []).length ? 'Emails when a demo is ' + escapeHtml(n.lifecycle.join(', ')) : 'No demo emails'; const rem = (n.reminders || []).length ? 'Reminders: ' + escapeHtml(n.reminders.join(', ')) : 'No reminders'; return life + '<br>' + rem + (c.prefs_set ? '' : ' <span style="color:var(--ink-500);">(defaults, never set)</span>'); };
   const contacts = (p.contacts || []).map(c => '<tr><td>' + escapeHtml(c.name || '') + (c.name ? '<br>' : '') + '<span style="font-size:0.78rem; color:var(--ink-500);">' + escapeHtml([c.email, c.phone].filter(Boolean).join(' · ')) + '</span></td><td>' + escapeHtml(c.role || '') + '</td><td>' + locs(c.locations) + '</td><td style="font-size:0.82rem;">' + notif(c) + '</td></tr>').join('');
-  const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + escapeHtml(b.payment_status || '') + '</td></tr>').join('');
+  const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + (b.fee_waived ? 'free (code)' : escapeHtml(b.payment_status || '')) + '</td></tr>').join('');
   const brands = (Array.isArray(p.brands) ? p.brands : []).map(x => '<tr><td>' + escapeHtml(x.brand || 'Unnamed brand') + '</td><td class="num">' + Number(x.bookings) + '</td></tr>').join('');
   const cap = (p.capped || {});
   box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only.</div></div>' + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
@@ -840,7 +846,43 @@ async function openRetailerProfile(id) {
     + '<h3 class="dir-h3" style="margin-top:16px;">Brands (all bookings' + (p.complete && p.complete.brands === false ? ', partial' : '') + ')</h3><table class="simple"><tbody>' + (brands || '<tr><td>None yet</td></tr>') + '</tbody></table></div>'
     + '</div>'
     + '<h3 class="dir-h3" style="margin-top:18px;">Store contacts &amp; notifications (' + (p.contacts || []).length + ')</h3><div class="sub" style="margin:0 0 6px;">Who is emailed about demos at each location. Contacts do not sign in.</div><div class="tablewrap"><table class="simple"><thead><tr><th>Contact</th><th>Role</th><th>Locations</th><th>Notifications</th></tr></thead><tbody>' + (contacts || '<tr><td colspan="4">None</td></tr>') + '</tbody></table></div>'
-    + '</div>';
+    + '</div>'
+    // Booking codes (0085): the one thing the owner may DO on a retailer's behalf from this mirror.
+    + '<div class="card" id="ownerCodesCard"><h2>Booking codes</h2><div class="sub">Codes this retailer (or you) issued. A code waives the demo fee, lifts the advance-notice minimum, or both. Ones you add here show as "added by Demohub" in the retailer\'s admin.</div>'
+    + '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin-bottom:12px;">'
+    + '<select id="oCodeKind" title="What the brand gets at checkout"><option value="fee" title="Demo fee waived for one demo; no payment step">No demo fee</option><option value="lead_time" title="One demo may be booked inside the notice minimum (from tomorrow); normal fee applies">Short-notice booking</option><option value="both" title="One demo inside the notice window, no fee">No fee + short notice</option></select>'
+    + '<select id="oCodeUses"><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select>'
+    + '<select id="oCodeExpires" title="Expires"><option value="">Never</option><option value="7">In 7 days</option><option value="14">In 14 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select><input type="text" id="oCodeNote" maxlength="200" placeholder="Note (optional)">'
+    + '<button class="btn-sm" data-act="gen" data-rid="' + escapeHtml(r.id) + '">Generate code</button></div><div id="oCodesStatus" class="sub"></div><div id="oCodesList"></div></div>';
+  renderOwnerCodes(r.id, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled });
+}
+// Codex BC R3: unavailable is said as unavailable (never shown as "no codes"); a capped list says it is capped.
+// Codex BC R1: with issuance switched off, the generate control says so and is disabled.
+function renderOwnerCodes(rid, codes, meta) {
+  const el = document.getElementById('oCodesList'); if (!el) return;
+  meta = meta || {};
+  const gen = document.querySelector('#ownerCodesCard button[data-act=gen]'); if (gen) { gen.disabled = meta.enabled === false; gen.title = meta.enabled === false ? 'Booking codes are switched off (BOOKING_CODES_ENABLED)' : ''; }
+  const offNote = meta.enabled === false ? '<div class="sub" style="color:#a14e2a;">Booking codes are switched off right now: no new codes can be made or applied. Existing codes are listed and can still be turned off.</div>' : '';
+  if (meta.unavailable || !Array.isArray(codes)) { el.innerHTML = offNote + '<div class="sub" style="color:#a14e2a;">The code list could not be read just now, so nothing is shown rather than an empty list. Open the profile again to retry.</div>'; return; }
+  if (!codes.length) { el.innerHTML = offNote + '<div class="sub">No codes yet.</div>'; return; }
+  const capNote = (meta.complete && (meta.complete.codes === false || meta.complete.redemptions === false)) ? '<div class="sub" style="color:#a14e2a;">' + (meta.complete.codes === false ? 'Showing the newest 200 codes only. ' : '') + (meta.complete.redemptions === false ? 'Redemption history is limited to the newest 500 and may be incomplete for older codes.' : '') + '</div>' : '';
+  el.innerHTML = offNote + capNote + '<div class="tablewrap" data-codes-table><table class="simple"><thead><tr><th>Code</th><th>Does</th><th class="num">Used</th><th>Expires</th><th>State</th><th>By</th><th>Redeemed by</th><th></th></tr></thead><tbody>' + codes.map(c => {
+    const used = c.use_count || 0, expired = c.expires_at && new Date(c.expires_at) <= new Date();
+    const state = !c.active ? 'off' : expired ? 'expired' : (c.max_uses != null && used >= c.max_uses) ? 'used up' : 'active';
+    return '<tr><td><code>' + escapeHtml(c.code) + '</code>' + (c.note ? '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(c.note) + '</div>' : '') + '</td><td>' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + '</td><td class="num">' + used + '/' + (c.max_uses == null ? 'unlimited' : c.max_uses) + '</td><td>' + fmtD(c.expires_at) + '</td><td>' + state + '</td><td>' + (c.created_by === 'owner' ? 'Demohub' : 'Retailer') + '</td><td>' + (c.redemptions || []).map(x => escapeHtml(x.brand_name || 'Brand') + ' · ' + fmtD(x.redeemed_at)).join('<br>') + '</td><td class="num">' + (c.active ? '<button class="btn-sm" data-act="off" data-rid="' + escapeHtml(rid) + '" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '') + '</td></tr>';
+  }).join('') + '</tbody></table></div>';
+}
+async function ownerGenerateCode(rid) {
+  const st = document.getElementById('oCodesStatus'); st.textContent = 'Generating…';
+  const uses = document.getElementById('oCodeUses').value, exp = document.getElementById('oCodeExpires').value;
+  try { const j = await ownerPost('owner-codes-create', { retailer_id: rid, kind: document.getElementById('oCodeKind').value, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: document.getElementById('oCodeNote').value || null });
+    st.textContent = 'Created ' + j.code.code; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled }); }
+  catch (e) { st.textContent = /booking_codes_disabled|not available right now/.test(e.message) ? 'Booking codes are switched off right now, so no code was made.' : 'Could not create the code: ' + e.message; }
+}
+async function ownerDeactivateCode(rid, id) {
+  if (!confirm('Turn this code off?')) return; const st = document.getElementById('oCodesStatus');
+  try { await ownerPost('owner-codes-deactivate', { retailer_id: rid, code_id: id }); st.textContent = 'Code turned off.'; const p = await ownerPost('owner-retailer-profile', { retailer_id: rid }); renderOwnerCodes(rid, p.codes, { unavailable: p.codes_unavailable, complete: p.codes_complete, enabled: p.codes_enabled }); }
+  catch (e) { st.textContent = 'Could not turn the code off: ' + e.message; }
 }
 
 async function renderBrandsTab() {
@@ -953,12 +995,43 @@ async function renderOwnerCalendar() {
     + '<div class="ocal-grid">' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(x => '<div class="ocal-dow">' + x + '</div>').join('') + cells + '</div>'
     + '<div id="ocalDetail" style="margin-top:14px;"></div></div>';
 }
-function showOcalDetail(id) {
-  const b = (ocal.data && ocal.data.bookings || []).find(x => x.id === id); const el = document.getElementById('ocalDetail'); if (!b || !el) return;
-  const zone = tzShort(b.retailer_tz, b.date);
-  el.innerHTML = '<div style="background:rgba(15,44,23,0.04); border-radius:10px; padding:12px 14px;"><strong>' + escapeHtml(b.brand || 'Unnamed brand') + '</strong> at <strong>' + escapeHtml(b.retailer) + '</strong>' + (b.venue ? ' · ' + escapeHtml(b.venue) : '') + '<div class="sub" style="margin:4px 0 0;">' + escapeHtml(fmtD(b.date)) + ' · ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' · ' + escapeHtml(String(b.hours)) + ' h' : '') + ' · status ' + escapeHtml(b.status) + ' · payment ' + escapeHtml(b.payment_status || 'none') + (b.product ? ' · ' + escapeHtml(b.product) : '') + (b.electricity ? ' · needs electricity' : '') + (b.retailer_slug ? ' · <a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">open in that retailer\'s admin</a>' : '') + '</div></div>';
+// One sampled item, as the store would read it (mirrors the retailer admin's _productLineHtml).
+function ocalItemHtml(p) {
+  if (!p || !p.name) return '';
+  const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'item code ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
+  return '<li style="margin:0 0 6px;">' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.78rem; color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.78rem; color:var(--ink-500); font-style:italic;">' + escapeHtml(p.notes) + '</div>' : '') + '</li>';
 }
-
+// The detail card for one calendar event. Pure: builds HTML from the booking row the calendar already holds.
+function ocalDetailHtml(b) {
+  const zone = tzShort(b.retailer_tz, b.date);
+  const items = Array.isArray(b.items) ? b.items.filter(p => p && p.name) : [];
+  const line = (label, val) => val ? '<div style="margin-top:4px;"><span style="color:var(--ink-500);">' + label + '</span> ' + val + '</div>' : '';
+  return '<div style="font-size:1.05rem; font-weight:700; color:var(--forest-900);">' + escapeHtml(b.brand || 'Unnamed brand') + '</div>'
+    + '<div class="sub" style="margin:2px 0 10px;">' + escapeHtml(b.retailer) + (b.venue ? ' &middot; ' + escapeHtml(b.venue) : '') + '</div>'
+    + line('When', escapeHtml(fmtD(b.date)) + ' &middot; ' + escapeHtml(b.time || '') + ' store time' + (zone ? ' (' + escapeHtml(zone) + ')' : '') + (b.hours ? ' &middot; ' + escapeHtml(String(b.hours)) + ' h' : ''))
+    + line('Status', escapeHtml(b.status) + ' &middot; payment ' + escapeHtml(b.payment_status || 'none') + (b.electricity ? ' &middot; needs electricity' : ''))
+    + line('Contact', b.contact ? escapeHtml(b.contact) : '')
+    + line('Category', b.product ? escapeHtml(b.product) : '')
+    + '<div style="margin-top:12px; font-weight:600; color:var(--forest-900);">Items being sampled' + (items.length ? ' (' + items.length + ')' : '') + '</div>'
+    + (items.length ? '<ul style="margin:6px 0 0; padding-left:18px;">' + items.map(ocalItemHtml).join('') + '</ul>' : '<div class="sub" style="margin:4px 0 0;">No items listed on this booking.</div>')
+    + (b.notes ? '<div style="margin-top:12px;"><span style="color:var(--ink-500);">Booking notes</span><div style="white-space:pre-wrap;">' + escapeHtml(b.notes) + '</div></div>' : '')
+    + (b.retailer_slug ? '<div style="margin-top:14px;"><a href="/r/' + encodeURIComponent(b.retailer_slug) + '/admin" target="_blank" rel="noopener">Open in that retailer\'s admin</a></div>' : '');
+}
+function closeOcalDetail() { const m = document.getElementById('ocalModal'); if (m) m.remove(); document.removeEventListener('keydown', _ocalEsc); }
+function _ocalEsc(e) { if (e.key === 'Escape') closeOcalDetail(); }
+function showOcalDetail(id) {
+  const b = (ocal.data && ocal.data.bookings || []).find(x => x.id === id); if (!b) return;
+  closeOcalDetail();
+  const m = document.createElement('div'); m.id = 'ocalModal';
+  m.style.cssText = 'position:fixed; inset:0; background:rgba(15,44,23,0.45); display:flex; align-items:center; justify-content:center; z-index:1000; padding:16px;';
+  m.innerHTML = '<div role="dialog" aria-modal="true" aria-label="Demo details" style="background:white; border-radius:14px; max-width:560px; width:100%; max-height:90vh; overflow:auto; padding:20px 22px; box-shadow:0 20px 60px rgba(0,0,0,0.25); position:relative;">'
+    + '<button type="button" data-close="1" aria-label="Close" style="position:absolute; top:10px; right:12px; background:none; border:0; font-size:1.4rem; line-height:1; cursor:pointer; color:var(--ink-500);">&times;</button>'
+    + ocalDetailHtml(b) + '</div>';
+  m.addEventListener('click', (e) => { if (e.target === m || e.target.closest('[data-close]')) closeOcalDetail(); });
+  document.body.appendChild(m);
+  document.addEventListener('keydown', _ocalEsc);
+}
 // ---- Owner notifications (2026-10-03, Codex N-1): read-only view of the demo-notification outbox ----
 // Four bounded lists (scheduled, overdue, needs attention, accepted by provider), exact counts, worker health, and a
 // per-booking drill-down. Every time is shown in the STORE's timezone with a label; nothing is formatted in this

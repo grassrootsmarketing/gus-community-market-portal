@@ -458,6 +458,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                             <div class="summary-line"><span>Number of demos</span><span id="demoCount">0</span></div>
                             <div class="summary-line" id="subtotalLine" style="display:none;"><span>Demo fees</span><span id="subtotalPrice">$0.00</span></div>
                             <div class="summary-line" id="platformFeeLine" style="display:none;"><span title="Demohub keeps a small booking fee, paid to Stripe securely." style="cursor:help;">Booking fee (× <span id="platformFeeCount">0</span>)</span><span id="platformFeePrice">$0.00</span></div>
+                            <div id="bookingCodeBox" style="margin:10px 0 8px; padding:10px 12px; background:var(--forest-50); border-radius:8px;">
+                                <label for="bookingCodeInput" style="display:block; font-size:0.78rem; font-weight:700; color:var(--forest-800, #0f2c17); margin-bottom:6px;">Have a code from the store?</label>
+                                <div style="display:flex; gap:8px;">
+                                    <input type="text" id="bookingCodeInput" class="form-input" placeholder="e.g. GUS-FREE-7K3M" autocapitalize="characters" autocomplete="off" spellcheck="false" style="flex:1; min-width:0; text-transform:uppercase; font-size:0.9rem; padding:8px 10px;">
+                                    <button type="button" id="bookingCodeApply" class="btn btn-secondary" style="padding:8px 14px; font-size:0.85rem; white-space:nowrap;" onclick="applyBookingCode()">Apply</button>
+                                </div>
+                                <div id="bookingCodeMsg" style="display:none; font-size:0.8rem; margin-top:6px; line-height:1.4;"></div>
+                            </div>
                             <div class="summary-line total"><span>Total</span><span id="totalPrice">$0.00</span></div>
                             <div id="paymentTrustLine" style="display:none; font-size:0.72rem; color:var(--ink-500); margin-top:6px; padding:8px 10px; background:var(--forest-50); border-radius:6px; text-align:center;">
                                 <span style="font-weight:600; color:var(--forest-800);">Secure checkout via Stripe.</span> We never see your card details.
@@ -465,7 +473,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                             
                             <div class="policy-notice" id="cancellationPolicyNotice">
                                 <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                <span id="cancellationPolicyText">Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.</span>
+                                <span id="cancellationPolicyText">Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.</span>
                             </div>
                             
                             <button class="btn btn-primary book-btn" id="checkoutBtn" onclick="confirmBooking()" disabled>
@@ -532,7 +540,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         <div class="modal" style="max-width: 540px;">
             <div class="modal-body" style="text-align: left; padding: 32px;">
                 <h3 style="font-size: 1.5rem; color: var(--forest-800); margin-bottom: 8px;" id="bookModalTitle">Create your account &amp; book</h3>
-                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place.</p>
+                <p style="color: var(--bark-500); margin-bottom: 6px; font-size: 0.95rem;" id="bookModalSubtitle">Booking creates your free Demohub account. You'll use it to book at every retailer, upload your COI once, and manage all your demos in one place. One account per brand, created by the brand.</p>
                 <p style="color: var(--ink-500); margin-bottom: 20px; font-size: 0.82rem; line-height:1.5;" id="bookSignInPrompt">Already have a Demohub account? <a onclick="closeContactInfoModal(); openBrandSignIn();" style="color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer;">Sign in instead</a></p>
                 <div class="form-group"><label class="form-label">Brand name *</label><input type="text" class="form-input" id="bookBrandName" placeholder="Sunrise Foods"></div>
                 <div class="form-group"><label class="form-label">Your name *</label><input type="text" class="form-input" id="bookContactName" placeholder="Jane Doe" required></div>
@@ -540,7 +548,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
                      (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
-                <div class="form-group"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
+                <div class="form-group" id="bookContactPhoneGroup"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
+                <div class="form-group" id="bookBookerNote" style="display:none; font-size:0.86rem; line-height:1.5; color:var(--ink-600);">You are booking as the brand's designated booker. The store receives the brand's contact name and phone from the brand profile, plus your email above. <a href="#" onclick="return openStorePoliciesReadOnly()" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Read this store's policies</a></div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div id="bookCoiCard" style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
                         <div id="bookCoiHead" style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
@@ -691,6 +700,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             try {
                 const p = new URLSearchParams(location.search);
                 if (p.has('paid')) {
+                    try { sessionStorage.removeItem('dh_outcomes_' + (location.pathname.split('/')[2] || '')); } catch (_) {}
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
                     // Clear the cart client-side before we leave. No redraw: the assign() below
@@ -716,20 +726,31 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // function is not visible to the booking error handler, which is how this broke once.
         // Does the signed-in brand hold a certificate valid on every date in the cart?
         // Mirrors coiCoverageState() server-side; the server gate is authoritative.
+        // 0097: a booker's profile carries the certificate facts as coi_on_file / coi_status / coi_expires (the owner's
+        // view carries default_coi_url / coi_verification_status / default_coi_expires). Every check reads either naming.
+        function _coiOnFile(bp) { return !!(bp && (bp.default_coi_url || bp.coi_on_file)); }
+        function _coiStatus(bp) { return String((bp && (bp.coi_verification_status || bp.coi_status)) || '').toLowerCase(); }
+        function _coiExpires(bp) { return (bp && (bp.default_coi_expires || bp.coi_expires)) || null; }
+        // The brand contact gate below is the owner's: a booker's view carries no brand contact fields by design (BC-5),
+        // and the server checks the brand row itself (api/book.js contact_required).
+        function _brandContactGateBlocks(bp) {
+            if (window._brandRole === 'booker') return false;
+            return !((bp && bp.contact_name) || '').trim() || !((bp && bp.phone) || '').trim();
+        }
         function _brandCoiOk() {
             const bp = window._brandProfile;
-            if (!bp || !bp.default_coi_url) return false;
-            if (!bp.default_coi_expires) return false;   // no readable expiry is not proof
+            if (!bp || !_coiOnFile(bp)) return false;
+            if (!_coiExpires(bp)) return false;   // no readable expiry is not proof
             // The server rule (api/_coi-policy.js) also requires a verified document, and this
             // check used to omit it while claiming to mirror coiCoverageState(). That gap is the
             // lenient definition Codex v6 eliminated server-side, left behind on the client: an
             // upload sitting at 'pending' read as covered here, the panel vanished, and the
             // booking then failed at /api/book with coi_required and no explanation.
-            const st = String(bp.coi_verification_status || '').toLowerCase();
+            const st = _coiStatus(bp);
             if (st !== 'passed' && st !== 'approved') return false;
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
-            return String(bp.default_coi_expires).slice(0, 10) >= latest;
+            return String(_coiExpires(bp)).slice(0, 10) >= latest;
         }
 
         // A signed-in brand booking WITHOUT an approved COI while provisional holds are on:
@@ -754,14 +775,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         //   missing | pending (uploaded, not yet decided) | rejected | expired (approved but ends before the latest
         //   selected demo date) | no_expiry (approved but coverage dates unreadable) | covered
         function _coiCardState() {
-            const bp = window._brandProfile || {}; const st = String(bp.coi_verification_status || '').toLowerCase();
+            const bp = window._brandProfile || {}; const st = _coiStatus(bp);
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
-            if (!bp.default_coi_url) return { state: 'missing', latest };
+            if (!_coiOnFile(bp)) return { state: 'missing', latest };
             if (st === 'rejected') return { state: 'rejected', latest };
             if (st !== 'passed' && st !== 'approved') return { state: 'pending', latest };
-            if (!bp.default_coi_expires) return { state: 'no_expiry', latest };
-            const exp = String(bp.default_coi_expires).slice(0, 10);
+            if (!_coiExpires(bp)) return { state: 'no_expiry', latest };
+            const exp = String(_coiExpires(bp)).slice(0, 10);
             return exp >= latest ? { state: 'covered', latest, exp } : { state: 'expired', latest, exp };
         }
         function _renderCoiCard(cs, holdsOn) {
@@ -773,6 +794,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (card) { card.style.background = green ? '#eef5ee' : '#fff3ed'; card.style.borderColor = green ? '#2a6b3a44' : '#ed682f55'; card.style.borderLeftColor = green ? '#2a6b3a' : '#ed682f'; }
             const col = green ? '#2c4a34' : '#a14e2a'; if (head) head.style.color = green ? '#256b34' : '#a14e2a'; if (msg) { msg.style.color = col; msg.style.marginBottom = '10px'; } if (hint) { hint.style.color = col; hint.style.display = ''; } if (btn) btn.style.display = '';
             let h = '', m = '', b = 'Upload certificate', hn = 'PDF, JPG, PNG or WEBP, up to 10MB.';
+            if (window._brandRole === 'booker') {
+                // 0097: the certificate belongs to the brand account owner; a booker can only ask.
+                h = cs.state === 'pending' ? 'Certificate uploaded, pending review' : 'Certificate of insurance needed';
+                m = 'The brand account owner (' + ((window._brandProfile && window._brandProfile.owner_email) || 'the owner') + ') manages the insurance certificate. Ask them to upload or renew it in the brand portal; you cannot book here until an approved certificate covers your date.';
+                if (head) head.textContent = h; if (msg) msg.innerHTML = m; if (btn) btn.style.display = 'none'; if (hint) hint.textContent = '';
+                _updateCoiGuide(col);
+                return;
+            }
             if (cs.state === 'pending') { h = '✓ Certificate uploaded, pending review'; m = 'Your certificate is waiting for the store to review it. <strong>Uploading a certificate does not itself confirm your demo.</strong>' + (holdsOn ? hold : ' Booking opens once the store approves it.'); b = 'Replace certificate'; hn = 'Need to replace it? Upload a new file.'; }
             else if (cs.state === 'missing') { h = 'Certificate of insurance required'; m = 'No approved certificate of insurance is on file. Uploading one does not itself confirm a demo; the store reviews it first.' + (holdsOn ? hold : ' Stores need an approved certificate before you can book.'); }
             else if (cs.state === 'rejected') { h = 'Certificate not accepted'; m = 'The store could not accept your last certificate. Upload a corrected certificate for review; uploading does not itself confirm a demo.' + hold; }
@@ -1388,9 +1417,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const firstDay = new Date(currentYear, currentMonth, 1).getDay();
             const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
             const today = new Date();
-            // The store's own minimum notice (settings.advance_booking_days), judged in the store's calendar; the
-            // old hard-coded 14 ignored the setting. Days before that date are greyed out and the notice says why.
-            const minYmd = storeEarliestYmd();
+            // Booking codes (0085): the minimum is the store's setting (server-enforced in /api/book), not a
+            // hard-coded 14; a short-notice code lifts it to tomorrow. Dates before today are never offered.
+            const minYmd = (window._bookingCode && window._bookingCode.waives_lead_time && !window._bookingCode.itemId) ? codeEarliestYmd() : storeEarliestYmd();
             updateLeadTimeNotice(minYmd);
             const venue = getCurrentVenue();
             // If we have venues loaded but not for this location yet, treat unknown as "all days open" (no over-filtering)
@@ -1577,7 +1606,15 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 return;
             }
             
+            // Codex BC-6/BC-2: a date inside the store's notice window is only allowed for the ONE item the
+            // short-notice code is assigned to. Anything before retailer-local today is never allowed.
+            if (dateStr < retailerTodayYmd()) { alert('That date has already passed.'); return; }
+            if (dateStr < storeEarliestYmd()) {
+                const c = window._bookingCode;
+                if (!(c && c.waives_lead_time && !c.itemId)) { alert('This store needs ' + storeLeadDays() + " days' notice. A short-notice code from the store can cover ONE demo. Apply it before adding that date."); return; }
+            }
             cart.push({
+                id: newOpKey(),
                 date: new Date(selectedDate),
                 dateStr: dateStr,
                 time: selectedTime,
@@ -1591,11 +1628,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             selectedTime = null; selectedHours = null; selectedSlotLabel = null;
             document.querySelectorAll('.time-slot').forEach(t => t.classList.remove('selected'));
 
+            // the short-notice item is the one that needed the code; a no-fee-only code goes to the first (or only) item
+            if (window._bookingCode && !window._bookingCode.itemId) { const it = cart[cart.length - 1]; if (window._bookingCode.waives_lead_time ? dateStr < storeEarliestYmd() : cart.length === 1) window._bookingCode.itemId = it.id; }
             updateCartDisplay();
             renderLocationSwitcher();   // per-venue cart badges went stale until a venue switch
         }
         
         function removeFromCart(index) {
+            if (window._bookingCode && cart[index] && window._bookingCode.itemId === cart[index].id) window._bookingCode.itemId = null;
             cart.splice(index, 1);
             updateCartDisplay();
             renderLocationSwitcher();
@@ -1623,7 +1663,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const base = (v && v.demo_fee != null) ? Number(v.demo_fee) : _settingsFee;
                 return _pka ? base : base + PLATFORM_FEE_PER_DEMO;
             }
-            const itemFees = cart.map(it => _venueFeeFor(it.location));
+            const _code = window._bookingCode;
+            const itemFees = cart.map(it => (_code && _code.waives_fee && _code.itemId === it.id) ? 0 : _venueFeeFor(it.location));
             const total = itemFees.reduce((a, b) => a + b, 0);
             // "Price per demo" summary: exact when all venues share a fee (the common case).
             const perDemoFee = itemFees.length ? itemFees[0] : (_pka ? _settingsFee : _settingsFee + PLATFORM_FEE_PER_DEMO);
@@ -1658,16 +1699,21 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                             '<div class="cart-item-date">' + escapeHtml(item.displayDate) + '</div>' +
                             '<div class="cart-item-time">' + escapeHtml(item.label || item.time) + ' &bull; ' + escapeHtml(item.location) + '</div>' +
                         '</div>' +
+                        (item.recovering ? '<span class="cart-item-recovering" style="font-size:0.7rem; font-weight:700; color:#a14e2a; margin-right:8px;" title="The result of this booking was lost in transit. Confirm booking re-checks it with the same request; it will not be duplicated.">checking…</span>' : '') +
+                        (_code && _code.itemId === item.id ? '<span class="cart-item-code" style="font-size:0.7rem; font-weight:700; color:#1f6b3a; margin-right:8px;">code</span>' : (_code && (item.dateStr >= storeEarliestYmd() || _code.waives_lead_time) ? '<button type="button" class="cart-item-usecode" data-item-id="' + escapeHtml(item.id) + '" style="font-size:0.7rem; margin-right:8px; background:none; border:1px solid #1f6b3a; color:#1f6b3a; border-radius:999px; padding:2px 8px; cursor:pointer;">use code here</button>' : '')) +
+                        (item.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === item.id) ? '<span style="font-size:0.7rem; color:#b91c1c; margin-right:8px;">needs short-notice code</span>' : '') +
                         '<span class="cart-item-price">$' + Number(itemFees[index]).toFixed(0) + '</span>' +
-                        '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
+                        (item.recovering ? '' : '<button class="cart-item-remove" onclick="removeFromCart(' + index + ')">' +
                             '<svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg>' +
-                        '</button>' +
+                        '</button>') +
                     '</div>';
                 });
                 html += '</div>';
                 cartContainer.innerHTML = html;
-                checkoutBtn.disabled = false;
-                checkoutBtnText.textContent = 'Pay & Confirm: $' + total.toFixed(2);
+                cartContainer.querySelectorAll('.cart-item-usecode').forEach(b => b.addEventListener('click', () => { if (window._bookingCode && !cart.some(it => it.recovering)) { window._bookingCode.itemId = b.dataset.itemId; updateCartDisplay(); renderCalendar(); } }));
+                const blocked = cart.some(it => it.dateStr < storeEarliestYmd() && !(_code && _code.waives_lead_time && _code.itemId === it.id));
+                checkoutBtn.disabled = blocked;
+                checkoutBtnText.textContent = blocked ? 'A demo needs a short-notice code' : (total > 0 ? 'Pay & Confirm: $' + total.toFixed(2) : 'Confirm booking: $0.00');
             }
         }
         
@@ -1691,6 +1737,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
+                // 0097: a booker's own identity fills the person fields and nothing is asked twice. The server records
+                // the brand's contact name and phone from the profile and the booker's email, so the phone is not asked.
+                {
+                    const isBooker = window._brandRole === 'booker'; const me = window._brandMe || {};
+                    const lock = (id, v) => { const el = document.getElementById(id); if (!el) return; if (isBooker && v) { el.value = v; el.readOnly = true; el.style.background = '#f3f1ea'; } else { el.readOnly = false; el.style.background = ''; } };
+                    lock('bookContactName', me.name || '');
+                    lock('bookContactEmail', me.email || '');
+                    const pg = document.getElementById('bookContactPhoneGroup'), ph = document.getElementById('bookContactPhone');
+                    if (pg) pg.style.display = isBooker ? 'none' : '';
+                    if (ph) ph.required = !isBooker;
+                    const note = document.getElementById('bookBookerNote'); if (note) note.style.display = isBooker ? '' : 'none';
+                }
                 // Their saved product notes, pre-filled into the booking notes. Without this
                 // the field is labelled "Notes for retailers" and reaches no retailer.
                 { const nEl = document.getElementById('bookNotes'); if (nEl && !nEl.value && bp.default_product_info) nEl.value = bp.default_product_info; }
@@ -1713,7 +1771,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 })(); { const ce = document.getElementById('bookNeedsElectricity'); if (ce && bp.needs_electricity) { ce.checked = true; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#2a5b32'; if(k)k.style.transform='translateX(20px)'; } }
                 if (pwGroup) pwGroup.style.display = 'none';
                 if (title) title.textContent = 'Confirm your booking';
-                if (subtitle) subtitle.textContent = "We'll confirm your demo by email.";
+                // Booking as (2026-10-17): the brand this request is made in the name of, said before anything is paid.
+                if (subtitle) subtitle.textContent = 'Booking as ' + (bp.company_name || bp.email) + '. Every demo in this request is made in that brand\'s name, under its insurance and agreements. We\'ll confirm by email.';
                 if (signInPrompt) signInPrompt.style.display = 'none';
                 if (submitBtn) submitBtn.textContent = 'Confirm booking';
             } else {
@@ -1741,12 +1800,24 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 });
                 const j = await r.json();
                 if (j.has_active) return { needsSigning: false };
+                // 0097: a booker cannot sign for the brand. Say who can, instead of opening the signature modal.
+                if (j.policies && j.policies.can_sign === false) {
+                    const rn0 = (j.policies && j.policies.retailer_name) || 'this store';
+                    const owner = (window._brandProfile && window._brandProfile.owner_email) || 'the brand account owner';
+                    const brandNm = (window._brandProfile && window._brandProfile.company_name) || 'our brand';
+                    const mailto = 'mailto:' + encodeURIComponent(owner) + '?subject=' + encodeURIComponent('Please agree to ' + rn0 + '\'s policies on Demohub') + '&body=' + encodeURIComponent('Hi,\n\nI tried to book a demo at ' + rn0 + ' for ' + brandNm + ' and Demohub needs the brand account owner to agree to the store\'s current policies first. Please sign in to the brand portal, open Retailers, and click "Review and agree" next to ' + rn0 + '. Then I can book.\n\nThanks');
+                    _showSkuErrorHtml('The brand account owner (' + escapeHtml(owner) + ') needs to agree to ' + escapeHtml(rn0) + '\'s policies once before you can book here. '
+                        + '<a href="' + mailto.replace(/"/g, '&quot;') + '" style="color:inherit; font-weight:700; text-decoration:underline;">Email the owner</a> &middot; '
+                        + '<a href="#" onclick="return openStorePoliciesReadOnly()" style="color:inherit; font-weight:700; text-decoration:underline;">Read the policies</a>');
+                    return { needsSigning: true, ownerOnly: true };
+                }
                 // Need signing , populate modal with policies
                 const dp = (j.policies && j.policies.demo_policy) || '';
                 const cp = (j.policies && j.policies.cancellation_policy) || '';
                 const rn = (j.policies && j.policies.retailer_name) || 'this retailer';
                 document.getElementById('agreementDemoPolicy').textContent = dp;
                 document.getElementById('agreementCancelPolicy').textContent = cp;
+                window._pendingPolicyHash = (j.policies && j.policies.policy_hash) || null;   // 0102: the hash of the text shown, asserted at signing
                 document.getElementById('agreementRetailerLabel').textContent = 'Sign before booking at ' + rn;
                 document.getElementById('agreementSignedName').value = '';
                 document.getElementById('agreementCheckbox').checked = false;
@@ -1801,7 +1872,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             agreementOnScroll();
         }
         function openAgreementModal() { document.getElementById('agreementModal').style.display = 'flex'; agreementResetScroll(); }
-        function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; }
+        function closeAgreementModal() { document.getElementById('agreementModal').style.display = 'none'; if (window._agreementReadOnly) { window._agreementReadOnly = false; _setAgreementReadOnly(false); } }
         async function confirmAgreementAndBook() {
             const name = document.getElementById('agreementSignedName').value.trim();
             const checked = document.getElementById('agreementCheckbox').checked;
@@ -1841,7 +1912,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const sel = collectBookingProducts();
                 if (sel.error) { _showSkuError(sel.error); return; }
             }
-            if (!brandName || !contactName || !contactEmail || !contactPhone) { errMsg.textContent = 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
+            if (!brandName || !contactName || !contactEmail || (!contactPhone && window._brandRole !== 'booker')) { errMsg.textContent = window._brandRole === 'booker' ? 'Your name and email are required.' : 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
 
             // COI gate. Convenience only - api/booking enforces this server-side, so a
@@ -1859,7 +1930,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // Remember the category too, so "What are you demoing?" is asked once and then pre-filled
                 // (and hidden) on every later booking, it was only ever stored on the booking row.
                 if (!((bp.default_categories)||'').trim() && product) patch.default_categories = product;
-                if (Object.keys(patch).length) {
+                if (Object.keys(patch).length && window._brandRole !== 'booker') {
                     try {
                         const _pr = await fetch('/api/brand-account?action=profile-update', {
                             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1868,16 +1939,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         if (_pr.ok) Object.assign(bp, patch);
                     } catch (_) { /* non-fatal, the guard below still protects the booking */ }
                 }
-                if (!((bp.contact_name)||'').trim() || !((bp.phone)||'').trim()) {
+                if (_brandContactGateBlocks(bp)) {
                     errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
                     errMsg.style.display = 'block';
                     return;
                 }
             }
             if (window._brandProfile && !_updateBookCoiGate()) {
-                errMsg.textContent = ((window._brandProfile.default_coi_url) || '')
-                    ? 'Your certificate is uploaded and pending the store’s review, and you can book once it’s approved.'
-                    : 'Upload your Certificate of Insurance above to book.';
+                errMsg.textContent = window._brandRole === 'booker'
+                    ? 'The brand account owner (' + ((window._brandProfile.owner_email) || 'the owner') + ') must have an approved Certificate of Insurance on file before you can book here.'
+                    : _coiOnFile(window._brandProfile)
+                        ? 'Your certificate is uploaded and pending the store’s review, and you can book once it’s approved.'
+                        : 'Upload your Certificate of Insurance above to book.';
                 errMsg.style.display = 'block';
                 const g = document.getElementById('bookCoiGroup');
                 if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1940,7 +2013,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const sel = collectBookingProducts();
             if (sel.error) { _showSkuError(sel.error); btn.disabled = false; btn.textContent = window._brandProfile ? 'Confirm booking' : 'Create account & book'; return; }
             let productSkus = sel.items;
-            if (sel.save && sel.newItems.length && window._brandProfile && !window._bookSkipCatalogSave) {
+            if (sel.save && sel.newItems.length && window._brandProfile && !window._bookSkipCatalogSave && window._brandRole !== 'booker') {
                 const bp = window._brandProfile;
                 const merged = (Array.isArray(bp.products) ? bp.products : []).concat(sel.newItems);
                 let saveResp = null, saveJson = {};
@@ -1995,12 +2068,29 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             // agreement modal reappeared forever. Best-effort: a hiccup here never blocks booking,
             // agreement-check will simply re-prompt next time.
             if (window._pendingSignedName) {
+                let signResp = null, signJson = {};
                 try {
-                    await fetch('/api/booking', {
+                    signResp = await fetch('/api/booking', {
                         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                        body: JSON.stringify({ action: 'agreement-sign', retailer_slug: RETAILER_SLUG, signed_name: window._pendingSignedName }),
+                        body: JSON.stringify({ action: 'agreement-sign', retailer_slug: RETAILER_SLUG, signed_name: window._pendingSignedName, policy_hash: window._pendingPolicyHash || '' }),
                     });
+                    signJson = await signResp.json().catch(() => ({}));
                 } catch (_) { /* re-prompted next visit */ }
+                // 0102: the store changed its policies between display and signing: show the CURRENT text, drop the consent, ask again
+                if (signResp && signResp.status === 409 && signJson.error === 'policy_changed') {
+                    const pol = signJson.policies || {};
+                    window._pendingSignedName = null;
+                    window._pendingPolicyHash = pol.policy_hash || null;
+                    document.getElementById('agreementDemoPolicy').textContent = pol.demo_policy || '';
+                    document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
+                    document.getElementById('agreementRetailerLabel').textContent = 'Policies updated, please review them again';
+                    document.getElementById('agreementSignedName').value = '';
+                    const aerr = document.getElementById('agreementError'); if (aerr) { aerr.textContent = signJson.message || 'This store updated its policies while you were reading. Please review the current text and agree again.'; aerr.style.display = 'block'; }
+                    btn.disabled = false; btn.textContent = origLabel;
+                    openAgreementModal();
+                    return;
+                }
+                if (signResp && signResp.ok) window._pendingSignedName = null;
             }
             // PERF: fire all booking requests in parallel, 3-slot cart used to take 3× sequential
             // waits (~4-6s total). Now they complete in parallel, and the checkout redirect fires
@@ -2010,7 +2100,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({
+                body: JSON.stringify(item.frozen || {
                     retailer_slug: RETAILER_SLUG,
                     venue_id: _venueIdByName.get(item.location) || null,
                     product: product,
@@ -2021,22 +2111,45 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     // Typed per-booking value (api/book.js validates a boolean). The brand profile only
                     // PREFILLS the toggle; what is sent is what the brand chose for THIS booking.
                     needs_electricity: !!needsElectricity,
+                    booking_code: (window._bookingCode && window._bookingCode.itemId === item.id) ? window._bookingCode.code : undefined,
+                    // 0099 (Codex BR2-1): a booker's request is always keyed by the cart item id, so a lost response is
+                    // retried with the same key and replays instead of making a second booking.
+                    op_key: (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id)) ? item.id : undefined,
                 }),
             }).then(async resp => {
+                // Codex review 2 item 1: remember exactly what was sent, so an unknown outcome can be retried verbatim.
+                if (!item.frozen && (window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === item.id))) item.sent = { retailer_slug: RETAILER_SLUG, venue_id: _venueIdByName.get(item.location) || null, product, product_skus: productSkus, demo_date: item.dateStr, demo_time: item.time, notes: notes || '', needs_electricity: !!needsElectricity, booking_code: (window._bookingCode && window._bookingCode.itemId === item.id) ? window._bookingCode.code : undefined, op_key: item.id };
                 const json = await resp.json().catch(() => ({}));
-                return { resp, json };
-            }).catch(e => ({ error: e.message || String(e) })));
+                return { resp, json, item };
+            }).catch(e => ({ error: e.message || String(e), item })));
             const results = await Promise.all(bookingPromises);
-            let coiBlocked = false;
+            // Codex BC-2: every outcome is kept. Succeeded items leave the cart (they cannot be resubmitted), failed
+            // items stay with their message, free bookings are reported as awaiting confirmation, and payment is
+            // offered only for the unpaid full-price subset. A free booking id is never sent to checkout.
+            let coiBlocked = false, freeCount = 0; const freeIds = []; const failedItems = []; const keepItems = [];
             for (const r of results) {
-                if (r.error) { okAll = false; errors.push(r.error); continue; }
+                const label = r.item ? (r.item.displayDate + ' ' + (r.item.label || r.item.time) + ' · ' + r.item.location) : 'a demo';
+                const isCodeItem = !!(r.item && (r.item.frozen || window._brandRole === 'booker' || (window._bookingCode && window._bookingCode.itemId === r.item.id)));
+                if (r.error) {
+                    okAll = false; errors.push(label + ': ' + (isCodeItem ? 'we could not confirm the result. Use "Check status" below' : r.error));
+                    // a code-bearing request whose response was lost may have COMMITTED: freeze it for recovery, never resend fresh
+                    if (isCodeItem) { r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); } else failedItems.push(r.item);
+                    continue;
+                }
                 const { resp, json } = r;
                 if (!resp.ok || !json.ok) {
+                    if (json.error === 'booking_outcome_unknown' && r.item) { okAll = false; errors.push(label + ': the result could not be confirmed. Use "Check status" below'); r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); continue; }
                     okAll = false;
-                    errors.push(json.message || json.error || ('HTTP ' + resp.status));
+                    // the server's brand-row contact gate, worded for a booker who cannot edit the profile
+                    if (json.error === 'contact_required' && window._brandRole === 'booker') json.message = 'the brand account owner (' + ((window._brandProfile && window._brandProfile.owner_email) || 'the owner') + ') needs to add a name and phone number to the brand profile before anyone can book';
+                    errors.push(label + ': ' + (json.message || json.error || ('HTTP ' + resp.status)));
                     if (json.error === 'coi_required') coiBlocked = true;
+                    failedItems.push(r.item);
                 } else {
-                    if (json.booking_id) successBookingIds.push(json.booking_id);
+                    if (r.item) { r.item.recovering = false; removeRecovery(r.item.id); }
+                    if (json.replay && json.next === 'none') { errors.push(label + ': already booked earlier (' + (json.current_status || 'saved') + ')'); }   // recovered, nothing to pay
+                    else if (json.fee_waived) { freeCount++; freeIds.push(json.booking_id); addOutcome('free', json.booking_id, label); }
+                    else if (json.booking_id) { successBookingIds.push(json.booking_id); addOutcome('paid', json.booking_id, label); }
                     if (!json.email_sent && !emailWarned) {
                         emailWarned = true;
                         console.warn('Email send failed:', json.email_error);
@@ -2045,13 +2158,21 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
             btn.disabled = false;
             btn.textContent = origLabel;
+            // succeeded items leave the cart; a used code is spent
+            cart = cart.filter(it => failedItems.includes(it) || keepItems.includes(it));
+            if (window._bookingCode && !cart.some(it => it.id === window._bookingCode.itemId)) { if (freeCount || results.some(r => r.json && r.json.code_applied)) resetBookingCodeUi(); }
+            updateCartDisplay(); renderLocationSwitcher();
+            // Codex review 2 item 2: what is saved is tracked independently of the cart; payment retries use it.
+            const saved = loadOutcomes(); const unpaid = saved.paid.map(o => o.id);
             if (!okAll) {
                 const uniq = [...new Set(errors)];
+                const kept = (saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' submitted and awaiting confirmation. ' : '') + (unpaid.length ? unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' : '');
+                window._pendingPaidIds = unpaid;
                 if (coiBlocked) {
                     errMsg.innerHTML = _esc(uniq[0])
                         + ' <a href="/brand/dashboard#compliance" target="_blank" style="color:inherit; font-weight:700; text-decoration:underline;">Upload it here</a>, then book again.';
                 } else {
-                    errMsg.textContent = uniq.length === 1 ? uniq[0] : ('Some bookings failed: ' + uniq.join('; '));
+                    errMsg.innerHTML = escapeHtml(kept) + (unpaid.length ? '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">pay for ' + (unpaid.length === 1 ? 'it' : 'them') + ' now</a>. ' : '') + (keepItems.length ? '<br><a href="#" onclick="return confirmBooking(), false" style="color:inherit; font-weight:700; text-decoration:underline;">Check status</a> of the demo whose result was lost (it is kept exactly as sent and will not be duplicated). ' : '') + '<br>Not booked: ' + escapeHtml(uniq.join('; '));
                 }
                 errMsg.style.display = 'block';
                 window._pendingSignedName = null;
@@ -2059,10 +2180,19 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             }
             // Stash the booking email so the success card can show 'saved to X'
             try { window._lastBookingEmail = contactEmail; } catch(_){}
+            // Booking codes (0085): a fee-waived booking is free: no Stripe, no "pending payment". The server has
+            // already queued it (confirmed or awaiting the store's approval, per its auto-confirm setting).
+            if (freeCount > 0 && unpaid.length === 0) {
+                showFreeBookedModal(freeCount, contactEmail);
+                btn.disabled = false; btn.textContent = origLabel;
+                return;
+            }
+            window._pendingPaidIds = unpaid;
             // Phase B: try to collect payment via Stripe Checkout for the whole batch.
             // If the retailer isn't Stripe-connected, the endpoint returns { skip: true }
             // and we fall through to the current success modal.
-            if (successBookingIds.length > 0) {
+            if (unpaid.length > 0) {
+                const freeNote = saved.free.length ? saved.free.length + ' free ' + (saved.free.length === 1 ? 'demo is' : 'demos are') + ' already submitted and awaiting confirmation. ' : '';
                 try {
                     btn.textContent = 'Redirecting to payment…';
                     btn.disabled = true;
@@ -2070,7 +2200,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         credentials: 'same-origin',
-                        body: JSON.stringify({ booking_ids: successBookingIds }),
+                        body: JSON.stringify({ booking_ids: unpaid }),
                     });
                     const checkoutJson = await checkoutResp.json().catch(() => ({}));
                     if (checkoutResp.ok && checkoutJson.url && !checkoutJson.skip) {
@@ -2083,13 +2213,13 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     // pending_payment status (see api/booking.js), so we're just telling the user.
                     if (checkoutJson.skip) {
                         console.log('Stripe collection skipped:', checkoutJson.reason);
-                        showPendingPaymentModal(cart.length, checkoutJson.reason, contactEmail);
+                        showPendingPaymentModal(unpaid.length, checkoutJson.reason, contactEmail);
                         btn.disabled = false;
                         btn.textContent = origLabel;
                         return;
                     } else if (!checkoutResp.ok) {
                         console.warn('checkout-session failed:', checkoutJson.error || checkoutResp.status);
-                        errMsg.textContent = 'Could not open payment. Try again in a moment, or the retailer can invoice you.';
+                        errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Could not open payment just now. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
                         errMsg.style.display = 'block';
                         btn.disabled = false;
                         btn.textContent = origLabel;
@@ -2097,7 +2227,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     }
                 } catch (e) {
                     console.warn('checkout-session error, falling back to modal:', e);
-                    errMsg.textContent = 'Network error opening payment. Your booking is on hold. Try again in a moment.';
+                    errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Network error opening payment. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
                     errMsg.style.display = 'block';
                     btn.disabled = false;
                     btn.textContent = origLabel;
@@ -2115,6 +2245,116 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         // Modal shown when payment collection couldn't complete (Stripe not connected on retailer
         // side, checkout endpoint errored, etc.). Booking IS in the DB but pending payment,
         // retailer will follow up. Very different visual language from "Confirmed!"
+        // ---- Booking codes (0085) ----
+        // Dates are judged in the RETAILER's calendar, like the server (Codex BC-6). One policy: the store's minimum
+        // applies; a short-notice code relaxes a positive minimum to tomorrow and never tightens a store that
+        // already allows sooner.
+        function retailerTodayYmd() {
+            const tz = (window.state && window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
+            try { const p = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date()); const g = (t) => p.find(x => x.type === t).value; return g('year') + '-' + g('month') + '-' + g('day'); }
+            catch (_) { return dateToYmd(new Date()); }
+        }
+        function addDaysYmd(ymd, n) { const [y, m, d] = ymd.split('-').map(Number); const dt = new Date(Date.UTC(y, m - 1, d + n)); return dt.toISOString().slice(0, 10); }
+        function storeLeadDays() { const s = window.state && window.state.settings; const n = s && Number.isInteger(Number(s.advance_booking_days)) ? Number(s.advance_booking_days) : 14; return Math.max(0, n); }
+        function storeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), storeLeadDays()); }
+        function codeEarliestYmd() { return addDaysYmd(retailerTodayYmd(), Math.min(storeLeadDays(), 1)); }
+        function bookingLeadDays() { return (window._bookingCode && window._bookingCode.waives_lead_time) ? Math.min(storeLeadDays(), 1) : storeLeadDays(); }
+        // A brand should never open on a month with nothing to pick: if the displayed month ends before the first
+        // bookable date, show that date's month instead. Called after the store's settings load and when a code
+        // changes the rule; never while the user is looking at a later month they navigated to.
+        function showFirstBookableMonth() {
+            const minYmd = (window._bookingCode && window._bookingCode.waives_lead_time && !window._bookingCode.itemId) ? codeEarliestYmd() : storeEarliestYmd();
+            const [y, m] = minYmd.split('-').map(Number);
+            if (currentYear < y || (currentYear === y && currentMonth < m - 1)) { currentYear = y; currentMonth = m - 1; }
+            renderCalendar();
+        }
+        function updateLeadTimeNotice(minYmd) {
+            const el = document.getElementById('leadTimeNotice'); if (!el) return;
+            const days = storeLeadDays(); const name = (window.state && window.state.retailer && window.state.retailer.name) || 'This store';
+            if (!days) { el.style.display = 'none'; return; }
+            const [y, m, d] = minYmd.split('-').map(Number); const first = new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const codeOn = !!(window._bookingCode && window._bookingCode.waives_lead_time);
+            el.textContent = codeOn ? 'Your short-notice code lifts ' + name + "'s " + days + "-day notice rule for one demo; earliest date " + first + '.' : name + ' asks for at least ' + days + " days' notice, so the first date you can book is " + first + '. Earlier days are greyed out.';
+            el.style.display = '';
+        }
+        function newOpKey() { try { return crypto.randomUUID().replace(/-/g, ''); } catch (_) { return 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12); } }
+        function resetBookingCodeUi() {
+            window._bookingCode = null;
+            const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
+            if (input) { input.value = ''; input.disabled = false; } if (btn) btn.textContent = 'Apply'; if (msg) msg.style.display = 'none';
+        }
+        // ---- Saved outcomes (Codex review 2 item 2) and recovery entries (item 1), independent of the cart, kept in
+        // sessionStorage for this tab (booking ids, labels, the frozen request; no secrets, no extra personal data).
+        // (a function: RETAILER_SLUG is declared further down this script, so it must not be read at load time)
+        const outcomesKey = () => 'dh_outcomes_' + (location.pathname.split('/')[2] || '');
+        function loadOutcomes() { try { const o = JSON.parse(sessionStorage.getItem(outcomesKey()) || 'null'); if (o && Array.isArray(o.paid) && Array.isArray(o.free) && Array.isArray(o.recovery)) return o; } catch (_) {} return { paid: [], free: [], recovery: [] }; }
+        function saveOutcomes(o) { try { sessionStorage.setItem(outcomesKey(), JSON.stringify(o)); } catch (_) {} }
+        function addOutcome(kind, id, label) { if (!id) return; const o = loadOutcomes(); if (!o[kind].some(x => x.id === id)) o[kind].push({ id, label }); saveOutcomes(o); }
+        function addRecovery(item) { if (!item || !item.frozen) return; const o = loadOutcomes(); if (!o.recovery.some(x => x.op_key === item.id)) o.recovery.push({ op_key: item.id, frozen: item.frozen, dateStr: item.dateStr, time: item.time, hours: item.hours, label: item.label, location: item.location, displayDate: item.displayDate }); saveOutcomes(o); }
+        function removeRecovery(opKey) { const o = loadOutcomes(); o.recovery = o.recovery.filter(x => x.op_key !== opKey); saveOutcomes(o); }
+        function clearOutcomes() { try { sessionStorage.removeItem(outcomesKey()); } catch (_) {} }
+        // A lost-result item comes back into the cart after a reload, frozen, so it can only be re-checked, never re-made.
+        function restoreRecoveringItems() {
+            const o = loadOutcomes(); if (!o.recovery.length) return;
+            for (const r of o.recovery) { if (cart.some(it => it.id === r.op_key)) continue; const [y, m, d] = r.dateStr.split('-').map(Number); cart.push({ id: r.op_key, date: new Date(y, m - 1, d), dateStr: r.dateStr, time: r.time, hours: r.hours || 3, label: r.label || r.time, location: r.location, displayDate: r.displayDate, frozen: r.frozen, recovering: true }); }
+            if (!window._bookingCode && o.recovery[0] && o.recovery[0].frozen && o.recovery[0].frozen.booking_code) window._bookingCode = { code: o.recovery[0].frozen.booking_code, waives_fee: false, waives_lead_time: true, itemId: o.recovery[0].op_key, locked: true };
+            updateCartDisplay(); renderLocationSwitcher();
+        }
+        async function payPendingBookings(a) {
+            // the EXACT saved unpaid set: the claim function reuses the existing pending payment group for an identical set
+            const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
+            a.textContent = 'opening payment…';
+            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; }
+                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session. Open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment. See your dashboard' : 'could not open payment. Try again or pay from your dashboard'; }
+            catch (_) { a.textContent = 'could not open payment. Try again or pay from your dashboard'; }
+            return false;
+        }
+        async function applyBookingCode() {
+            const input = document.getElementById('bookingCodeInput'), msg = document.getElementById('bookingCodeMsg'), btn = document.getElementById('bookingCodeApply');
+            const raw = (input.value || '').trim().toUpperCase();
+            const show = (text, good) => { msg.textContent = text; msg.style.color = good ? '#1f6b3a' : '#b91c1c'; msg.style.display = 'block'; };
+            if (window._bookingCode) {   // acting as "Remove": any short-notice item it covered is now blocked until it is removed or re-covered
+                if (cart.some(it => it.recovering)) { show('A demo with this code is still being checked. Use "Confirm booking" to check its status first.', false); return; }
+                resetBookingCodeUi(); updateCartDisplay(); renderCalendar(); return;
+            }
+            if (!raw) { show('Type the code the store gave you.', false); return; }
+            btn.disabled = true;
+            try {
+                const r = await fetch('/api/booking-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ retailer_slug: RETAILER_SLUG, code: raw }) });
+                const j = await r.json().catch(() => ({}));
+                if (r.status === 401) { show('Sign in to your brand account first, then apply the code.', false); return; }
+                if (!r.ok || !j.ok) { show(j.message || 'That code is not valid for this store.', false); return; }
+                // assigned to exactly ONE demo: the only item in the cart, else the brand picks with "use code here"
+                window._bookingCode = { code: j.code, waives_fee: j.waives_fee, waives_lead_time: j.waives_lead_time, itemId: cart.length === 1 ? cart[0].id : null };
+                input.value = j.code; input.disabled = true; btn.textContent = 'Remove';
+                const soon = j.waives_lead_time && storeLeadDays() > 0 ? '. One demo may now be booked from ' + (Math.min(storeLeadDays(), 1) === 1 ? 'tomorrow' : 'today') + '.' : '.';
+                show('Code applied: ' + j.label + soon + (cart.length > 1 ? ' Choose which demo it covers with "use code here".' : ''), true);
+                updateCartDisplay(); showFirstBookableMonth();
+            } catch (_) { show('Could not check that code right now. Try again in a moment.', false); }
+            finally { btn.disabled = false; }
+        }
+        function showFreeBookedModal(count, email) {
+            document.getElementById('contactInfoModal').classList.remove('active');
+            const overlay = document.createElement('div');
+            overlay.id = 'freeBookedOverlay';
+            overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.55);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;overflow:auto;';
+            const word = count === 1 ? 'demo' : 'demos';
+            const auto = !!(window.state && window.state.retailer && window.state.retailer.auto_confirm_bookings);
+            overlay.innerHTML = `
+                <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;padding:36px 34px;text-align:left;box-shadow:0 24px 60px rgba(0,0,0,0.25);">
+                    <div style="width:64px;height:64px;border-radius:50%;background:#e6f4ea;display:inline-flex;align-items:center;justify-content:center;margin-bottom:18px;">
+                        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#1f6b3a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                    </div>
+                    <h2 style="font-family:'Instrument Serif',Georgia,serif;font-size:1.9rem;font-weight:400;color:#0f2c17;margin:0 0 12px;line-height:1.2;">${count} ${word} submitted, no payment needed</h2>
+                    <p style="font-size:0.95rem;color:#3a3a36;margin:0 0 18px;line-height:1.55;">Your store code covered the demo fee. ${auto ? 'Confirmation is being processed and usually lands within a minute' : 'The store will review and confirm it'}; the confirmation email goes to <strong>${escapeHtml(email || 'your email')}</strong>. Until then it shows as awaiting confirmation on your dashboard.</p>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                        <button type="button" onclick="document.getElementById('freeBookedOverlay').remove();resetBookingCodeUi();closeModal();" style="background:#0f2c17;color:white;border:none;padding:12px 26px;border-radius:999px;font-weight:700;cursor:pointer;">Done</button>
+                        <a href="/brand/dashboard" style="color:#0f2c17;font-weight:700;font-size:0.92rem;text-decoration:underline;">See your bookings &rarr;</a>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+
         function showPendingPaymentModal(count, reason, email) {
             document.getElementById('contactInfoModal').classList.remove('active');
             const overlay = document.createElement('div');
@@ -2290,11 +2530,11 @@ function supportMailto(a) {
             const opts = _DISTRIBUTORS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
             const inp = function (cls, ph, extra) { return '<input class="form-input ' + cls + '" placeholder="' + ph + '" ' + (extra || '') + ' style="padding:7px 9px; font-size:0.86rem;">'; };
             return '<div class="book-new-item" style="border:1px dashed rgba(15,44,23,0.25); border-radius:10px; padding:10px; margin-bottom:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">'
-                + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Item name *') + '</div>'
+                + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Product name, with flavor or variety *') + '</div>'
                 + inp('bni-size', 'Size (12 oz jar)') + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
                 + '<select class="form-input bni-distributor" style="padding:7px 9px; font-size:0.86rem;">' + opts + '</select>'
-                + inp('bni-distributor-other', 'Distributor name (if Other)')
-                + inp('bni-item-number', 'Distributor item number') + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
+                + inp('bni-distributor-other', 'Distributor name', 'style="display:none;"')
+                + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
                 + '<div style="grid-column:1 / -1; display:flex; justify-content:flex-end;"><button type="button" class="bni-remove" style="font: inherit; font-size:0.8rem; background:none; border:none; color:#a14e2a; cursor:pointer;">Remove</button></div>'
                 + '</div>';
         }
@@ -2306,12 +2546,51 @@ function supportMailto(a) {
             _updateSaveItemsLabel();
             const n = row.querySelector('.bni-name'); if (n) n.focus();
         }
+        document.addEventListener('change', function (e) {
+            var t = e.target; if (!t || !t.classList || !t.classList.contains('bni-distributor')) return;
+            var row = t.closest('.book-new-item'); var other = row && row.querySelector('.bni-distributor-other');
+            if (!other) return;
+            other.style.display = t.value === 'other' ? '' : 'none';
+            if (t.value !== 'other') other.value = '';
+        });
         function _updateSaveItemsLabel() {
             const lbl = document.getElementById('bookSaveItemsLabel'); if (!lbl) return;
             lbl.style.display = document.querySelectorAll('#bookNewItems .book-new-item').length ? 'flex' : 'none';
         }
         function _showSkuError(msg) {
             const el = document.getElementById('bookSkuError'); if (el) { el.textContent = msg; el.style.display = 'block'; el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        // same box, but the caller built safe HTML (escaped text plus links)
+        function _showSkuErrorHtml(html) {
+            const el = document.getElementById('bookSkuError'); if (el) { el.innerHTML = html; el.style.display = 'block'; el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+        }
+        // 0097: a booker cannot sign, but can read the store's current policies in the same modal, read-only.
+        window._agreementReadOnly = false;
+        async function openStorePoliciesReadOnly() {
+            let j = null;
+            try { const r = await fetch('/api/booking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action: 'agreement-check', retailer_slug: RETAILER_SLUG }) }); j = await r.json(); } catch (_) { j = null; }
+            const pol = (j && j.policies) || {};
+            document.getElementById('agreementDemoPolicy').textContent = pol.demo_policy || 'The store\'s demo policy could not be loaded right now.';
+            document.getElementById('agreementCancelPolicy').textContent = pol.cancellation_policy || '';
+            document.getElementById('agreementRetailerLabel').textContent = (pol.retailer_name || 'This store') + '\'s policies';
+            window._agreementReadOnly = true;
+            openAgreementModal();            // resets the scroll box and the hint
+            _setAgreementReadOnly(true);     // then the read-only presentation wins
+            return false;
+        }
+        function _setAgreementReadOnly(on) {
+            const nameEl = document.getElementById('agreementSignedName'), cb = document.getElementById('agreementCheckbox'), okBtn = document.getElementById('agreementConfirmBtn'), cancelBtn = document.getElementById('agreementCancelBtn'), hint = document.getElementById('agreementScrollHint');
+            const nameLabel = nameEl && nameEl.closest('label'), cbLabel = cb && cb.closest('label');
+            if (nameLabel) nameLabel.style.display = on ? 'none' : '';
+            if (cbLabel) cbLabel.style.display = on ? 'none' : '';
+            if (okBtn) okBtn.style.display = on ? 'none' : '';
+            if (hint) hint.style.display = on ? 'none' : '';
+            if (cancelBtn) cancelBtn.textContent = on ? 'Close' : 'Cancel';
+            // the signing copy becomes reading copy: eyebrow and intro, restored on close
+            const title = document.getElementById('agreementRetailerLabel');
+            const eyebrow = title && title.previousElementSibling, intro = title && title.nextElementSibling;
+            if (eyebrow) { if (on) { if (!eyebrow.dataset.orig) eyebrow.dataset.orig = eyebrow.innerHTML; eyebrow.textContent = 'Store policies'; } else if (eyebrow.dataset.orig) { eyebrow.innerHTML = eyebrow.dataset.orig; } }
+            if (intro) { if (on) { if (!intro.dataset.orig) intro.dataset.orig = intro.innerHTML; intro.textContent = 'These are the store\'s current demo and cancellation policies. Only the brand account owner can agree to them; demos you book are made under the owner\'s agreement.'; } else if (intro.dataset.orig) { intro.innerHTML = intro.dataset.orig; } }
         }
         function _renderBookProducts(bp, opts) {
             const grp = document.getElementById('bookSkuGroup'), list = document.getElementById('bookSkuList'), wrap = document.getElementById('bookNewItems');
@@ -2320,7 +2599,7 @@ function supportMailto(a) {
             window._bookSkuSource = items;
             const keep = opts && Array.isArray(opts.keepSelection) ? new Set(opts.keepSelection.map(function (p) { return p.id; }).filter(Boolean)) : null;
             list.innerHTML = items.map(function (p, i) {
-                const meta = [p.size, p.sku ? 'brand SKU ' + p.sku : '', p.upc ? 'UPC ' + p.upc : 'no UPC'].filter(Boolean).join(' \u00b7 ');
+                const meta = [p.size, p.sku ? 'item code ' + p.sku : '', p.upc ? 'UPC ' + p.upc : 'no UPC'].filter(Boolean).join(' \u00b7 ');
                 const checked = keep ? keep.has(p.id) : i < 40;
                 return '<label style="display:flex;gap:9px;align-items:center;padding:7px 9px;cursor:pointer;border-radius:7px;">'
                     + '<input type="checkbox" class="book-sku" data-i="' + i + '"' + (checked ? ' checked' : '') + ' style="width:15px;height:15px;accent-color:#2a5b32;flex-shrink:0;">'
@@ -2336,7 +2615,9 @@ function supportMailto(a) {
             if (!(opts && opts.keepSelection) && !items.length) _addBookNewItem();
             _updateSaveItemsLabel();
             const add = document.getElementById('bookAddItemLink');
-            if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
+            // 0097: a booker picks from the saved list only; the server refuses new items from a booker as well.
+            if (window._brandRole === 'booker') { if (add) add.style.display = 'none'; wrap.innerHTML = ''; if (!items.length) { const e0 = document.getElementById('bookSkuError'); if (e0) { e0.textContent = 'This brand has no saved items yet. Ask the brand account owner to add them under Products in the brand portal.'; e0.style.display = 'block'; } } }
+            else if (add && !add.dataset.wired) { add.dataset.wired = '1'; add.addEventListener('click', function (e) { e.preventDefault(); _addBookNewItem(); }); }
             const err = document.getElementById('bookSkuError'); if (err) err.style.display = 'none';
             grp.style.display = 'block';
             _updateBookUpcNote();
@@ -2366,7 +2647,7 @@ function supportMailto(a) {
                 const row = rows[r];
                 const g = function (cls) { const el = row.querySelector('.' + cls); return el ? String(el.value || '').trim() : ''; };
                 const name = g('bni-name');
-                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-item-number') || g('bni-case-pack');
+                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-case-pack');
                 if (!name) { if (anyOther) return { error: 'Give item ' + (r + 1) + ' a name.' }; continue; }
                 const cpRaw = g('bni-case-pack');
                 let case_pack = null;
@@ -2401,6 +2682,9 @@ function supportMailto(a) {
                     const j = await r.json();
                     if (j && j.profile) {
                         window._brandProfile = j.profile;
+                        // 0097: a designated booker books from the saved list only and cannot sign agreements or upload a COI.
+                        window._brandRole = j.role === 'booker' ? 'booker' : 'owner';
+                        window._brandMe = j.me || null;
                     }
                     // Provisional holds (24h escrow): when on, an unverified-COI brand may book,
                     // card is AUTHORIZED (held), not charged, with 24h to get the COI approved.
@@ -2419,8 +2703,10 @@ function supportMailto(a) {
             const pillClient = document.getElementById('brandSignInPillClient');
             if (window._brandProfile) {
                 const displayName = window._brandProfile.company_name || window._brandProfile.email || 'your brand';
-                if (banner && name) { name.textContent = displayName; banner.classList.add('active'); }
-                if (bannerLanding && nameLanding) { nameLanding.textContent = displayName; bannerLanding.classList.add('active'); }
+                // 0097: the signed-in banner names the role so a designated booker always knows this is not the full account
+                const shown = window._brandRole === 'booker' ? displayName + ' (designated booker)' : displayName;
+                if (banner && name) { name.textContent = shown; banner.classList.add('active'); }
+                if (bannerLanding && nameLanding) { nameLanding.textContent = shown; bannerLanding.classList.add('active'); }
                 if (pill) pill.style.display = 'none';
                 if (pillClient) pillClient.style.display = 'none';
             } else {
@@ -2644,6 +2930,7 @@ function supportMailto(a) {
             }));
             UPCOMING_DEMOS = window.state.demos;
             window.state.settings = data.settings || null;
+            try { restoreRecoveringItems(); } catch (_) {}
             window.state.compliance = [];
             if (document.getElementById('demosTableBody')) renderDemos();
             if (document.getElementById('complianceTableBody')) renderCompliance();

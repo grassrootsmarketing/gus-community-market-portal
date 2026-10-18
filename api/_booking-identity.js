@@ -4,6 +4,7 @@
 
 import { getBinding } from './_env.js';
 import { getSessionToken } from './_cookies.js';
+import { resolveBrandIdentity } from './_brand-identity.js';
 
 async function rest(path) {
   const b = await getBinding();
@@ -17,16 +18,11 @@ async function rest(path) {
 // agreement signing are the actions this resolver gates, so a session that can arrive in a request
 // body is a session that can be replayed out of any log or proxy that recorded that body.
 export async function requireBrandSession(req, _body) {
+  // 0097 (Codex BK-4): the session resolves through the identity boundary, which checks the LIVE membership on
+  // every request and adds { memberId, role }. The { ok, brandId, email } shape every caller reads is unchanged.
   const token = getSessionToken(req, 'brand');
   if (!token) return { ok: false, status: 401, error: 'sign in to book' };
-  try {
-    const r = await rest(`brand_account_sessions?session_token=eq.${encodeURIComponent(token)}&select=brand_id,email,expires_at&limit=1`);
-    const s = r.ok ? (await r.json())[0] : null;
-    if (!s) return { ok: false, status: 401, error: 'invalid session' };
-    const exp = Date.parse(s.expires_at);
-    if (!Number.isFinite(exp) || exp <= Date.now()) return { ok: false, status: 401, error: 'session expired' };
-    return { ok: true, brandId: s.brand_id, email: (s.email || '').toLowerCase() };
-  } catch (_) { return { ok: false, status: 503, error: 'auth unavailable' }; }
+  return resolveBrandIdentity(token);
 }
 
 // Agreement status for the AUTHENTICATED brand only. Returns booleans + reason, never the

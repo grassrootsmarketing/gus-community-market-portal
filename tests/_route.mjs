@@ -53,6 +53,7 @@ export const ENV = {
   // and tests/launch_flags.test.mjs separately proves the default-off behaviour, so enabling it
   // here does not erase that guarantee.
   CHECKOUT_ENABLED: 'true',
+  BOOKING_CODES_ENABLED: 'true',   // booking codes (0085, Codex BC R1): issuance + redemption switch, on for the suites
   // Codex v6 requires the COI proof to run with upload ON and AI verification OFF -- the
   // exact closed-launch configuration in which an upload lands 'pending' and therefore
   // needs a human reviewer. COI_AI_VERIFICATION_ENABLED is deliberately ABSENT, so it

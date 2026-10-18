@@ -1,4 +1,4 @@
-// Tests for the COI coverage rules. No dependencies — run with:
+// Tests for the COI coverage rules. No dependencies, run with:
 //     node api/_coi-lib.test.js
 //
 // These exist because this file decides whether a demo gets auto-cancelled and a
@@ -27,7 +27,7 @@ function check(name, actual, expected) {
 
 const DEMO = '2026-09-01';
 
-console.log('\nthe verification gate — added with the canonical rule');
+console.log('\nthe verification gate, added with the canonical rule');
 check('pending is NOT covered',
       coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'pending', default_coi_expires: '2027-01-01' }, [], DEMO), 'missing');
 check('rejected is NOT covered',
@@ -37,7 +37,7 @@ check('no status at all is NOT covered',
 check('hasCurrentCoi agrees for rejected',
       hasCurrentCoi({ default_coi_url: 'u', coi_verification_status: 'rejected', default_coi_expires: '2027-01-01' }, [], DEMO), 'false');
 
-console.log('\ncoiCoverageState — the three states');
+console.log('\ncoiCoverageState, the three states');
 check('valid expiry after demo date', coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: '2027-01-01' }, [], DEMO), 'covered');
 check('expiry exactly on demo date',  coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: DEMO }, [], DEMO), 'covered');
 check('expiry day before demo',       coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: '2026-08-31' }, [], DEMO), 'missing');
@@ -45,7 +45,7 @@ check('no certificate at all',        coiCoverageState({}, [], DEMO), 'missing')
 check('certificate with NO expiry',   coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: null }, [], DEMO), 'unknown');
 check('no demo date',                 coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: '2027-01-01' }, [], null), 'missing');
 
-console.log('\ncoiCoverageState — compliance records (retailer-uploaded)');
+console.log('\ncoiCoverageState, compliance records (retailer-uploaded)');
 // BEHAVIOUR CHANGE, stated rather than papered over. These four cases cover a brand with
 // NO certificate of its own but a compliance record that covers the demo date. Under the
 // old lenient rule that counted as coverage. Under the canonical rule it does not: an
@@ -54,7 +54,7 @@ console.log('\ncoiCoverageState — compliance records (retailer-uploaded)');
 //
 // This is a deliberate tightening. If retailer-uploaded compliance records should be able
 // to grant coverage on their own, that needs its own verification path and its own ruling
-// — not an implicit exception.
+//, not an implicit exception.
 check('record-only, unverified brand -> NOT covered', coiCoverageState({}, [{ doc_type: 'coi', expires_at: '2027-01-01' }], DEMO), 'missing');
 check('record + verified brand -> covered',            coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved' }, [{ doc_type: 'coi', expires_at: '2027-01-01' }], DEMO), 'covered');
 check('record expired',               coiCoverageState({}, [{ doc_type: 'coi', expires_at: '2026-01-01' }], DEMO), 'missing');
@@ -66,12 +66,12 @@ check('undated brand + valid record', coiCoverageState({ default_coi_url: 'u', c
 check('undated brand + undated rec',  coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: null }, [{ doc_type: 'coi', expires_at: null }], DEMO), 'unknown');
 check('null entries survived',                         coiCoverageState({ default_coi_url: 'u', coi_verification_status: 'approved' }, [null, { doc_type: 'coi', expires_at: '2027-01-01' }], DEMO), 'covered');
 
-console.log('\nhasCurrentCoi — strict boolean, unknown is NOT covered');
+console.log('\nhasCurrentCoi, strict boolean, unknown is NOT covered');
 check('valid -> true',    hasCurrentCoi({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: '2027-01-01' }, [], DEMO), 'true');
 check('undated -> false', hasCurrentCoi({ default_coi_url: 'u', coi_verification_status: 'approved', default_coi_expires: null }, [], DEMO), 'false');
 check('none -> false',    hasCurrentCoi({}, [], DEMO), 'false');
 
-console.log('\ncoiCutoff — 72h before local midnight, across DST');
+console.log('\ncoiCutoff, 72h before local midnight, across DST');
 // Aug 2026: PDT (UTC-7). Local midnight Sep 1 = Sep 1 07:00Z. Minus 72h = Aug 29 07:00Z.
 check('PDT (summer)', coiCutoff('2026-09-01', 'America/Los_Angeles'), new Date('2026-08-29T07:00:00.000Z'));
 // Nov 2026: PST (UTC-8). Local midnight Dec 1 = Dec 1 08:00Z. Minus 72h = Nov 28 08:00Z.

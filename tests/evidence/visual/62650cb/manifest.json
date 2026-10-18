@@ -1,0 +1,257 @@
+{
+  "sha": "62650cb",
+  "alias": "https://demohub-booker-preview.vercel.app",
+  "taken_at": "2026-10-18T18:55:57.290Z",
+  "widths": [
+    {
+      "name": "desktop",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "shots": [
+    {
+      "file": "owner-desktop-dashboard-overview.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-overview",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-retailers.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-retailers",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-agreements.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-agreements",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-account.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-account",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-booking-page.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "booking-page",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-booking-confirm-form.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "booking-confirm-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-overview.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-overview",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-retailers.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-retailers",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-calendar.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-calendar",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-account.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-account",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-booking-page.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "booking-page",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-booking-confirm-form.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "booking-confirm-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-booking-policies-readonly.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "booking-policies-readonly",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "invitee-desktop-accept-invalid.png",
+      "role": "invitee",
+      "width": 1280,
+      "page": "accept-invalid",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "invitee-desktop-accept-form.png",
+      "role": "invitee",
+      "width": 1280,
+      "page": "accept-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-admin-calendar.png",
+      "role": "store",
+      "width": 1280,
+      "page": "admin-calendar",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-admin-calendar-modal.png",
+      "role": "store",
+      "width": 1280,
+      "page": "admin-calendar-modal",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-overview.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-overview",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-retailers.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-retailers",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-agreements.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-agreements",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-account.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-account",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-booking-page.png",
+      "role": "owner",
+      "width": 390,
+      "page": "booking-page",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-booking-confirm-form.png",
+      "role": "owner",
+      "width": 390,
+      "page": "booking-confirm-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-dashboard-overview.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-overview",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-dashboard-retailers.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-retailers",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-dashboard-calendar.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-calendar",
+      "horizontal_overflow": true
+    },
+    {
+      "file": "booker-phone-dashboard-account.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-account",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-booking-page.png",
+      "role": "booker",
+      "width": 390,
+      "page": "booking-page",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-booking-confirm-form.png",
+      "role": "booker",
+      "width": 390,
+      "page": "booking-confirm-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-booking-policies-readonly.png",
+      "role": "booker",
+      "width": 390,
+      "page": "booking-policies-readonly",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "invitee-phone-accept-invalid.png",
+      "role": "invitee",
+      "width": 390,
+      "page": "accept-invalid",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "invitee-phone-accept-form.png",
+      "role": "invitee",
+      "width": 390,
+      "page": "accept-form",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-admin-calendar.png",
+      "role": "store",
+      "width": 390,
+      "page": "admin-calendar",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-admin-calendar-modal.png",
+      "role": "store",
+      "width": 390,
+      "page": "admin-calendar-modal",
+      "horizontal_overflow": false
+    }
+  ]
+}

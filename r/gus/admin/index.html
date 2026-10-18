@@ -227,7 +227,9 @@
         .status-completed { background:var(--sand-200); color:var(--bark-600); }
         .status-held { background:#fff0e6; color:#b4531f; }
         /* Cards pulled out of .settings-grid into tab panes lost the grid's 24px rhythm. */
-        .admin-pane > .settings-card, .admin-pane > .billing-card { margin-bottom: 24px; }
+        .admin-pane > .settings-card, .admin-pane > .billing-card, .admin-pane > #policySetupCallout { margin-bottom: 24px; }
+        /* An empty status line takes no room (the Cancellation policy card had a blank band under its options). */
+        #cancellationPolicyStatus:empty { display: none; }
         .status-confirmed { background: var(--forest-100); color: var(--forest-700); }
         
         /* Masonry-style pack: cards fill columns bottom-up, avoiding awkward vertical gaps. */
@@ -673,6 +675,7 @@
                 <a href="#storesSection" class="subnav-link" data-section="storesSection">Locations</a>
                 <a href="#teamSection" class="subnav-link" data-section="teamSection">Team</a>
                 <a href="#billingSection" class="subnav-link" data-section="billingSection">Billing</a>
+                <a href="#policiesSection" class="subnav-link" data-section="policiesSection">Policies</a>
                 <a href="#settingsSection" class="subnav-link" data-section="settingsSection">Settings</a>
             </div>
             <div class="mobile-nav-bar" id="mobileNavBar">
@@ -706,6 +709,7 @@
             <a href="#storesSection" class="mobile-nav-item" data-section="storesSection" onclick="mobileNavGo(event, 'storesSection', 'Locations')">Locations</a>
             <a href="#teamSection" class="mobile-nav-item" data-section="teamSection" onclick="mobileNavGo(event, 'teamSection', 'Team')">Team</a>
             <a href="#billingSection" class="mobile-nav-item" data-section="billingSection" onclick="mobileNavGo(event, 'billingSection', 'Billing')">Billing</a>
+            <a href="#policiesSection" class="mobile-nav-item" data-section="policiesSection" onclick="mobileNavGo(event, 'policiesSection', 'Policies')">Policies</a>
             <a href="#settingsSection" class="mobile-nav-item" data-section="settingsSection" onclick="mobileNavGo(event, 'settingsSection', 'Settings')">Settings</a>
         </nav>
         <script>
@@ -802,7 +806,7 @@
                         <li data-step="policies" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
                             <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Customize your policies</strong>: <span style="color:var(--ink-500);">cancellation + demo conduct that brands sign.</span></span>
-                            <a onclick="onboardingGo('settingsSection','policiesBlock')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Edit →</a>
+                            <a onclick="onboardingGo('policiesSection','policiesBlock')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Edit →</a>
                         </li>
                         <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
@@ -1027,7 +1031,7 @@
                         <div class="settings-card-body" id="availabilitySlotsBody" style="padding-top:0;"></div>
                         <div class="settings-card-body" id="availabilityBlackoutsBody" style="padding-top:0;"></div>
                     </div>
-                    <div id="policySetupCallout" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
+                    <div id="policySetupCallout" data-tab="policiesSection" style="display:none; grid-column: 1 / -1; background:#fff3ed; border-left:4px solid #ed682f; border-radius:10px; padding:14px 18px; align-items:flex-start; gap:12px;">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ed682f" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;" aria-hidden="true">
                             <circle cx="12" cy="12" r="10"/>
                             <line x1="12" y1="8" x2="12" y2="13"/>
@@ -1035,13 +1039,13 @@
                         </svg>
                         <div style="font-size:0.92rem; line-height:1.55; color:#3a3a36;">
                             <strong style="color:#a14e2a;">Almost set up.</strong>
-                            <span id="policySetupCalloutText"> Your demo conduct policy + cancellation policy are still on the default template. Brands sign these at their first booking. Make sure they match how your store actually runs.</span>
+                            <span id="policySetupCalloutText"> Your demo conduct policy and cancellation policy are still on the default template. Brands sign both at their first booking, so make sure they match how your store runs. Edit them below.</span>
                         </div>
                     </div>
                     <div class="settings-card" id="bookingPrefsCard">
                         <div class="settings-card-header"><h3>Booking preferences</h3></div>
                         <div class="settings-card-body">
-                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:16px; line-height:1.55;">How incoming demo requests are handled and what refund policy brands agree to.</div>
+                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:16px; line-height:1.55;">How incoming demo requests are handled. The refund policy lives on the Policies tab.</div>
                             <div style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">New booking handling</div>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
                                 <input type="radio" name="approvalMode" value="auto" id="approvalAuto" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="onApprovalModeChange()">
@@ -1060,7 +1064,33 @@
                             <!-- Hidden checkbox mirror for backward compat with existing saveBookingPrefs() logic -->
                             <input type="checkbox" id="settingAutoConfirm" style="display:none;">
 
-                            <div id="policiesBlock" style="font-size:0.78rem; font-weight:700; color:var(--forest-900); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:10px;">Cancellation policy</div>
+                            <div id="bookingPrefsStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
+                        </div>
+                    </div>
+                    <div class="settings-card" id="bookingCodesCard">
+                        <div class="settings-card-header"><h3>Booking codes</h3></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px; line-height:1.55;">Give a brand a code to type at checkout. A code can waive your demo fee, let them book inside your advance-notice minimum, or both. Codes are single-use unless you set a limit.</div>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:10px;">
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeKind">What it does</label>
+                                    <select id="codeKind" class="form-input" onchange="updateCodeKindHelp()" title="What the brand gets when they enter this code at checkout"><option value="fee" title="The demo fee is waived for one demo; the brand pays nothing and skips the payment step">No demo fee</option><option value="lead_time" title="The brand may book one demo inside your advance-notice minimum (from tomorrow); they still pay the normal fee">Short-notice booking</option><option value="both" title="Both: one demo inside your notice window and no fee for it">No fee + short notice</option></select><div id="codeKindHelp" style="font-size:0.75rem; color:var(--ink-500); margin-top:4px; line-height:1.4;"></div></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeUses">Uses</label>
+                                    <select id="codeUses" class="form-input" title="How many bookings this code can be used for. Each use covers one demo."><option value="1">Single use</option><option value="3">3 uses</option><option value="5">5 uses</option><option value="10">10 uses</option><option value="unlimited">Unlimited until expiry</option></select></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeExpires">Expires</label><select id="codeExpires" class="form-input" title="After this the code stops working, even if it has uses left"><option value="">Never</option><option value="7">In 7 days</option><option value="14">In 14 days</option><option value="30" selected>In 30 days</option><option value="90">In 90 days</option></select></div>
+                                <div class="form-group" style="margin:0;"><label class="form-label" for="codeNote">Note (optional)</label><input type="text" id="codeNote" class="form-input" maxlength="200" placeholder="e.g. First demo for Acme Snacks"></div>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <button class="btn btn-primary" style="padding:9px 16px; font-size:0.85rem;" id="codeGenerateBtn" onclick="generateBookingCode()">Generate code</button>
+                                <span id="bookingCodesStatus" style="font-size:0.78rem; color:var(--ink-500);"></span>
+                            </div>
+                            <div id="bookingCodesList" style="margin-top:16px;"></div>
+                        </div>
+                    </div>
+<div class="settings-card" id="cancellationPolicyCard" data-tab="policiesSection">
+                        <div class="settings-card-header"><h3>Cancellation policy</h3></div>
+                        <div class="settings-card-body">
+                            <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px; line-height:1.55;">What a brand agrees to about cancelling and refunds. Shown before they sign at their first booking.</div>
+                            <div id="policiesBlock"></div>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
                                 <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
                                 <div style="flex:1;">
@@ -1075,11 +1105,11 @@
                                     <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">All bookings are final immediately. No refunds for cancellations. Brands see this clearly before signing.</div>
                                 </div>
                             </label>
-                            <div id="bookingPrefsStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px; min-height:1em;"></div>
+                            <div id="cancellationPolicyStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px;"></div>
                         </div>
                     </div>
-<div class="settings-card">
-                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default (customize)</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
+                    <div class="settings-card" id="demoPolicyCard" data-tab="policiesSection">
+                        <div class="settings-card-header" style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;"><h3 style="display:flex; align-items:center; gap:10px;">Demo conduct policy<span id="demoPolicyDefaultBadge" style="display:none; background:#fff3ed; color:#a14e2a; padding:2px 9px; border-radius:99px; font-size:0.66rem; font-weight:700; letter-spacing:0.06em; text-transform:uppercase;">Default (customize)</span></h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem; margin-left:auto;" id="demoPolicyEditBtn" onclick="toggleDemoPolicyEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px;">What you expect from brands during the demo: setup, conduct, sampling rules, breakdown. Brands see this before booking and agree at checkout. <strong>Two options:</strong> type it below, or upload your existing PDF (e.g. an Erewhon-style guidelines doc).</div>
 
@@ -1148,7 +1178,7 @@
                         <div class="settings-card-header"><h3>Settings</h3><button class="btn btn-secondary" style="padding: 8px 16px; font-size: 0.85rem;" id="settingsEditBtn" onclick="toggleSettingsEdit()">Edit</button></div>
                         <div class="settings-card-body">
                             <div class="form-group">
-                                <label class="form-label" style="display:flex; align-items:center; gap:6px;">Default Demo Fee<span title="What brands pay per demo at your stores. Demohub keeps a $5 booking fee per demo, and you keep the rest." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <label class="form-label" style="display:flex; align-items:center; gap:6px;">Default Demo Fee<span title="The demo fee at your stores. The line under the slider says what brands are charged and where it goes under your arrangement with Demohub." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
 
                                 <!-- Slider + numeric mirror + live cut preview -->
                                 <div style="background:#f9f7f2; border-radius:10px; padding:16px 18px;">
@@ -1159,19 +1189,11 @@
                                         </div>
                                         <input type="range" min="0" max="50" step="1" value="30" id="settingDemoFeeSlider" disabled style="flex:1; accent-color:var(--forest-700); cursor:pointer;" oninput="onDemoFeeSlider(this)">
                                     </div>
-                                    <div id="demoFeeSplit" style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; font-size:0.82rem;">
-                                        <div style="text-align:center; padding:8px 6px; background:white; border-radius:8px; border:1px solid var(--sand-200);">
-                                            <div style="font-size:0.7rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Brand pays</div>
-                                            <div id="feeBrandPays" style="font-weight:700; color:var(--forest-900); font-size:1rem;">$35</div>
-                                        </div>
-                                        <div style="text-align:center; padding:8px 6px; background:#fff3ed; border-radius:8px; border:1px solid #ffdac2;">
-                                            <div style="font-size:0.7rem; color:#a14e2a; text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">Demohub fee</div>
-                                            <div id="feePlatform" style="font-weight:700; color:#a14e2a; font-size:1rem;">$5</div>
-                                        </div>
-                                        <div style="text-align:center; padding:8px 6px; background:#f4f8f0; border-radius:8px; border:1px solid var(--forest-200, #c8d4c1);">
-                                            <div style="font-size:0.7rem; color:var(--forest-800); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-bottom:2px;">You keep</div>
-                                            <div id="feeRetailerKeeps" style="font-weight:700; color:var(--forest-800); font-size:1rem;">$30</div>
-                                        </div>
+                                    <!-- Fee line (2026-10-16): the store controls ONE number. The sentence under it comes from the
+                                         retailer's arrangement (platform_keeps_all), never from a hard-coded split. -->
+                                    <div id="demoFeeSplit" style="font-size:0.88rem; line-height:1.5; color:var(--ink-700);">
+                                        <div>Brands pay <strong id="feeBrandPays" style="color:var(--forest-900);">$30</strong> per demo at your stores.</div>
+                                        <div id="feeArrangement" style="font-size:0.82rem; color:var(--ink-500); margin-top:4px;"></div>
                                     </div>
                                 </div>
                             </div>
@@ -1256,15 +1278,15 @@
                         </div>
                     </div>
                     <div class="settings-card" id="supportActivityCard">
-                        <div class="settings-card-header"><h3>Demohub support activity</h3></div>
+                        <div class="settings-card-header"><h3>Help from Demohub</h3></div>
                         <div class="settings-card-body">
-                            <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If someone from Demohub support has signed in to your admin to help debug or fix something, it shows up here. This is your visibility into who accessed your account.</p>
+                            <p style="font-size:0.86rem; color:var(--ink-500); line-height:1.5; margin:8px 0 14px;">If you ever want a hand with a setting or a booking, you can let the Demohub team look at your admin for a short while. It is off unless you turn it on, it switches itself off after 24 hours, and any visit is listed below.</p>
 
                             <div id="supportAccessConsent" style="display:flex; gap:14px; align-items:flex-start; justify-content:space-between; padding:12px 14px; background:#f9f7f2; border-radius:10px; margin-bottom:16px;">
                                 <div style="flex:1; min-width:0;">
-                                    <label for="supportAccessToggle" style="display:block; font-weight:600; color:var(--forest-900); font-size:0.94rem; cursor:pointer;">Allow Demohub support access</label>
+                                    <label for="supportAccessToggle" style="display:block; font-weight:600; color:var(--forest-900); font-size:0.94rem; cursor:pointer;">Let Demohub help with my admin</label>
                                     <div id="supportAccessSubtitle" style="font-size:0.82rem; color:var(--ink-700); margin-top:3px; line-height:1.55;">Loading…</div>
-                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px; line-height:1.55;">ON allows Demohub support to sign in to your admin for up to 24 hours. Each support session lasts at most four hours and never beyond that consent window. OFF immediately ends any active Demohub support sessions.</div>
+                                    <div style="font-size:0.78rem; color:var(--ink-500); margin-top:6px; line-height:1.55;">Only while this is on, and only for the next 24 hours. Each visit lasts at most four hours and never beyond that window. Switching this OFF immediately ends any visit.</div>
                                 </div>
                                 <label class="toggle" style="flex-shrink:0; margin-top:2px;">
                                     <input type="checkbox" id="supportAccessToggle" role="switch" aria-checked="false" aria-label="Allow Demohub support access" onchange="toggleSupportAccess(this.checked)">
@@ -1272,7 +1294,7 @@
                                 </label>
                             </div>
 
-                            <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Recent sessions</div>
+                            <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.1em; color:var(--ink-500); margin-bottom:8px;">Visits</div>
                             <div id="supportSessionsList" style="font-size:0.88rem;">
                                 <div style="color:var(--ink-500);">Loading…</div>
                             </div>
@@ -2731,8 +2753,10 @@ END:VEVENT
                 });
                 const card = document.getElementById('billingSectionCard');
                 if (card) {
-                    const h = card.querySelector('h2, h3');
+                    const h = card.querySelector('.billing-title, h2, h3');
                     if (h && /billing/i.test(h.textContent)) h.textContent = 'Demo activity';
+                    const btn = card.querySelector('.billing-controls button');
+                    if (btn) btn.textContent = 'Download activity record';
                     card.querySelectorAll('th').forEach(th => {
                         const t = th.textContent.trim();
                         if (t === 'Brand paid' || t === 'Platform fee' || t === 'You receive') th.style.display = 'none';
@@ -3272,17 +3296,23 @@ END:VEVENT
             // Smart defaults: if no shifts yet, suggest 11–2.
             // If one shift ending at/before 14:00 exists, suggest 15–18 next.
             // Otherwise fall back to a generic afternoon window.
-            let next = { open: '11:00', close: '14:00' };
-            if (current.length === 1) {
-                const c0 = current[0].close;
-                if (c0 && c0 <= '14:30') next = { open: '15:00', close: '18:00' };
-                else next = { open: c0 || '15:00', close: '18:00' };
-            } else if (current.length === 2) {
-                next = { open: '18:00', close: '20:00' };
+            // 2026-10-16: the suggestion is always a VALID window (end after start), so an added shift can save at
+            // once. The old rule suggested 18:00 to 18:00 after a lone afternoon shift and the save refused it.
+            const has = (o, c) => current.some(w => w.open === o && w.close === c);
+            const plusHours = (hhmm, h) => { const m = /^(\d{2}):(\d{2})$/.exec(hhmm || ''); if (!m) return null; const t = Math.min(23 * 60, Number(m[1]) * 60 + Number(m[2]) + h * 60); return String(Math.floor(t / 60)).padStart(2, '0') + ':' + String(t % 60).padStart(2, '0'); };
+            let next = null;
+            if (!has('11:00', '14:00') && current.every(w => w.open >= '14:00')) next = { open: '11:00', close: '14:00' };
+            else if (!has('15:00', '18:00') && current.every(w => w.close <= '15:00')) next = { open: '15:00', close: '18:00' };
+            else {
+                const last = current.map(w => w.close).sort().pop() || '15:00';
+                const close = plusHours(last, 3);
+                if (close && close > last) next = { open: last, close };
             }
+            if (!next || next.close <= next.open || has(next.open, next.close)) next = !has('11:00', '14:00') ? { open: '11:00', close: '14:00' } : { open: '18:00', close: '20:00' };
             current.push(next);
             const cell = document.getElementById('availTimes-' + day);
             if (cell) cell.innerHTML = renderDayWindowsHtml(day, current);
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();   // 2026-10-16: an added shift saves too
         }
 
         // Quick-set helper: apply the standard 11–2 + 3–6 shift pair to a day
@@ -3336,6 +3366,7 @@ END:VEVENT
                 { open: '11:00', close: '14:00' },
                 { open: '15:00', close: '18:00' },
             ]);
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();   // 2026-10-16: quick set on one day saves too
         }
 
         // Toggle preferred-shift star on a window, visual indicator only, stored in availability.schedule
@@ -3351,6 +3382,9 @@ END:VEVENT
             current.splice(idx, 1);
             const cell = document.getElementById('availTimes-' + day);
             if (cell) cell.innerHTML = current.length > 0 ? renderDayWindowsHtml(day, current) : renderClosedDayHtml(day);
+            // 2026-10-16: a removed shift is an edit like any other. Without this the removal only lived on screen
+            // (the Remove button fires no form change event) and the store still offered the slot to brands.
+            if (typeof scheduleAutoSave === 'function') scheduleAutoSave();
         }
 
         function onAvailabilityToggle(day) {
@@ -3701,11 +3735,13 @@ END:VEVENT
             const brandPays = pka ? rf : (rf + _PLATFORM_FEE);  // what the brand is charged
             const retailerKeeps = pka ? 0 : rf;                 // what the retailer keeps
             const brandEl = document.getElementById('feeBrandPays');
-            const platEl = document.getElementById('feePlatform');
-            const keepEl = document.getElementById('feeRetailerKeeps');
+            const arrEl = document.getElementById('feeArrangement');
             if (brandEl) brandEl.textContent = '$' + brandPays;
-            if (platEl) platEl.textContent = '$' + platformFee;
-            if (keepEl) keepEl.textContent = '$' + retailerKeeps;
+            // One sentence, per arrangement (2026-10-16). Keeps-all pilot: Demohub collects the fee, no store payout.
+            // Standard: Demohub adds its flat fee at checkout and the store receives its own fee.
+            if (arrEl) arrEl.textContent = pka
+                ? 'Pilot arrangement: Demohub collects this fee during the pilot, so there is no store payout to track.'
+                : 'Demohub adds a flat $' + platformFee + ' booking fee at checkout, so brands pay $' + brandPays + ' and your store receives $' + retailerKeeps + ' per demo.';
         }
         function onDemoFeeSlider(el) {
             const v = Math.max(0, Math.min(50, parseInt(el.value, 10) || 0));
@@ -4246,7 +4282,7 @@ END:VEVENT
 
         // Save booking preferences (auto-confirm + cancellation mode) to the retailers table
         async function saveBookingPrefs() {
-            const status = document.getElementById('bookingPrefsStatus');
+            const status = document.getElementById('bookingPrefsStatus'); const status2 = document.getElementById('cancellationPolicyStatus');
             const auto = document.getElementById('settingAutoConfirm');
             const cb14 = document.getElementById('cancel14Day');
             const cbNR = document.getElementById('cancelNonRefundable');
@@ -4255,7 +4291,7 @@ END:VEVENT
                 auto_confirm_bookings: !!(auto && auto.checked),
                 cancellation_mode: mode,
             };
-            if (status) status.textContent = 'Saving…';
+            for (const st of [status, status2]) if (st) st.textContent = 'Saving…';
             try {
                 await adminUpdate('retailers', RETAILER_ID, payload);
                 if (window.state.retailer) {
@@ -4263,12 +4299,11 @@ END:VEVENT
                     window.state.retailer.cancellation_mode = payload.cancellation_mode;
                 }
                 if (status) {
-                    status.textContent = 'Saved ✓';
-                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+                    for (const st of [status, status2]) if (st) { st.textContent = 'Saved ✓'; setTimeout(() => { if (st.textContent === 'Saved ✓') st.textContent = ''; }, 2500); }
                 }
                 DhModal.toast('Booking settings saved', 'success');
             } catch (e) {
-                if (status) status.textContent = 'Save failed: ' + (e.message || e);
+                for (const st of [status, status2]) if (st) st.textContent = 'Save failed: ' + (e.message || e);
             }
         }
 
@@ -5272,6 +5307,7 @@ function escapeHtml(s) {
                         '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy: refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
                     '</div>',
                 ok: 'Yes, cancel demo',
+                cancel: 'Keep demo',
                 kind: 'confirm',
             });
             if (!ok) return;
@@ -5488,7 +5524,65 @@ function escapeHtml(s) {
         }
 
         // ===== Settings edit toggle =====
-        function loadSettings() { applySettingsToInputs();
+        // ===== Booking codes (0085) =====
+        const CODE_KIND_LABELS = { fee: 'No demo fee', lead_time: 'Short-notice booking', both: 'No fee + short notice' };
+        const CODE_KIND_HELP = { fee: "Waives your demo fee for one demo. The brand pays nothing and skips the payment step. Their insurance certificate must already be approved.", lead_time: "Lets the brand book one demo inside your advance-notice minimum (from tomorrow). They still pay the normal fee.", both: "Both: one demo inside your notice window, with no fee." };
+        function updateCodeKindHelp() { const k = document.getElementById("codeKind"), h = document.getElementById("codeKindHelp"); if (k && h) h.textContent = CODE_KIND_HELP[k.value] || ""; }
+        function fmtCodeDate(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+        function renderBookingCodes(codes) {
+            const el = document.getElementById('bookingCodesList'); if (!el) return;
+            if (!codes || !codes.length) { el.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500);">No codes yet.</div>'; return; }
+            el.innerHTML = codes.map(c => {
+                const used = c.use_count || 0, limit = c.max_uses == null ? '∞' : c.max_uses;
+                const expired = c.expires_at && new Date(c.expires_at) <= new Date();
+                const state = !c.active ? 'Turned off' : expired ? 'Expired' : (c.max_uses != null && used >= c.max_uses) ? 'Used up' : 'Active';
+                const stateColor = state === 'Active' ? '#1f6b3a' : '#8a8a84';
+                const reds = (c.redemptions || []).map(r => '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(r.brand_name || 'Brand') + ' · ' + fmtCodeDate(r.redeemed_at) + (r.waived_fee ? ' · fee waived' : '') + (r.waived_lead_time ? ' · short notice' : '') + '</div>').join('');
+                return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:10px 12px; background:#f9f7f2; border-radius:10px; margin-bottom:8px;">'
+                    + '<div style="min-width:0;"><div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;"><code style="font-size:0.95rem; font-weight:700; letter-spacing:0.04em; color:var(--forest-900);">' + escapeHtml(c.code) + '</code>'
+                    + '<button type="button" class="btn btn-secondary" style="padding:3px 9px; font-size:0.72rem;" data-act="copy" data-code="' + escapeHtml(c.code) + '">Copy</button>'
+                    + '<span style="font-size:0.72rem; font-weight:700; color:' + stateColor + ';">' + state + '</span></div>'
+                    + '<div style="font-size:0.8rem; color:var(--ink-700, #3a3a36); margin-top:3px;">' + escapeHtml(CODE_KIND_LABELS[c.kind] || '') + ' · ' + used + '/' + limit + ' used' + (c.expires_at ? ' · expires ' + fmtCodeDate(c.expires_at) : '') + (c.created_by === 'owner' ? ' · added by Demohub' : '') + '</div>'
+                    + (c.note ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">' + escapeHtml(c.note) + '</div>' : '') + reds + '</div>'
+                    + (c.active ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; flex-shrink:0;" data-act="off" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '')
+                    + '</div>';
+            }).join('');
+            // Codex BC-1: delegated listener + data attributes (no string-built handlers)
+            if (!el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'copy') copyBookingCode(b.dataset.code, b); else if (b.dataset.act === 'off') deactivateBookingCode(b.dataset.cid); }); }
+        }
+        async function loadBookingCodes() {
+            const st = document.getElementById('bookingCodesStatus'); if (!document.getElementById('bookingCodesList')) return;
+            // Codex BC R3: a failed read says so (and clears any stale list); a capped list says it is capped. Codex BC R1: when
+            // issuance is switched off the Generate button is disabled and the card says why; turning codes off still works.
+            try { const r = await fetch('/api/admin?action=codes-list', { credentials: 'same-origin' }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); renderBookingCodes(j.codes);
+                const gb = document.getElementById('codeGenerateBtn'); if (gb) { gb.disabled = j.enabled === false; gb.title = j.enabled === false ? 'Booking codes are switched off right now' : ''; }
+                const notes = []; if (j.enabled === false) notes.push('Booking codes are switched off right now: no new codes can be made or applied. Existing codes are listed and can still be turned off.');
+                if (j.complete && j.complete.codes === false) notes.push('Showing the newest 200 codes only.'); if (j.complete && j.complete.redemptions === false) notes.push('Redemption history is limited to the newest 500 and may be incomplete for older codes.');
+                if (st) st.textContent = notes.join(' '); }
+            catch (e) { const el = document.getElementById('bookingCodesList'); if (el) el.innerHTML = '<div class="sub" style="color:#a14e2a;">The code list could not be read just now, so nothing is shown rather than an empty list. Reload to retry.</div>'; if (st) st.textContent = ''; }
+        }
+        async function generateBookingCode() {
+            const st = document.getElementById('bookingCodesStatus'), btn = document.getElementById('codeGenerateBtn');
+            const kind = document.getElementById('codeKind').value, uses = document.getElementById('codeUses').value, exp = document.getElementById('codeExpires').value, note = document.getElementById('codeNote').value;
+            btn.disabled = true; st.textContent = 'Generating…';
+            try {
+                const body = { kind, max_uses: uses === 'unlimited' ? 'unlimited' : Number(uses), expires_at: exp ? new Date(Date.now() + Number(exp) * 864e5).toISOString() : null, note: note || null };
+                const r = await fetch('/api/admin?action=codes-create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body) });
+                const j = await r.json(); if (!r.ok) throw new Error(j.message || j.error || r.status);
+                st.textContent = 'Created ' + j.code.code + '. Copy it to the brand.'; document.getElementById('codeNote').value = '';
+                await loadBookingCodes();
+            } catch (e) { st.textContent = /not available right now|booking_codes_disabled/.test(String(e.message || e)) ? 'Booking codes are switched off right now, so no code was made.' : 'Could not create the code: ' + (e.message || e); }
+            finally { btn.disabled = false; }
+        }
+        async function deactivateBookingCode(id) {
+            if (!confirm('Turn this code off? Brands can no longer use it. Past bookings are not affected.')) return;
+            const st = document.getElementById('bookingCodesStatus');
+            try { const r = await fetch('/api/admin?action=codes-deactivate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ code_id: id }) }); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.status); st.textContent = 'Code turned off.'; await loadBookingCodes(); }
+            catch (e) { st.textContent = 'Could not turn the code off: ' + (e.message || e); }
+        }
+        function copyBookingCode(code, btn) { navigator.clipboard.writeText(code).then(() => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); }).catch(() => {}); }
+
+        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp();
             try { _renderPerLocationFeeds(); } catch(_){} }
 
 
@@ -5680,7 +5774,7 @@ function escapeHtml(s) {
 
         // ===== Cancellation policy =====
         let policyEditing = false;
-        const CANCEL_POLICY_DEFAULT = 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+        const CANCEL_POLICY_DEFAULT = 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
         async function loadCancellationPolicy() {
             try {
                 const persisted = window.state.retailer && window.state.retailer.cancellation_policy;
@@ -5706,7 +5800,7 @@ function escapeHtml(s) {
                 status.textContent = '';
             } else {
                 btn.disabled = true; btn.textContent = 'Saving…';
-                const newVal = ta.value.trim() || 'Cancellations accepted up to 48 hours before the demo. After that, fees are non-refundable. Reschedules are welcome anytime.';
+                const newVal = ta.value.trim() || 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
                 fetch('/api/admin?table=retailers&id=' + encodeURIComponent(RETAILER_ID), {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
@@ -6526,26 +6620,56 @@ function escapeHtml(s) {
             return brand ? brand.venue : null;
         }
         // ===== Billing & Statement =====
-        function getBillingMonths() {
-            // Last 12 months from latest demo, default to current month
-            const all = (window.state.demos || []).map(d => d.date).filter(Boolean);
-            const set = new Set();
-            const now = new Date();
-            // Always include the current month
-            set.add(now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0'));
-            // Include months with demos
-            all.forEach(d => { const dt = new Date(d + 'T00:00:00'); set.add(dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0')); });
-            // Include last 12 months
-            for (let i = 0; i < 12; i++) {
-                const dt = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                set.add(dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0'));
-            }
+        // Billing months (2026-10-16): only months that have happened. A statement is a record of a period, so
+        // future months are not offered, and the picker opens on the current month. Pure helper, tested on its own.
+        function _ymOf(dt) { return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0'); }
+        function _ymdLocal(dt) { return _ymOf(dt) + '-' + String(dt.getDate()).padStart(2, '0'); }
+        function billingMonthsFor(dates, now) {
+            const cur = _ymOf(now);
+            const set = new Set([cur]);
+            for (let i = 0; i < 12; i++) set.add(_ymOf(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+            (dates || []).forEach(d => { const ym = String(d || '').slice(0, 7); if (/^\d{4}-\d{2}$/.test(ym) && ym <= cur) set.add(ym); });
             return [...set].sort().reverse();
         }
+        function getBillingMonths() { return billingMonthsFor((window.state.demos || []).map(d => d.date), new Date()); }
+        // A demo counts for a period when it is dated inside it, has already taken place (today included) and was
+        // not cancelled or declined. Future bookings belong on the Calendar, not on a statement.
+        function _billingCounts(d, today) {
+            if (!d || !d.date) return false;
+            const ymd = String(d.date).slice(0, 10);
+            if (ymd > today) return false;
+            return !/^(cancelled|canceled|declined)$/.test(String(d.status_raw || d.status || '').toLowerCase());
+        }
+        function billingDemosFor(demos, ym, now) {
+            const today = _ymdLocal(now);
+            return (demos || []).filter(d => _billingCounts(d, today) && String(d.date).slice(0, 7) === ym)
+                .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.time || '').localeCompare(String(b.time || '')));
+        }
+        function billingYearToDate(demos, ym, now) {
+            const today = _ymdLocal(now);
+            const cutoff = today < ym + '-31' ? today : ym + '-31';   // through the selected month, never past today
+            return (demos || []).filter(d => _billingCounts(d, cutoff) && String(d.date).slice(0, 4) === ym.slice(0, 4));
+        }
+        function _billingBrand(d) {
+            const c = String(d.company || '').trim();
+            if (c && !c.includes('@')) return c;
+            const contacts = window.state.brandContacts || [];
+            const hit = contacts.find(b => b && ((d.contact_email && String(b.email || '').toLowerCase() === String(d.contact_email).toLowerCase()) || (c && String(b.email || '').toLowerCase() === c.toLowerCase())));
+            if (hit && hit.company) return hit.company;
+            // Last resort: another demo by the same contact that carries a real company name (legacy rows stored the email).
+            const twin = d.contact_email && (window.state.demos || []).find(x => x && x.contact_email && String(x.contact_email).toLowerCase() === String(d.contact_email).toLowerCase() && x.company && !String(x.company).includes('@'));
+            return (twin && twin.company) || c || 'n/a';
+        }
+        function _billingVenue(d) {
+            const byId = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
+            if (d.venue_id && byId[d.venue_id]) return byId[d.venue_id];
+            const bc = (window.state.brandContacts || []).find(b => b.company === d.company);
+            return (bc && bc.venue) || 'n/a';
+        }
         function monthLabel(ym) {
-            const [y,m] = ym.split('-').map(Number);
+            const [y, m] = ym.split('-').map(Number);
             const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
-            return monthNames[m-1] + ' ' + y;
+            return monthNames[m - 1] + ' ' + y;
         }
         function populateBillingMonths() {
             const sel = document.getElementById('billingMonthSelect');
@@ -6571,107 +6695,96 @@ function escapeHtml(s) {
             if (!sel) return;
             if (!sel.value) populateBillingMonths();
             const ym = sel.value;
-            const [yy, mm] = ym.split('-').map(Number);
-            const demos = (window.state.demos || []).filter(d => {
-                if (!d.date) return false;
-                const dt = new Date(d.date + 'T00:00:00');
-                return dt.getFullYear() === yy && dt.getMonth() === (mm - 1);
-            }).sort((a,b) => a.date.localeCompare(b.date));
-            const total = demos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const now = new Date();
+            const demos = billingDemosFor(window.state.demos, ym, now);
+            const total = demos.reduce((s, d) => s + (parseFloat(d.demo_fee) || 0), 0);
             const count = demos.length;
             const avg = count > 0 ? total / count : 0;
-            // YTD
-            const ytdDemos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt <= new Date(yy, mm, 0); });
-            const ytd = ytdDemos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
-            // Render summary
+            const ytdDemos = billingYearToDate(window.state.demos, ym, now);
+            const ytd = ytdDemos.reduce((s, d) => s + (parseFloat(d.demo_fee) || 0), 0);
             const summary = document.getElementById('billingSummary');
             if (_isKeepsAll()) {
-                const brandCount = new Set(demos.map(d => d.company).filter(Boolean)).size;
-                const locCount = new Set(demos.map(d => (window.state.brandContacts || []).find(b => b.company === d.company)?.venue).filter(Boolean)).size;
+                const brandCount = new Set(demos.map(_billingBrand).filter(x => x && x !== 'n/a')).size;
+                const locCount = new Set(demos.map(_billingVenue).filter(x => x && x !== 'n/a')).size;
                 summary.innerHTML =
-                    '<div class="billing-stat"><div class="billing-stat-num">' + count + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' demos</div><div class="billing-stat-sub">Hosted at your stores</div></div>'
+                    '<div class="billing-stat"><div class="billing-stat-num">' + count + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' demos</div><div class="billing-stat-sub">Hosted at your stores so far</div></div>'
                   + '<div class="billing-stat"><div class="billing-stat-num">' + brandCount + '</div><div class="billing-stat-lbl">Brands</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>'
                   + '<div class="billing-stat"><div class="billing-stat-num">' + locCount + '</div><div class="billing-stat-lbl">Locations used</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>'
-                  + '<div class="billing-stat"><div class="billing-stat-num">' + ytdDemos.length + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Demos hosted</div></div>';
+                  + '<div class="billing-stat"><div class="billing-stat-num">' + ytdDemos.length + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Demos hosted through today</div></div>';
             } else
             summary.innerHTML =
-                '<div class="billing-stat"><div class="billing-stat-num">$' + total.toFixed(0) + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' total</div><div class="billing-stat-sub">' + count + ' demo' + (count===1?'':'s') + '</div></div>'
-                + '<div class="billing-stat"><div class="billing-stat-num">$' + ytd.toFixed(0) + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Through ' + monthLabel(ym) + '</div></div>'
-                + '<div class="billing-stat"><div class="billing-stat-num">$' + avg.toFixed(0) + '</div><div class="billing-stat-lbl">Avg per demo</div><div class="billing-stat-sub">' + (count > 0 ? 'Based on ' + count + ' bookings' : 'No bookings') + '</div></div>'
+                '<div class="billing-stat"><div class="billing-stat-num">$' + total.toFixed(0) + '</div><div class="billing-stat-lbl">' + monthLabel(ym) + ' total</div><div class="billing-stat-sub">' + count + ' demo' + (count === 1 ? '' : 's') + ' hosted so far</div></div>'
+                + '<div class="billing-stat"><div class="billing-stat-num">$' + ytd.toFixed(0) + '</div><div class="billing-stat-lbl">Year-to-date</div><div class="billing-stat-sub">Through ' + monthLabel(ym) + ', demos that have run</div></div>'
+                + '<div class="billing-stat"><div class="billing-stat-num">$' + avg.toFixed(0) + '</div><div class="billing-stat-lbl">Avg per demo</div><div class="billing-stat-sub">' + (count > 0 ? 'Based on ' + count + ' demo' + (count === 1 ? '' : 's') : 'No demos yet') + '</div></div>'
                 + '<div class="billing-stat"><div class="billing-stat-num">' + count + '</div><div class="billing-stat-lbl">Demos billed</div><div class="billing-stat-sub">In ' + monthLabel(ym) + '</div></div>';
-            // Line items
             const tbody = document.getElementById('billingTableBody');
-            const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
             if (demos.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">No demos billed for ' + monthLabel(ym) + '.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="billing-empty">No demos have run in ' + monthLabel(ym) + ' yet. Upcoming bookings are on the Calendar.</td></tr>';
                 return;
             }
+            const dateCell = (d) => escapeHtml(new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })) + (d.time ? ' &middot; ' + escapeHtml(d.time) : '');
             if (_isKeepsAll()) {
-                tbody.innerHTML = demos.map(d => {
-                    const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                    const v = brandsByCompany[d.company]?.venue || 'n/a';
-                    return '<tr><td>' + escapeHtml(dl) + (d.time ? ' &middot; ' + escapeHtml(d.time) : '') + '</td>'
-                        + '<td>' + escapeHtml(d.company || 'n/a') + '</td>'
+                tbody.innerHTML = demos.map(d => '<tr><td>' + dateCell(d) + '</td>'
+                        + '<td>' + escapeHtml(_billingBrand(d)) + '</td>'
                         + '<td>' + escapeHtml(d.product || 'n/a') + '</td>'
-                        + '<td>' + escapeHtml(v) + '</td>'
-                        + '<td colspan="3"></td></tr>';
-                }).join('');
+                        + '<td>' + escapeHtml(_billingVenue(d)) + '</td>'
+                        + '<td colspan="3"></td></tr>').join('');
                 return;
             }
             tbody.innerHTML = demos.map(d => {
-                const dateLabel = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                const venue = brandsByCompany[d.company]?.venue || 'n/a';
                 const fee = parseFloat(d.demo_fee) || 0;
                 const brandPaid = fee + 5;   // brand paid demo fee + $5 booking fee
                 return '<tr>'
-                    + '<td>' + escapeHtml(dateLabel) + (d.time ? ' · ' + escapeHtml(d.time) : '') + '</td>'
-                    + '<td>' + escapeHtml(d.company) + '</td>'
+                    + '<td>' + dateCell(d) + '</td>'
+                    + '<td>' + escapeHtml(_billingBrand(d)) + '</td>'
                     + '<td>' + escapeHtml(d.product || 'n/a') + '</td>'
-                    + '<td>' + escapeHtml(venue) + '</td>'
+                    + '<td>' + escapeHtml(_billingVenue(d)) + '</td>'
                     + '<td style="text-align:right;">$' + brandPaid.toFixed(2) + '</td>'
                     + '<td style="text-align:right; color:var(--ink-500); font-size:0.9em;">$' + (5).toFixed(2) + '</td>'
                     + '<td style="text-align:right; font-weight:700; color:var(--forest-800);">$' + fee.toFixed(2) + '</td>'
                     + '</tr>';
-            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + (total + (demos.length * 5)).toFixed(2) + '</td><td style="text-align:right; color:var(--ink-500);">$' + (demos.length * 5).toFixed(2) + '</td><td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>';
+            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + (total + (demos.length * 5)).toFixed(2) + '</td><td style="text-align:right;">$' + (demos.length * 5).toFixed(2) + '</td><td style="text-align:right; color:var(--forest-800);">$' + total.toFixed(2) + '</td></tr>';
         }
 
         function openStatement() {
             const sel = document.getElementById('billingMonthSelect');
             if (!sel || !sel.value) { DhModal.toast('Select a month first', 'info'); return; }
-            // A statement implies money owed. For keeps-all retailers nothing is owed,
-            // so producing one would be a misleading financial document.
-            if (_isKeepsAll()) {
-                DhModal.toast('Demo records are shown above. No payout statement applies to your plan.', 'info');
-                return;
-            }
             const ym = sel.value;
-            const [yy, mm] = ym.split('-').map(Number);
-            const demos = (window.state.demos || []).filter(d => { if (!d.date) return false; const dt = new Date(d.date+'T00:00:00'); return dt.getFullYear() === yy && dt.getMonth() === (mm - 1); }).sort((a,b) => a.date.localeCompare(b.date));
-            const total = demos.reduce((s,d) => s + (parseFloat(d.demo_fee) || 0), 0);
-            const brandsByCompany = Object.fromEntries((window.state.brandContacts || []).map(b => [b.company, b]));
-            const today = new Date().toLocaleDateString('en-US',{month:'long', day:'numeric', year:'numeric'});
-
-            // Money columns must match the 7-column header: brand paid = venue fee + platform fee,
-            // you receive = venue fee. (Rows previously emitted 5 cells, putting the payout under
-            // the "Brand paid" header, a mislabeled financial document.) Location resolves via the
-            // demo's real venue_id; the brand-contact fallback covers legacy rows.
+            const now = new Date();
+            const demos = billingDemosFor(window.state.demos, ym, now);
+            const total = demos.reduce((s, d) => s + (parseFloat(d.demo_fee) || 0), 0);
+            const today = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
             if (typeof refreshBillingTo === 'function') refreshBillingTo();
+            // Keeps-all retailers (2026-10-16): the fee is collected by Demohub under the pilot arrangement, so the
+            // document is a record of demo activity for the month, with no payout columns. Standard retailers get
+            // the monthly statement. Both cover only demos that have taken place.
+            const ka = _isKeepsAll();
             const PLATFORM_FEE = 5;
-            const venueNameById = Object.fromEntries((window.state.venues || []).map(v => [v.id, v.name]));
             let feeTotal = 0, paidTotal = 0;
             const rows = demos.map(d => {
-                const dl = new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short', day:'numeric', year:'numeric'});
-                const venue = venueNameById[d.venue_id] || brandsByCompany[d.company]?.venue || 'n/a';
+                const dl = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + (d.time ? ' ' + d.time : '');
+                const base = '<tr><td>' + escapeHtml(dl) + '</td><td>' + escapeHtml(_billingBrand(d)) + '</td><td>' + escapeHtml(d.product || '') + '</td><td>' + escapeHtml(_billingVenue(d)) + '</td>';
+                if (ka) return base + '</tr>';
                 const receive = parseFloat(d.demo_fee) || 0;
                 const paid = receive + PLATFORM_FEE;
                 feeTotal += PLATFORM_FEE; paidTotal += paid;
-                return '<tr><td>' + escapeHtml(dl) + '</td><td>' + escapeHtml(d.company) + '</td><td>' + escapeHtml(d.product || '') + '</td><td>' + escapeHtml(venue) + '</td>'
+                return base
                     + '<td style="text-align:right;">$' + paid.toFixed(2) + '</td>'
                     + '<td style="text-align:right; color:#6b6a64;">$' + PLATFORM_FEE.toFixed(2) + '</td>'
                     + '<td style="text-align:right;">$' + receive.toFixed(2) + '</td></tr>';
             }).join('');
-
-            const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Statement · ' + monthLabel(ym) + ' · ' + escapeHtml(typeof getRetailerName === 'function' ? getRetailerName() : 'Demohub retailer') + '</title>'
+            const thead = ka
+                ? '<thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th></tr></thead>'
+                : '<thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:#6b6a64;">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead>';
+            const totals = ka ? '' : '<tr class="total-row"><td colspan="4" style="text-align:right;">Totals</td>'
+                + '<td style="text-align:right;">$' + paidTotal.toFixed(2) + '</td>'
+                + '<td style="text-align:right;">$' + feeTotal.toFixed(2) + '</td>'
+                + '<td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>';
+            const empty = ka ? 'No demos ran in ' + monthLabel(ym) + '.' : 'No demos billed for ' + monthLabel(ym) + '.';
+            const foot = ka
+                ? 'Record generated ' + today + '. Demos hosted in this period: ' + demos.length + '. Demo fees for these demos were collected by Demohub under your pilot arrangement, so no amount is owed to or by your store for this period. Questions? Reply to hello@demohubhq.com.'
+                : 'Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.';
+                        const html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + (ka ? 'Demo activity' : 'Statement') + ' · ' + monthLabel(ym) + ' · ' + escapeHtml(typeof getRetailerName === 'function' ? getRetailerName() : 'Demohub retailer') + '</title>'
                 + '<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">'
                 + '<style>'
                 + 'body { font-family: \'Plus Jakarta Sans\', sans-serif; color: #1c1c1a; background: white; margin: 0; padding: 48px; max-width: 900px; }'
@@ -6700,25 +6813,19 @@ function escapeHtml(s) {
                 + '<svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>'
                 + '<div class="brand-name">demohub</div>'
                 + '</div>'
-                + '<div class="eyebrow">Monthly statement</div>'
+                + '<div class="eyebrow">' + (ka ? 'Monthly demo activity' : 'Monthly statement') + '</div>'
                 + '<h1>' + monthLabel(ym) + '</h1>'
                 + '<div class="parties">'
                 + '<div class="party"><h3>From</h3><div class="party-body"><strong>Demohub</strong><br>hello@demohubhq.com<br>demohubhq.com</div></div>'
-                + '<div class="party"><h3>To</h3><div class="party-body"><strong>' + escapeHtml(window._billingTo?.name || 'Your Business') + '</strong><br>' + escapeHtml(window._billingTo?.stores || '') + '<br>' + escapeHtml(window._billingTo?.email || '') + '</div></div>'
+                + '<div class="party"><h3>' + (ka ? 'For' : 'To') + '</h3><div class="party-body"><strong>' + escapeHtml(window._billingTo?.name || 'Your Business') + '</strong><br>' + escapeHtml(window._billingTo?.stores || '') + (window._billingTo?.email ? '<br>' + escapeHtml(window._billingTo.email) : '') + '</div></div>'
                 + '</div>'
-                + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">No demos billed for ' + monthLabel(ym) + '.</p>' :
-                  '<table><thead><tr><th>Date</th><th>Brand</th><th>Product</th><th>Location</th><th style="text-align:right;">Brand paid</th><th style="text-align:right; color:var(--ink-500);">Platform fee</th><th style="text-align:right;">You receive</th></tr></thead><tbody>'
-                + rows
-                + '<tr class="total-row"><td colspan="4" style="text-align:right;">Totals</td>'
-                + '<td style="text-align:right;">$' + paidTotal.toFixed(2) + '</td>'
-                + '<td style="text-align:right;">$' + feeTotal.toFixed(2) + '</td>'
-                + '<td style="text-align:right;">$' + total.toFixed(2) + '</td></tr>'
-                + '</tbody></table>')
-                + '<div class="foot">Statement generated ' + today + '. Demos in this period: ' + demos.length + '. Questions? Reply to hello@demohubhq.com.</div>'
+                + (demos.length === 0 ? '<p style="padding: 40px; text-align: center; color: #6b6a64; font-style: italic;">' + empty + '</p>' :
+                  '<table>' + thead + '<tbody>' + rows + totals + '</tbody></table>')
+                + '<div class="foot">' + foot + '</div>'
                 + '</body></html>';
 
             const win = window.open('', '_blank');
-            if (!win) { DhModal.toast('Statement window was blocked. Allow pop-ups for this site.', 'error'); return; }
+            if (!win) { DhModal.toast('The document window was blocked. Allow pop-ups for this site.', 'error'); return; }
             win.document.open();
             win.document.write(html);
             win.document.close();
@@ -6734,6 +6841,9 @@ function escapeHtml(s) {
                 grid.innerHTML = '<div style="padding:24px; color:var(--ink-500); text-align:center; grid-column: 1 / -1; font-style:italic;">Calendar failed to render: ' + (e.message || e) + '</div>';
             }
         }
+        function calendarLiveDemos(list) {
+            return (list || []).filter(d => { const st = String((d && d.status) || '').toLowerCase(); return st !== 'cancelled' && st !== 'declined'; });
+        }
         function _renderBigCalendarInner(grid, label) {
             renderBigLegend();
             const y = bigCalDate.getFullYear(), m = bigCalDate.getMonth();
@@ -6748,8 +6858,9 @@ function escapeHtml(s) {
             const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
             // Index demos by date
             const demosByDay = {};
-            // No sample/example demos on the calendar, it only ever shows real bookings.
-            const demosForCal = window.state.demos || [];
+            // No sample/example demos on the calendar, it only ever shows real bookings, and only live ones: a cancelled
+            // or declined demo leaves the grid (it stays on the Demos tab with its status).
+            const demosForCal = calendarLiveDemos(window.state.demos || []);
             demosForCal.forEach(d => {
                 const dt = new Date(d.date + 'T00:00:00');
                 if (dt.getMonth() === m && dt.getFullYear() === y) {
@@ -6774,11 +6885,54 @@ function escapeHtml(s) {
                     const vi = venueIndex(venue);
                     const sampleStyle = d.isSample ? ' style="opacity:0.85; border-left-style:dashed;"' : '';
                     const sampleBadge = d.isSample ? '<span style="display:inline-block; font-size:0.6rem; background:#ed682f; color:white; padding:1px 5px; border-radius:99px; margin-left:4px; font-weight:700;">EXAMPLE</span>' : '';
-                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' title="' + escapeHtml(d.company + ': ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
+                    return '<div class="big-cal-event venue-' + vi + '"' + sampleStyle + ' role="button" tabindex="0" data-demo-id="' + escapeHtml(d.id || '') + '" onclick="openDemoEventDetail(this.dataset.demoId)" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();openDemoEventDetail(this.dataset.demoId);}" title="' + escapeHtml(d.company + ': ' + (d.product || '') + ' · ' + (venue || 'Unknown location') + ' · ' + d.time) + '"><span class="big-cal-event-time">' + escapeHtml(d.time || '') + '</span> <span class="big-cal-event-name">' + escapeHtml(d.company) + sampleBadge + '</span></div>';
                 }).join('');
                 html += '<div class="' + cellClass + '"><div class="big-cal-day-num">' + day + '</div>' + events + '</div>';
             }
             grid.innerHTML = html;
+        }
+
+        // Calendar event detail (2026-10-16): what the row on the Demos tab shows, in a modal, from the calendar.
+        function _demoEventDetailHtml(d) {
+            const venue = getDemoVenue(d);
+            const items = Array.isArray(d.product_skus) ? d.product_skus.filter(p => p && p.name) : [];
+            const line = (label, val) => val ? '<div style="margin-top:4px;"><span style="color:var(--ink-500);">' + label + '</span> ' + val + '</div>' : '';
+            const dateLabel = d.date ? new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
+            return '<div style="font-size:0.92rem; line-height:1.5;">'
+                + line('When', escapeHtml(dateLabel) + (d.time ? ' &middot; ' + escapeHtml(d.time) : ''))
+                + line('Store', escapeHtml(venue || 'Unknown location'))
+                + line('Status', escapeHtml(d.status || ''))
+                + line('Contact', [d.contact, d.contact_email, d.contact_phone].filter(Boolean).map(escapeHtml).join(' &middot; '))
+                + line('Category', d.product ? escapeHtml(d.product) : '')
+                + '<div style="margin-top:12px; font-weight:600; color:var(--forest-900);">Items being sampled' + (items.length ? ' (' + items.length + ')' : '') + '</div>'
+                + (items.length ? '<div style="margin-top:6px; line-height:1.45;">' + items.map(p => '<div style="margin-bottom:6px;">' + _productLineHtml(p) + '</div>').join('') + '</div>' : '<div style="color:var(--ink-500); margin-top:4px;">No items listed on this booking. Ask the brand which products they are bringing.</div>')
+                + (d.isSample ? '<div style="margin-top:12px; font-size:0.8rem; color:#a14e2a;">This is an example demo shown while your calendar is empty.</div>' : '')
+                + '</div>';
+        }
+        // The same actions the Demos tab offers, under the same rules: Reschedule for a confirmed demo, Cancel for a demo
+        // that is not already cancelled or declined. The modal closes itself and hands over to the existing flows.
+        function _demoEventActionsHtml(d) {
+            if (d.isSample) return '';
+            const status = String(d.status || '').toLowerCase();
+            const canCancel = !!d.booking_id && status !== 'cancelled' && status !== 'declined';
+            const canResched = status === 'confirmed' && !!d.id;
+            if (!canCancel && !canResched) return '';
+            const btn = 'font-size:0.85rem; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; font-family:inherit;';
+            return '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">'
+                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">Reschedule</button>' : '')
+                + (canCancel ? '<button type="button" class="js-cal-cancel" style="' + btn + ' background:#fff; border:1.5px solid #f0d6c6; color:#a14e2a;">Cancel demo</button>' : '')
+                + '</div>'
+                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ' : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
+        }
+        function openDemoEventDetail(id) {
+            const d = (window.state.demos || []).find(x => String(x.id) === String(id));
+            if (!d) return;
+            DhModal.alert({ title: d.company || 'Demo', extraHTML: _demoEventDetailHtml(d) + _demoEventActionsHtml(d), ok: 'Close' });
+            // The card is in the document as soon as alert() returns its promise; wire the action buttons to the Demos tab flows.
+            const cards = document.querySelectorAll('.dhm-backdrop .dhm-card'); const card = cards[cards.length - 1]; if (!card) return;
+            const closeCard = () => { const okBtn = card.querySelector('[data-act="ok"]'); if (okBtn) okBtn.click(); };
+            const rs = card.querySelector('.js-cal-reschedule'); if (rs) rs.onclick = () => { closeCard(); openRescheduleModal(d.id, d.company, d.date, d.time, d.venue_id); };
+            const cn = card.querySelector('.js-cal-cancel'); if (cn) cn.onclick = () => { closeCard(); cancelDemoConfirm(d.booking_id, d.company, d.date, d.time); };
         }
 
         const ADVANCE_PRESETS = ['3', '7', '14', '30', '45', '60'];
@@ -6991,11 +7145,11 @@ function escapeHtml(s) {
                     body: JSON.stringify({ action: 'support-sessions' }),
                     credentials: 'same-origin',
                 });
-                if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded.</div>'; return; }
+                if (!r.ok) { el.innerHTML = '<div style="color:var(--ink-500);">No visits yet.</div>'; return; }
                 const j = await r.json();
                 const sessions = j.sessions || [];
                 if (sessions.length === 0) {
-                    el.innerHTML = '<div style="color:var(--ink-500);">No support activity recorded. This will populate if anyone from Demohub signs in to your admin.</div>';
+                    el.innerHTML = '<div style="color:var(--ink-500);">No visits yet.</div>';
                     return;
                 }
                 el.innerHTML = sessions.map(s => {
@@ -7040,11 +7194,11 @@ function escapeHtml(s) {
                     if (isOn && j.expires_at) {
                         const exp = new Date(j.expires_at);
                         const hours = Math.max(0, Math.round((exp - Date.now()) / 3600000));
-                        subtitle.textContent = `ON. Demohub support can sign in to your admin for about ${hours} more hour${hours === 1 ? '' : 's'}, then this turns itself off.`;
+                        subtitle.textContent = `On for about ${hours} more hour${hours === 1 ? '' : 's'}, then it switches itself off.`;
                     } else if (j.expired) {
-                        subtitle.textContent = 'OFF (the 24-hour window ended). Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
+                        subtitle.textContent = 'Off (the 24 hours ended). Turn on if you would like help again.';
                     } else {
-                        subtitle.textContent = 'OFF. Demohub cannot sign in to your account. Turn ON to allow support access for the next 24 hours.';
+                        subtitle.textContent = 'Off. Nobody at Demohub can open your admin. Turn on if you would like help.';
                     }
                 }
             } catch (_) {
@@ -7333,7 +7487,7 @@ function escapeHtml(s) {
         (function(){
           const subnav = document.querySelectorAll('.subnav-link');
           function getScroller() { return document.querySelector('.main-scroll'); }
-          const TABS = ['dashSection','calendarSection','demosSection','brandsSection','complianceSection','storesSection','teamSection','billingSection','settingsSection'];
+          const TABS = ['dashSection','calendarSection','demosSection','brandsSection','complianceSection','storesSection','teamSection','billingSection','policiesSection','settingsSection'];
           let _tabMap = null;
           function buildTabMap() {
             const container = document.querySelector('.main-scroll .container');
@@ -7354,7 +7508,7 @@ function escapeHtml(s) {
             });
             // Settings-grid cards routed by data-tab (default → settings)
             if (grid) {
-              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+              Array.from(grid.querySelectorAll('.settings-card, #policySetupCallout')).forEach(card => {
                 const t = card.dataset.tab || 'settingsSection';
                 (map[t] = map[t] || []).push(card);
               });
@@ -7395,7 +7549,7 @@ function escapeHtml(s) {
             });
             // Split the settings grid: team/billing cards leave into their panes; settings cards stay in the grid
             if (grid) {
-              Array.from(grid.querySelectorAll('.settings-card')).forEach(card => {
+              Array.from(grid.querySelectorAll('.settings-card, #policySetupCallout')).forEach(card => {
                 const t = card.dataset.tab || 'settingsSection';
                 if (t !== 'settingsSection') panes[t].appendChild(card);
               });
@@ -7417,6 +7571,8 @@ function escapeHtml(s) {
           };
           window.showAdminTab = function(sectionId, opts) {
             buildPanes();
+            // Booking codes: (re)load the list whenever the Settings tab is shown, so it never depends on the login path.
+            if (sectionId === 'settingsSection') { try { loadBookingCodes(); updateCodeKindHelp(); } catch (_) {} }
             document.querySelectorAll('.admin-pane').forEach(p => { p.style.display = (p.dataset.pane === sectionId) ? '' : 'none'; });
             document.querySelectorAll('.subnav-link, .mobile-nav-item').forEach(a => {
               if (a.dataset.section === sectionId) a.classList.add('active'); else a.classList.remove('active');

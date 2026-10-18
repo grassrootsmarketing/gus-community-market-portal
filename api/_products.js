@@ -1,4 +1,4 @@
-// api/_products.js — the ONE validator for brand product items (Codex product-list review P-2, 2026-10-07).
+// api/_products.js: the ONE validator for brand product items (Codex product-list review P-2, 2026-10-07).
 //
 // Two writers share it: the brand profile catalog (api/brand-account.js profile-update, mode 'catalog', up to 60
 // items) and the booking snapshot (api/book.js, mode 'booking', 1 to 40 items). Historical rows are NOT passed
@@ -123,7 +123,7 @@ export function describeItem(item, esc) {
   if (!item || typeof item !== 'object') return '';
   const parts = [e(item.name || '')];
   if (item.size) parts.push(' <span style="color:#6b6a64;">(' + e(item.size) + ')</span>');
-  if (item.sku) parts.push(' <span style="color:#6b6a64;">brand SKU ' + e(item.sku) + '</span>');
+  if (item.sku) parts.push(' <span style="color:#6b6a64;">item code ' + e(item.sku) + '</span>');
   return parts.join('');
 }
 // Stacked ordering details for one item (full layout), absent optional details read "Not provided".

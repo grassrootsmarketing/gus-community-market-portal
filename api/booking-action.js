@@ -10,6 +10,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { randomUUID } from 'node:crypto';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
@@ -90,6 +91,24 @@ function brandHeader() {
 </tr></table>`;
 }
 
+// 0098 (Codex BC-5): where a booking's operational notices go, decided at send time from the LIVE membership row.
+// Returns { to: [addresses for the payer-facing copy], owner: address for the owner copy or null, bookedBy: name }.
+async function noticeRecipients(sb, booking) {
+  const contact = String(booking.contact_email || '').toLowerCase();
+  if (!booking.booked_by_member_id) return { to: contact ? [contact] : [], owner: null, bookedBy: null };
+  let member = null, owner = '', lookupFailed = false;
+  try { const m = await sb(`brand_members?id=eq.${encodeURIComponent(booking.booked_by_member_id)}&select=id,email,name,role,status`); member = Array.isArray(m) && m[0] ? m[0] : null; if (!member) lookupFailed = true; } catch (e) { lookupFailed = true; console.warn('notice recipients: member lookup failed', e && e.message); }
+  try { if (booking.brand_id) { const b = await sb(`brands?id=eq.${encodeURIComponent(booking.brand_id)}&select=email`); owner = Array.isArray(b) && b[0] ? String(b[0].email || '').toLowerCase() : ''; } } catch (e) { lookupFailed = true; console.warn('notice recipients: owner lookup failed', e && e.message); }
+  // 0099 (Codex BR2-3): an unavailable lookup is not a revocation. Nothing goes to the possibly-revoked booker, the
+  // owner's notice is NOT discarded (brand email, or the booking's recorded booker-email owner fallback), and the
+  // failure is reported so the operator can resend.
+  if (lookupFailed) return { to: [], owner: owner || null, bookedBy: booking.booked_by_name || booking.booked_by_email || null, lookup_failed: true };
+  const live = member && member.role === 'booker' && member.status === 'accepted';
+  const bookedBy = (member && (member.name || member.email)) || booking.booked_by_name || booking.booked_by_email || null;
+  if (member && member.role === 'owner') return { to: contact ? [contact] : (owner ? [owner] : []), owner: null, bookedBy: null };
+  const to = live && contact ? [contact] : [];
+  return { to, owner: owner && owner !== contact ? owner : (owner && !live ? owner : null), bookedBy };
+}
 function confirmedEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, product }) {
   return `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
@@ -247,21 +266,53 @@ async function handleReschedulePropose(req, res, body) {
   const proposalVersion = proposal.proposal_version;
 
   // Email the brand to accept/decline.
-  let brandEmail = demo.contact_email || null;
+  // 0098 (Codex BC-5): the proposal goes to the live booker who made the booking (if any) and to the owner; a revoked
+  // booker's address is dropped and the owner alone is asked.
+  const rcp = await noticeRecipients(sb, { contact_email: demo.contact_email, booked_by_member_id: demo.booked_by_member_id, booked_by_name: demo.booked_by_name, booked_by_email: demo.booked_by_email, brand_id: demo.brand_id });
+  let brandEmail = rcp.to[0] || rcp.owner || null;
   if (!brandEmail && demo.brand_id) {
     try { const b = await sb(`brands?id=eq.${encodeURIComponent(demo.brand_id)}&select=email`); brandEmail = (Array.isArray(b) && b[0]) ? b[0].email : null; } catch (_) {}
   }
-  if (brandEmail && _b.resendApiKey) {
+  const proposalCopies = [brandEmail, rcp.to[0] && rcp.owner ? rcp.owner : null].filter(Boolean);
+  // Codex shipped-release finding 3: each copy's outcome is kept and reported; the proposal itself already committed.
+  const proposalKey = randomUUID(); const proposalStart = Date.now(); const proposalStatus = {};
+  for (const brandEmail of proposalCopies) if (brandEmail && _b.resendApiKey) {
     const retailerName = (demo.retailers && demo.retailers.name) || 'The store';
     const fromLabel = dateLabelOf(demo.demo_date) + (demo.demo_time ? ' at ' + demo.demo_time : '');
     const toLabel = dateLabelOf(new_date) + ((new_time || demo.demo_time) ? ' at ' + (new_time || demo.demo_time) : '');
-    await sendMailQuietly({
+    const sent = await sendBrandNotice({
       from: FROM_ADDRESS, to: brandEmail, replyTo: 'bookings@demohubhq.com',
       subject: `${retailerName} proposed a new date for your demo`,
       html: rescheduleEmail({ contact_name: demo.contact_name, brand_name: demo.company_name, retailerName, venueName: (demo.venues && demo.venues.name) || '', fromLabel, toLabel }),
-    }, { binding: _b });
+    }, _b, `notice:${proposal.booking_id || demo_id}:propose:${String(brandEmail).toLowerCase()}:${proposalKey}`, proposalStart);
+    proposalStatus[brandEmail === proposalCopies[0] ? 'contact' : 'owner'] = sent && sent.ok ? 'sent' : 'failed';
   }
-  return res.status(200).json({ ok: true, demo_id, booking_id: proposal.booking_id, new_date, new_time: proposal.new_time || new_time || demo.demo_time, proposal_version: proposalVersion });
+  const proposalEmailOk = Object.values(proposalStatus).every(v => v === 'sent');
+  if (!proposalEmailOk) console.warn('reschedule proposal notices not fully delivered', JSON.stringify({ booking_id: proposal.booking_id, demo_id, status: proposalStatus }));
+  return res.status(200).json({ ok: true, demo_id, booking_id: proposal.booking_id, new_date, new_time: proposal.new_time || new_time || demo.demo_time, proposal_version: proposalVersion, email_sent: proposalEmailOk, notice_status: proposalStatus });
+}
+
+// Brand-facing notices (confirm, decline, cancel, reschedule proposal, owner copies) are sent once, immediately, and
+// retried ONCE after a short pause when the first attempt fails (release contract item 7). Still best-effort: a second
+// failure is reported as before (email_sent false, operator re-send), never queued.
+// Codex shipped-release finding 2: ONE delivery key per request and recipient, reused by the retry, so a send whose
+// acknowledgement was lost is deduplicated by the provider instead of sent twice; a deliberate later re-send is a new
+// request with a new key. Every provider exchange is bounded, and the retry only runs when the total budget leaves room.
+const NOTICE_RETRY_PAUSE_MS = 700;
+const NOTICE_SEND_TIMEOUT_MS = 8000;
+const NOTICE_TOTAL_BUDGET_MS = 20000;
+async function sendBrandNotice(msg, binding, deliveryKey, startedAt) {
+  const started = startedAt || Date.now();
+  const opts = { binding, idempotencyKey: deliveryKey, timeoutMs: NOTICE_SEND_TIMEOUT_MS };
+  let r = await sendMailQuietly(msg, opts);
+  if (r && r.ok) return r;
+  const remaining = NOTICE_TOTAL_BUDGET_MS - (Date.now() - started) - NOTICE_RETRY_PAUSE_MS;
+  if (remaining < 1500) { console.warn('brand notice: first attempt failed and no time budget remains for a retry', JSON.stringify({ first: r && r.code })); return r; }
+  await new Promise(resolve => setTimeout(resolve, NOTICE_RETRY_PAUSE_MS));
+  const again = await sendMailQuietly(msg, { ...opts, timeoutMs: Math.min(NOTICE_SEND_TIMEOUT_MS, remaining) });
+  if (again && again.ok) console.warn('brand notice: sent on the second attempt');
+  else console.warn('brand notice: both attempts failed', JSON.stringify({ first: r && r.code, second: again && again.code }));
+  return again;
 }
 
 function dateLabelOf(d) {
@@ -393,6 +444,11 @@ export default async function handler(req, res) {
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     // Provisional holds: a 'held' booking (auth placed, not captured) can be confirmed (captures
     // the payment, COI must be approved first), declined, or cancelled (releases the hold, $0).
+    // Booking codes (0085, Codex BC-7): a fee-waived booking sits in pending_payment for the seconds until the
+    // fulfilment worker promotes it. Its outcome here is DEFINED and truthful: not cancellable yet, retry shortly.
+    if (booking.fee_waived === true && booking.status === 'pending_payment') {
+      return res.status(409).json({ error: 'awaiting_confirmation', message: 'This free booking is still being confirmed (usually under a minute). Try again shortly.' });
+    }
     if (action === 'cancel') {
       if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
@@ -420,7 +476,9 @@ export default async function handler(req, res) {
     }
     let demoFee = null;
     if (action === 'confirm') {
-      const fee = demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null);
+      // Booking codes (0085, Codex BC-7): a fee-waived booking projects a $0 demo, never the venue list price and
+      // never a typed override (there is nothing to charge).
+      const fee = booking.fee_waived === true ? 0 : (demo_fee != null ? Number(demo_fee) : (venue.demo_fee != null ? Number(venue.demo_fee) : null));
       if (fee == null || !Number.isFinite(fee) || fee < 0) {
         return res.status(400).json({ error: 'venue_missing_fee', message: demo_fee != null ? 'The demo fee override is not a valid amount. Nothing was changed and nothing was charged.' : 'This venue has no demo fee configured. Set one in the admin before confirming this booking. Nothing was charged.' });
       }
@@ -711,8 +769,9 @@ export default async function handler(req, res) {
     //     A decline of a pending/held booking writes no event, contacts were never told about it.
 
     // 3) Send email (best-effort)
-    let emailOk = false;
-    if (_b.resendApiKey && booking.contact_email && !idempotentReplay) {
+    let emailOk = false; let noticeStatus = null;
+    const recipients = (_b.resendApiKey && !idempotentReplay) ? await noticeRecipients(sb, booking) : { to: [], owner: null, bookedBy: null };
+    if (_b.resendApiKey && (recipients.to.length || recipients.owner) && !idempotentReplay) {
       const dateLabel = booking.demo_date ? new Date(booking.demo_date + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
       let subject, htmlBody;
       if (action === 'confirm') {
@@ -722,11 +781,39 @@ export default async function handler(req, res) {
         subject = `Update on your ${retailer?.name || 'demo'} request`;
         htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
-        subject = `Your ${retailer?.name || 'demo'} was cancelled`;
+        subject = `Your demo at ${retailer?.name || 'the store'} was cancelled`;
         htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       }
-      const r = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, { binding: _b });
-      emailOk = r.ok;
+      emailOk = true;
+      const noticeKey = randomUUID(); const noticeStart = Date.now();
+      noticeStatus = { contact: recipients.to.length ? 'pending' : (recipients.lookup_failed ? 'withheld' : 'none'), owner: recipients.owner ? 'pending' : 'none' };
+      if (recipients.to.length) {
+        const r = await sendBrandNotice({ from: FROM_ADDRESS, to: recipients.to[0], replyTo: 'bookings@demohubhq.com', subject, html: htmlBody }, _b, `notice:${booking.id}:${action}:${String(recipients.to[0]).toLowerCase()}:${noticeKey}`, noticeStart);
+        noticeStatus.contact = r && r.ok ? 'sent' : 'failed';
+        emailOk = !!(r && r.ok);
+      }
+      if (recipients.lookup_failed) { emailOk = false; console.warn('notice recipients: membership lookup unavailable for booking', booking.id, '(owner copy sent, booker copy withheld)'); }
+      // 0097/0098 (Codex BK-6, BC-5): a demo booked by a designated booker is also reported to the brand account owner;
+      // if the booker was revoked, the owner is the only recipient. The owner's copy carries no refund line (the payer
+      // gets that) and says who booked.
+      try {
+        if (recipients.owner) {
+          const ownerEmail = recipients.owner;
+          {
+            const who = recipients.bookedBy || 'your designated booker';
+            const note = '<p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:24px 0 0;">This demo was booked by ' + String(who).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) + ' on your brand\'s account. Payment details and any refund go to the person who paid.</p>';
+            let ownerHtml;
+            if (action === 'confirm') ownerHtml = htmlBody;
+            else if (action === 'decline') ownerHtml = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            ownerHtml = ownerHtml.includes('</body>') ? ownerHtml.replace('</body>', note + '</body>') : ownerHtml + note;
+            const ro = await sendBrandNotice({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, _b, `notice:${booking.id}:${action}:${String(ownerEmail).toLowerCase()}:${noticeKey}`, noticeStart);
+            noticeStatus.owner = ro && ro.ok ? 'sent' : 'failed';
+            if (!(ro && ro.ok)) emailOk = false;   // Codex shipped-release finding 3: the owner's copy counts
+          }
+        }
+      } catch (e) { if (noticeStatus) noticeStatus.owner = 'failed'; emailOk = false; console.warn('owner copy of booking notice failed:', e && e.message); }
+      if (!emailOk) console.warn('brand notices not fully delivered', JSON.stringify({ booking_id: booking.id, action, status: noticeStatus }));
     }
 
     // The demo failed to cancel AND its durable reconciliation case could not be recorded. Do NOT
@@ -751,6 +838,7 @@ export default async function handler(req, res) {
       demo_id: demoId,
       idempotent: idempotentReplay || undefined,
       email_sent: emailOk,
+      notice_status: noticeStatus || undefined,   // per recipient: sent | failed | withheld | none (finding 3)
       refund_status: action === 'cancel' ? refundStatus : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
       // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was

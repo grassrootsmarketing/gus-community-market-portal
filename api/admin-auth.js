@@ -10,6 +10,7 @@
 
 import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
+import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
 import {
   setSessionCookie as setRoleCookie,
@@ -1197,7 +1198,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, retailer_id, retailer_notified: sent, notification_error: !sent });
     }
 
-        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-brand-update' || action === 'owner-brand-delete' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
+        if (action === 'owner-login' || action === 'owner-verify' || action === 'owner-verify-code' || action === 'owner-data' || action === 'owner-logout' || action === 'owner-list-retailers' || action === 'owner-retailer-profile' || action === 'owner-codes-create' || action === 'owner-codes-deactivate' || action === 'owner-list-brands' || action === 'owner-brand-profile' || action === 'owner-brand-update' || action === 'owner-brand-delete' || action === 'owner-calendar' || action === 'owner-notifications' || action === 'owner-notifications-summary' || action === 'owner-booking-notifications' || action === 'owner-impersonate' || action === 'owner-end-impersonation' || action === 'support-sessions' || action === 'support-access-toggle' || action === 'support-access-status') {
       return await handleOwnerAction(action, req, res, body);
     }
 
@@ -1559,6 +1560,22 @@ async function handleOwnerAction(action, req, res, body) {
 
 
   // ---- OWNER-LIST-RETAILERS: full retailers list for the "sign in as admin" picker ----
+  // ---- OWNER BOOKING CODES (2026-09-22, 0085): create or deactivate a code on a retailer's behalf. The retailer
+  // mirror itself is the owner directory block below (which also lists the retailer's codes).
+  if (action === 'owner-codes-create' || action === 'owner-codes-deactivate') {
+    const sessionId = getOwnerSessionIdFromReq(req);
+    const v = await verifyOwnerSession(sessionId);
+    if (!v) return res.status(401).json({ error: 'Not authenticated' });
+    const rid = String(body?.retailer_id || ''); if (!/^[0-9a-f-]{36}$/i.test(rid)) return res.status(400).json({ error: 'retailer_id required' });
+    const { createCode, deactivateCode, CODE_MESSAGES } = await import('./_booking-codes.js');
+    // Codex BC R1: issuance on a retailer's behalf is part of the switch too. Deactivation stays available when off.
+    if (action === 'owner-codes-create' && !FLAGS.bookingCodes) return res.status(503).json({ error: 'booking_codes_disabled', message: CODE_MESSAGES.booking_codes_disabled });
+    const rows = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug`);
+    const retailer = Array.isArray(rows) && rows[0]; if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+    if (action === 'owner-codes-create') { const r = await createCode(sb, { retailerId: rid, retailerSlug: retailer.slug, body, createdBy: 'owner', createdByEmail: v.email || 'owner' }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error }); }
+    const r = await deactivateCode(sb, { retailerId: rid, codeId: String(body.code_id || '') }); return res.status(r.status).json(r.ok ? { ok: true, code: r.code } : { error: r.error });
+  }
+
   // ---- OWNER DIRECTORY (2026-09-29): read-only mirrors for the owner panel's Retailers and Brands tabs. Explicit
   // field lists only, never session, token, password-hash or feed-key columns. Lists are capped and say so.
   // ---- OWNER CALENDAR (2026-09-29, revised per Codex OV-2/OV-3/OV-4): every retailer's demo bookings for one date
@@ -1579,7 +1596,7 @@ async function handleOwnerAction(action, req, res, body) {
     let bk, rt, vn;
     try {
       [bk, rt, vn] = await Promise.all([
-        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity&order=demo_date.asc,id.asc`, { max: 5000 }),
+        sbAll(`bookings?demo_date=gte.${from}&demo_date=lte.${to}${rid ? '&retailer_id=eq.' + encodeURIComponent(rid) : ''}&status=in.(pending,confirmed,held,pending_payment,completed)&select=id,retailer_id,venue_id,brand_id,brand_name,demo_date,demo_time,duration_hours,status,payment_status,product,needs_electricity,product_skus,notes,contact_name&order=demo_date.asc,id.asc`, { max: 5000 }),
         sbAll('retailers?select=id,name,slug,timezone&order=name.asc,id.asc', { max: 5000 }),
         sbAll('venues?select=id,name,retailer_id&order=id.asc', { max: 20000 }),
       ]);
@@ -1587,7 +1604,16 @@ async function handleOwnerAction(action, req, res, body) {
     const rm = new Map(rt.rows.map(r => [r.id, r])), vm = new Map(vn.rows.map(x => [x.id, x]));
     return res.status(200).json({ ok: true, from, to,
       retailers: rt.rows.filter(r => r.slug !== '__owner__').map(r => ({ id: r.id, name: r.name, slug: r.slug, timezone: r.timezone || null })),
-      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity, retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
+      bookings: bk.rows.map(b => { const r = rm.get(b.retailer_id) || {}; return { id: b.id, date: b.demo_date, time: b.demo_time, hours: b.duration_hours, status: b.status, payment_status: b.payment_status, brand: b.brand_name || '', product: b.product || '', electricity: b.needs_electricity,
+        // Event detail (2026-10-16): the items being sampled, the booking notes and the contact's name. Validated shape,
+        // strings only, no email, no phone.
+        items: Array.isArray(b.product_skus) ? b.product_skus.filter(p => p && typeof p === 'object' && p.name).slice(0, 40).map(p => ({
+          name: String(p.name), size: p.size ? String(p.size) : '', sku: p.sku ? String(p.sku) : '', upc: p.upc ? String(p.upc) : '',
+          distributor: p.distributor ? String(p.distributor) : '', distributor_other: p.distributor_other ? String(p.distributor_other) : '',
+          distributor_item_number: p.distributor_item_number ? String(p.distributor_item_number) : '', case_pack: Number.isInteger(p.case_pack) ? p.case_pack : null, notes: p.notes ? String(p.notes) : '',
+        })) : [],
+        notes: b.notes ? String(b.notes) : '', contact: b.contact_name ? String(b.contact_name) : '',
+        retailer_id: b.retailer_id, retailer: r.name || '?', retailer_slug: r.slug || null, retailer_tz: r.timezone || null, venue: (vm.get(b.venue_id) || {}).name || '' }; }),
       total: bk.total, complete: { bookings: bk.complete, retailers: rt.complete, venues: vn.complete }, capped: !bk.complete });
   }
 
@@ -1657,9 +1683,14 @@ async function handleOwnerAction(action, req, res, body) {
         sbAll(`venues?retailer_id=eq.${R}&select=id,name,address,demo_fee,active,max_demos_per_slot,availability&order=name.asc,id.asc`, { max: 2000 }),
         sbAll(`internal_contacts?retailer_id=eq.${R}&select=name,email,phone,role,venue_ids,notification_prefs&order=name.asc,id.asc`, { max: 500 }),
         sbAll(`retailer_admins?retailer_id=eq.${R}&select=email,name,role,venue_ids,created_at&order=created_at.asc,id.asc`, { max: 500 }),
-        sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
+        sbAll(`bookings?retailer_id=eq.${R}&demo_date=gte.${today}&status=in.(pending,confirmed,held,pending_payment)&select=id,demo_date,demo_time,brand_name,status,payment_status,fee_waived,venue_id&order=demo_date.asc,id.asc`, { max: 25 }),
         sbAll(`bookings?retailer_id=eq.${R}&select=brand_id,brand_name&order=id.asc`, { max: 50000 }),
       ]);
+      // Booking codes (0085) for this retailer. Codex BC R3: an unreadable list is reported as unavailable, not as empty;
+      // the rest of the profile still answers, and the caps are reported so the UI can label a limited history.
+      let codes = null, codesComplete = null, codesUnavailable = false;
+      try { const lc = await (await import('./_booking-codes.js')).listCodes(sb, id); codes = lc.codes; codesComplete = lc.complete; }
+      catch (e) { codesUnavailable = true; console.error('owner-retailer-profile codes read failed:', e?.message); }
       const roll = new Map();
       for (const b of allBk.rows) { const k = b.brand_id || ('name:' + (b.brand_name || '')); let a = roll.get(k); if (!a) roll.set(k, a = { brand_id: b.brand_id || null, brand: b.brand_name || '', bookings: 0 }); a.bookings++; }
       // Notification settings at a glance (David, 2026-09-30): the same reading of notification_prefs the outbox
@@ -1677,7 +1708,7 @@ async function handleOwnerAction(action, req, res, body) {
       const b0 = await bind();
       return res.status(200).json({ ok: true, retailer, settings: (settings && settings[0]) || null, booking_url: link(b0, '/r/' + retailer.slug), admin_url: link(b0, '/r/' + retailer.slug + '/admin'),
         venues: venuesOut, contacts: contactsOut, admins: adminsOut, upcoming: upcoming.rows, upcoming_total: upcoming.total,
-        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings),
+        brands: [...roll.values()].sort((x, y) => y.bookings - x.bookings), codes, codes_complete: codesComplete, codes_unavailable: codesUnavailable, codes_enabled: FLAGS.bookingCodes,
         complete: { venues: venues.complete, contacts: contacts.complete, admins: admins.complete, upcoming: upcoming.complete, brands: allBk.complete } });
     } catch (e) { console.error(action + ' read failed:', e?.message); return res.status(503).json({ error: 'directory_unavailable', retry: true }); }
   }

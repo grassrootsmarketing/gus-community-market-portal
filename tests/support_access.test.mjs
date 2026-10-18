@@ -431,7 +431,7 @@ console.log('\n— 10: dashboard markup + copy —');
 {
   const html = readFileSync(new URL('../r/gus/admin/index.html', import.meta.url), 'utf8');
   const card = html.slice(html.indexOf('id="supportActivityCard"'), html.indexOf('id="billingCard"'));
-  ok('dashboard: the "Demohub support activity" card exists', card.includes('Demohub support activity'));
+  ok('dashboard: the "Help from Demohub" card exists (renamed 2026-09-22 at the owner request; the id is unchanged)', card.includes('Help from Demohub'));
   ok('dashboard: #supportAccessToggle is a checkbox with role="switch" inside the card',
      /<input[^>]*type="checkbox"[^>]*id="supportAccessToggle"[^>]*role="switch"/.test(card) || /<input[^>]*id="supportAccessToggle"[^>]*type="checkbox"[^>]*role="switch"/.test(card), card.match(/<input[^>]*supportAccessToggle[^>]*>/)?.[0]);
   ok('dashboard: the switch has an aria-checked attribute', /id="supportAccessToggle"[^>]*aria-checked=/.test(card));
@@ -440,7 +440,7 @@ console.log('\n— 10: dashboard markup + copy —');
   ok('dashboard: copy states ON = up to 24 hours', /24 hours/.test(card));
   ok('dashboard: copy states each session lasts at most four hours', /at most four hours/.test(card));
   ok('dashboard: copy states sessions never outlive consent', /never beyond/.test(card));
-  ok('dashboard: copy states OFF immediately ends active sessions', /OFF immediately ends/.test(card));
+  ok('dashboard: copy states OFF immediately ends active visits', /OFF immediately ends/.test(card));
   ok('dashboard: startup calls _loadSupportAccessStatus', /setTimeout\(_loadSupportAccessStatus/.test(html));
   ok('dashboard: the stale "toggle removed" comment is gone', !/support-access toggle removed/.test(html));
   const fnStart = html.indexOf('async function _loadSupportAccessStatus');
