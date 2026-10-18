@@ -17,7 +17,7 @@ const ok = (n, c, d) => { if (c) { pass++; console.log('  ok   ' + n); } else { 
 const json = (route, o, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(o) });
 const products = [{ id: 'c1', name: 'Smoked Serrano Hot Sauce', size: '5 oz', upc: '850000000011' }, { id: 'c2', name: 'Ember Dry Rub', size: '4 oz', upc: '' }];
 const bookerData = { role: 'booker', me: { email: 'bea@fixture.test', name: 'Bea Booker', member_id: 'm1' },
-  profile: { id: 'b', company_name: 'Fire Season Goods', logo_url: null, is_verified: true, products, products_version: 3, default_categories: 'Condiments', coi_on_file: true, coi_status: 'approved', coi_expires: '2027-06-01', owner_email: 'kyle@fixture.test', contact_name: 'Kyle', phone: '555' },
+  profile: { id: 'b', company_name: 'Fire Season Goods', logo_url: null, is_verified: true, products, products_version: 3, default_categories: 'Condiments', coi_on_file: true, coi_status: 'approved', coi_expires: '2027-06-01', owner_email: 'kyle@fixture.test' },
   demos: [{ id: 'd1', booking_id: 'bk1', retailer_id: 'r1', venue_id: 'v1', demo_date: '2026-11-20', demo_time: '11:00 AM', status: 'confirmed', product: 'Condiments', product_skus: [products[0]], retailers: { id: 'r1', name: "Gus's Community Market", slug: 'gus' }, venues: { id: 'v1', name: 'Mission Market', address: '1 St' }, booked_by_me: true, booked_by_name: 'Bea Booker' }],
   contacts: [], pending_bookings: [], payments: [], unavailable: [], truncated: [], provisional_holds: false };
 const ownerData = { role: 'owner', me: { email: 'kyle@fixture.test', name: 'Kyle', member_id: 'o1' }, profile: { id: 'b', email: 'kyle@fixture.test', company_name: 'Fire Season Goods', contact_name: 'Kyle', phone: '555', is_verified: true, products, products_version: 3, default_coi_url: 'x.pdf', default_coi_expires: '2027-06-01', coi_verification_status: 'approved' }, demos: [], contacts: [], pending_bookings: [], payments: [], unavailable: [], truncated: [] };
@@ -50,7 +50,26 @@ try {
     await p.waitForTimeout(500);
     ok('1f. changing the URL hash to a hidden tab falls back to Overview', /You book demos for this brand/.test(await p.locator('main, #mainContent').first().innerText()));
     ok('1g. the page never asked for owner-only data (no claim-status, no booker-status)', !posted.some(a => /claim-status|booker-status/.test(String(a))), JSON.stringify(posted));
+    const nudge = await p.evaluate(() => { const b = document.getElementById('persistentCoiNudge'); return b ? getComputedStyle(b).display : 'missing'; });
+    ok('1i. with the brand\'s certificate approved (coi_on_file), the booker sees no insurance band', nudge === 'none', nudge);
     ok('1h. no page errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
+  // 1x. dashboard as booker, brand without a certificate: the band names the owner and offers no uploader
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
+    await p.route('**/api/**', async (route) => {
+      const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
+      const action = (new URL(u).searchParams.get('action')) || body.action;
+      if (action === 'data') return json(route, { ...bookerData, profile: { ...bookerData.profile, coi_on_file: false, coi_status: null, coi_expires: null } });
+      return json(route, { ok: true, agreements: [], items: [], members: [] });
+    });
+    await p.goto(`${BASE}/brand/dashboard`, { waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1800);
+    const band = await p.evaluate(() => { const b = document.getElementById('persistentCoiNudge'); return b ? { display: getComputedStyle(b).display, text: b.innerText } : null; });
+    ok('1j. without a certificate the booker\'s band names the owner and has no "Upload now"', band && band.display !== 'none' && /brand account owner \(kyle@fixture.test\)/.test(band.text) && !/Upload now/.test(band.text), JSON.stringify(band).slice(0, 240));
+    ok('1k. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
   // 2. dashboard as owner: designated booker card
@@ -122,6 +141,24 @@ try {
     const coiMsg = await p.evaluate(() => { try { _renderCoiCard(_coiCardState(), false); } catch (_) {} const m = document.getElementById('bookCoiMsg'); return m ? m.innerText : document.getElementById('bookCoiCard').innerText; });   // eslint-disable-line no-undef
     ok('4c. the COI card tells the booker to ask the owner and hides the upload button', /brand account owner/.test(coiMsg) && !(await p.locator('#bookCoiBtn').isVisible()), coiMsg.slice(0, 160));
     ok('4d. no page errors', errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
+  // 5. booking page as booker whose brand HAS an approved certificate (the preview finding of 2026-10-17)
+  {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
+    await p.route('**/api/**', async (route) => {
+      const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
+      if (u.includes('find-retailer')) return json(route, { ok: true, retailer: { id: 'r1', slug: 'gus', name: "Gus's Community Market", timezone: 'America/Los_Angeles', verification_status: 'approved' }, venues: [{ id: 'v1', name: 'Mission Market', address: '1 St', demo_fee: 30, availability: { schedule: {}, blackouts: [] } }], settings: { demo_fee: 30, advance_booking_days: 14 }, accepting: true, name: "Gus's Community Market" });
+      if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, bookerData);
+      return json(route, { ok: true, items: [], slots: [] });
+    });
+    await p.goto(`${BASE}/r/gus`, { waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(2200);
+    const st = await p.evaluate(() => ({ role: window._brandRole, ok: _brandCoiOk(), state: _coiCardState().state, gate: _brandContactGateBlocks(window._brandProfile), ownerGate: (function () { const r = window._brandRole; window._brandRole = 'owner'; const g = _brandContactGateBlocks({ contact_name: 'Kyle', phone: '' }); window._brandRole = r; return g; })() }));   // eslint-disable-line no-undef
+    ok('5a. the booker\'s coi_on_file / coi_status / coi_expires read as an approved, covering certificate', st.role === 'booker' && st.ok === true && st.state === 'covered', JSON.stringify(st));
+    ok('5b. the brand contact gate never blocks a booker (the server checks the brand row), and still blocks an owner without a phone', st.gate === false && st.ownerGate === true, JSON.stringify(st));
+    ok('5c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
 } finally { await browser.close(); }

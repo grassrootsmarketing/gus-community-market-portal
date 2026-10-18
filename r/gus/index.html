@@ -725,20 +725,31 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         // function is not visible to the booking error handler, which is how this broke once.
         // Does the signed-in brand hold a certificate valid on every date in the cart?
         // Mirrors coiCoverageState() server-side; the server gate is authoritative.
+        // 0097: a booker's profile carries the certificate facts as coi_on_file / coi_status / coi_expires (the owner's
+        // view carries default_coi_url / coi_verification_status / default_coi_expires). Every check reads either naming.
+        function _coiOnFile(bp) { return !!(bp && (bp.default_coi_url || bp.coi_on_file)); }
+        function _coiStatus(bp) { return String((bp && (bp.coi_verification_status || bp.coi_status)) || '').toLowerCase(); }
+        function _coiExpires(bp) { return (bp && (bp.default_coi_expires || bp.coi_expires)) || null; }
+        // The brand contact gate below is the owner's: a booker's view carries no brand contact fields by design (BC-5),
+        // and the server checks the brand row itself (api/book.js contact_required).
+        function _brandContactGateBlocks(bp) {
+            if (window._brandRole === 'booker') return false;
+            return !((bp && bp.contact_name) || '').trim() || !((bp && bp.phone) || '').trim();
+        }
         function _brandCoiOk() {
             const bp = window._brandProfile;
-            if (!bp || !bp.default_coi_url) return false;
-            if (!bp.default_coi_expires) return false;   // no readable expiry is not proof
+            if (!bp || !_coiOnFile(bp)) return false;
+            if (!_coiExpires(bp)) return false;   // no readable expiry is not proof
             // The server rule (api/_coi-policy.js) also requires a verified document, and this
             // check used to omit it while claiming to mirror coiCoverageState(). That gap is the
             // lenient definition Codex v6 eliminated server-side, left behind on the client: an
             // upload sitting at 'pending' read as covered here, the panel vanished, and the
             // booking then failed at /api/book with coi_required and no explanation.
-            const st = String(bp.coi_verification_status || '').toLowerCase();
+            const st = _coiStatus(bp);
             if (st !== 'passed' && st !== 'approved') return false;
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
-            return String(bp.default_coi_expires).slice(0, 10) >= latest;
+            return String(_coiExpires(bp)).slice(0, 10) >= latest;
         }
 
         // A signed-in brand booking WITHOUT an approved COI while provisional holds are on:
@@ -763,14 +774,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         //   missing | pending (uploaded, not yet decided) | rejected | expired (approved but ends before the latest
         //   selected demo date) | no_expiry (approved but coverage dates unreadable) | covered
         function _coiCardState() {
-            const bp = window._brandProfile || {}; const st = String(bp.coi_verification_status || '').toLowerCase();
+            const bp = window._brandProfile || {}; const st = _coiStatus(bp);
             const dates = (typeof cart !== 'undefined' && cart && cart.length) ? cart.map(function (i) { return i.dateStr; }) : [];
             const latest = dates.length ? dates.slice().sort().pop() : new Date().toISOString().slice(0, 10);
-            if (!bp.default_coi_url) return { state: 'missing', latest };
+            if (!_coiOnFile(bp)) return { state: 'missing', latest };
             if (st === 'rejected') return { state: 'rejected', latest };
             if (st !== 'passed' && st !== 'approved') return { state: 'pending', latest };
-            if (!bp.default_coi_expires) return { state: 'no_expiry', latest };
-            const exp = String(bp.default_coi_expires).slice(0, 10);
+            if (!_coiExpires(bp)) return { state: 'no_expiry', latest };
+            const exp = String(_coiExpires(bp)).slice(0, 10);
             return exp >= latest ? { state: 'covered', latest, exp } : { state: 'expired', latest, exp };
         }
         function _renderCoiCard(cs, holdsOn) {
@@ -1910,16 +1921,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         if (_pr.ok) Object.assign(bp, patch);
                     } catch (_) { /* non-fatal, the guard below still protects the booking */ }
                 }
-                if (!((bp.contact_name)||'').trim() || !((bp.phone)||'').trim()) {
+                if (_brandContactGateBlocks(bp)) {
                     errMsg.innerHTML = 'Add your <strong>name and phone number</strong> to your brand profile before booking. <a href="/brand/dashboard#profile" style="color:var(--forest-700); font-weight:700; text-decoration:underline;">Complete profile →</a>';
                     errMsg.style.display = 'block';
                     return;
                 }
             }
             if (window._brandProfile && !_updateBookCoiGate()) {
-                errMsg.textContent = ((window._brandProfile.default_coi_url) || '')
-                    ? 'Your certificate is uploaded and pending the store’s review, and you can book once it’s approved.'
-                    : 'Upload your Certificate of Insurance above to book.';
+                errMsg.textContent = window._brandRole === 'booker'
+                    ? 'The brand account owner (' + ((window._brandProfile.owner_email) || 'the owner') + ') must have an approved Certificate of Insurance on file before you can book here.'
+                    : _coiOnFile(window._brandProfile)
+                        ? 'Your certificate is uploaded and pending the store’s review, and you can book once it’s approved.'
+                        : 'Upload your Certificate of Insurance above to book.';
                 errMsg.style.display = 'block';
                 const g = document.getElementById('bookCoiGroup');
                 if (g && g.scrollIntoView) g.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2092,6 +2105,8 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 if (!resp.ok || !json.ok) {
                     if (json.error === 'booking_outcome_unknown' && r.item) { okAll = false; errors.push(label + ': the result could not be confirmed. Use "Check status" below'); r.item.frozen = r.item.frozen || r.item.sent; r.item.recovering = true; keepItems.push(r.item); addRecovery(r.item); continue; }
                     okAll = false;
+                    // the server's brand-row contact gate, worded for a booker who cannot edit the profile
+                    if (json.error === 'contact_required' && window._brandRole === 'booker') json.message = 'the brand account owner (' + ((window._brandProfile && window._brandProfile.owner_email) || 'the owner') + ') needs to add a name and phone number to the brand profile before anyone can book';
                     errors.push(label + ': ' + (json.message || json.error || ('HTTP ' + resp.status)));
                     if (json.error === 'coi_required') coiBlocked = true;
                     failedItems.push(r.item);

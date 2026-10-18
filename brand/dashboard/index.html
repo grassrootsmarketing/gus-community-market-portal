@@ -766,6 +766,7 @@ document.querySelectorAll('.nav-tab').forEach(t => t.addEventListener('click', (
 
 // ===== Render dispatch =====
 function render() {
+  if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();   // every role, every tab, before any early return
   if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
   if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
   if (_currentTab === 'overview') renderOverview();
@@ -776,7 +777,6 @@ function render() {
   else if (_currentTab === 'products') renderProducts();
   else if (_currentTab === 'agreements') renderAgreements();
   else if (_currentTab === 'account') renderAccount();
-  if (typeof updatePersistentCoiNudge === 'function') updatePersistentCoiNudge();
 }
 
 // ===== Overview =====
@@ -918,14 +918,18 @@ function celebrateChecklistComplete() {
 // One definition of "verified", used by the nav checkmark, the Overview panel, and the
 // Compliance status strip. These used to disagree: the nav mark ignored `website`, so a
 // brand could show the checkmark while Overview still said "Almost verified".
+// 0097: a booker's profile carries the certificate facts as coi_on_file / coi_status / coi_expires; the owner's view
+// carries default_coi_url / default_coi_expires. Both readers below accept either naming.
+function coiOnFile(profile) { return !!(profile && (profile.default_coi_url || profile.coi_on_file)); }
+function coiExpiresYmd(profile) { return (profile && (profile.default_coi_expires || profile.coi_expires)) || null; }
 function getBrandStatus(profile) {
   profile = profile || {};
-  const exp = profile.default_coi_expires ? new Date(profile.default_coi_expires + 'T00:00:00') : null;
+  const exp = coiExpiresYmd(profile) ? new Date(coiExpiresYmd(profile) + 'T00:00:00') : null;
   const now = new Date();
   const days = exp ? Math.ceil((exp - now) / 86400000) : null;
 
   let coi = 'none';
-  if (profile.default_coi_url) {
+  if (coiOnFile(profile)) {
     if (!exp) coi = 'no_date';
     else if (exp <= now) coi = 'expired';
     else if (days <= 30) coi = 'expiring';
@@ -1005,19 +1009,23 @@ function updatePersistentCoiNudge() {
   if (!banner) return;
   const profile = _data && _data.profile;
   if (!profile) { banner.style.display = 'none'; return; }
-  const hasCoi = !!profile.default_coi_url;
-  const exp = profile.default_coi_expires ? new Date(profile.default_coi_expires + 'T00:00:00') : null;
+  const hasCoi = coiOnFile(profile);
+  const exp = coiExpiresYmd(profile) ? new Date(coiExpiresYmd(profile) + 'T00:00:00') : null;
   const expired = exp && exp <= new Date();
   if (hasCoi && !expired) { banner.style.display = 'none'; return; }
-  const label = !hasCoi ? 'No Certificate of Insurance on file.' : 'Your COI is expired.';
+  const label = !hasCoi ? 'No Certificate of Insurance on file.' : (window._brandRole === 'booker' ? 'The brand\'s COI is expired.' : 'Your COI is expired.');
+  // a booker cannot upload: the band names the owner instead of offering the uploader
+  const bookerBody = window._brandRole === 'booker'
+    ? `The brand account owner (${escapeHtml(profile.owner_email || 'the owner')}) manages the insurance certificate. Ask them to upload or renew it in the brand portal; stores need an approved certificate before a demo can be booked.`
+    : null;
   // Full-bleed band, but the CONTENT row is bounded to the same 1100px/24px gutter as
   // .container so the copy lines up with the dashboard below instead of hugging the viewport edge.
   banner.innerHTML = `<div style="padding:16px 0; background:#fff3ed; border-bottom:2px solid #ed682f55;">
     <div style="display:flex; align-items:center; gap:14px; max-width:1440px; margin:0 auto; padding:0 24px;">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a14e2a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="13"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> ${(_data && _data.provisional_holds)
+    <div style="flex:1; font-size:1rem; line-height:1.5; color:#a14e2a;"><strong style="font-size:1.06rem;">${label}</strong> ${bookerBody ? bookerBody : (_data && _data.provisional_holds)
       ? `Stores require proof of insurance. You can still book. Your card is only <strong>held, not charged</strong>, until your certificate is approved, but each hold lasts just 24 hours, so upload it now.`
-      : `Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>.`} <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a></div>
+      : `Stores require proof of insurance, so you'll need a current one on file <strong>before you can book a demo</strong>.` + ' <a href="#compliance" onclick="goToCoiUpload(); setTimeout(updatePersistentCoiNudge,300); return false;" style="color:#a14e2a; font-weight:700; text-decoration:underline;">Upload now &rarr;</a>'}</div>
     </div>
   </div>`;
   banner.style.display = 'block';
