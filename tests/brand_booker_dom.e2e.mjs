@@ -162,6 +162,8 @@ try {
     ok('5a. the booker\'s coi_on_file / coi_status / coi_expires read as an approved, covering certificate', st.role === 'booker' && st.ok === true && st.state === 'covered', JSON.stringify(st));
     const bannerName = await p.evaluate(() => { const n = document.getElementById('brandSigninName'); return n ? n.textContent : ''; });
     ok('5d. the booking page\'s signed-in banner names the role: "(designated booker)"', /designated booker/.test(bannerName), bannerName);
+    const form = await p.evaluate(() => { cart = [{ id: 'c1', dateStr: '2027-01-05', displayDate: 'Jan 5', time: '9:00 AM', location: 'Mission Market', venueId: 'v1', price: 30 }]; confirmBooking(); const g = (id) => document.getElementById(id); return { name: g('bookContactName').value, nameLocked: g('bookContactName').readOnly, email: g('bookContactEmail').value, emailLocked: g('bookContactEmail').readOnly, phoneShown: getComputedStyle(g('bookContactPhoneGroup')).display, phoneRequired: g('bookContactPhone').required, note: getComputedStyle(g('bookBookerNote')).display }; });   // eslint-disable-line no-undef
+    ok('5e. the booker\'s confirm form is filled from their identity and locked, asks no phone, and says what the store gets', form.name === 'Bea Booker' && form.nameLocked && form.email === 'bea@fixture.test' && form.emailLocked && form.phoneShown === 'none' && form.phoneRequired === false && form.note !== 'none', JSON.stringify(form));
     ok('5b. the brand contact gate never blocks a booker (the server checks the brand row), and still blocks an owner without a phone', st.gate === false && st.ownerGate === true, JSON.stringify(st));
     ok('5c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();

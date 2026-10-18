@@ -548,7 +548,8 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <!-- Password field removed: brand accounts are passwordless. Sign-in is a 6-digit email code
                      (openBrandSignIn -> /api/brand-account verify-code) and account creation is the verified
                      redeem_brand_signup flow, which takes NO password. This input was never read or sent. -->
-                <div class="form-group"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
+                <div class="form-group" id="bookContactPhoneGroup"><label class="form-label">Phone *</label><input type="tel" class="form-input" id="bookContactPhone" placeholder="555-123-4567" required></div>
+                <div class="form-group" id="bookBookerNote" style="display:none; font-size:0.86rem; line-height:1.5; color:var(--ink-600);">You are booking as the brand's designated booker. The store receives the brand's contact name and phone from the brand profile, plus your email above.</div>
                 <div class="form-group" id="bookCoiGroup" style="display:none;">
                     <div id="bookCoiCard" style="background:#fff3ed; border:1px solid #ed682f55; border-left:4px solid #ed682f; border-radius:10px; padding:14px 16px;">
                         <div id="bookCoiHead" style="font-size:0.78rem; font-weight:700; text-transform:uppercase; letter-spacing:0.07em; color:#a14e2a; margin-bottom:6px;">Certificate of insurance required</div>
@@ -1736,6 +1737,18 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 setVal('bookContactName', bp.contact_name);
                 setVal('bookContactEmail', bp.email);
                 setVal('bookContactPhone', bp.phone);
+                // 0097: a booker's own identity fills the person fields and nothing is asked twice. The server records
+                // the brand's contact name and phone from the profile and the booker's email, so the phone is not asked.
+                {
+                    const isBooker = window._brandRole === 'booker'; const me = window._brandMe || {};
+                    const lock = (id, v) => { const el = document.getElementById(id); if (!el) return; if (isBooker && v) { el.value = v; el.readOnly = true; el.style.background = '#f3f1ea'; } else { el.readOnly = false; el.style.background = ''; } };
+                    lock('bookContactName', me.name || '');
+                    lock('bookContactEmail', me.email || '');
+                    const pg = document.getElementById('bookContactPhoneGroup'), ph = document.getElementById('bookContactPhone');
+                    if (pg) pg.style.display = isBooker ? 'none' : '';
+                    if (ph) ph.required = !isBooker;
+                    const note = document.getElementById('bookBookerNote'); if (note) note.style.display = isBooker ? '' : 'none';
+                }
                 // Their saved product notes, pre-filled into the booking notes. Without this
                 // the field is labelled "Notes for retailers" and reaches no retailer.
                 { const nEl = document.getElementById('bookNotes'); if (nEl && !nEl.value && bp.default_product_info) nEl.value = bp.default_product_info; }
@@ -1894,7 +1907,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 const sel = collectBookingProducts();
                 if (sel.error) { _showSkuError(sel.error); return; }
             }
-            if (!brandName || !contactName || !contactEmail || !contactPhone) { errMsg.textContent = 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
+            if (!brandName || !contactName || !contactEmail || (!contactPhone && window._brandRole !== 'booker')) { errMsg.textContent = window._brandRole === 'booker' ? 'Your name and email are required.' : 'Brand name, your name, email, and phone are all required.'; errMsg.style.display = 'block'; return; }
             if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contactEmail)) { errMsg.textContent = 'Please enter a valid email address.'; errMsg.style.display = 'block'; return; }
 
             // COI gate. Convenience only - api/booking enforces this server-side, so a
