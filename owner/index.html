@@ -987,7 +987,7 @@ async function renderOwnerCalendar() {
 function ocalItemHtml(p) {
   if (!p || !p.name) return '';
   const dist = p.distributor === 'other' ? (p.distributor_other || 'Other') : ({ unfi: 'UNFI', kehe: 'KeHE', direct: 'Direct' }[p.distributor] || '');
-  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'brand SKU ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
+  const details = [p.upc ? 'UPC ' + escapeHtml(p.upc) : '<span style="color:#a14e2a;">UPC not provided</span>', p.sku ? 'item code ' + escapeHtml(p.sku) : '', dist ? escapeHtml(dist) + (p.distributor_item_number ? ' #' + escapeHtml(p.distributor_item_number) : '') : '', Number.isInteger(p.case_pack) ? p.case_pack + ' per case' : ''].filter(Boolean).join(' &middot; ');
   return '<li style="margin:0 0 6px;">' + escapeHtml(p.name) + (p.size ? ' (' + escapeHtml(p.size) + ')' : '') + (details ? '<div style="font-size:0.78rem; color:var(--ink-500);">' + details + '</div>' : '') + (p.notes ? '<div style="font-size:0.78rem; color:var(--ink-500); font-style:italic;">' + escapeHtml(p.notes) + '</div>' : '') + '</li>';
 }
 // The detail card for one calendar event. Pure: builds HTML from the booking row the calendar already holds.

@@ -1633,11 +1633,13 @@ function skuRowHtml(p) {
     + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Product name, with flavor or variety (e.g. Smoked Serrano Hot Sauce) *', p.name, 'style="flex:1;" title="One product as it appears on the shelf, with its flavor or variety. Not your brand name."')
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
     + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
-    + inp('sku-code', 'Your brand SKU', p.sku)
+    + inp('sku-code', 'Your item code, if you have one (optional)', p.sku, 'title="Your own code for this item, if you keep one. Not the barcode."')
     + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric" title="The barcode number on the product label, usually 12 digits."')
     + '<select class="input sku-distributor">' + sel + '</select>'
-    + inp('sku-distributor-other', 'Distributor name (if Other)', p.distributor_other)
-    + inp('sku-item-number', 'Distributor item number', p.distributor_item_number)
+    // Distributor name only when Other (2026-10-17): UNFI and KeHE cover nearly every brand, so the extra box stays out
+    // of the way until it is needed. The distributor item number is no longer asked; a saved value rides along hidden.
+    + inp('sku-distributor-other', 'Distributor name', p.distributor_other, ((p.distributor || '') === 'other') ? '' : 'style="display:none;"')
+    + inp('sku-item-number', '', p.distributor_item_number, 'type="hidden"')
     + inp('sku-case-pack', 'Units per case', Number.isInteger(p.case_pack) ? p.case_pack : '', 'inputmode="numeric"')
     + '<div style="grid-column:1 / -1;">' + inp('sku-notes', 'Notes for the store (optional, shared with the retailer)', p.notes) + '</div>'
     // UPC nudge (2026-10-15, quieter 2026-10-16): shown only once the row has a product name and still no UPC. A blank
@@ -1645,6 +1647,13 @@ function skuRowHtml(p) {
     + '<div class="sku-upc-hint" style="grid-column:1 / -1; font-size:0.8rem; color:#a14e2a; line-height:1.45;' + (_skuHintWanted(p.name, p.upc) ? '' : ' display:none;') + '">No UPC yet. Stores use the barcode to find your item in their ordering system.</div>'
     + '</div>';
 }
+document.addEventListener('change', (e) => {
+  const t = e.target; if (!t || !t.classList || !t.classList.contains('sku-distributor')) return;
+  const row = t.closest('.sku-row'); const other = row && row.querySelector('.sku-distributor-other');
+  if (!other) return;
+  other.style.display = t.value === 'other' ? '' : 'none';
+  if (t.value !== 'other') other.value = '';
+});
 function _skuHintWanted(name, upc) { return !!String(name == null ? '' : name).trim() && !String(upc == null ? '' : upc).trim(); }
 document.addEventListener('input', (e) => {
   const t = e.target; if (!t || !t.classList || !(t.classList.contains('sku-upc') || t.classList.contains('sku-name'))) return;
