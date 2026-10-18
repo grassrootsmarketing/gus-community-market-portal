@@ -2629,8 +2629,10 @@ function supportMailto(a) {
             const pillClient = document.getElementById('brandSignInPillClient');
             if (window._brandProfile) {
                 const displayName = window._brandProfile.company_name || window._brandProfile.email || 'your brand';
-                if (banner && name) { name.textContent = displayName; banner.classList.add('active'); }
-                if (bannerLanding && nameLanding) { nameLanding.textContent = displayName; bannerLanding.classList.add('active'); }
+                // 0097: the signed-in banner names the role so a designated booker always knows this is not the full account
+                const shown = window._brandRole === 'booker' ? displayName + ' (designated booker)' : displayName;
+                if (banner && name) { name.textContent = shown; banner.classList.add('active'); }
+                if (bannerLanding && nameLanding) { nameLanding.textContent = shown; bannerLanding.classList.add('active'); }
                 if (pill) pill.style.display = 'none';
                 if (pillClient) pillClient.style.display = 'none';
             } else {

@@ -517,6 +517,7 @@ document.addEventListener('keydown', function(e) {
 });
 </script>
 
+<div id="bookerBand" style="display:none;"></div>
 <div id="persistentCoiNudge" style="display:none;"></div>
 <main class="container" id="mainContent">
   <div class="loading">
@@ -719,6 +720,19 @@ async function loadData() {
   window._brandRole = _data.role === 'booker' ? 'booker' : 'owner';
   window._brandMe = _data.me || null;
   document.body.classList.toggle('role-booker', window._brandRole === 'booker');
+  // A slim band on every tab says this is the designated booker, not the full account (same gutter as the COI band).
+  const bookerBand = document.getElementById('bookerBand');
+  if (bookerBand) {
+    if (window._brandRole === 'booker') {
+      bookerBand.innerHTML = `<div style="padding:9px 0; background:#eef5ee; border-bottom:1px solid #2a6b3a33;">
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:8px 12px; max-width:1440px; margin:0 auto; padding:0 24px; font-size:0.9rem; line-height:1.45; color:#2c4a34;">
+      <span style="display:inline-block; padding:2px 10px; border-radius:999px; background:#2a6b3a; color:#fff; font-size:0.72rem; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; white-space:nowrap;">Designated booker</span>
+      <span>Signed in as the designated booker for <strong>${escapeHtml(profile.company_name || 'this brand')}</strong>. You can book demos. The account owner manages the profile, items, insurance, agreements and payments.</span>
+    </div>
+  </div>`;
+      bookerBand.style.display = 'block';
+    } else { bookerBand.style.display = 'none'; bookerBand.innerHTML = ''; }
+  }
   if (window._brandRole === 'booker') {
     document.querySelectorAll('.nav-tab').forEach(t => { if (BOOKER_HIDDEN_TABS.includes(t.dataset.tab)) t.style.display = 'none'; });
     const av = document.getElementById('navAvatar'); if (av) { av.onclick = null; av.title = ''; av.style.cursor = 'default'; const ov = av.querySelector('.avatar-upload-overlay'); if (ov) ov.remove(); }

@@ -52,6 +52,8 @@ try {
     ok('1g. the page never asked for owner-only data (no claim-status, no booker-status)', !posted.some(a => /claim-status|booker-status/.test(String(a))), JSON.stringify(posted));
     const nudge = await p.evaluate(() => { const b = document.getElementById('persistentCoiNudge'); return b ? getComputedStyle(b).display : 'missing'; });
     ok('1i. with the brand\'s certificate approved (coi_on_file), the booker sees no insurance band', nudge === 'none', nudge);
+    const band = await p.evaluate(() => { const b = document.getElementById('bookerBand'); return b ? { display: getComputedStyle(b).display, text: b.innerText } : null; });
+    ok('1l. a "Designated booker" band under the header names the brand and says the owner manages the rest', band && band.display !== 'none' && /Designated booker/i.test(band.text) && /Fire Season Goods/.test(band.text) && /account owner manages/.test(band.text), JSON.stringify(band).slice(0, 200));
     ok('1h. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
@@ -89,6 +91,7 @@ try {
     await p.goto(`${BASE}/brand/dashboard#account`, { waitUntil: 'domcontentloaded' });
     await p.waitForTimeout(1800);
     const card = p.locator('#bookerCard');
+    ok('2x. the owner sees no "Designated booker" band', (await p.evaluate(() => { const b = document.getElementById('bookerBand'); return b ? getComputedStyle(b).display : 'missing'; })) === 'none');
     ok('2a. the owner sees the designated booker card with the permissions text and an invite form', (await card.count()) === 1 && /cannot add or change items/.test(await card.innerText()) && (await p.locator('#bookerEmail').count()) === 1);
     await p.evaluate(() => { document.getElementById('bookerEmail').value = 'Bea@Fixture.test'; document.getElementById('bookerName').value = 'Bea Booker'; document.getElementById('bookerDesignateBtn').click(); });
     await p.waitForTimeout(800);
@@ -157,6 +160,8 @@ try {
     await p.waitForTimeout(2200);
     const st = await p.evaluate(() => ({ role: window._brandRole, ok: _brandCoiOk(), state: _coiCardState().state, gate: _brandContactGateBlocks(window._brandProfile), ownerGate: (function () { const r = window._brandRole; window._brandRole = 'owner'; const g = _brandContactGateBlocks({ contact_name: 'Kyle', phone: '' }); window._brandRole = r; return g; })() }));   // eslint-disable-line no-undef
     ok('5a. the booker\'s coi_on_file / coi_status / coi_expires read as an approved, covering certificate', st.role === 'booker' && st.ok === true && st.state === 'covered', JSON.stringify(st));
+    const bannerName = await p.evaluate(() => { const n = document.getElementById('brandSigninName'); return n ? n.textContent : ''; });
+    ok('5d. the booking page\'s signed-in banner names the role: "(designated booker)"', /designated booker/.test(bannerName), bannerName);
     ok('5b. the brand contact gate never blocks a booker (the server checks the brand row), and still blocks an owner without a phone', st.gate === false && st.ownerGate === true, JSON.stringify(st));
     ok('5c. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
