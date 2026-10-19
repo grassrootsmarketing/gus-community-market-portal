@@ -20,6 +20,7 @@ import { drainFulfillments } from './_fulfillment.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
 import { sweepMoves } from './_booking-moves.js';
+import { sweepCancellationReviews } from './_cancellation-review.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -275,6 +276,15 @@ export default async function handler(req, res) {
       if (mv.errors.length) noteError('moves: ' + mv.errors[0]);
     } catch (e) { out.errors++; noteError('moves: ' + ((e && e.message) || e)); console.error('move sweep error:', (e && e.message) || e); }
 
+    // Codex refund-cutoff R2-2 (2026-10-19): every under_review cancellation without an operator resolution must
+    // have its open review case. The cancel route opens it; if that call failed, this bounded sweep opens it here,
+    // so an unresolved refund eligibility is a discoverable work item, never only a stored row.
+    try {
+      const cr = await sweepCancellationReviews(_b, { limit: 25 });
+      out.cancellation_reviews_checked = cr.checked; out.cancellation_cases_opened = cr.opened; out.cancellation_cases_failed = cr.failed; out.cancellation_reviews_read_failed = !!cr.read_failed;
+      if (cr.errors.length) noteError('cancellation reviews: ' + cr.errors[0]);
+    } catch (e) { out.errors++; noteError('cancellation reviews: ' + ((e && e.message) || e)); console.error('cancellation review sweep error:', (e && e.message) || e); }
+
     // F-03 run verdict. 'succeeded' means EVERY claimed item succeeded: no per-item error after
     // claim (Stripe submit/get/list, ledger apply, park, lease release), no fulfilment row failed
     // and the fulfilment claim itself worked, no operator alert failed to send and the alert claim
@@ -285,7 +295,8 @@ export default async function handler(req, res) {
     const alertsFailed = (out.alerts_failed || 0) > 0 || out.alerts_claim_failed === true;
     // Codex RM-6: a failed move scan (claim or read), a malformed reply or any per-item failure is a failed run.
     const movesFailed = (out.moves_failed || 0) > 0 || out.moves_claim_failed === true || out.moves_read_failed === true || out.moves_notice_failed === true;
-    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed;
+    const reviewsFailed = (out.cancellation_cases_failed || 0) > 0 || out.cancellation_reviews_read_failed === true;
+    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed && !reviewsFailed;
     if (runOk) {
       await heartbeat('succeeded', startMs, out);
       return res.status(200).json(out);

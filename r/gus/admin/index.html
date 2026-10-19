@@ -2708,6 +2708,10 @@ END:VEVENT
             window.state.features = data.features || null;
             window.state.venues = data.venues || [];
             window.state.bookings = data.bookings || [];
+            // Codex refund-cutoff R2-2: the recorded cancellation decision per cancelled booking, and the store's later
+            // answer (refund granted / no refund) where the decision left the refund undecided.
+            window.state.cancellations = {}; (data.cancellations || []).forEach(function(c){ if (c && c.booking_id) window.state.cancellations[c.booking_id] = c; });
+            window.state.cancellationResolutions = {}; (data.cancellation_resolutions || []).forEach(function(r){ if (r && r.booking_id) window.state.cancellationResolutions[r.booking_id] = r; });
             window.state.brandContacts = data.brand_contacts || [];
             window.state.internalContacts = data.internal_contacts || [];
             window.state.demos = (data.demos || []).map(d => ({
@@ -5621,7 +5625,7 @@ function escapeHtml(s) {
                 const status = (d.status || '').toLowerCase();
                 const cancelled = status === 'cancelled' || status === 'declined';
                 const cancelBtn = cancelled
-                    ? '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>'
+                    ? _cancellationResolutionHtml(d)
                     : (d.booking_id
                         // Cancel/refund is a BOOKING operation, send booking_id, never the demo id.
                         ? '<button class="js-cancel-demo" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>'
@@ -5646,8 +5650,63 @@ function escapeHtml(s) {
                 + '</tr>';
             }).join('');
             tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.bookingId, b.dataset.company, b.dataset.date, b.dataset.time); }); });
+            tbody.querySelectorAll('.js-resolve-cancel').forEach(function(b){ b.addEventListener('click', function(){ resolveCancellationConfirm(b.dataset.bookingId, b.dataset.decision, b.dataset.company, b.dataset.date); }); });
             tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time, b.dataset.venue); }); });
         }
+        // Codex refund-cutoff R2-2 (2026-10-19): what a cancelled row shows in its action cell. A cancelled paid booking
+        // whose refund the 72-hour rule left to the store (pending_manual) or to review (under_review) owes an answer:
+        // "Grant refund" issues ONE refund of that booking's own fee through the ledger; "No refund" records the
+        // store's final no. Both ask for a reason, which is recorded with the decision and the operator. Once answered
+        // the row shows the answer. Rows whose refund was automatic, or that were never charged, show that instead.
+        function _cancellationResolutionHtml(d) {
+            if (!d.booking_id) return '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>';
+            const dec = (window.state.cancellations || {})[d.booking_id] || null;
+            const res = (window.state.cancellationResolutions || {})[d.booking_id] || null;
+            if (!dec) return '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>';
+            if (res) {
+                return res.decision === 'refund_granted'
+                    ? _coiPill('Refund granted', 'ok', 'Granted by ' + (res.operator || 'the store') + (res.reason ? ': ' + res.reason : ''))
+                    : _coiPill('No refund', 'warn', 'Decided by ' + (res.operator || 'the store') + (res.reason ? ': ' + res.reason : ''));
+            }
+            if (dec.refund === true) return _coiPill('Refunded', 'ok', dec.reason === 'store_caused' ? 'The store cancelled, so the fee was refunded in full.' : dec.reason === 'forced' ? 'Refunded on your instruction.' : 'Cancelled outside the 72-hour window, so the fee was refunded.');
+            if (dec.status === 'not_paid') return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
+            const why = dec.status === 'under_review'
+                ? 'The demo\'s scheduled time could not be confirmed, so the 72-hour rule could not be applied automatically. Decide the refund here.'
+                : (dec.reason === 'non_refundable' ? 'Your policy is non-refundable, so the fee was kept. You can still refund it here.' : 'The brand cancelled inside the 72-hour window, so the fee was kept. You can still refund it here.');
+            const btn = 'font-size:0.72rem; font-weight:700; padding:5px 9px; border-radius:7px; cursor:pointer; font-family:inherit; margin-left:6px;';
+            return _coiPill('Refund undecided', 'amber', why)
+                + '<button class="js-resolve-cancel" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-decision="grant" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" title="Refund this demo\'s fee to the brand (one refund, recorded with your reason)." style="' + btn + ' background:var(--forest-900); color:#fff; border:none;">Grant refund</button>'
+                + '<button class="js-resolve-cancel" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-decision="deny" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" title="Record that the fee is kept (final, recorded with your reason)." style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">No refund</button>';
+        }
+        async function resolveCancellationConfirm(bookingId, decision, company, date) {
+            const grant = decision === 'grant';
+            const when = date ? formatDemoDate(date) : 'this demo';
+            const reason = await DhModal.prompt({
+                title: grant ? 'Refund the demo fee?' : 'Keep the demo fee?',
+                message: grant
+                    ? 'This refunds <strong>' + escapeHtml(company || 'the brand') + '</strong>\'s fee for ' + escapeHtml(when) + ' (this booking only, in full). The brand is emailed. Why are you refunding it? Your reason is recorded.'
+                    : 'This records that <strong>' + escapeHtml(company || 'the brand') + '</strong>\'s fee for ' + escapeHtml(when) + ' is not refunded. The brand is emailed that this is final. Why? Your reason is recorded.',
+                defaultValue: '', placeholder: grant ? 'e.g. first-time brand, goodwill' : 'e.g. product was ordered and delivered for this demo', ok: grant ? 'Refund the fee' : 'Keep the fee',
+            });
+            if (reason === null || reason === undefined || reason === false) return;
+            if (!String(reason).trim()) { DhModal.toast('A reason is required; it is recorded with your decision.', 'error'); return; }
+            try {
+                const r = await fetch('/api/refund-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ action: decision, booking_id: bookingId, reason: String(reason).trim().slice(0, 500) }) });
+                const j = await r.json().catch(function(){ return {}; });
+                if (!r.ok) {
+                    const msg = j.error === 'reason_required' ? 'A reason is required.' : j.error === 'resolved' ? 'This cancellation was already decided.' : j.error === 'refund_not_possible' ? 'The refund could not be issued (' + (j.detail || 'ledger refused') + '). Nothing was recorded.' : (j.message || j.error || ('HTTP ' + r.status));
+                    DhModal.toast('Could not record the decision: ' + msg, 'error'); return;
+                }
+                if (j.existing) DhModal.toast('Already decided: ' + (j.resolution && j.resolution.decision === 'refund_granted' ? 'refund granted' : 'no refund') + '.', 'success');
+                else if (grant) DhModal.toast(j.refund_status === 'submitted' ? 'Refund submitted to the brand. Stripe will confirm it shortly.' : 'Refund recorded; it is being retried by the refund worker.', 'success');
+                else DhModal.toast('Recorded: no refund. The brand has been told.', 'success');
+                if (typeof refreshAll === 'function') await refreshAll();
+            } catch (e) {
+                DhModal.toast('Could not record the decision: ' + (e.message || e), 'error');
+            }
+        }
+        window.resolveCancellationConfirm = resolveCancellationConfirm;
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
         // COI badge on a demo row (2026-10-16). One plain statement from the approval and the expiry, shown on every
         // upcoming demo. No automatic-reader stamp: the store does not need to know HOW the certificate was checked,

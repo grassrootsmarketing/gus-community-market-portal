@@ -316,6 +316,21 @@ export default async function handler(req, res) {
         const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
         if (byBooking.size) filteredDemos = (filteredDemos || []).map(d => (d && d.booking_id && byBooking.has(d.booking_id)) ? { ...d, pending_move: byBooking.get(d.booking_id) } : d);
       } catch (_) { /* non-fatal: the badge is simply absent */ }
+      // Codex refund-cutoff R2-2 (2026-10-19): cancelled bookings carry their recorded cancellation decision and, when
+      // the refund was left undecided, the operator's resolution (if any), so the admin can show "Grant refund /
+      // No refund" on exactly the rows that still owe an answer. Non-fatal: the buttons are simply absent.
+      let cancellations = [], cancellationResolutions = [];
+      try {
+        const cancelledIds = (filteredBookings || []).filter(b => ['cancelled', 'declined'].includes(String(b.status || ''))).map(b => b.id);
+        if (cancelledIds.length) {
+          const inList = cancelledIds.map(encodeURIComponent).join(',');
+          [cancellations, cancellationResolutions] = await Promise.all([
+            sb(`booking_cancellations?booking_id=in.(${inList})&select=booking_id,category,requested_at,decided_at,cancellation_mode,hours_before_demo,refund,status,reason,force_refund`),
+            sb(`booking_cancellation_resolutions?booking_id=in.(${inList})&select=booking_id,decision,operator,reason,resolved_at,refund_request_id,case_id`),
+          ]);
+          cancellations = Array.isArray(cancellations) ? cancellations : []; cancellationResolutions = Array.isArray(cancellationResolutions) ? cancellationResolutions : [];
+        }
+      } catch (_) { cancellations = []; cancellationResolutions = []; }
       // Enrich HELD (provisional-hold) bookings with the brand's real COI verification status so the
       // admin inbox can distinguish "ready to confirm" (COI approved → Confirm captures) from "still
       // pending". Without this the badge was a hardcoded "COI pending" that never updated on approval.
@@ -393,6 +408,8 @@ export default async function handler(req, res) {
         settings: settingsObj,
         compliance: compliance || [],
         bookings: filteredBookings,
+        cancellations,
+        cancellation_resolutions: cancellationResolutions,
         viewer_venue_ids: viewerVenueIds || null,
         // Release B: the admin shows the slot/blackout editors only while editing is switched on.
         features: { slot_editing: FLAGS.slotEditing, retailer_moves: FLAGS.retailerMoves },

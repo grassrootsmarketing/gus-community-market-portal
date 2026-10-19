@@ -32,6 +32,19 @@ import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availab
 // ---------------------------------------------------------------------------
 const ORIG_ENV = { ...process.env };
 const { SB_URL, SB_KEY, SB_REF, STRIPE_TEST_SECRET_KEY } = process.env;
+// Codex refund-cutoff R2-5 (2026-10-19): the Stripe sandbox webhook endpoint (GROUPED_WEBHOOK=we_...) points at the
+// preview deployment, which is bound to this same test project. Left enabled, Stripe delivers the real paid events
+// there first; the suite's local replay is then a duplicate ack (no PaymentIntent retrieval, no mail) and the two
+// webhook assertions fail for that reason alone. The endpoint is paused for the run and restored afterwards.
+const GROUPED_WEBHOOK = process.env.GROUPED_WEBHOOK || null;
+let webhookPaused = false;
+async function setSandboxWebhook(enabled) {
+  if (!GROUPED_WEBHOOK) return null;
+  const r = await fetch('https://api.stripe.com/v1/webhook_endpoints/' + encodeURIComponent(GROUPED_WEBHOOK), { method: 'POST',
+    headers: { Authorization: 'Bearer ' + STRIPE_TEST_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'disabled=' + (enabled ? 'false' : 'true') });
+  const j = await r.json().catch(() => ({}));
+  return j.status || (j.error && j.error.message) || ('HTTP ' + r.status);
+}
 const refuse = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
 if (!SB_URL || !SB_KEY || !SB_REF) refuse('SB_URL, SB_KEY, SB_REF are required');
 if (SB_REF !== 'tileejdviuvijumjeplv') refuse(`SB_REF must be the rebuilt staging project (got ${SB_REF.slice(0, 4)}…)`);
@@ -616,12 +629,15 @@ async function teardown() {
 }
 
 let runErr = null;
+if (GROUPED_WEBHOOK) { const st = await setSandboxWebhook(false); webhookPaused = st === 'disabled'; console.log('sandbox webhook ' + GROUPED_WEBHOOK + ' paused: ' + st); }
+else console.log('note: GROUPED_WEBHOOK not set; if the sandbox endpoint delivers to the preview first, the local webhook replay is a duplicate ack');
 try { await run(); }
 catch (e) { runErr = e; console.error('E2E ERROR', (e && e.stack) || e, e && e.cause ? `cause: ${e.cause.code || ''} ${e.cause.message || ''}` : ''); state.fail++; state.fails.push('run aborted: ' + String(e && e.message || e)); }
 finally {
   try { writeEvidence(runErr); } catch (e) { console.error('evidence write failed', e); }
   await teardown();
   globalThis.fetch = realFetch;
+  if (webhookPaused) { const st = await setSandboxWebhook(true); console.log('sandbox webhook restored: ' + st); }
 }
 const green = summary('stripe test-mode grouped e2e');
 process.exit(green ? 0 : 1);

@@ -7,7 +7,7 @@
 //     and override_reason; the toast names the outcome; store-caused hides the brand fields and posts no override.
 // Local static server on :4174 (scratchpad local-server.mjs or any static host of the repo), Playwright in
 // PLAYWRIGHT_ROOT or the cwd's node_modules.
-/* global document, window, cancelDemoConfirm, renderCancellationSentence */
+/* global document, window, cancelDemoConfirm, renderCancellationSentence, renderDemosTable */
 import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4174';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');
@@ -22,19 +22,33 @@ function dayP(n) { const d = new Date(Date.now() + n * 864e5); const p = {}; for
 const retailer = { id: 'r1', slug: 'gus', name: 'Gus Market', timezone: LA, cancellation_mode: 'refundable', cancellation_policy: null, verification_status: 'approved', auto_confirm_bookings: true, platform_keeps_all: true };
 const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', name: 'Main', address: '1 St', demo_fee: 30 }], bookings: [], brand_contacts: [], internal_contacts: [],
   demos: [{ id: 'd1', booking_id: 'bk1', venue_id: 'v1', demo_date: dayP(1), demo_time: '1:00 PM', company_name: 'Fire Season Goods', contact_name: 'Kyle', status: 'confirmed', product: 'Sauce', demo_fee: 30 },
-          { id: 'd2', booking_id: 'bk2', venue_id: 'v1', demo_date: dayP(10), demo_time: '1:00 PM', company_name: 'Ember Rubs', contact_name: 'Bea', status: 'confirmed', product: 'Rub', demo_fee: 30 }],
+          { id: 'd2', booking_id: 'bk2', venue_id: 'v1', demo_date: dayP(10), demo_time: '1:00 PM', company_name: 'Ember Rubs', contact_name: 'Bea', status: 'confirmed', product: 'Rub', demo_fee: 30 },
+          // Codex R2-2: cancelled rows. bk3 owes a refund decision (inside the window, pending_manual); bk4 was decided (no refund);
+          // bk5 was refunded automatically (store-caused); bk6 is under review (no start) and owes a decision too.
+          { id: 'd3', booking_id: 'bk3', venue_id: 'v1', demo_date: dayP(4), demo_time: '1:00 PM', company_name: 'Pending Pickles', contact_name: 'Pat', status: 'cancelled', product: 'Pickles', demo_fee: 30 },
+          { id: 'd4', booking_id: 'bk4', venue_id: 'v1', demo_date: dayP(5), demo_time: '1:00 PM', company_name: 'Decided Dips', contact_name: 'Dee', status: 'cancelled', product: 'Dips', demo_fee: 30 },
+          { id: 'd5', booking_id: 'bk5', venue_id: 'v1', demo_date: dayP(6), demo_time: '1:00 PM', company_name: 'Refunded Rolls', contact_name: 'Ro', status: 'cancelled', product: 'Rolls', demo_fee: 30 },
+          { id: 'd6', booking_id: 'bk6', venue_id: 'v1', demo_date: dayP(7), demo_time: '1:00 PM', company_name: 'Review Relish', contact_name: 'Rae', status: 'cancelled', product: 'Relish', demo_fee: 30 }],
+  cancellations: [
+    { booking_id: 'bk3', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 30 },
+    { booking_id: 'bk4', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
+    { booking_id: 'bk5', category: 'store_caused', refund: true, status: 'auto', reason: 'store_caused', cancellation_mode: 'refundable', hours_before_demo: 10 },
+    { booking_id: 'bk6', category: 'brand_requested', refund: false, status: 'under_review', reason: 'start_unresolvable', cancellation_mode: 'refundable', hours_before_demo: null }],
+  cancellation_resolutions: [{ booking_id: 'bk4', decision: 'no_refund', operator: 'owner@gus.test', reason: 'product was delivered', resolved_at: new Date().toISOString() }],
   settings: { demo_fee: 30, advance_booking_days: 14, retailer_name: 'Gus Market' }, compliance: [] });
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await ctx.newPage();
 const errs = []; page.on('pageerror', e => errs.push(String(e.message || e)));
-const posted = { patches: [], cancels: [] };
+const posted = { patches: [], cancels: [], reviews: [] };
+let reviewReply = { ok: true, outcome: 'resolved', existing: false, refund_status: 'submitted', resolution: { decision: 'refund_granted' } };
 let cancelReply = { ok: true, refund_status: 'pending_manual', refund_reason: 'inside_cutoff', demo_cancelled: true, hours_before_demo: 30 };
 await page.route('**/api/**', async (route) => {
   const u = route.request().url(); const m = route.request().method(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
   if (u.includes('/api/admin?action=data')) return json(route, data());
   if (u.includes('/api/admin?table=retailers') && m === 'PATCH') { posted.patches.push(body); Object.assign(retailer, body); return json(route, { ok: true, ...body }); }
+  if (u.includes('/api/refund-review')) { posted.reviews.push(body); return json(route, reviewReply); }
   if (u.includes('/api/booking-action')) { posted.cancels.push(body); return json(route, cancelReply); }
   if (u.includes('/api/coi-status')) return json(route, { ok: true, pending: [] });
   return json(route, { ok: true });
@@ -42,13 +56,14 @@ await page.route('**/api/**', async (route) => {
 const toastText = async () => (await page.locator('.dhm-toast').allInnerTexts()).join(' | ');
 const dialog = () => page.locator('.dhm-backdrop .dhm-card').last();
 const openCancel = async (bookingId, company, date, time) => { await page.evaluate(([b, c, d, t]) => { window.__cancelPromise = cancelDemoConfirm(b, c, d, t); }, [bookingId, company, date, time]); await page.waitForSelector('.dhm-backdrop .dhm-card'); };
+const clickBtn = async (sel) => { const hit = await page.evaluate((q) => { const b = document.querySelector(q); if (!b) return false; b.click(); return true; }, sel); if (!hit) throw new Error('no button ' + sel); };
 const pressOk = async () => { await dialog().locator('[data-act="ok"]').click(); await page.waitForTimeout(250); };
 const localValue = (d) => { const p2 = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()); };
 
 try {
   await page.goto(`${BASE}/r/gus/admin`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.state && window.state.retailer && window.state.retailer.id === 'r1', null, { timeout: 15000 });
-  ok('the admin loaded the stubbed retailer and demos', await page.evaluate(() => window.state.demos.length) === 2);
+  ok('the admin loaded the stubbed retailer and demos', await page.evaluate(() => window.state.demos.length) === 6);
 
   console.log('\nPolicies tab');
   {
@@ -142,6 +157,56 @@ try {
     await dialog().locator('input[name="cancelCategory"][value="brand_requested"]').check(); await page.waitForTimeout(100);
     await pressOk(); await page.waitForTimeout(300);
     ok('an under_review reply is reported as a review with its case', /under review by Demohub \(case 12345678\)/.test(await toastText()), await toastText());
+  }
+  console.log('\nCancelled rows: the refund decision (Codex R2-2)');
+  {
+    await page.evaluate(() => { const a = document.querySelector('a.subnav-link[data-section="demosSection"]'); if (a) a.click(); const st = document.getElementById('demoStatusFilter'); if (st) { st.value = ''; } if (typeof renderDemosTable === 'function') renderDemosTable(); });
+    await page.waitForTimeout(300);
+    const cells = await page.evaluate(() => {
+      const out = {};
+      for (const tr of document.querySelectorAll('#demosTableBody tr')) {
+        const name = (tr.children[1] && tr.children[1].innerText) || '';
+        const cell = tr.children[5];
+        out[name.trim()] = { text: (cell && cell.innerText.replace(/\s+/g, ' ').trim()) || '', buttons: cell ? [...cell.querySelectorAll('button.js-resolve-cancel')].map(b => b.dataset.decision + ':' + b.dataset.bookingId) : [] };
+      }
+      return out;
+    });
+    ok('an undecided inside-window cancellation shows "Refund undecided" with Grant refund and No refund', cells['Pending Pickles'] && /Refund undecided/i.test(cells['Pending Pickles'].text) && cells['Pending Pickles'].buttons.join(',') === 'grant:bk3,deny:bk3', JSON.stringify(cells['Pending Pickles']));
+    ok('an under-review cancellation shows the same two buttons', cells['Review Relish'] && cells['Review Relish'].buttons.join(',') === 'grant:bk6,deny:bk6', JSON.stringify(cells['Review Relish']));
+    ok('a decided cancellation shows "No refund" and no buttons', cells['Decided Dips'] && /No refund/i.test(cells['Decided Dips'].text) && cells['Decided Dips'].buttons.length === 0, JSON.stringify(cells['Decided Dips']));
+    ok('an automatically refunded cancellation shows "Refunded" and no buttons', cells['Refunded Rolls'] && /Refunded/i.test(cells['Refunded Rolls'].text) && cells['Refunded Rolls'].buttons.length === 0, JSON.stringify(cells['Refunded Rolls']));
+    ok('a live demo keeps its Cancel button (no decision cell)', cells['Ember Rubs'] && cells['Ember Rubs'].buttons.length === 0 && /Cancel/i.test(cells['Ember Rubs'].text), JSON.stringify(cells['Ember Rubs']));
+    // Grant: the dialog asks why; OK with no reason posts nothing
+    await clickBtn('button.js-resolve-cancel[data-decision="grant"][data-booking-id="bk3"]'); await page.waitForTimeout(250);
+    const t1 = await dialog().innerText();
+    ok('Grant refund opens a dialog that names the brand, says this booking only in full, and asks why', /Refund the demo fee\?/.test(t1) && /Pending Pickles/.test(t1) && /this booking only, in full/.test(t1) && /Why are you refunding/.test(t1), t1.slice(0, 200));
+    const before = posted.reviews.length;
+    await pressOk();
+    ok('OK with an empty reason posts nothing and says a reason is required', posted.reviews.length === before && /reason is required/i.test(await toastText()), await toastText());
+    await clickBtn('button.js-resolve-cancel[data-decision="grant"][data-booking-id="bk3"]'); await page.waitForTimeout(250);
+    await dialog().locator('input, textarea').first().fill('goodwill, first demo');
+    await pressOk(); await page.waitForTimeout(400);
+    const g = posted.reviews[posted.reviews.length - 1];
+    ok('the post is action grant with the booking id and the reason', g && g.action === 'grant' && g.booking_id === 'bk3' && g.reason === 'goodwill, first demo', JSON.stringify(g));
+    ok('the toast says the refund was submitted', /Refund submitted to the brand/.test(await toastText()), await toastText());
+    // Deny
+    reviewReply = { ok: true, outcome: 'resolved', existing: false, refund_status: 'none', resolution: { decision: 'no_refund' } };
+    await page.evaluate(() => { if (typeof renderDemosTable === 'function') renderDemosTable(); }); await page.waitForTimeout(200);
+    await clickBtn('button.js-resolve-cancel[data-decision="deny"][data-booking-id="bk6"]'); await page.waitForTimeout(250);
+    const t2 = await dialog().innerText();
+    ok('No refund opens a dialog that says the brand is told this is final and asks why', /Keep the demo fee\?/.test(t2) && /Review Relish/.test(t2) && /final/.test(t2), t2.slice(0, 200));
+    await dialog().locator('input, textarea').first().fill('product was ordered and delivered');
+    await pressOk(); await page.waitForTimeout(400);
+    const dn = posted.reviews[posted.reviews.length - 1];
+    ok('the post is action deny with the booking id and the reason', dn && dn.action === 'deny' && dn.booking_id === 'bk6' && dn.reason === 'product was ordered and delivered', JSON.stringify(dn));
+    ok('the toast says no refund was recorded and the brand told', /Recorded: no refund/.test(await toastText()), await toastText());
+    // an already-decided reply
+    reviewReply = { ok: true, outcome: 'existing', existing: true, resolution: { decision: 'refund_granted' } };
+    await page.evaluate(() => { if (typeof renderDemosTable === 'function') renderDemosTable(); }); await page.waitForTimeout(200);
+    await clickBtn('button.js-resolve-cancel[data-decision="deny"][data-booking-id="bk3"]'); await page.waitForTimeout(250);
+    await dialog().locator('input, textarea').first().fill('second click');
+    await pressOk(); await page.waitForTimeout(400);
+    ok('a reply that says it was already decided is reported as such', /Already decided: refund granted/.test(await toastText()), await toastText());
   }
   ok('no page errors during the run', errs.length === 0, errs.join(' | ').slice(0, 300));
 } catch (e) {

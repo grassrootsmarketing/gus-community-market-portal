@@ -312,7 +312,7 @@ export const MOVE_REFUSALS = {
   venue_hours_not_set: [409, 'This location has no hours set, so no slot can be resolved.'],
   invalid_local_time: [400, 'That local time does not exist on that date (daylight saving change). Pick another slot.'],
   unresolvable_start: [400, 'That slot could not be resolved to a start time at this location. Pick another slot.'],
-  cancellation_pending: [409, 'The brand could not make the last new time (or never answered), so this demo is being cancelled and refunded. Nothing can be moved until that completes; book a new slot instead.'],
+  cancellation_pending: [409, 'This demo is being cancelled (the store recorded a cancellation, or the brand could not make the last new time), so nothing can be moved until that completes. Book a new slot instead.'],   // 0106: the same reason now also covers a recorded cancellation
 };
 async function handleMove(req, res, body) {
   // Codex RM-7: creation only. Existing moves settle, lapse and notify whatever this says.
@@ -598,10 +598,11 @@ export default async function handler(req, res) {
     let refundReason = null;        // cancel path only: why the refund was or was not automatic (api/_refund-cutoff.js)
     let refundHoursOut = null;      // cancel path only: elapsed hours from the brand's request to the demo's start
     let cancelDecisionReplayed = false;   // cancel path only: a retry reused the recorded decision (0105)
+    let cancelDecisionRecomputed = false; // cancel path only: the first record was stale and the decision was judged once more on the current row (0106)
     let refundReviewCaseId = null;        // cancel path only: the durable review item for an unresolved start
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
-    const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+    let wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;   // let: re-judged if the cancellation record finds the row moved on (0106)
     // Provisional holds: declining/cancelling a held booking with a live authorization RELEASES the
     // hold (cancel the PI, $0 charged, $0 Stripe fee), never refunds. The RPC inside flips the
     // booking to declined/cancelled; the email below carries the "never charged" copy.
@@ -643,24 +644,52 @@ export default async function handler(req, res) {
       // was received, in the store's zone; inside the window, or in non_refundable mode, the refund is the store's
       // call (pending_manual) unless it ticked "Refund the brand anyway"; an unresolvable start goes to review.
       // Unpaid and fee-waived bookings never refund.
-      const fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
+      let fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
       // Codex RC-3: the decision is RECORDED before any refund effect, under the booking's row lock (0105). A retry
       // (a provider timeout, a failed transition) gets the first decision back and resumes it; it never judges the
       // clock again, so a later store policy change or the passing of the boundary cannot change the outcome.
-      let rec;
-      try {
-        rec = await sbRpc('booking_cancellation_record', { p_booking_id: booking.id, p_retailer_id: session.retailer_id, p_decision: {
-          ...fresh, cancellation_mode: fresh.mode, actor: (session && session.email) || null, force_refund: force_refund === true,
-          override_reason: cancelOverrideReason, backdate_note: cancelBackdateNote, note: reason ? String(reason).trim().slice(0, 500) : null,
-        } });
-      } catch (e) {
-        return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was refunded. Retry in a moment.' });
+      // Codex R2-3 (0106): the decision is bound to the row it was computed from. The record carries the schedule
+      // revision, date, time, payment state, fee waiver and the store's mode and zone it used; under the booking's
+      // lock the database records it only if those are still current, else answers 'stale' with the current values.
+      // The route then reloads the authoritative row, recomputes ONCE and records against that; a second 'stale' is
+      // a 409 (the booking is changing under the operator). A recorded decision also sets the cancellation barrier:
+      // no confirmation, capture promotion or schedule change lands until booking_transition('cancel') clears it.
+      const expectOf = (bk, rt) => ({ schedule_revision: bk.schedule_revision == null ? null : Number(bk.schedule_revision), demo_date: bk.demo_date || null, demo_time: bk.demo_time || null,
+        payment_status: bk.payment_status || null, fee_waived: bk.fee_waived === true, cancellation_mode: rt.cancellation_mode || null, timezone: rt.timezone || null });
+      const decisionPayload = (d) => ({ ...d, cancellation_mode: d.mode, actor: (session && session.email) || null, force_refund: force_refund === true,
+        override_reason: cancelOverrideReason, backdate_note: cancelBackdateNote, note: reason ? String(reason).trim().slice(0, 500) : null });
+      let recRow = null, recomputed = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let rec;
+        try {
+          rec = await sbRpc('booking_cancellation_record', { p_booking_id: booking.id, p_retailer_id: session.retailer_id, p_decision: decisionPayload(fresh), p_expect: expectOf(booking, retailer) });
+        } catch (e) {
+          return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was refunded. Retry in a moment.' });
+        }
+        recRow = Array.isArray(rec) ? rec[0] : rec;
+        if (recRow && recRow.outcome === 'stale' && attempt === 0) {
+          // the row moved on since it was read (a payment landed, a move, a policy change): judge the current row once
+          let bNow = null, rNow = null;
+          try {
+            const bs = await sb('bookings?id=eq.' + encodeURIComponent(booking.id) + '&select=*'); bNow = Array.isArray(bs) ? bs[0] : null;
+            const rs = await sb('retailers?id=eq.' + encodeURIComponent(booking.retailer_id) + '&select=name,slug,cancellation_mode,platform_keeps_all,timezone'); rNow = Array.isArray(rs) ? rs[0] : null;
+          } catch (_) { bNow = null; }
+          if (!bNow || !rNow) return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The booking changed while you were working and could not be re-read. Nothing was changed and nothing was refunded. Retry in a moment.' });
+          if (!['pending', 'confirmed', 'held'].includes(bNow.status)) return res.status(409).json({ error: 'state_changed', status: bNow.status, message: 'This booking changed while you were working (now ' + bNow.status + '). Reload and try again.' });
+          Object.assign(booking, bNow); Object.assign(retailer, rNow);
+          wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+          fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
+          recomputed = true;
+          continue;
+        }
+        break;
       }
-      const recRow = Array.isArray(rec) ? rec[0] : rec;
       if (!recRow || !['recorded', 'existing'].includes(recRow.outcome)) {
-        if (recRow && recRow.outcome === 'state_conflict') return res.status(409).json({ error: 'state_changed', status: recRow.status, message: 'This booking changed while you were working (now ' + recRow.status + '). Reload and try again. Nothing was refunded.' });
+        if (recRow && recRow.outcome === 'state_conflict') return res.status(409).json({ error: 'state_changed', status: recRow.status, message: 'This booking changed while you were working (now ' + recRow.status + '). Reload and try again.' });
+        if (recRow && recRow.outcome === 'stale') return res.status(409).json({ error: 'state_changed', stale: true, current: recRow.current || null, message: 'This booking is changing while you were working (a payment, a move or a policy change landed twice). Reload and try again; nothing was changed and nothing was refunded.' });
         return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + ((recRow && recRow.outcome) || 'no result') + '). Nothing was changed and nothing was refunded.' });
       }
+      cancelDecisionRecomputed = recomputed;
       cancelDecisionReplayed = recRow.existing === true;
       const saved = recRow.decision || {};
       const decision = cancelDecisionReplayed
@@ -782,6 +811,12 @@ export default async function handler(req, res) {
         } catch (caseErr) {
           console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
         }
+      }
+      if (!moneyMoved && tr && tr.reason === 'cancellation_pending') {
+        // 0106: a cancellation decision is recorded on this booking and its cancellation has not landed yet (the
+        // first attempt failed after the record). Only a cancel may proceed; say so instead of a generic stale-tab message.
+        return res.status(409).json({ ok: false, error: 'cancellation_pending', action, booking_id, status: tr.status_before,
+          message: 'A cancellation of this booking is recorded and still landing. Finish or retry the cancellation; it cannot be confirmed or moved until then.' });
       }
       return res.status(409).json({
         ok: false, error: capturedHeldNow ? 'capture_succeeded_confirmation_unverified' : 'state_changed', action, booking_id, captured: capturedHeldNow || undefined,
@@ -922,6 +957,7 @@ export default async function handler(req, res) {
       decision_replayed: action === 'cancel' ? cancelDecisionReplayed : undefined,
       refund_review_case_id: refundReviewCaseId || undefined,
       refund_review_recorded: refundStatus === 'under_review' ? !!refundReviewCaseId : undefined,
+      decision_recomputed: action === 'cancel' ? cancelDecisionRecomputed : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
       // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was
       // opened. The caller must NOT treat the cancellation as fully complete.
