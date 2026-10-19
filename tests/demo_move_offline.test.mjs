@@ -180,7 +180,8 @@ console.log('\n:: fan-out ::');
 {
   reset();
   const f = await fanOutEvents(b, { now });
-  ok('demo_moved fans out to the account email and the team member, keyed on the move', f.deliveries === 2 && inserts.length === 2 && inserts.every(r => r.kind === 'demo_moved' && r.occurrence_key === 'mv1' && r.retailer_id === 'gus' && r.booking_id === 'bk1') && inserts.map(r => r.recipient_email).sort().join(',') === 'brand@example.test,mate@example.test', JSON.stringify({ f, inserts: inserts.map(r => r.dedupe_key) }));
+  // 0097 (merged 2026-10-18): outbox brand notices are the owner's; a second membership row that is not an accepted owner is not a recipient
+  ok('demo_moved fans out to the brand account email only (the other membership row is not an owner), keyed on the move', f.deliveries === 1 && inserts.length === 1 && inserts.every(r => r.kind === 'demo_moved' && r.occurrence_key === 'mv1' && r.retailer_id === 'gus' && r.booking_id === 'bk1') && inserts.map(r => r.recipient_email).sort().join(',') === 'brand@example.test', JSON.stringify({ f, inserts: inserts.map(r => r.dedupe_key) }));
   reset(); mv().status = 'confirmed';
   const f2 = await fanOutEvents(b, { now });
   ok('a moved notice for a move the brand already answered is fanned out as skipped, no rows', f2.deliveries === 0 && f2.skipped_events === 1 && inserts.length === 0 && patches.some(p => p.table === 'notification_events' && p.p.payload && p.p.payload.fanout_note === 'skipped_move_confirmed'), JSON.stringify(f2));
@@ -225,7 +226,7 @@ console.log('\n:: reminders ::');
   reset();
   const s = await scheduleMoveReminders(b, { now });
   const keys = inserts.map(r => r.dedupe_key).sort();
-  ok('two recipients x two offsets, keyed on the move, due +24h and +48h after the move', s.moves === 1 && inserts.length === 4 && keys.join(' ') === ['demo_move_reminder:mv1:brand:brand:h24', 'demo_move_reminder:mv1:brand:brand:h48', 'demo_move_reminder:mv1:brand:mate:h24', 'demo_move_reminder:mv1:brand:mate:h48'].join(' ') && inserts.find(r => r.offset_key === 'h24').due_at === '2026-10-17T17:00:00.000Z' && inserts.every(r => r.status === 'pending'), JSON.stringify({ s, keys }));
+  ok('one recipient (the owner) x two offsets, keyed on the move, due +24h and +48h after the move', s.moves === 1 && inserts.length === 2 && keys.join(' ') === ['demo_move_reminder:mv1:brand:brand:h24', 'demo_move_reminder:mv1:brand:brand:h48'].join(' ') && inserts.find(r => r.offset_key === 'h24').due_at === '2026-10-17T17:00:00.000Z' && inserts.every(r => r.status === 'pending'), JSON.stringify({ s, keys }));
   reset(); mv().reconfirm_due_at = '2026-10-18T00:00:00Z';
   await scheduleMoveReminders(b, { now });
   ok('a compressed window: the +48h nudge is skipped too_close_to_deadline, the +24h one pending', inserts.filter(r => r.offset_key === 'h48').every(r => r.skip_reason === 'too_close_to_deadline') && inserts.filter(r => r.offset_key === 'h24').every(r => r.status === 'pending'));
