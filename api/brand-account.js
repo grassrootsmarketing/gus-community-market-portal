@@ -435,6 +435,11 @@ const ACTION_ROLES = {
   'reschedule-respond': ['owner', 'booker'],
   'logout': ['owner', 'booker'],
   'logout-everywhere': ['owner', 'booker'],
+  // 0094 x 0097 (2026-10-18, integrated release): answering a store's move is the OWNER's. A decline cancels the demo
+  // and refunds the payment, which a booker may never trigger; a confirm is kept with it so the one person who was
+  // told about the move (the owner; move notices go to the owner only) is the one who answers. Listed explicitly so
+  // the default-deny is a decision, not an accident.
+  'move-respond': ['owner'],
   // everything else is owner-only: profile-update, upload-*, remove-*, receipt-resend, set-password, claim-status,
   // cal_token, cal_revoke, booker-designate, booker-status, booker-resend, booker-revoke
 };

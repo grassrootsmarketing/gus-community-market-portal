@@ -858,6 +858,14 @@ function moveBannerHtml(d) {
   let due = '';
   try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; } catch (_) { due = ''; }
   const note = m.note ? '<div style="margin-top:6px;font-size:0.84rem;color:#5c4400;"><strong>Note from ' + store + ':</strong> ' + escapeHtml(m.note) + '</div>' : '';
+  // 0097: a designated booker sees the move but cannot answer it (the server refuses move-respond for a booker; a
+  // decline would cancel and refund). The banner says who answers instead of showing buttons that would fail.
+  if (window._brandRole === 'booker') {
+    return '<div class="resched-banner move-banner" title="The store moved this demo. The brand account owner confirms the new time or cancels for a full refund.">'
+      + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>.'
+      + (due ? ' The brand account owner has been asked to confirm the new time by <strong>' + escapeHtml(due) + '</strong>; if they cannot make it, the demo is cancelled and refunded in full.' : ' The brand account owner has been asked to confirm the new time.')
+      + ' Only the owner can answer; talk to them if the new time does not work for you.' + note + '</div></div>';
+  }
   return '<div class="resched-banner move-banner" title="The store moved this demo. Your booking and payment stay the same. Confirm the new time, or tell us you cannot make it and you are refunded in full.">'
     + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>. Please confirm' + (due ? ' by <strong>' + escapeHtml(due) + '</strong>' : '') + '. If we do not hear from you, the demo is cancelled and your payment is refunded in full.' + note + '</div>'
     + '<div class="resched-actions">'
@@ -2496,6 +2504,7 @@ function renderBookerOverview() {
   const row = (d) => '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
     + '<div><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
     + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(d.demo_date || '') + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
+    + (d.pending_move ? _bookerMoveLine(d) : '')
     + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div></div>';
   main.innerHTML = `
     <div class="page-head"><div><h1>${escapeHtml(profile.company_name || 'Your brand')}</h1><div class="sub">You book demos for this brand. The brand account owner manages everything else.</div></div></div>
@@ -2509,6 +2518,16 @@ function renderBookerOverview() {
       ${upcoming.length ? upcoming.map(row).join('') : '<div style="color:var(--ink-500); font-size:0.92rem;">No upcoming demos yet.</div>'}
       ${mine.length !== upcoming.length && mine.length ? '<div style="font-size:0.82rem; color:var(--ink-500); margin-top:10px;">' + mine.length + ' of these were booked by you.</div>' : ''}
     </div>`;
+}
+// 0094 x 0097 (2026-10-18): the booker's row already shows the NEW time (the move changes the demo); this line says the
+// store moved it and that the owner answers (the booker cannot: move-respond is owner-only on the server).
+function _bookerMoveLine(d) {
+  const m = d.pending_move || {};
+  let from = '';
+  try { from = m.from_date ? new Date(m.from_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (m.from_time ? ' at ' + m.from_time : '') : ''; } catch (_) { from = m.from_date || ''; }
+  let due = '';
+  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; } catch (_) { due = ''; }
+  return '<div style="color:#8a5a00; font-size:0.84rem; margin-top:4px;">Moved by the store' + (from ? ' (was ' + escapeHtml(from) + ')' : '') + '. The brand account owner has been asked to confirm the new time' + (due ? ' by ' + escapeHtml(due) : '') + '; only the owner can answer, and if they cannot make it the demo is cancelled and refunded in full.</div>';
 }
 function renderBookerAccount() {
   const p = _data.profile || {};

@@ -235,6 +235,31 @@ try {
     ok('6d. no page errors', errs.length === 0, errs.join(' | '));
     await ctx.close();
   }
+  // 7. a store moved a demo (0094 x 0097, 2026-10-18 integrated release): the owner sees Confirm / We can't make it; the
+  //    booker sees the move and who answers, and no buttons (the server refuses move-respond for a booker)
+  for (const role of ['booker', 'owner']) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
+    const base = role === 'booker' ? bookerData : ownerData;
+    const moved = { ...base, demos: [{ ...base.demos[0], demo_time: '2:00 PM', pending_move: { id: 'mv1', from_date: '2026-11-20', from_time: '11:00 AM', to_date: '2026-11-20', to_time: '2:00 PM', note: 'Our morning staffer is out.', moved_at: '2026-11-01T17:00:00Z', reconfirm_due_at: '2026-11-04T17:00:00Z' } }] };
+    await p.route('**/api/**', async (route) => {
+      const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
+      if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, moved);
+      return json(route, { ok: true, items: [], agreements: [], booker: null, history: [] });
+    });
+    await p.goto(`${BASE}/brand/dashboard#overview`, { waitUntil: 'domcontentloaded' });
+    await p.waitForTimeout(1500);
+    const b = await p.evaluate(() => { const el = document.querySelector('.move-banner'); return el ? { text: el.innerText, buttons: [...el.querySelectorAll('button')].map(x => x.textContent.trim()) } : null; });
+    if (role === 'booker') {
+      const t = await p.evaluate(() => ({ text: document.getElementById('mainContent').innerText, buttons: [...document.querySelectorAll('button')].map(x => x.textContent.trim()).filter(x => /confirm new time|can.t make it/i.test(x)) }));
+      ok('7a. the booker row shows the NEW time and says the store moved it and the brand account owner answers', /2:00 PM/.test(t.text) && /Moved by the store \(was Nov 20 at 11:00 AM\)/.test(t.text) && /brand account owner has been asked to confirm the new time/.test(t.text) && /only the owner can answer/.test(t.text), JSON.stringify(t.text.slice(0, 600)));
+      ok('7b. the booker gets no Confirm or Cannot-make-it button anywhere (the server would refuse the answer)', !b && t.buttons.length === 0, JSON.stringify({ banner: b, buttons: t.buttons }));
+    } else {
+      ok('7c. the owner sees the same move with both answers', !!b && /moved this demo/.test(b.text) && b.buttons.length === 2 && /Confirm new time/.test(b.buttons[0]) && /can.t make it/i.test(b.buttons[1]), JSON.stringify(b));
+    }
+    ok(`7d. no page errors (${role})`, errs.length === 0, errs.join(' | '));
+    await ctx.close();
+  }
 } finally { await browser.close(); }
 console.log(`\nbrand booker (DOM): ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
