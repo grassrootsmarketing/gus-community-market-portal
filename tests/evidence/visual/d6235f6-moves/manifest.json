@@ -1,0 +1,157 @@
+{
+  "sha": "d6235f6",
+  "alias": "https://demohub-booker-preview.vercel.app",
+  "taken_at": "2026-10-19T07:43:51.387Z",
+  "booking": "828ef203-8817-4496-94ab-a85369d9364d",
+  "move_id": "4ffa7cd3-b392-4927-9b7b-1d6ae92d7814",
+  "widths": [
+    {
+      "name": "desktop",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "shots": [
+    {
+      "file": "store-desktop-move-dialog.png",
+      "role": "store",
+      "width": 1280,
+      "page": "move-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-propose-dialog.png",
+      "role": "store",
+      "width": 1280,
+      "page": "propose-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-calendar-detail-modal.png",
+      "role": "store",
+      "width": 1280,
+      "page": "calendar-detail-modal",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-move-dialog.png",
+      "role": "store",
+      "width": 390,
+      "page": "move-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-propose-dialog.png",
+      "role": "store",
+      "width": 390,
+      "page": "propose-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-calendar-detail-modal.png",
+      "role": "store",
+      "width": 390,
+      "page": "calendar-detail-modal",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-overview-pending-move.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-move-banner.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-move-banner",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-overview-pending-move.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-overview-pending-move.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-move-banner.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-move-banner",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-dashboard-overview-pending-move.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    }
+  ],
+  "notes": [
+    {
+      "store_features": {
+        "slot_editing": false,
+        "retailer_moves": true
+      }
+    },
+    {
+      "move": {
+        "ok": true,
+        "demo_id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+        "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+        "new_date": "2026-11-13",
+        "new_time": "2:00 PM",
+        "schedule_revision": 4,
+        "move_id": "4ffa7cd3-b392-4927-9b7b-1d6ae92d7814",
+        "reconfirm_due_at": "2026-10-22T07:43:32.974709+00:00"
+      }
+    },
+    {
+      "owner_banner": {
+        "x": 51,
+        "y": 151,
+        "w": 1178,
+        "h": 136.4375,
+        "text": "Gus's Community Market (TEST) moved this demo. It was Fri, Nov 13 at 11:00 AM, now Fri, Nov 13 at 2:00 PM. Please confirm by Thu, Oct 22, 12:43 AM. If we do not hear from you, the demo is cancelled and your payment is refunded in full.\nNote from Gus's Community Market (TEST): Our morning staffer is ",
+        "buttons": [
+          "Confirm new time",
+          "We can't make it"
+        ]
+      }
+    },
+    {
+      "booker_line": "Moved by the store (was Nov 13 at 11:00 AM). The brand account owner has been asked to confirm the new time by Thu, Oct 22, 12:43 AM; only the owner can answer, and if they cannot make it the demo is cancelled and refunded in full.\nconfirmed",
+      "booker_buttons": []
+    },
+    {
+      "confirm": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "move_id": "4ffa7cd3-b392-4927-9b7b-1d6ae92d7814",
+          "status": "confirmed"
+        }
+      }
+    },
+    {
+      "notification_worker": {
+        "ok": true
+      }
+    }
+  ]
+}

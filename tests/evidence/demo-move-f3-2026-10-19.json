@@ -1,0 +1,997 @@
+{
+  "started_at": "2026-10-19T08:30:23.981Z",
+  "steps": [
+    {
+      "name": "S0 the deployed preview reports Preview, the test database, Stripe test, the mail sink and the retailer-moves flag ON",
+      "pass": true,
+      "detail": {
+        "env": "preview",
+        "binding": {
+          "target": "preview",
+          "project_ref_fingerprint": "tile…",
+          "db_environment_expected": "staging",
+          "stripe_mode": "test",
+          "email_mode": "sink",
+          "email_allowlist_count": 1,
+          "has_publishable_key": true,
+          "has_webhook_secret": true
+        },
+        "retailerMoves": true
+      }
+    },
+    {
+      "name": "P-A checkout returns a Stripe test-mode session",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "P-A paid on Stripe's hosted page; webhook marks the booking paid; the store auto-confirms",
+      "pass": true,
+      "detail": {
+        "rows": [
+          {
+            "id": "f58f3986-2be4-454c-a713-b392fa815e91",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3USBxvA6b3orPg0T0kQ7gRGK"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P-B checkout returns a Stripe test-mode session",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "P-B paid on Stripe's hosted page; webhook marks the booking paid; the store auto-confirms",
+      "pass": true,
+      "detail": {
+        "rows": [
+          {
+            "id": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3USBy7A6b3orPg0T0rOazBEZ"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P-C checkout returns a Stripe test-mode session",
+      "pass": true,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "name": "P-C paid on Stripe's hosted page; webhook marks the booking paid; the store auto-confirms",
+      "pass": true,
+      "detail": {
+        "rows": [
+          {
+            "id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3USByJA6b3orPg0T0QfstoZ5"
+          }
+        ]
+      }
+    },
+    {
+      "name": "R1 the store moves the paid demo (pending move)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "e7f71332-8146-4788-83b6-062b51ed8aed",
+        "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+        "new_date": "2026-11-24",
+        "new_time": "2:00 PM",
+        "schedule_revision": 2,
+        "move_id": "d226e8e7-07dc-48d5-8d36-2e651d5f6a1f",
+        "reconfirm_due_at": "2026-10-22T08:31:13.280838+00:00"
+      }
+    },
+    {
+      "name": "R2 a reservation for the lapse settlement exists before the settlement (status reserved, the app's own operation key, amount 3000)",
+      "pass": true,
+      "detail": {
+        "outcome": "reserved",
+        "refund_request_id": "0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+        "amount": 3000,
+        "keeps_all": true,
+        "payment_intent": "pi_3USBxvA6b3orPg0T0kQ7gRGK"
+      }
+    },
+    {
+      "name": "R3 the provider holds a succeeded refund of 3000 that the ledger does not know about (request still reserved, no refund id, booking still paid): the uncertain state",
+      "pass": true,
+      "detail": {
+        "provider": {
+          "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+          "amount": 3000,
+          "status": "succeeded"
+        },
+        "request": {
+          "id": "0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+          "amount": 3000,
+          "status": "reserved",
+          "actor": "system:move_lapsed",
+          "op_key": "f58f3986-2be4-454c-a713-b392fa815e91:move_lapsed",
+          "stripe_idempotency_key": "rf-0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+          "stripe_refund_id": null,
+          "customer_refund_status": "pending",
+          "settlement_status": "not_required",
+          "attempts": 0,
+          "last_error": null,
+          "next_attempt_at": "2026-10-19T08:41:25.59+00:00"
+        }
+      }
+    },
+    {
+      "name": "R4 the lapse settles while the ledger is uncertain (worker (webhook paused)): the settlement never resubmits; move lapsed + settled once, no case; booking cancelled, demo cancelled; the provider still shows exactly one refund",
+      "pass": true,
+      "detail": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T08:31:29.230086+00:00",
+          "refund_status": "pending_worker",
+          "refund_request_id": "0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+          "refund_case_id": null,
+          "reconciliation_case_id": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refund_pending",
+          "cancel_reason": "The brand did not reconfirm the new time after the store moved this demo."
+        },
+        "demo": "cancelled",
+        "request": {
+          "status": "reserved",
+          "stripe_refund_id": null
+        },
+        "allocation": {
+          "id": "45008d55-1074-414a-a85c-6476c9531449",
+          "payment_group_id": "3ceb280e-2cc5-42c4-9e47-f1b18b260d76",
+          "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+          "customer_amount": 3000,
+          "refunded_amount": 0,
+          "reserved_refund_amount": 3000
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "R5 the cancellation notice to the owner states the persisted state (\"refund in progress\", never \"submitted\" while the ledger is uncertain)",
+      "pass": true,
+      "detail": {
+        "status": "accepted",
+        "subject": "Your demo at Gus's Community Market (TEST) on Tuesday, November 24, 2026 at 2:00 PM was cancelled, refund in progress"
+      }
+    },
+    {
+      "name": "R6 the ledger converges on the ONE provider refund (the worker resubmitted the same reservation under its stored key and Stripe replayed it): request succeeded with that refund id, allocation refunded 3000, booking refunded, exactly one Stripe refund, the move settled once",
+      "pass": true,
+      "detail": {
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "refund_id": "re_3USBxvA6b3orPg0T0Ash4l4T"
+        },
+        "request": {
+          "status": "succeeded",
+          "stripe_refund_id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+          "customer_refund_status": "succeeded",
+          "attempts": 1
+        },
+        "allocation": {
+          "id": "45008d55-1074-414a-a85c-6476c9531449",
+          "payment_group_id": "3ceb280e-2cc5-42c4-9e47-f1b18b260d76",
+          "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ],
+        "move": {
+          "status": "lapsed",
+          "refund_status": "pending_worker",
+          "settled_at": "2026-10-19T08:31:29.230086+00:00"
+        }
+      }
+    },
+    {
+      "name": "R7 a further worker run changes nothing (still one refund, nothing failed)",
+      "pass": true,
+      "detail": {
+        "worker": {
+          "claimed": 0,
+          "resubmitted": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "A1 moving: anonymous 401; another store's staff refused (403/404) and cannot cancel the booking either; a booker session refused (401/403); the owning store's move succeeds",
+      "pass": true,
+      "detail": {
+        "anonMove": [
+          401,
+          "no_session"
+        ],
+        "otherStoreMove": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "otherStoreCancel": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "bookerMove": [
+          401,
+          "no_session"
+        ],
+        "anonResp": [
+          401,
+          "Not authenticated"
+        ],
+        "bookerResp": [
+          403,
+          "role_not_allowed"
+        ],
+        "otherBrandResp": [
+          403,
+          "forbidden"
+        ],
+        "getResp": [
+          405,
+          "method_not_allowed"
+        ],
+        "keyless_rpc": [
+          401,
+          401
+        ]
+      }
+    },
+    {
+      "name": "A2 answering: anonymous 401; booker 403 role_not_allowed; another brand refused (403 forbidden or 404); GET 405 method_not_allowed; the move is still pending, the booking untouched",
+      "pass": true,
+      "detail": {
+        "anonMove": [
+          401,
+          "no_session"
+        ],
+        "otherStoreMove": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "otherStoreCancel": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "bookerMove": [
+          401,
+          "no_session"
+        ],
+        "anonResp": [
+          401,
+          "Not authenticated"
+        ],
+        "bookerResp": [
+          403,
+          "role_not_allowed"
+        ],
+        "otherBrandResp": [
+          403,
+          "forbidden"
+        ],
+        "getResp": [
+          405,
+          "method_not_allowed"
+        ],
+        "keyless_rpc": [
+          401,
+          401
+        ]
+      }
+    },
+    {
+      "name": "A3 the settlement functions are not reachable without a key (keyless RPC calls refused)",
+      "pass": true,
+      "detail": [
+        401,
+        401
+      ]
+    },
+    {
+      "name": "X1 three settlers at once (decline, worker lapse sweep, second decline): ONE terminal move state (declined or lapsed), settled once, no case; exactly one refund request, one Stripe refund of 3000, booking cancelled and refunded, pending settlement cleared",
+      "pass": true,
+      "detail": {
+        "decline_1": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "move_id": "f896f7d9-610d-4e43-a5e3-40988863ef47",
+            "status": "lapsed",
+            "cancelled": true,
+            "refund_status": "submitted",
+            "message": "The reconfirmation window has passed, so this demo was cancelled; the full refund has been submitted to your card provider."
+          }
+        },
+        "worker": {
+          "ok": true,
+          "moves_lapsed": 0,
+          "moves_settled": 0,
+          "moves_failed": 0,
+          "moves_parked": 0,
+          "claim_failed": false,
+          "errors": 0
+        },
+        "decline_2": {
+          "status": 409,
+          "body": {
+            "error": "move_lapsed",
+            "message": "The reconfirmation window has passed, so this demo is being cancelled; the refund is being processed and you will get an email when it is done."
+          }
+        },
+        "elapsed_ms": 1896
+      }
+    },
+    {
+      "name": "X2 the next worker run finds nothing to settle and submits nothing (still one refund)",
+      "pass": true,
+      "detail": {
+        "worker": {
+          "moves_lapsed": 0,
+          "moves_settled": 0,
+          "resubmitted": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBy7A6b3orPg0T0hr2dzQf",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P1 the store proposes 11:00 AM first (ask-first path): proposal version 1, demo carries the proposal, nothing moved",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+        "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+        "new_date": "2026-11-26",
+        "new_time": "11:00 AM",
+        "proposal_version": 1,
+        "email_sent": true,
+        "notice_status": {
+          "contact": "sent"
+        }
+      }
+    },
+    {
+      "name": "P2 the store then MOVES the demo to 2:00 PM: the pending move consumes the open proposal (cleared), booking at 2:00 PM, revision 2",
+      "pass": true,
+      "detail": {
+        "move": {
+          "ok": true,
+          "demo_id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+          "new_date": "2026-11-26",
+          "new_time": "2:00 PM",
+          "schedule_revision": 2,
+          "move_id": "165d7cb7-b485-4550-966c-6fda2fee19de",
+          "reconfirm_due_at": "2026-10-22T08:31:50.338171+00:00"
+        },
+        "demo": {
+          "id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "status": "confirmed",
+          "demo_date": "2026-11-26",
+          "demo_time": "2:00 PM",
+          "reschedule_to_date": null,
+          "reschedule_to_time": null
+        }
+      }
+    },
+    {
+      "name": "P3 the owner's accept of the OLD proposal is refused (409: no proposal / stale), the move stays pending, the booking stays at 2:00 PM, no refund",
+      "pass": true,
+      "detail": {
+        "error": "no_proposal",
+        "message": "There is no reschedule to respond to."
+      }
+    },
+    {
+      "name": "P4 a NEW proposal made while the move is pending, accepted by the owner, supersedes the move atomically: move superseded (never settled), booking confirmed and paid at 5:00 PM with revision 3, demo at 5:00 PM, no refund request; the \"please confirm\" notice for the superseded move is suppressed (fanned out as skipped, or its rows skipped move_superseded)",
+      "pass": true,
+      "detail": {
+        "propose": {
+          "ok": true,
+          "demo_id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+          "new_date": "2026-11-26",
+          "new_time": "5:00 PM",
+          "proposal_version": 2,
+          "email_sent": true,
+          "notice_status": {
+            "contact": "sent"
+          }
+        },
+        "accept": {
+          "ok": true,
+          "decision": "accept",
+          "moved_to": {
+            "date": "2026-11-26",
+            "time": "5:00 PM"
+          },
+          "schedule_revision": 3
+        },
+        "move": {
+          "status": "superseded",
+          "settled_at": null
+        },
+        "booking": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_time": "5:00 PM",
+          "schedule_revision": 3
+        },
+        "demo": {
+          "id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "status": "confirmed",
+          "demo_date": "2026-11-26",
+          "demo_time": "5:00 PM",
+          "reschedule_to_date": null,
+          "reschedule_to_time": null
+        },
+        "moved_deliveries": [],
+        "moved_event": {
+          "fanned_out_at": "2026-10-19T08:31:53.624+00:00",
+          "fanout_note": "skipped_move_superseded"
+        }
+      }
+    },
+    {
+      "name": "Z1 the store moves the demo once more (5:00 PM to 2:00 PM, pending move)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+        "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+        "new_date": "2026-11-26",
+        "new_time": "2:00 PM",
+        "schedule_revision": 4,
+        "move_id": "61b7d431-e450-4589-9aa5-c74a69c72279",
+        "reconfirm_due_at": "2026-10-22T08:31:58.571965+00:00"
+      }
+    },
+    {
+      "name": "Z2 confirm and lapse at the same moment: exactly one authoritative outcome (lapse_won); never a confirmed booking together with a cancellation refund",
+      "pass": true,
+      "detail": {
+        "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+        "move_id": "61b7d431-e450-4589-9aa5-c74a69c72279",
+        "race": {
+          "confirm": {
+            "status": 409,
+            "body": {
+              "error": "move_lapsed",
+              "message": "The reconfirmation window has passed, so this demo is being cancelled; the refund is being processed and you will get an email when it is done."
+            }
+          },
+          "worker": {
+            "ok": true,
+            "moves_lapsed": 0,
+            "moves_settled": 1,
+            "moves_failed": 0
+          }
+        },
+        "outcome": "lapse_won",
+        "final": {
+          "move": {
+            "status": "lapsed",
+            "settled_at": "2026-10-19T08:32:04.111761+00:00",
+            "refund_status": "submitted"
+          },
+          "booking": {
+            "status": "cancelled",
+            "payment_status": "refunded"
+          },
+          "refund_requests": 1,
+          "stripe_refunds": [
+            {
+              "id": "re_3USByJA6b3orPg0T0oAOMu0J",
+              "amount": 3000,
+              "status": "succeeded"
+            }
+          ],
+          "moves_for_booking": [
+            "superseded",
+            "lapsed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Z3 (lapse won) the refund completes: one Stripe refund of 3000, booking refunded",
+      "pass": true,
+      "detail": {
+        "booking": "refunded",
+        "stripe_refunds": [
+          {
+            "id": "re_3USByJA6b3orPg0T0oAOMu0J",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ZZ closing worker run ok; every move of this run terminal; no reconciliation, refund or notice case opened during the run",
+      "pass": true,
+      "detail": {
+        "worker": {
+          "ok": true,
+          "moves_failed": 0,
+          "moves_parked": 0,
+          "errors": 0
+        },
+        "moves": [
+          {
+            "id": "165d7cb7-b485-4550-966c-6fda2fee19de",
+            "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+            "status": "superseded",
+            "settled_at": null,
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "d226e8e7-07dc-48d5-8d36-2e651d5f6a1f",
+            "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+            "status": "lapsed",
+            "settled_at": "2026-10-19T08:31:29.230086+00:00",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "f896f7d9-610d-4e43-a5e3-40988863ef47",
+            "booking_id": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+            "status": "lapsed",
+            "settled_at": "2026-10-19T08:31:45.346957+00:00",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "61b7d431-e450-4589-9aa5-c74a69c72279",
+            "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+            "status": "lapsed",
+            "settled_at": "2026-10-19T08:32:04.111761+00:00",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          }
+        ],
+        "cases": []
+      }
+    }
+  ],
+  "cases": {
+    "R": {
+      "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+      "payment_intent_id": "pi_3USBxvA6b3orPg0T0kQ7gRGK",
+      "move_id": "d226e8e7-07dc-48d5-8d36-2e651d5f6a1f",
+      "reservation": {
+        "outcome": "reserved",
+        "refund_request_id": "0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+        "amount": 3000,
+        "keeps_all": true,
+        "payment_intent": "pi_3USBxvA6b3orPg0T0kQ7gRGK"
+      },
+      "webhook_paused": "disabled",
+      "provider_refund": {
+        "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+        "amount": 3000,
+        "status": "succeeded"
+      },
+      "worker_settle": {
+        "ok": true,
+        "moves_lapsed": 1,
+        "moves_settled": 1,
+        "moves_failed": 0,
+        "moves_parked": 0,
+        "claimed": 0,
+        "resubmitted": 0,
+        "errors": 0
+      },
+      "during_uncertainty": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T08:31:29.230086+00:00",
+          "refund_status": "pending_worker",
+          "refund_request_id": "0cab71cf-4a1d-4fc8-941f-ebda869d5230",
+          "refund_case_id": null,
+          "reconciliation_case_id": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refund_pending",
+          "cancel_reason": "The brand did not reconfirm the new time after the store moved this demo."
+        },
+        "demo": "cancelled",
+        "request": {
+          "status": "reserved",
+          "stripe_refund_id": null
+        },
+        "allocation": {
+          "id": "45008d55-1074-414a-a85c-6476c9531449",
+          "payment_group_id": "3ceb280e-2cc5-42c4-9e47-f1b18b260d76",
+          "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+          "customer_amount": 3000,
+          "refunded_amount": 0,
+          "reserved_refund_amount": 3000
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ]
+      },
+      "convergence_route_at_settlement": "worker (webhook paused)",
+      "cancelled_notice": {
+        "status": "accepted",
+        "subject": "Your demo at Gus's Community Market (TEST) on Tuesday, November 24, 2026 at 2:00 PM was cancelled, refund in progress"
+      },
+      "webhook_restored": "enabled",
+      "worker_recover": {
+        "ok": true,
+        "claimed": 1,
+        "resubmitted": 1,
+        "adopted": 0,
+        "reconciled": 0,
+        "manual": 0,
+        "moves_settled": 0,
+        "errors": 0
+      },
+      "after_recovery": {
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "refund_id": "re_3USBxvA6b3orPg0T0Ash4l4T"
+        },
+        "request": {
+          "status": "succeeded",
+          "stripe_refund_id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+          "customer_refund_status": "succeeded",
+          "attempts": 1
+        },
+        "allocation": {
+          "id": "45008d55-1074-414a-a85c-6476c9531449",
+          "payment_group_id": "3ceb280e-2cc5-42c4-9e47-f1b18b260d76",
+          "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBxvA6b3orPg0T0Ash4l4T",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ],
+        "move": {
+          "status": "lapsed",
+          "refund_status": "pending_worker",
+          "settled_at": "2026-10-19T08:31:29.230086+00:00"
+        }
+      }
+    },
+    "A": {
+      "results": {
+        "anonMove": [
+          401,
+          "no_session"
+        ],
+        "otherStoreMove": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "otherStoreCancel": [
+          403,
+          "Not allowed for this retailer"
+        ],
+        "bookerMove": [
+          401,
+          "no_session"
+        ],
+        "anonResp": [
+          401,
+          "Not authenticated"
+        ],
+        "bookerResp": [
+          403,
+          "role_not_allowed"
+        ],
+        "otherBrandResp": [
+          403,
+          "forbidden"
+        ],
+        "getResp": [
+          405,
+          "method_not_allowed"
+        ],
+        "keyless_rpc": [
+          401,
+          401
+        ]
+      }
+    },
+    "X": {
+      "booking_id": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+      "move_id": "f896f7d9-610d-4e43-a5e3-40988863ef47",
+      "payment_intent_id": "pi_3USBy7A6b3orPg0T0rOazBEZ",
+      "concurrent": {
+        "decline_1": {
+          "status": 200,
+          "body": {
+            "ok": true,
+            "move_id": "f896f7d9-610d-4e43-a5e3-40988863ef47",
+            "status": "lapsed",
+            "cancelled": true,
+            "refund_status": "submitted",
+            "message": "The reconfirmation window has passed, so this demo was cancelled; the full refund has been submitted to your card provider."
+          }
+        },
+        "worker": {
+          "ok": true,
+          "moves_lapsed": 0,
+          "moves_settled": 0,
+          "moves_failed": 0,
+          "moves_parked": 0,
+          "claim_failed": false,
+          "errors": 0
+        },
+        "decline_2": {
+          "status": 409,
+          "body": {
+            "error": "move_lapsed",
+            "message": "The reconfirmation window has passed, so this demo is being cancelled; the refund is being processed and you will get an email when it is done."
+          }
+        },
+        "elapsed_ms": 1896
+      },
+      "final": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T08:31:45.346957+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "6a73723c-b686-496e-96c5-0b3e1bca517c",
+          "refund_case_id": null,
+          "reconciliation_case_id": null,
+          "settle_attempts": 0,
+          "settle_last_error": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand did not reconfirm the new time after the store moved this demo.",
+          "pending_move_settlement": null
+        },
+        "refund_requests": [
+          {
+            "id": "6a73723c-b686-496e-96c5-0b3e1bca517c",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_lapsed",
+            "op_key": "1be971db-5ace-4a2a-9860-984858a6e1f1:move_lapsed",
+            "stripe_idempotency_key": "rf-6a73723c-b686-496e-96c5-0b3e1bca517c",
+            "stripe_refund_id": "re_3USBy7A6b3orPg0T0hr2dzQf",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null,
+            "next_attempt_at": "2026-10-19T08:31:44.954241+00:00"
+          }
+        ],
+        "allocation": {
+          "id": "e40584f2-b3d1-465d-acbe-ff6dd90d6fe3",
+          "payment_group_id": "a2660c61-6f7e-45b0-9ad5-b65af4f71089",
+          "booking_id": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3USBy7A6b3orPg0T0hr2dzQf",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ],
+        "moves_for_booking": 1
+      }
+    },
+    "P": {
+      "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+      "payment_intent_id": "pi_3USByJA6b3orPg0T0QfstoZ5",
+      "move_1": "165d7cb7-b485-4550-966c-6fda2fee19de",
+      "supersede": {
+        "propose": {
+          "ok": true,
+          "demo_id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+          "new_date": "2026-11-26",
+          "new_time": "5:00 PM",
+          "proposal_version": 2,
+          "email_sent": true,
+          "notice_status": {
+            "contact": "sent"
+          }
+        },
+        "accept": {
+          "ok": true,
+          "decision": "accept",
+          "moved_to": {
+            "date": "2026-11-26",
+            "time": "5:00 PM"
+          },
+          "schedule_revision": 3
+        },
+        "move": {
+          "status": "superseded",
+          "settled_at": null
+        },
+        "booking": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_time": "5:00 PM",
+          "schedule_revision": 3
+        },
+        "demo": {
+          "id": "a7131897-d7e0-4b7d-a0b6-f903f7808bf1",
+          "status": "confirmed",
+          "demo_date": "2026-11-26",
+          "demo_time": "5:00 PM",
+          "reschedule_to_date": null,
+          "reschedule_to_time": null
+        },
+        "moved_deliveries": [],
+        "moved_event": {
+          "fanned_out_at": "2026-10-19T08:31:53.624+00:00",
+          "fanout_note": "skipped_move_superseded"
+        }
+      }
+    },
+    "Z": {
+      "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+      "move_id": "61b7d431-e450-4589-9aa5-c74a69c72279",
+      "race": {
+        "confirm": {
+          "status": 409,
+          "body": {
+            "error": "move_lapsed",
+            "message": "The reconfirmation window has passed, so this demo is being cancelled; the refund is being processed and you will get an email when it is done."
+          }
+        },
+        "worker": {
+          "ok": true,
+          "moves_lapsed": 0,
+          "moves_settled": 1,
+          "moves_failed": 0
+        }
+      },
+      "outcome": "lapse_won",
+      "final": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T08:32:04.111761+00:00",
+          "refund_status": "submitted"
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded"
+        },
+        "refund_requests": 1,
+        "stripe_refunds": [
+          {
+            "id": "re_3USByJA6b3orPg0T0oAOMu0J",
+            "amount": 3000,
+            "status": "succeeded"
+          }
+        ],
+        "moves_for_booking": [
+          "superseded",
+          "lapsed"
+        ]
+      }
+    }
+  },
+  "alias": "demohub-bw0vatw8t-grms-projects-0d18c653.vercel.app    demohub-booker-preview.vercel.app                                              1d",
+  "sha": "d45353f",
+  "product": {
+    "id": "p_A_hTuG_Q2d3d",
+    "sku": "",
+    "upc": "012345678905",
+    "name": "Walkthrough Smoked Serrano Hot Sauce",
+    "size": "5 oz",
+    "notes": "",
+    "case_pack": null,
+    "distributor": "direct",
+    "distributor_other": "",
+    "distributor_item_number": ""
+  },
+  "bookings": {
+    "A": "f58f3986-2be4-454c-a713-b392fa815e91",
+    "B": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+    "C": "23fb97ec-3998-4396-9843-1621e3f523d3"
+  },
+  "moves": [
+    {
+      "id": "165d7cb7-b485-4550-966c-6fda2fee19de",
+      "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+      "status": "superseded",
+      "settled_at": null,
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "d226e8e7-07dc-48d5-8d36-2e651d5f6a1f",
+      "booking_id": "f58f3986-2be4-454c-a713-b392fa815e91",
+      "status": "lapsed",
+      "settled_at": "2026-10-19T08:31:29.230086+00:00",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "f896f7d9-610d-4e43-a5e3-40988863ef47",
+      "booking_id": "1be971db-5ace-4a2a-9860-984858a6e1f1",
+      "status": "lapsed",
+      "settled_at": "2026-10-19T08:31:45.346957+00:00",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "61b7d431-e450-4589-9aa5-c74a69c72279",
+      "booking_id": "23fb97ec-3998-4396-9843-1621e3f523d3",
+      "status": "lapsed",
+      "settled_at": "2026-10-19T08:32:04.111761+00:00",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    }
+  ],
+  "cases_opened": [],
+  "finished_at": "2026-10-19T08:32:11.849Z"
+}

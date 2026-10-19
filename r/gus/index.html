@@ -1720,7 +1720,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function confirmBooking() {
             if (cart.length === 0) return;
             ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-            { const cg = document.getElementById('bookCategoryGroup'); if (cg) cg.style.display = ''; }
+            // 2026-10-19 (David): "What are you demoing?" is not asked of a signed-in brand (the store reads the items and UPCs);
+            // a visitor without a brand session still answers it (Codex: hide only for a resolved signed-in brand)
+            { const cg = document.getElementById('bookCategoryGroup'); if (cg) cg.style.display = window._brandProfile ? 'none' : ''; }
             { const sg = document.getElementById('bookSkuGroup'); if (sg) sg.style.display = 'none'; }
             window._bookSkuSource = null; { const ce = document.getElementById('bookNeedsElectricity'); if (ce) { ce.checked = false; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#c4c1b8'; if(k)k.style.transform='translateX(0)'; } }
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }
@@ -1900,7 +1902,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
-            const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
+            const product      = _bookingProductLabel();
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
@@ -2000,7 +2002,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const contactName  = document.getElementById('bookContactName').value.trim();
             const contactEmail = document.getElementById('bookContactEmail').value.trim();
             const contactPhone = document.getElementById('bookContactPhone').value.trim();
-            const product      = (document.getElementById('bookCategory') ? document.getElementById('bookCategory').value.trim() : '');
+            const product      = _bookingProductLabel();
             const needsElectricity = !!(document.getElementById('bookNeedsElectricity') && document.getElementById('bookNeedsElectricity').checked);
             const notes        = document.getElementById('bookNotes').value.trim();
             const errMsg = document.getElementById('bookErrorMsg');
@@ -2525,13 +2527,14 @@ function supportMailto(a) {
         // ===== Products for this demo (Codex product-list, 2026-10-07) =====
         // Catalog items render as checkboxes (the first 40 preselected); a brand with no items, or one adding an item
         // for this demo, uses the inline rows. collectBookingProducts() turns both into full item objects.
-        const _DISTRIBUTORS = [['', 'Distributor (optional)'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
+        // 2026-10-19 (David): the distributor is required on every item (choose Other if it is none of these); Size is gone.
+        const _DISTRIBUTORS = [['', 'Distributor *'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
         function _newItemRowHtml() {
             const opts = _DISTRIBUTORS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
             const inp = function (cls, ph, extra) { return '<input class="form-input ' + cls + '" placeholder="' + ph + '" ' + (extra || '') + ' style="padding:7px 9px; font-size:0.86rem;">'; };
             return '<div class="book-new-item" style="border:1px dashed rgba(15,44,23,0.25); border-radius:10px; padding:10px; margin-bottom:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px;">'
                 + '<div style="grid-column:1 / -1;">' + inp('bni-name', 'Product name, with flavor or variety *') + '</div>'
-                + inp('bni-size', 'Size (12 oz jar)') + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
+                + inp('bni-upc', 'UPC / product barcode', 'inputmode="numeric"')
                 + '<select class="form-input bni-distributor" style="padding:7px 9px; font-size:0.86rem;">' + opts + '</select>'
                 + inp('bni-distributor-other', 'Distributor name', 'style="display:none;"')
                 + inp('bni-case-pack', 'Units per case', 'inputmode="numeric"')
@@ -2647,7 +2650,7 @@ function supportMailto(a) {
                 const row = rows[r];
                 const g = function (cls) { const el = row.querySelector('.' + cls); return el ? String(el.value || '').trim() : ''; };
                 const name = g('bni-name');
-                const anyOther = g('bni-size') || g('bni-upc') || g('bni-distributor') || g('bni-case-pack');
+                const anyOther = g('bni-upc') || g('bni-distributor') || g('bni-case-pack');
                 if (!name) { if (anyOther) return { error: 'Give item ' + (r + 1) + ' a name.' }; continue; }
                 const cpRaw = g('bni-case-pack');
                 let case_pack = null;
@@ -2656,11 +2659,12 @@ function supportMailto(a) {
                 if (upc && !/^\d{8}$|^\d{12}$|^\d{13}$|^\d{14}$/.test(upc)) return { error: 'The barcode for ' + name + ' should be 8, 12, 13 or 14 digits.' };
                 const distributor = g('bni-distributor');
                 const other = g('bni-distributor-other');
+                if (!distributor) return { error: 'Pick the distributor for ' + name + ' (choose Other if it is none of these).' };
                 if (distributor === 'other' && !other) return { error: 'Name the distributor for ' + name + '.' };
                 // a per-draft id (kept on the row so retries reuse it): the server preserves a valid id, so the saved item
                 // is found by identity afterwards (Codex PL-C2)
                 if (!row.dataset.draftId) row.dataset.draftId = 'd_' + Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
-                newItems.push({ id: row.dataset.draftId, name: name, size: g('bni-size'), sku: '', upc: upc, distributor: distributor, distributor_other: distributor === 'other' ? other : '', distributor_item_number: g('bni-item-number'), case_pack: case_pack, notes: '' });
+                newItems.push({ id: row.dataset.draftId, name: name, size: '', sku: '', upc: upc, distributor: distributor, distributor_other: distributor === 'other' ? other : '', distributor_item_number: g('bni-item-number'), case_pack: case_pack, notes: '' });
             }
             const all = items.concat(newItems);
             if (!all.length) return { error: 'Select or add at least one item you will be sampling.' };
@@ -2669,6 +2673,14 @@ function supportMailto(a) {
             return { items: all, newItems: newItems, save: !!(saveEl && saveEl.checked) };
         }
 
+        // 2026-10-19 (David): the booking's product line is derived from the selected items for a signed-in brand (the first
+        // item's name plus a count); an unsigned booking still carries the category it chose.
+        function _bookingProductLabel() {
+            const cat = document.getElementById('bookCategory');
+            if (!window._brandProfile) return cat ? String(cat.value || '').trim() : '';
+            try { const sel = collectBookingProducts(); if (sel && sel.items && sel.items.length) { const first = String(sel.items[0].name || '').trim(); return sel.items.length > 1 ? first + ' + ' + (sel.items.length - 1) + ' more' : first; } } catch (_) {}
+            return cat ? String(cat.value || '').trim() : '';
+        }
         window._brandProfile = null;
         async function loadBrandAccountSession() {
             try {

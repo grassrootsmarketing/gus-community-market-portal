@@ -12,6 +12,8 @@ import { resolveBrandIdentity, requireRole, bookingBelongsTo, ROLES } from './_b
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import { sbRpc as sbRpcShared } from './_booking-refund.js';
+import { loadMove, settleMove } from './_booking-moves.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -433,6 +435,11 @@ const ACTION_ROLES = {
   'reschedule-respond': ['owner', 'booker'],
   'logout': ['owner', 'booker'],
   'logout-everywhere': ['owner', 'booker'],
+  // 0094 x 0097 (2026-10-18, integrated release): answering a store's move is the OWNER's. A decline cancels the demo
+  // and refunds the payment, which a booker may never trigger; a confirm is kept with it so the one person who was
+  // told about the move (the owner; move notices go to the owner only) is the one who answers. Listed explicitly so
+  // the default-deny is a decision, not an accident.
+  'move-respond': ['owner'],
   // everything else is owner-only: profile-update, upload-*, remove-*, receipt-resend, set-password, claim-status,
   // cal_token, cal_revoke, booker-designate, booker-status, booker-resend, booker-revoke
 };
@@ -467,7 +474,10 @@ function bookerDemoView(d, memberId) {
     retailers: d.retailers ? { id: d.retailers.id, name: d.retailers.name, slug: d.retailers.slug } : null,
     venues: d.venues ? { id: d.venues.id, name: d.venues.name, address: d.venues.address } : null,
     booked_by_me: !!(memberId && d.booked_by_member_id && String(d.booked_by_member_id) === String(memberId)),
-    booked_by_name: d.booked_by_name || null };
+    booked_by_name: d.booked_by_name || null,
+    // 0094 x 0097 (2026-10-19 visual pass): the booker sees that the store moved a demo (new slot, deadline, the
+    // store's note); answering it stays the owner's (move-respond is owner-only).
+    pending_move: d.pending_move || null };
 }
 function bookerPendingView(b, memberId) {
   if (!b) return null;
@@ -507,7 +517,8 @@ export default async function handler(req, res) {
   // cookie, and a safe method bypasses requireSameOrigin by definition, so as GETs they were
   // reachable by cross-site navigation (sign the user out, or silently rotate/revoke their
   // calendar URL). Every caller in the repo already POSTs.
-  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke']);
+  // Codex demo-move final review (2026-10-19): the two schedule answers are state changes under the session cookie too.
+  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke', 'move-respond', 'reschedule-respond']);
   if (MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
     return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
   }
@@ -789,6 +800,16 @@ export default async function handler(req, res) {
       } catch (e) { console.warn('reschedule_proposal_version lookup failed:', (e && e.message) || e); }
       const contacts = await readList(contactsR, 'contacts');
       const pending_bookings = await readList(pendingR, 'pending_bookings');
+      // 0094: a retailer-initiated move awaiting this brand's answer rides on the demo as pending_move
+      // (id, deadline, old slot, note), so the dashboard can show Confirm / Can't make it.
+      try {
+        const mv = await (await sb(`booking_moves?brand_id=eq.${brandId}&status=eq.pending&select=id,booking_id,from_date,from_time,to_date,to_time,note,moved_at,reconfirm_due_at,schedule_revision&order=moved_at.desc`)).json();
+        const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
+        for (const d of (Array.isArray(demos) ? demos : [])) {
+          const m = d && d.booking_id ? byBooking.get(d.booking_id) : null;
+          if (m) d.pending_move = { id: m.id, from_date: m.from_date, from_time: m.from_time, to_date: m.to_date, to_time: m.to_time, note: m.note || null, moved_at: m.moved_at, reconfirm_due_at: m.reconfirm_due_at };
+        }
+      } catch (e) { console.warn('pending move lookup failed:', (e && e.message) || e); }
       // Payments and receipts (2026-10-11): every settled payment group of this brand, read from the ledger,
       // with the demos it covered. Powers the Account tab's receipts list and its "Email receipt" button.
       // Codex PR-3: every dependent read is checked for HTTP success AND shape; a failure puts 'payments' in
@@ -875,6 +896,69 @@ export default async function handler(req, res) {
       return jsonResp(res, 500, { error: 'receipt_queue_failed' });
     }
 
+    // ===== Move response (0094): the brand confirms a retailer-initiated move, or cannot make it =====
+    // confirm -> the move is confirmed, nothing else changes. decline -> the move is recorded declined,
+    // then the booking is cancelled and refunded IN FULL through the shared settlement
+    // (api/_booking-moves.js); if that step fails here, the refund worker retries it within 15 minutes.
+    if (action === 'move-respond') {
+      const sessionToken = getBrandSessionFromReq(req, body) || '';
+      const brandId = await verifySession(sessionToken);
+      if (!brandId) return jsonResp(res, 401, { error: 'Not authenticated' });
+      const moveId = String(body.move_id || '');
+      const decision = String(body.decision || '');
+      if (!/^[0-9a-f-]{36}$/i.test(moveId)) return jsonResp(res, 400, { error: 'Invalid move_id' });
+      if (!['confirm', 'decline'].includes(decision)) return jsonResp(res, 400, { error: 'decision must be confirm or decline' });
+      let verdict;
+      try {
+        const rows = await sbRpcShared(_b, 'respond_booking_move', { p_move_id: moveId, p_brand_id: brandId, p_decision: decision, p_actor: 'brand:' + brandId });
+        verdict = Array.isArray(rows) ? rows[0] : rows;
+      } catch (e) {
+        console.error('respond_booking_move failed:', (e && e.message) || e);
+        return jsonResp(res, 500, { error: 'move_respond_failed', message: 'We could not save that. Try again in a moment.' });
+      }
+      // Codex RM-8: every message states the PERSISTED state of the move, never a promise about a worker.
+      const moveWords = (m) => {
+        if (!m) return 'This move could not be updated.';
+        if (m.status === 'lapsed' || m.status === 'declined') {
+          const why = m.status === 'lapsed' ? 'The reconfirmation window has passed, so this demo is' : 'You told us you cannot make the new time, so this demo is';
+          if (!m.settled_at) return `${why} being cancelled; the refund is being processed and you will get an email when it is done.`;
+          const refund = m.refund_status === 'submitted' || m.refund_status === 'succeeded' ? 'the full refund has been submitted to your card provider'
+            : m.refund_status === 'pending_worker' ? 'the full refund is being processed and you will get an email when it is done'
+            : m.refund_status === 'not_paid' ? 'no charge was captured, so there is nothing to refund'
+            : m.refund_status === 'already_refunded' ? 'this booking had already been refunded'
+            : 'the refund is with our team for review and you will get an email when it is done';
+          return `${why.replace(' is', ' was')} cancelled; ${refund}.`;
+        }
+        return null;
+      };
+      // A decline at or after the deadline is recorded as a lapse by the database (same entitlement).
+      const lapsedNow = verdict && verdict.ok === true && verdict.status === 'lapsed';
+      if (!verdict || verdict.ok !== true) {
+        const reason = (verdict && verdict.reason) || 'move_respond_failed';
+        let msg = {
+          not_found: 'This move no longer exists.', forbidden: 'This demo is not yours.',
+          move_confirmed: 'You already confirmed this move.',
+          move_superseded: 'The store has moved this demo again. Please review the newest time.',
+          booking_not_active: 'This booking is no longer active.',
+        }[reason] || null;
+        if (!msg) { const m = await loadMove(_b, moveId).catch(() => null); msg = moveWords(m) || 'This move could not be updated.'; }
+        // A late confirmation lapsed the move just now: settle it here as well, so the brand's cancellation
+        // and refund do not wait for the worker (the worker still owns any retry).
+        if (reason === 'move_lapsed') { try { const m = await loadMove(_b, moveId); if (m) await settleMove(_b, m, { owner: 'brand-respond:' + brandId }); } catch (e) { console.error('move settle after late confirm failed:', (e && e.message) || e); } }
+        return jsonResp(res, reason === 'forbidden' ? 403 : reason === 'not_found' ? 404 : 409, { error: reason, message: msg });
+      }
+      if (decision === 'confirm') return jsonResp(res, 200, { ok: true, move_id: moveId, status: 'confirmed' });
+      let settle = null;
+      try {
+        const move = await loadMove(_b, moveId);
+        settle = move ? await settleMove(_b, move, { owner: 'brand-respond:' + brandId }) : null;
+      } catch (e) { console.error('move settle failed:', (e && e.message) || e); }
+      const after = await loadMove(_b, moveId).catch(() => null);
+      return jsonResp(res, 200, { ok: true, move_id: moveId, status: lapsedNow ? 'lapsed' : 'declined',
+        cancelled: !!(settle && settle.ok) || !!(after && after.settled_at), refund_status: (after && after.refund_status) || (settle ? settle.refund_status : null) || 'pending',
+        message: moveWords(after) || 'Your answer is saved. The cancellation and refund are being processed and you will get an email when they complete.' });
+    }
+
     // ===== Reschedule response (brand accepts/declines a retailer's proposed new date) =====
     if (action === 'reschedule-respond') {
       const sessionToken = getBrandSessionFromReq(req, body) || '';
@@ -930,6 +1014,7 @@ export default async function handler(req, res) {
         const reason = (verdict && verdict.reason) || 'reschedule_failed';
         const MESSAGES = {
           no_proposal:     'There is no reschedule to respond to.',
+          cancellation_pending: 'This demo is being cancelled and refunded after a move you could not make, so the proposal cannot be accepted.',
           stale_proposal:  'The store has changed this proposal since you loaded the page. Reload to see the current one.',
           slot_full:       'That slot just filled up. Ask the store to propose another date.',
           // Release B (0075): the venue's offering changed after the proposal was made.

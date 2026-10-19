@@ -19,6 +19,7 @@ import { drainFulfillments } from './_fulfillment.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
+import { sweepMoves } from './_booking-moves.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -264,6 +265,16 @@ export default async function handler(req, res) {
       else if (a.failed > 0) noteError(`alerts: ${a.failed} operator alert(s) failed to send`);
     } catch (e) { out.errors++; noteError('alerts: ' + ((e && e.message) || e)); console.error('alert drain error:', (e && e.message) || e); }
 
+    // 0094 (2026-10-16): retailer-initiated demo moves whose reconfirmation deadline passed are lapsed,
+    // and every unsettled declined/lapsed move is settled (full refund through the shared ledger path,
+    // then booking_transition cancel). Idempotent per step; a failure stays unsettled for the next run.
+    try {
+      const mv = await sweepMoves(_b, { now: new Date(), limit: 25 });
+      out.moves_lapsed = mv.lapsed; out.moves_settled = mv.settled; out.moves_failed = mv.failed; out.moves_parked = mv.parked; out.moves_retired = mv.retired; out.moves_notice_cases = mv.notice_cases;
+      out.moves_claim_failed = !!mv.claim_failed; out.moves_read_failed = !!mv.read_failed; out.moves_notice_failed = !!mv.notice_failed; out.moves_notice_checked = mv.notice_checked;
+      if (mv.errors.length) noteError('moves: ' + mv.errors[0]);
+    } catch (e) { out.errors++; noteError('moves: ' + ((e && e.message) || e)); console.error('move sweep error:', (e && e.message) || e); }
+
     // F-03 run verdict. 'succeeded' means EVERY claimed item succeeded: no per-item error after
     // claim (Stripe submit/get/list, ledger apply, park, lease release), no fulfilment row failed
     // and the fulfilment claim itself worked, no operator alert failed to send and the alert claim
@@ -272,7 +283,9 @@ export default async function handler(req, res) {
     // (requires_review) and lost-lease rows are designed outcomes, not run failures.
     const fulfilmentFailed = (out.fulfillments_failed || 0) > 0 || out.fulfillments_claim_failed === true;
     const alertsFailed = (out.alerts_failed || 0) > 0 || out.alerts_claim_failed === true;
-    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed;
+    // Codex RM-6: a failed move scan (claim or read), a malformed reply or any per-item failure is a failed run.
+    const movesFailed = (out.moves_failed || 0) > 0 || out.moves_claim_failed === true || out.moves_read_failed === true || out.moves_notice_failed === true;
+    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed;
     if (runOk) {
       await heartbeat('succeeded', startMs, out);
       return res.status(200).json(out);

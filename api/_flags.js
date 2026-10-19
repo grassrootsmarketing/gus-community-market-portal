@@ -68,6 +68,12 @@ export const FLAGS = {
   // notification worker, magic-link retailer login and every other route are untouched. Set in Vercel
   // Production and redeploy to close; unset and redeploy to reopen. Read at request time.
   get signinMaintenance() { return exactTrue(process.env.SIGNIN_MAINTENANCE_ENABLED); },
+  // Retailer-initiated demo moves (0094/0095, Codex RM-7 2026-10-16): CREATION of a move only. Exactly "true" = the
+  // retailer admin offers "Move demo" and api/booking-action action 'move' accepts. Anything else = the compatible
+  // disabled build: new moves are refused (503 retailer_moves_disabled) and the dialog offers only the ask-first
+  // proposal, while every move that already exists keeps working: brand confirm/decline, the deadline lapse, the
+  // cancellation + refund settlement, reminders and notices. Read at request time.
+  get retailerMoves() { return exactTrue(process.env.RETAILER_MOVES_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -108,6 +114,7 @@ export function flagSnapshot() {
     brandInviteEnabled: FLAGS.brandInviteEnabled,
     slotEditing: FLAGS.slotEditing,
     signinMaintenance: FLAGS.signinMaintenance,
+    retailerMoves: FLAGS.retailerMoves,
     notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,

@@ -290,7 +290,7 @@ export default async function handler(req, res) {
       const callerIsViewer = _callerRoleStr === 'viewer';
       const viewerVenueIds = (callerIsViewer && Array.isArray(_mem.venue_ids) && _mem.venue_ids.length > 0) ? _mem.venue_ids : null;
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
-        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key,verification_status,is_demo,platform_keeps_all`),   // platform_keeps_all (2026-10-16): the Settings fee card and the Billing statement draw the pilot arrangement from it; without it a keeps-all pilot showed the standard $5 split
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key,verification_status,is_demo,platform_keeps_all,timezone`),   // platform_keeps_all (2026-10-16): the Settings fee card and the Billing statement draw the pilot arrangement from it; without it a keeps-all pilot showed the standard $5 split
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
         sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
         sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
@@ -309,6 +309,13 @@ export default async function handler(req, res) {
         filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
         filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
       }
+      // 0094: a retailer-initiated move still waiting on the brand rides on its demo as pending_move so the
+      // calendar can say "moved, awaiting the brand's reconfirmation by <deadline>".
+      try {
+        const mv = await sb(`booking_moves?retailer_id=eq.${encodeURIComponent(rid)}&status=eq.pending&select=id,booking_id,to_date,to_time,note,moved_at,reconfirm_due_at`);
+        const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
+        if (byBooking.size) filteredDemos = (filteredDemos || []).map(d => (d && d.booking_id && byBooking.has(d.booking_id)) ? { ...d, pending_move: byBooking.get(d.booking_id) } : d);
+      } catch (_) { /* non-fatal: the badge is simply absent */ }
       // Enrich HELD (provisional-hold) bookings with the brand's real COI verification status so the
       // admin inbox can distinguish "ready to confirm" (COI approved → Confirm captures) from "still
       // pending". Without this the badge was a hardcoded "COI pending" that never updated on approval.
@@ -388,7 +395,7 @@ export default async function handler(req, res) {
         bookings: filteredBookings,
         viewer_venue_ids: viewerVenueIds || null,
         // Release B: the admin shows the slot/blackout editors only while editing is switched on.
-        features: { slot_editing: FLAGS.slotEditing },
+        features: { slot_editing: FLAGS.slotEditing, retailer_moves: FLAGS.retailerMoves },
       });
     } catch (e) {
       return send(res, 500, { error: 'admin-data read failed: ' + (e?.message || e) });
