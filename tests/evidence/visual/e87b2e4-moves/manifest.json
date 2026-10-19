@@ -1,0 +1,542 @@
+{
+  "sha": "e87b2e4",
+  "alias": "https://demohub-booker-preview.vercel.app",
+  "taken_at": "2026-10-19T08:44:59.364Z",
+  "booking": "828ef203-8817-4496-94ab-a85369d9364d",
+  "move_id": "ce32ccdd-02aa-4ea3-9da1-45f186c47548",
+  "widths": [
+    {
+      "name": "desktop",
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "name": "phone",
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "shots": [
+    {
+      "file": "store-desktop-move-dialog-first-visit.png",
+      "role": "store",
+      "width": 1280,
+      "page": "move-dialog-first-visit",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-tour-resumed-after-dialog.png",
+      "role": "store",
+      "width": 1280,
+      "page": "tour-resumed-after-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-calendar-detail-first-visit.png",
+      "role": "store",
+      "width": 1280,
+      "page": "calendar-detail-first-visit",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-move-dialog-first-visit.png",
+      "role": "store",
+      "width": 390,
+      "page": "move-dialog-first-visit",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-tour-resumed-after-dialog.png",
+      "role": "store",
+      "width": 390,
+      "page": "tour-resumed-after-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-calendar-detail-first-visit.png",
+      "role": "store",
+      "width": 390,
+      "page": "calendar-detail-first-visit",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-move-dialog.png",
+      "role": "store",
+      "width": 1280,
+      "page": "move-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-propose-dialog.png",
+      "role": "store",
+      "width": 1280,
+      "page": "propose-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-desktop-calendar-detail-modal.png",
+      "role": "store",
+      "width": 1280,
+      "page": "calendar-detail-modal",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-move-dialog.png",
+      "role": "store",
+      "width": 390,
+      "page": "move-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-propose-dialog.png",
+      "role": "store",
+      "width": 390,
+      "page": "propose-dialog",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "store-phone-calendar-detail-modal.png",
+      "role": "store",
+      "width": 390,
+      "page": "calendar-detail-modal",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-overview-pending-move-first.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-overview-pending-move-first",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-move-banner.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-move-banner",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-desktop-dashboard-overview-pending-move-returning.png",
+      "role": "owner",
+      "width": 1280,
+      "page": "dashboard-overview-pending-move-returning",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-desktop-dashboard-overview-pending-move.png",
+      "role": "booker",
+      "width": 1280,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-overview-pending-move-first.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-overview-pending-move-first",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-move-banner.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-move-banner",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "owner-phone-dashboard-overview-pending-move-returning.png",
+      "role": "owner",
+      "width": 390,
+      "page": "dashboard-overview-pending-move-returning",
+      "horizontal_overflow": false
+    },
+    {
+      "file": "booker-phone-dashboard-overview-pending-move.png",
+      "role": "booker",
+      "width": 390,
+      "page": "dashboard-overview-pending-move",
+      "horizontal_overflow": false
+    }
+  ],
+  "checks": [
+    {
+      "name": "store desktop first visit: the tour was running, the Move dialog hid it, and focus is on the date field",
+      "pass": true,
+      "detail": {
+        "before": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "during": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n      Step 1 of 3\n      Welcome to your admin.\n      This i"
+        },
+        "ds": {
+          "open": true,
+          "focused": "reschedDate",
+          "selected_value": "2:00 PM",
+          "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+          "has_placeholder": true,
+          "deadline": "The brand has until Thursday, October 22 at 1:43 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+          "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+        }
+      }
+    },
+    {
+      "name": "store desktop: the current slot (2:00 PM) is preselected on the same date and the deadline names the zone",
+      "pass": true,
+      "detail": {
+        "open": true,
+        "focused": "reschedDate",
+        "selected_value": "2:00 PM",
+        "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+        "has_placeholder": true,
+        "deadline": "The brand has until Thursday, October 22 at 1:43 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+        "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+      }
+    },
+    {
+      "name": "store desktop: Escape closes the dialog and the tour resumes at its step",
+      "pass": true,
+      "detail": {
+        "closed": true,
+        "after": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        }
+      }
+    },
+    {
+      "name": "store desktop first visit: the calendar detail card hides the tour while open",
+      "pass": true,
+      "detail": {
+        "opened": true,
+        "calBefore": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "calDuring": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n      Step 1 of 3\n      Welcome to your admin.\n      This i"
+        }
+      }
+    },
+    {
+      "name": "store desktop: Escape closes the card and the tour resumes",
+      "pass": true,
+      "detail": {
+        "cardGone": true,
+        "calBefore": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "calAfter": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        }
+      }
+    },
+    {
+      "name": "store phone first visit: the tour was running, the Move dialog hid it, and focus is on the date field",
+      "pass": true,
+      "detail": {
+        "before": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "during": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n      Step 1 of 3\n      Welcome to your admin.\n      This i"
+        },
+        "ds": {
+          "open": true,
+          "focused": "reschedDate",
+          "selected_value": "2:00 PM",
+          "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+          "has_placeholder": true,
+          "deadline": "The brand has until Thursday, October 22 at 1:44 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+          "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+        }
+      }
+    },
+    {
+      "name": "store phone: the current slot (2:00 PM) is preselected on the same date and the deadline names the zone",
+      "pass": true,
+      "detail": {
+        "open": true,
+        "focused": "reschedDate",
+        "selected_value": "2:00 PM",
+        "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+        "has_placeholder": true,
+        "deadline": "The brand has until Thursday, October 22 at 1:44 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+        "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+      }
+    },
+    {
+      "name": "store phone: Escape closes the dialog and the tour resumes at its step",
+      "pass": true,
+      "detail": {
+        "closed": true,
+        "after": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        }
+      }
+    },
+    {
+      "name": "store phone first visit: the calendar detail card hides the tour while open",
+      "pass": true,
+      "detail": {
+        "opened": true,
+        "calBefore": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "calDuring": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n      Step 1 of 3\n      Welcome to your admin.\n      This i"
+        }
+      }
+    },
+    {
+      "name": "store phone: Escape closes the card and the tour resumes",
+      "pass": true,
+      "detail": {
+        "cardGone": true,
+        "calBefore": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        },
+        "calAfter": {
+          "backdrop_active": true,
+          "tooltip_shown": true,
+          "tooltip_text": "STEP 1 OF 3\nWelcome to your admin.\n\nThis is mission control."
+        }
+      }
+    },
+    {
+      "name": "store desktop returning visit: no tour, the dialog opens clean",
+      "pass": true,
+      "detail": {
+        "backdrop_active": false,
+        "tooltip_shown": false,
+        "tooltip_text": "\n      Step 1\n      Welcome.\n      Let me show you around.\n "
+      }
+    },
+    {
+      "name": "store desktop: on another date the current time stays preselected only because that date offers it (a valid destination); the explicit \"Choose a new time\" placeholder is in the list",
+      "pass": true,
+      "detail": {
+        "open": true,
+        "focused": "reschedDate",
+        "selected_value": "2:00 PM",
+        "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+        "has_placeholder": true,
+        "deadline": "The brand has until Thursday, October 22 at 1:44 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+        "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+      }
+    },
+    {
+      "name": "store phone returning visit: no tour, the dialog opens clean",
+      "pass": true,
+      "detail": {
+        "backdrop_active": false,
+        "tooltip_shown": false,
+        "tooltip_text": "\n      Step 1\n      Welcome.\n      Let me show you around.\n "
+      }
+    },
+    {
+      "name": "store phone: on another date the current time stays preselected only because that date offers it (a valid destination); the explicit \"Choose a new time\" placeholder is in the list",
+      "pass": true,
+      "detail": {
+        "open": true,
+        "focused": "reschedDate",
+        "selected_value": "2:00 PM",
+        "selected_text": "2:00 PM – 5:00 PM · 3 hours",
+        "has_placeholder": true,
+        "deadline": "The brand has until Thursday, October 22 at 1:44 AM PDT (72 hours) to confirm. After that the demo is cancelled and this demo's fee is refunded in full.",
+        "intro": "Currently Nov 13, 2026 at 2:00 PM. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo's fee is refunded in full. Nothing is charged."
+      }
+    },
+    {
+      "name": "owner desktop first visit: the tour does not cover the pending move (not running), the banner shows both slots, the deadline with its zone and both answers",
+      "pass": true,
+      "detail": {
+        "ts": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n  Step 1\n  Welcome.\n  Let me show you around.\n  \n    1 / 5\n"
+        },
+        "banner": {
+          "top": 2478.1875,
+          "h": 136.4375,
+          "text": "Gus's Community Market (TEST) moved this demo. It was Fri, Nov 13 at 2:00 PM, now Fri, Nov 13 at 11:00 AM. Please confirm by Thu, Oct 22, 1:44 AM PDT. If we do not hear from you, the demo is cancelled and this demo's fee is refunded in full.\nNote from Gus's Community Market (TEST): Our morning staffer is out; can you do the later slot?\nConfirm new time\nWe can't make it",
+          "buttons": [
+            "Confirm new time",
+            "We can't make it"
+          ]
+        },
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "owner desktop first visit: the Take-the-tour button is offered instead",
+      "pass": true,
+      "detail": {
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "owner desktop: both answer buttons take keyboard focus and are enabled",
+      "pass": true,
+      "detail": {
+        "a": true,
+        "b2": true,
+        "disabled": [
+          false,
+          false
+        ]
+      }
+    },
+    {
+      "name": "owner desktop returning visit: the tour does not cover the pending move (not running), the banner shows both slots, the deadline with its zone and both answers",
+      "pass": true,
+      "detail": {
+        "ts": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n  Step 1\n  Welcome.\n  Let me show you around.\n  \n    1 / 5\n"
+        },
+        "banner": {
+          "top": 2478.1875,
+          "h": 136.4375,
+          "text": "Gus's Community Market (TEST) moved this demo. It was Fri, Nov 13 at 2:00 PM, now Fri, Nov 13 at 11:00 AM. Please confirm by Thu, Oct 22, 1:44 AM PDT. If we do not hear from you, the demo is cancelled and this demo's fee is refunded in full.\nNote from Gus's Community Market (TEST): Our morning staffer is out; can you do the later slot?\nConfirm new time\nWe can't make it",
+          "buttons": [
+            "Confirm new time",
+            "We can't make it"
+          ]
+        },
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "booker desktop: the move line is there (old slot, owner answers, zone) and no answer button exists",
+      "pass": true,
+      "detail": {
+        "line": "Moved by the store (was Nov 13 at 2:00 PM). The brand account owner has been asked to confirm the new time by Thu, Oct 22, 1:44 AM PDT; only the owner can answer, and if they cannot make it the demo is cancelled and this demo's fee is refunded in full.",
+        "bb": []
+      }
+    },
+    {
+      "name": "owner phone first visit: the tour does not cover the pending move (not running), the banner shows both slots, the deadline with its zone and both answers",
+      "pass": true,
+      "detail": {
+        "ts": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n  Step 1\n  Welcome.\n  Let me show you around.\n  \n    1 / 5\n"
+        },
+        "banner": {
+          "top": 3685.59375,
+          "h": 318.953125,
+          "text": "Gus's Community Market (TEST) moved this demo. It was Fri, Nov 13 at 2:00 PM, now Fri, Nov 13 at 11:00 AM. Please confirm by Thu, Oct 22, 1:44 AM PDT. If we do not hear from you, the demo is cancelled and this demo's fee is refunded in full.\nNote from Gus's Community Market (TEST): Our morning staffer is out; can you do the later slot?\nConfirm new time\nWe can't make it",
+          "buttons": [
+            "Confirm new time",
+            "We can't make it"
+          ]
+        },
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "owner phone first visit: the Take-the-tour button is offered instead",
+      "pass": true,
+      "detail": {
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "owner phone: both answer buttons take keyboard focus and are enabled",
+      "pass": true,
+      "detail": {
+        "a": true,
+        "b2": true,
+        "disabled": [
+          false,
+          false
+        ]
+      }
+    },
+    {
+      "name": "owner phone returning visit: the tour does not cover the pending move (not running), the banner shows both slots, the deadline with its zone and both answers",
+      "pass": true,
+      "detail": {
+        "ts": {
+          "backdrop_active": false,
+          "tooltip_shown": false,
+          "tooltip_text": "\n  Step 1\n  Welcome.\n  Let me show you around.\n  \n    1 / 5\n"
+        },
+        "banner": {
+          "top": 3685.59375,
+          "h": 318.953125,
+          "text": "Gus's Community Market (TEST) moved this demo. It was Fri, Nov 13 at 2:00 PM, now Fri, Nov 13 at 11:00 AM. Please confirm by Thu, Oct 22, 1:44 AM PDT. If we do not hear from you, the demo is cancelled and this demo's fee is refunded in full.\nNote from Gus's Community Market (TEST): Our morning staffer is out; can you do the later slot?\nConfirm new time\nWe can't make it",
+          "buttons": [
+            "Confirm new time",
+            "We can't make it"
+          ]
+        },
+        "fab": "flex"
+      }
+    },
+    {
+      "name": "booker phone: the move line is there (old slot, owner answers, zone) and no answer button exists",
+      "pass": true,
+      "detail": {
+        "line": "Moved by the store (was Nov 13 at 2:00 PM). The brand account owner has been asked to confirm the new time by Thu, Oct 22, 1:44 AM PDT; only the owner can answer, and if they cannot make it the demo is cancelled and this demo's fee is refunded in full.",
+        "bb": []
+      }
+    }
+  ],
+  "notes": [
+    {
+      "move": {
+        "ok": true,
+        "demo_id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+        "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+        "new_date": "2026-11-13",
+        "new_time": "11:00 AM",
+        "schedule_revision": 9,
+        "move_id": "ce32ccdd-02aa-4ea3-9da1-45f186c47548",
+        "reconfirm_due_at": "2026-10-22T08:44:34.899897+00:00"
+      }
+    },
+    {
+      "confirm": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "move_id": "ce32ccdd-02aa-4ea3-9da1-45f186c47548",
+          "status": "confirmed"
+        }
+      }
+    },
+    {
+      "notification_worker": {
+        "ok": true
+      }
+    }
+  ]
+}
