@@ -405,7 +405,21 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .dh-empty-title{ font-weight:700; font-size:1rem; color:var(--forest-900); margin-bottom:5px; }
 .dh-empty-sub{ font-size:0.88rem; color:var(--ink-500); line-height:1.55; max-width:340px; margin:0 auto; }
 
-.resched-banner{background:#fff8ed;border:1px solid #e0b56a55;border-radius:10px;padding:12px 14px;margin:8px 0 0;}
+.resched-banner{background:#fff8ed;border:1px solid #e0b56a55;border-radius:10px;padding:12px 14px;margin:8px 0 0;scroll-margin-top:96px;}
+.move-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:0.9rem;color:#2a2a26;margin:8px 0 10px;}
+.move-facts .k{color:#7a5a12;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;align-self:center;}
+.move-facts .v strong{font-size:1rem;}
+.move-title{font-size:0.98rem;font-weight:700;color:#1f3a24;margin-bottom:2px;}
+.move-note{font-size:0.84rem;color:#5c4400;margin:0 0 10px;}
+.action-card{background:#fff;border:1.5px solid #e0b56a;border-radius:16px;padding:18px 20px;margin:0 0 18px;box-shadow:0 8px 24px rgba(224,181,106,.18);}
+.action-card h2{margin:0 0 2px;font-size:1.15rem;}
+.action-card .sub{font-size:0.86rem;color:var(--ink-500);margin-bottom:10px;}
+.action-card .action-item{border-top:1px solid rgba(15,44,23,0.08);padding-top:12px;margin-top:12px;}
+.action-card .action-item:first-of-type{border-top:0;padding-top:0;margin-top:0;}
+.action-card .action-where{font-weight:700;color:var(--forest-900);font-size:0.95rem;}
+.action-card .resched-banner{margin-top:8px;}
+.nav-tab .nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:99px;background:#d9472b;color:#fff;font-size:0.72rem;font-weight:800;line-height:1;vertical-align:middle;}
+.nav-tab.active .nav-badge{background:#ff6a3d;}
 .resched-banner.move-banner{border-left:4px solid #2a5b32;}
 .resched-banner .resched-msg{font-size:0.86rem;line-height:1.5;color:#7a5a12;margin-bottom:10px;}
 .resched-banner .resched-actions{display:flex;gap:8px;flex-wrap:wrap;}
@@ -787,6 +801,7 @@ function render() {
   if (typeof updateAgreementBand === 'function') updateAgreementBand();
   if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
   if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
+  updateBrandBadges();
   if (_currentTab === 'overview') { renderOverview(); _deferTourForPendingMove(); }
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'retailers') renderRetailers();
@@ -845,6 +860,35 @@ function heldBannerHtml(d) {
 
 // 0094: the store moved this demo; the brand confirms or says it cannot make it. Silence by the
 // deadline cancels the demo with a full refund, and the banner says so in plain words.
+// 2026-10-19 (David): anything the brand must answer (a store's move, a store's proposed date) sits in ONE card at the
+// top of Overview, never buried in the demo list, and the Overview tab carries a red count like the store's Demos tab.
+function _needsAnswer(d) {
+  if (!d) return false;
+  const st = String(d.status || '').toLowerCase();
+  const active = !st || ['confirmed', 'pending', 'scheduled'].includes(st);   // a row without a status is treated as live
+  return active && !!(d.pending_move || d.reschedule_to_date);
+}
+function actionNeededHtml(demos) {
+  if (window._brandRole === 'booker') return '';
+  const list = (demos || []).filter(_needsAnswer);
+  if (!list.length) return '';
+  const where = (d) => escapeHtml((d.retailers && d.retailers.name) || 'Store') + (d.venues && d.venues.name ? ' <span style="color:var(--ink-500);font-weight:500;">' + escapeHtml(d.venues.name) + '</span>' : '');
+  return '<div class="action-card" id="actionNeeded">'
+    + '<h2>Needs your answer' + (list.length > 1 ? ' (' + list.length + ')' : '') + '</h2>'
+    + '<div class="sub">A store changed, or asked to change, a demo of yours. Nothing else about the booking changes until you answer.</div>'
+    + list.map(d => '<div class="action-item"><div class="action-where">' + where(d) + '</div>' + (d.pending_move ? moveBannerHtml(d) : rescheduleBannerHtml(d)) + '</div>').join('')
+    + '</div>';
+}
+function updateBrandBadges() {
+  const n = window._brandRole === 'booker' ? 0 : ((_data && _data.demos) || []).filter(_needsAnswer).length;
+  document.querySelectorAll('[data-tab="overview"]').forEach(el => {
+    let badge = el.querySelector('.nav-badge');
+    if (n > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; badge.setAttribute('aria-label', 'needs your answer'); el.appendChild(badge); }
+      badge.textContent = String(n);
+    } else if (badge) badge.remove();
+  });
+}
 function moveBannerHtml(d) {
   const m = d.pending_move || {};
   const _fmt = function (dt, tm) {
@@ -866,8 +910,16 @@ function moveBannerHtml(d) {
       + (due ? ' The brand account owner has been asked to confirm the new time by <strong>' + escapeHtml(due) + '</strong>; if they cannot make it, the demo is cancelled and this demo\'s fee is refunded in full.' : ' The brand account owner has been asked to confirm the new time.')
       + ' Only the owner can answer; talk to them if the new time does not work for you.' + note + '</div></div>';
   }
+  // 2026-10-19 (David): facts, not a paragraph. Was / Now / Answer by, the store's note, two buttons.
   return '<div class="resched-banner move-banner" title="The store moved this demo. Your booking and payment stay the same. Confirm the new time, or tell us you cannot make it and this demo\'s fee is refunded in full.">'
-    + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>. Please confirm' + (due ? ' by <strong>' + escapeHtml(due) + '</strong>' : '') + '. If we do not hear from you, the demo is cancelled and this demo\'s fee is refunded in full.' + note + '</div>'
+    + '<div class="move-title">' + store + ' moved this demo</div>'
+    + '<div class="move-facts">'
+    + (fromLabel ? '<div class="k">Was</div><div class="v"><span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span></div>' : '')
+    + '<div class="k">Now</div><div class="v"><strong>' + toLabel + '</strong></div>'
+    + (due ? '<div class="k">Answer by</div><div class="v">' + escapeHtml(due) + '</div>' : '')
+    + '</div>'
+    + (m.note ? '<div class="move-note"><strong>Note from ' + store + ':</strong> ' + escapeHtml(m.note) + '</div>' : '')
+    + '<div class="move-note" style="color:var(--ink-500);">No answer by the deadline cancels the demo and refunds this demo\'s fee in full.</div>'
     + '<div class="resched-actions">'
     + '<button class="resched-accept" title="Confirm you will be there at the new time. Nothing else changes." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'confirm\',this)">Confirm new time</button>'
     + '<button class="resched-decline" title="Cancel this demo and get this demo\'s fee refunded in full." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'decline\',this)">We can\'t make it</button>'
@@ -1365,6 +1417,7 @@ function renderOverview() {
       <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
       <div class="sub">One profile, every Demohub retailer.</div>
     </div></div>
+    ${actionNeededHtml(demos)}
     ${welcomeHtml}
     ${coiWarnHtml}
     ${verifiedPanelHtml}
@@ -1650,10 +1703,15 @@ window.openDemoDetail = function(demoId) {
       <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || 'n/a')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
+    ${demo.pending_move ? '<div class="resched-banner move-banner" style="margin-top:14px;"><div class="move-title">' + escapeHtml(ret.name || 'The store') + ' moved this demo</div><div class="move-facts">' + (demo.pending_move.from_date ? '<div class="k">Was</div><div class="v"><span style="text-decoration:line-through;opacity:.7;">' + escapeHtml(_calMoveLabel(demo.pending_move.from_date, demo.pending_move.from_time)) + '</span></div>' : '') + '<div class="k">Now</div><div class="v"><strong>' + escapeHtml(_calMoveLabel(demo.pending_move.to_date || demo.demo_date, demo.pending_move.to_time || demo.demo_time)) + '</strong></div></div><div class="move-note">' + (window._brandRole === 'booker' ? 'The brand account owner has been asked to confirm the new time.' : 'Waiting for your answer: <a href="#overview" onclick="closeDemoDetail()">answer on the Overview tab</a>.') + '</div></div>' : ''}
   `;
   document.getElementById('demoDetailContent').innerHTML = content;
   document.getElementById('demoDetailModal').classList.add('open');
 };
+function _calMoveLabel(dt, tm) {
+  if (!dt) return '';
+  try { return new Date(dt + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (tm ? ' at ' + tm : ''); } catch (_) { return dt + (tm ? ' at ' + tm : ''); }
+}
 window.closeDemoDetail = function() {
   document.getElementById('demoDetailModal').classList.remove('open');
 };
@@ -1681,7 +1739,9 @@ window.copyCalsyncUrl = function(btn) {
 // "renderCoiWidget is not defined" earlier.
 // Codex product-list (2026-10-07): each item carries what a grocery buyer orders from. Fields are optional except
 // the name; the server validates (api/_products.js) and returns the normalised list, which is what we re-render.
-const SKU_DISTRIBUTORS = [['', 'Distributor (optional)'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
+// 2026-10-19 (David): the distributor is required on every item (choose Other if none of these); the Size box is gone
+// (a saved size rides along hidden so older items keep theirs).
+const SKU_DISTRIBUTORS = [['', 'Distributor *'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
 function skuRowHtml(p) {
   const v = (x) => escapeHtml(x == null ? '' : x);
   const sel = SKU_DISTRIBUTORS.map(o => '<option value="' + o[0] + '"' + ((p.distributor || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('');
@@ -1690,7 +1750,7 @@ function skuRowHtml(p) {
     // Name (2026-10-16): brands kept typing their company here. The field asks for the product, with its flavor or variety.
     + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Product name, with flavor or variety (e.g. Smoked Serrano Hot Sauce) *', p.name, 'style="flex:1;" title="One product as it appears on the shelf, with its flavor or variety. Not your brand name."')
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
-    + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
+    + inp('sku-size', '', p.size, 'type="hidden"')
     + inp('sku-code', 'Your item code (optional)', p.sku, 'title="Your own code for this item, if you keep one. Not the barcode."')
     + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric" title="The barcode number on the product label, usually 12 digits."')
     + '<select class="input sku-distributor">' + sel + '</select>'
@@ -2156,6 +2216,7 @@ async function saveProfile() {
     put('default_categories', 'f_default_categories', el => el.value);
     put('needs_electricity', 'f_needs_electricity', el => !!el.checked);
     const _skus = collectSkus();
+    if (_skus !== null) { const noDist = _skus.filter(p => p && p.name && !p.distributor); if (noDist.length) throw new Error('Pick a distributor for ' + noDist.map(p => p.name).join(', ') + ' (choose Other if it is none of these).'); }
     if (_skus !== null) { payload.products = _skus; payload.expected_products_version = Number.isInteger(_data.profile.products_version) ? _data.profile.products_version : null; }
     const _resp = await _brandApi('profile-update', payload);
     if (_resp && _resp.degraded) {

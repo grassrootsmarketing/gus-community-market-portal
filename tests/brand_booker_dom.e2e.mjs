@@ -241,7 +241,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const p = await ctx.newPage(); const errs = []; p.on('pageerror', e => errs.push(String(e.message || e)));
     const base = role === 'booker' ? bookerData : ownerData;
-    const moved = { ...base, demos: [{ ...base.demos[0], demo_time: '2:00 PM', pending_move: { id: 'mv1', from_date: '2026-11-20', from_time: '11:00 AM', to_date: '2026-11-20', to_time: '2:00 PM', note: 'Our morning staffer is out.', moved_at: '2026-11-01T17:00:00Z', reconfirm_due_at: '2026-11-04T17:00:00Z' } }] };
+    const moved = { ...base, demos: [{ ...bookerData.demos[0], demo_time: '2:00 PM', pending_move: { id: 'mv1', from_date: '2026-11-20', from_time: '11:00 AM', to_date: '2026-11-20', to_time: '2:00 PM', note: 'Our morning staffer is out.', moved_at: '2026-11-01T17:00:00Z', reconfirm_due_at: '2026-11-04T17:00:00Z' } }] };
     await p.route('**/api/**', async (route) => {
       const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {}
       if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, moved);
@@ -256,13 +256,18 @@ try {
       ok('7b. the booker gets no Confirm or Cannot-make-it button anywhere (the server would refuse the answer)', !b && t.buttons.length === 0, JSON.stringify({ banner: b, buttons: t.buttons }));
     } else {
       ok('7c. the owner sees the same move with both answers', !!b && /moved this demo/.test(b.text) && b.buttons.length === 2 && /Confirm new time/.test(b.buttons[0]) && /can.t make it/i.test(b.buttons[1]), JSON.stringify(b));
+      // 2026-10-19 (David): the answer sits in a card at the TOP of Overview, with Was / Now / Answer by, and the Overview
+      // tab carries a red count like the store's Demos tab
+      const card = await p.evaluate(() => { const c = document.getElementById('actionNeeded'); const main = document.getElementById('mainContent'); const badge = document.querySelector('.nav-tab[data-tab="overview"] .nav-badge'); return { present: !!c, first: !!(c && main && main.children[1] === c), text: c ? c.innerText : '', badge: badge ? badge.textContent : null, buttons: c ? [...c.querySelectorAll('button')].map(x => x.textContent.trim()) : [] }; });
+      const cardFlags = { present: card.present, first: card.first, heading: /Needs your answer/.test(card.text), was: /was/i.test(card.text), now: /now/i.test(card.text), by: /answer by/i.test(card.text), note: /morning staffer/.test(card.text), buttons: card.buttons.length === 2, badge: card.badge === '1' };
+      ok('7f. a "Needs your answer" card sits right under the heading with Was / Now / Answer by, the note and both buttons, and the Overview tab shows a red 1', Object.values(cardFlags).every(Boolean), JSON.stringify(cardFlags));
       // 2026-10-19: the moved demo is the OLDEST of fourteen; the Recent demos list shows ten, and the move must still be on top
-      const many = { ...base, demos: [...Array.from({ length: 13 }, (_, i) => ({ ...base.demos[0], id: 'dx' + i, booking_id: 'bkx' + i, demo_date: '2026-12-' + String(10 + i).padStart(2, '0') })), moved.demos[0]] };
+      const many = { ...base, demos: [...Array.from({ length: 13 }, (_, i) => ({ ...bookerData.demos[0], id: 'dx' + i, booking_id: 'bkx' + i, demo_date: '2026-12-' + String(10 + i).padStart(2, '0') })), moved.demos[0]] };
       const p2 = await ctx.newPage();
       await p2.route('**/api/**', async (route) => { const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {} if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, many); return json(route, { ok: true, items: [], agreements: [], booker: null, history: [] }); });
       await p2.goto(`${BASE}/brand/dashboard#overview`, { waitUntil: 'domcontentloaded' }); await p2.waitForSelector('.move-banner', { timeout: 10000 }).catch(() => {}); await p2.waitForTimeout(800);
       const pinned = await p2.evaluate(() => { const rows = [...document.querySelectorAll('.demos-row')]; return { rows: rows.length, firstHasBanner: !!(rows[0] && rows[0].nextElementSibling && rows[0].nextElementSibling.classList && rows[0].nextElementSibling.classList.contains('move-banner')), banners: document.querySelectorAll('.move-banner').length }; });
-      ok('7e. with fourteen demos the one waiting for an answer is pinned to the top of the ten-row list', pinned.rows === 10 && pinned.banners === 1 && pinned.firstHasBanner, JSON.stringify(pinned));
+      ok('7e. with fourteen demos the one waiting for an answer is pinned to the top of the ten-row list (and in the answer card above)', pinned.rows === 10 && pinned.banners === 2 && pinned.firstHasBanner, JSON.stringify(pinned));
     }
     ok(`7d. no page errors (${role})`, errs.length === 0, errs.join(' | '));
     await ctx.close();
