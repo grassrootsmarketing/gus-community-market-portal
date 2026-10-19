@@ -113,12 +113,13 @@ try {
   console.log('\nA real payment group: four bookings, one checkout, one signed paid event');
   const bookingIds = [];
   {
-    for (let i = 0; i < 4; i++) {
-      const bk = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(1 + i), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
+    // A and B inside the window (tomorrow, +2 days), C and D outside it from any request time of day (+4, +5 days).
+    for (const days of [1, 2, 4, 5]) {
+      const bk = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(days), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: brandCookie } }));
       const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
       if (id) { track('bookings', id); bookingIds.push(id); } else console.log('  book.js ' + bk.statusCode + ' ' + JSON.stringify(bk.body).slice(0, 200));
     }
-    ok('four bookings (tomorrow, +2, +3, +4 days at 13:00) were created through /api/book', bookingIds.length === 4, `${bookingIds.length}`);
+    ok('four bookings (tomorrow, +2, +4, +5 days at 13:00) were created through /api/book', bookingIds.length === 4, `${bookingIds.length}`);
     const co = await callRoute('checkout.js', req({ body: { booking_ids: bookingIds }, cookies: { dh_brand_session: brandCookie } }));
     const sessionId = co.body && co.body.session_id; groupId = co.body && co.body.payment_group_id; const total = co.body && co.body.total_cents;
     ok('/api/checkout claimed ONE group with a session and a total', co.statusCode === 200 && !!sessionId && !!groupId && Number.isFinite(total), `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
@@ -173,10 +174,11 @@ try {
     ok('the brand\'s email says the store had to cancel and the refund was submitted', spy.calls.resend.length > m0 && /had to cancel/.test(text(mail)) && /refund request was submitted/i.test(text(mail)), text(mail).slice(0, 300));
   }
 
-  console.log('\nRequest received 73+ hours out, transition fails after the refund, retried under a changed policy (C, +3 days)');
+  console.log('\nRequest received hours before the click, transition fails after the refund, retried under a changed policy (C, +4 days)');
   {
-    // C starts about 72 hours from now (13:00 in three days); the brand asked three hours ago, so the decision is
-    // measured from then: outside the cutoff even though "now" may be just inside it.
+    // C starts 13:00 in four days (85 to 109 hours from now whatever the time of day); the brand asked three hours ago,
+    // so the recorded decision is measured from then (hours_before_demo exceeds the hours from "now" by three). The
+    // "request outside, click inside" boundary itself is pinned offline in tests/refund_cutoff.test.mjs.
     const requestedAt = hoursAgo(3);
     spy.faults.push({ url: '/rpc/booking_transition', method: 'POST', status: 500, message: 'injected_transition_failure' });
     const r0 = stripeRefundCalls();
@@ -202,7 +204,7 @@ try {
     await setMode('refundable');
   }
 
-  console.log('\nProvider failure on an eligible refund (D, +4 days): the eligibility is kept in the ledger, not lost');
+  console.log('\nProvider failure on an eligible refund (D, +5 days): the eligibility is kept in the ledger, not lost');
   {
     spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
     const r = await cancel(D);
