@@ -1,0 +1,1548 @@
+{
+  "started_at": "2026-10-19T01:01:03.353Z",
+  "steps": [
+    {
+      "name": "S0 the deployed preview reports Preview, the test database (fingerprint tile...), Stripe test, the mail sink and the retailer-moves flag ON",
+      "pass": true,
+      "detail": {
+        "env": "preview",
+        "binding": {
+          "target": "preview",
+          "project_ref_fingerprint": "tile…",
+          "db_environment_expected": "staging",
+          "stripe_mode": "test",
+          "email_mode": "sink",
+          "email_allowlist_count": 1,
+          "has_publishable_key": true,
+          "has_webhook_secret": true
+        },
+        "flags": {
+          "provisionalHolds": true,
+          "publicRetailerSignup": false,
+          "coiAiVerification": false,
+          "checkoutEnabled": true,
+          "coiUploadEnabled": true,
+          "brandInviteEnabled": true,
+          "slotEditing": false,
+          "signinMaintenance": false,
+          "retailerMoves": true,
+          "notificationWorker": true,
+          "coiAutoEnforcementFlag": false,
+          "coiEnforcementModeRaw": "live",
+          "coiEnforcementEffective": "off",
+          "connectedCheckout": "hard_disabled",
+          "max_cart": 10
+        }
+      }
+    },
+    {
+      "name": "setup: the test store auto-confirms paid bookings and keeps all (plain platform charge, so refunds carry no transfer reversal)",
+      "pass": true,
+      "detail": {
+        "auto_confirm_bookings": true,
+        "platform_keeps_all": true,
+        "cancellation_mode": "refundable"
+      }
+    },
+    {
+      "name": "setup: five bookings created by the owner with operation keys (pending payment)",
+      "pass": true,
+      "detail": {
+        "A": "828ef203-8817-4496-94ab-a85369d9364d",
+        "B": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+        "C": "3f1f797e-868c-4a96-864b-57015aa06f09",
+        "D1": "0d199780-9a2b-4188-a62d-2baaaa596224",
+        "D2": "48773df9-8f53-408b-a90f-bd4137901abf"
+      }
+    },
+    {
+      "name": "P-A checkout returns a Stripe test-mode session (1 booking(s), $30)",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "payment_group_id": "514ed75a-1386-4cc6-8001-ea2892211a0d",
+        "total_cents": 3000,
+        "booking_ids": [
+          "828ef203-8817-4496-94ab-a85369d9364d"
+        ]
+      }
+    },
+    {
+      "name": "P-A the test card pays on Stripe's hosted page; the webhook marks 1 booking(s) paid, the store auto-confirms, a demo row exists for each",
+      "pass": true,
+      "detail": {
+        "paidReturn": "https://demohub-booker-preview.vercel.app/r/gus?paid=1&bookings=828ef203-8817-4496-94ab-a85369d9364d",
+        "rows": [
+          {
+            "id": "828ef203-8817-4496-94ab-a85369d9364d",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3US4x3A6b3orPg0T1kXIbKMC"
+          }
+        ],
+        "demos": [
+          {
+            "id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+            "status": "confirmed",
+            "demo_date": "2026-11-13",
+            "demo_time": "10:00 AM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P-B checkout returns a Stripe test-mode session (1 booking(s), $30)",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "payment_group_id": "02b4702a-8e60-4432-8bf5-40f10aeac581",
+        "total_cents": 3000,
+        "booking_ids": [
+          "43a5aed1-8316-4bea-b031-c26a3e94fb90"
+        ]
+      }
+    },
+    {
+      "name": "P-B the test card pays on Stripe's hosted page; the webhook marks 1 booking(s) paid, the store auto-confirms, a demo row exists for each",
+      "pass": true,
+      "detail": {
+        "paidReturn": "https://demohub-booker-preview.vercel.app/r/gus?paid=1&bookings=43a5aed1-8316-4bea-b031-c26a3e94fb90",
+        "rows": [
+          {
+            "id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3US4xFA6b3orPg0T0JDwRMHo"
+          }
+        ],
+        "demos": [
+          {
+            "id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+            "status": "confirmed",
+            "demo_date": "2026-11-14",
+            "demo_time": "10:00 AM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P-C checkout returns a Stripe test-mode session (1 booking(s), $30)",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "payment_group_id": "46455408-be32-4fd1-a81d-e5da641ceb7d",
+        "total_cents": 3000,
+        "booking_ids": [
+          "3f1f797e-868c-4a96-864b-57015aa06f09"
+        ]
+      }
+    },
+    {
+      "name": "P-C the test card pays on Stripe's hosted page; the webhook marks 1 booking(s) paid, the store auto-confirms, a demo row exists for each",
+      "pass": true,
+      "detail": {
+        "paidReturn": "https://demohub-booker-preview.vercel.app/r/gus?paid=1&bookings=3f1f797e-868c-4a96-864b-57015aa06f09",
+        "rows": [
+          {
+            "id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3US4xPA6b3orPg0T0WmSQXv4"
+          }
+        ],
+        "demos": [
+          {
+            "id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+            "status": "confirmed",
+            "demo_date": "2026-11-15",
+            "demo_time": "10:00 AM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "P-D checkout returns a Stripe test-mode session (2 booking(s), $60)",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+        "total_cents": 6000,
+        "booking_ids": [
+          "0d199780-9a2b-4188-a62d-2baaaa596224",
+          "48773df9-8f53-408b-a90f-bd4137901abf"
+        ]
+      }
+    },
+    {
+      "name": "P-D the test card pays on Stripe's hosted page; the webhook marks 2 booking(s) paid, the store auto-confirms, a demo row exists for each",
+      "pass": true,
+      "detail": {
+        "paidReturn": "https://demohub-booker-preview.vercel.app/r/gus?paid=1&bookings=0d199780-9a2b-4188-a62d-2baaaa596224",
+        "rows": [
+          {
+            "id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3US4xaA6b3orPg0T0ULvP6D9"
+          },
+          {
+            "id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "pi": "pi_3US4xaA6b3orPg0T0ULvP6D9"
+          }
+        ],
+        "demos": [
+          {
+            "id": "5a549a24-98ca-49dd-8065-8b0f2d5cb6d7",
+            "status": "confirmed",
+            "demo_date": "2026-11-16",
+            "demo_time": "10:00 AM"
+          },
+          {
+            "id": "b2efcf84-a46e-4b3a-b9c0-7eff529cf05e",
+            "status": "confirmed",
+            "demo_date": "2026-11-16",
+            "demo_time": "2:00 PM"
+          }
+        ]
+      }
+    },
+    {
+      "name": "S1-1 the store moves the paid, confirmed demo to 2:00 PM the same day: booking and demo rows carry the new time and a new schedule revision; a pending move with a 72 h reconfirmation deadline",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "body": {
+          "ok": true,
+          "demo_id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+          "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+          "new_date": "2026-11-13",
+          "new_time": "2:00 PM",
+          "schedule_revision": 2,
+          "move_id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+          "reconfirm_due_at": "2026-10-22T01:02:01.301991+00:00"
+        },
+        "after": {
+          "demo_time": "2:00 PM",
+          "schedule_revision": 2,
+          "start_at": "2026-11-13T22:00:00+00:00"
+        },
+        "demoAfter": {
+          "id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+          "status": "confirmed",
+          "demo_date": "2026-11-13",
+          "demo_time": "2:00 PM"
+        },
+        "due_hours": 72
+      }
+    },
+    {
+      "name": "S1-2 the brand dashboard data shows the pending move on that demo",
+      "pass": true,
+      "detail": {
+        "keys": [
+          "pending_move"
+        ],
+        "demo": {
+          "pending_move": {
+            "id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+            "from_date": "2026-11-13",
+            "from_time": "10:00 AM",
+            "to_date": "2026-11-13",
+            "to_time": "2:00 PM",
+            "note": "Our morning staffer called in sick; can you do 2 pm instead?",
+            "moved_at": "2026-10-19T01:02:01.301991+00:00",
+            "reconfirm_due_at": "2026-10-22T01:02:01.301991+00:00"
+          }
+        }
+      }
+    },
+    {
+      "name": "S1-3 the notification worker sends the \"store moved your demo, please confirm\" notice to the brand owner only",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": null
+        },
+        {
+          "kind": "demo_rescheduled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "828ef203-8817-4496-94ab-a85369d9364d:2"
+        },
+        {
+          "kind": "demo_moved",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "1f954eb1-f889-4ab8-b313-7a70d10f3812"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "pending",
+          "skip_reason": null,
+          "occurrence_key": "1f954eb1-f889-4ab8-b313-7a70d10f3812"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "pending",
+          "skip_reason": null,
+          "occurrence_key": "1f954eb1-f889-4ab8-b313-7a70d10f3812"
+        }
+      ]
+    },
+    {
+      "name": "S1-4 the brand confirms the move: move confirmed, the booking stays confirmed and paid at the NEW time, no refund request, allocation untouched, no Stripe refund on the payment",
+      "pass": true,
+      "detail": {
+        "move_status": "confirmed",
+        "responded_at": "2026-10-19T01:02:18.802943+00:00",
+        "booking": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_time": "2:00 PM",
+          "schedule_revision": 2
+        },
+        "allocation": {
+          "id": "19fcc27c-89c3-4913-bb98-c9c2a3d52452",
+          "payment_group_id": "514ed75a-1386-4cc6-8001-ea2892211a0d",
+          "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+          "customer_amount": 3000,
+          "refunded_amount": 0,
+          "reserved_refund_amount": 0
+        },
+        "refund_requests": [],
+        "stripe_refunds": []
+      }
+    },
+    {
+      "name": "S1-5 a later decline of the confirmed move is refused (409 move_confirmed) and changes nothing",
+      "pass": true,
+      "detail": {
+        "error": "move_confirmed",
+        "message": "You already confirmed this move."
+      }
+    },
+    {
+      "name": "S2-1 the store moves the second paid demo to 11:00 AM (pending move)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+        "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+        "new_date": "2026-11-14",
+        "new_time": "11:00 AM",
+        "schedule_revision": 2,
+        "move_id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+        "reconfirm_due_at": "2026-10-22T01:02:20.882012+00:00"
+      }
+    },
+    {
+      "name": "S2-2 the brand declines: the route answers declined + cancelled with the refund SUBMITTED; the move is settled with the refund request id; the booking is cancelled (reason: the brand could not make the new time) and refunded; the demo row is cancelled",
+      "pass": true,
+      "detail": {
+        "respond": {
+          "ok": true,
+          "move_id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+          "status": "declined",
+          "cancelled": true,
+          "refund_status": "submitted",
+          "message": "You told us you cannot make the new time, so this demo was cancelled; the full refund has been submitted to your card provider."
+        },
+        "final": {
+          "move": {
+            "status": "declined",
+            "settled_at": "2026-10-19T01:02:26.097014+00:00",
+            "refund_status": "submitted",
+            "refund_request_id": "f776047b-ad9f-450e-bea9-3831336ee248",
+            "refund_case_id": null,
+            "reconciliation_case_id": null
+          },
+          "booking": {
+            "status": "cancelled",
+            "payment_status": "refunded",
+            "cancel_reason": "The brand could not make the new time after the store moved this demo.",
+            "cancelled_at": "2026-10-19T01:02:24.725+00:00",
+            "refund_id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+            "demo_date": "2026-11-14",
+            "demo_time": "11:00 AM"
+          },
+          "demo": {
+            "id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+            "status": "cancelled",
+            "demo_date": "2026-11-14",
+            "demo_time": "11:00 AM"
+          },
+          "allocation": {
+            "id": "4909aced-9c19-494c-bd8b-f988b3228890",
+            "payment_group_id": "02b4702a-8e60-4432-8bf5-40f10aeac581",
+            "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          },
+          "refund_requests": [
+            {
+              "id": "f776047b-ad9f-450e-bea9-3831336ee248",
+              "payment_allocation_id": "4909aced-9c19-494c-bd8b-f988b3228890",
+              "amount": 3000,
+              "status": "succeeded",
+              "actor": "system:move_declined",
+              "reason": "The brand could not make the new time after the store moved this demo.",
+              "op_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:move_declined",
+              "stripe_refund_id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+              "customer_refund_status": "succeeded",
+              "settlement_status": "not_required",
+              "attempts": 0,
+              "last_error": null
+            }
+          ],
+          "stripe_refunds": [
+            {
+              "id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+              "amount": 3000,
+              "status": "succeeded",
+              "charge": "ch_3US4xFA6b3orPg0T0GeCNk7B"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "S2-3 money: exactly one refund request for the full $30.00 allocation, carrying the Stripe refund id; the allocation shows $30.00 refunded; Stripe has exactly one succeeded $30.00 refund on the payment",
+      "pass": true,
+      "detail": {
+        "refund_requests": [
+          {
+            "id": "f776047b-ad9f-450e-bea9-3831336ee248",
+            "payment_allocation_id": "4909aced-9c19-494c-bd8b-f988b3228890",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_declined",
+            "reason": "The brand could not make the new time after the store moved this demo.",
+            "op_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:move_declined",
+            "stripe_refund_id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "allocation": {
+          "id": "4909aced-9c19-494c-bd8b-f988b3228890",
+          "payment_group_id": "02b4702a-8e60-4432-8bf5-40f10aeac581",
+          "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xFA6b3orPg0T0GeCNk7B"
+          }
+        ]
+      }
+    },
+    {
+      "name": "S2-4 the worker sends the cancellation notice (demo_move_cancelled) to the brand owner; the earlier \"please confirm\" notice was sent before the decline",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": null
+        },
+        {
+          "kind": "demo_confirmed",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:1"
+        },
+        {
+          "kind": "demo_rescheduled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:2"
+        },
+        {
+          "kind": "demo_moved",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "5b0b32d7-4994-4eae-91f0-28bb4823f94c"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "5b0b32d7-4994-4eae-91f0-28bb4823f94c"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "5b0b32d7-4994-4eae-91f0-28bb4823f94c"
+        },
+        {
+          "kind": "demo_cancelled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:2"
+        },
+        {
+          "kind": "demo_move_cancelled",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "5b0b32d7-4994-4eae-91f0-28bb4823f94c"
+        }
+      ]
+    },
+    {
+      "name": "S2-5 a later confirm of the declined move is refused (409 move_declined) with the persisted outcome in the message; no second refund",
+      "pass": true,
+      "detail": {
+        "error": "move_declined",
+        "message": "You told us you cannot make the new time, so this demo was cancelled; the full refund has been submitted to your card provider."
+      }
+    },
+    {
+      "name": "S3-1 the store moves the third paid demo to 2:00 PM (pending move)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+        "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+        "new_date": "2026-11-15",
+        "new_time": "2:00 PM",
+        "schedule_revision": 2,
+        "move_id": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b",
+        "reconfirm_due_at": "2026-10-22T01:02:31.835124+00:00"
+      }
+    },
+    {
+      "name": "S3-2 the deployed refund worker lapses the overdue move and settles it in the same run (1 lapsed, 1 settled, none failed or parked)",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "moves_lapsed": 1,
+        "moves_settled": 1,
+        "moves_failed": 0,
+        "moves_parked": 0,
+        "errors": 0,
+        "status": 200
+      }
+    },
+    {
+      "name": "S3-3 after the lapse: move lapsed and settled with the refund SUBMITTED; booking cancelled (reason: the brand did not reconfirm) and refunded; demo row cancelled; one $30.00 refund request; allocation $30.00 refunded; one succeeded $30.00 Stripe refund",
+      "pass": true,
+      "detail": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T01:02:37.534937+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "8c8e454e-5dde-4d72-b83f-a15c6475973e",
+          "refund_case_id": null,
+          "reconciliation_case_id": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand did not reconfirm the new time after the store moved this demo.",
+          "cancelled_at": "2026-10-19T01:02:36.09+00:00",
+          "refund_id": "re_3US4xPA6b3orPg0T07Cf9HEm"
+        },
+        "demo": {
+          "id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+          "status": "cancelled",
+          "demo_date": "2026-11-15",
+          "demo_time": "2:00 PM"
+        },
+        "allocation": {
+          "id": "d9b737f5-95c4-4a2d-beb5-4a88765f353b",
+          "payment_group_id": "46455408-be32-4fd1-a81d-e5da641ceb7d",
+          "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "refund_requests": [
+          {
+            "id": "8c8e454e-5dde-4d72-b83f-a15c6475973e",
+            "payment_allocation_id": "d9b737f5-95c4-4a2d-beb5-4a88765f353b",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_lapsed",
+            "reason": "The brand did not reconfirm the new time after the store moved this demo.",
+            "op_key": "3f1f797e-868c-4a96-864b-57015aa06f09:move_lapsed",
+            "stripe_refund_id": "re_3US4xPA6b3orPg0T07Cf9HEm",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xPA6b3orPg0T07Cf9HEm",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xPA6b3orPg0T08m8c9sz"
+          }
+        ]
+      }
+    },
+    {
+      "name": "S3-4 the brand's late confirm is refused (409 move_lapsed) with the persisted outcome (\"window has passed\", \"cancelled\", \"refund has been submitted\"); no second refund",
+      "pass": true,
+      "detail": {
+        "error": "move_lapsed",
+        "message": "The reconfirmation window has passed, so this demo was cancelled; the full refund has been submitted to your card provider."
+      }
+    },
+    {
+      "name": "S3-5 notices: the \"please confirm\" notice went to the owner before the lapse; the cancellation notice (demo_move_cancelled) goes to the owner after it",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": null
+        },
+        {
+          "kind": "demo_confirmed",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "3f1f797e-868c-4a96-864b-57015aa06f09:1"
+        },
+        {
+          "kind": "demo_rescheduled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "3f1f797e-868c-4a96-864b-57015aa06f09:2"
+        },
+        {
+          "kind": "demo_moved",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b"
+        },
+        {
+          "kind": "demo_cancelled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "3f1f797e-868c-4a96-864b-57015aa06f09:2"
+        },
+        {
+          "kind": "demo_move_cancelled",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b"
+        }
+      ]
+    },
+    {
+      "name": "S4-1 both bookings share ONE Stripe payment of $60.00 (one payment intent, one payment group, two $30.00 allocations)",
+      "pass": true,
+      "detail": {
+        "payment_intent_id": "pi_3US4xaA6b3orPg0T0ULvP6D9",
+        "amount": 6000,
+        "amount_received": 6000,
+        "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+        "allocations_before": [
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "S4-2 the store moves the first of the two demos to 11:00 AM (pending move); the sibling is untouched",
+      "pass": true,
+      "detail": {
+        "ok": true,
+        "demo_id": "5a549a24-98ca-49dd-8065-8b0f2d5cb6d7",
+        "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+        "new_date": "2026-11-16",
+        "new_time": "11:00 AM",
+        "schedule_revision": 2,
+        "move_id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+        "reconfirm_due_at": "2026-10-22T01:02:43.863164+00:00"
+      }
+    },
+    {
+      "name": "S4-3 the brand declines: ONLY the moved booking is cancelled and refunded (one $30.00 refund request, its allocation $30.00 refunded); the sibling stays confirmed and paid at its original time with $0 refunded and no refund request",
+      "pass": true,
+      "detail": {
+        "move": {
+          "status": "declined",
+          "settled_at": "2026-10-19T01:02:48.913758+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "5e9e9923-5852-42b4-a089-57a94ff0a2c4"
+        },
+        "moved": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand could not make the new time after the store moved this demo.",
+          "refund_id": "re_3US4xaA6b3orPg0T0p6F6S7Z"
+        },
+        "sibling": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_date": "2026-11-16",
+          "demo_time": "2:00 PM",
+          "schedule_revision": 1,
+          "demo": {
+            "id": "b2efcf84-a46e-4b3a-b9c0-7eff529cf05e",
+            "status": "confirmed",
+            "demo_date": "2026-11-16",
+            "demo_time": "2:00 PM"
+          }
+        },
+        "allocations": [
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "refund_requests_moved": [
+          {
+            "id": "5e9e9923-5852-42b4-a089-57a94ff0a2c4",
+            "payment_allocation_id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_declined",
+            "reason": "The brand could not make the new time after the store moved this demo.",
+            "op_key": "0d199780-9a2b-4188-a62d-2baaaa596224:move_declined",
+            "stripe_refund_id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "refund_requests_sibling": [],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ],
+        "payment_intent_after": {
+          "amount": 6000,
+          "amount_received": 6000
+        }
+      }
+    },
+    {
+      "name": "S4-4 Stripe: exactly one refund on the shared payment, for $30.00 of the $60.00 (never the whole payment)",
+      "pass": true,
+      "detail": {
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ],
+        "payment_intent": {
+          "amount": 6000,
+          "amount_received": 6000
+        }
+      }
+    },
+    {
+      "name": "S4-5 a following refund worker run leaves the shared payment alone (still one refund; no move failed or parked)",
+      "pass": true,
+      "detail": {
+        "worker": {
+          "ok": true,
+          "moves_lapsed": 0,
+          "moves_settled": 0,
+          "moves_failed": 0,
+          "moves_parked": 0,
+          "errors": 0
+        },
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ]
+      }
+    },
+    {
+      "name": "S4-6 the store later cancels the sibling: its own $30.00 refund is independent (now two $30.00 refunds on the $60.00 payment, each allocation refunded once)",
+      "pass": true,
+      "detail": {
+        "status": 200,
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded"
+        },
+        "allocations": [
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0TOLDDLF",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          },
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ]
+      }
+    },
+    {
+      "name": "S4-7 notices for the moved booking: please-confirm then cancellation, both to the owner",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "owner_booking_created",
+          "recipient_kind": "owner",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": null
+        },
+        {
+          "kind": "demo_confirmed",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "0d199780-9a2b-4188-a62d-2baaaa596224:1"
+        },
+        {
+          "kind": "demo_moved",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78"
+        },
+        {
+          "kind": "demo_rescheduled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "0d199780-9a2b-4188-a62d-2baaaa596224:2"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78"
+        },
+        {
+          "kind": "demo_move_reminder",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "skipped",
+          "skip_reason": "booking_cancelled",
+          "occurrence_key": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78"
+        },
+        {
+          "kind": "demo_cancelled",
+          "recipient_kind": "store_contact",
+          "recipient_email": "david@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "0d199780-9a2b-4188-a62d-2baaaa596224:2"
+        },
+        {
+          "kind": "demo_move_cancelled",
+          "recipient_kind": "brand",
+          "recipient_email": "david+walkthrough@demohubhq.com",
+          "status": "accepted",
+          "skip_reason": null,
+          "occurrence_key": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78"
+        }
+      ]
+    },
+    {
+      "name": "Z1 closing refund worker run: ok, nothing failed or parked; every move of this run is terminal (confirmed or settled) with no reconciliation, refund or notice case",
+      "pass": true,
+      "detail": {
+        "worker": {
+          "ok": true,
+          "moves_failed": 0,
+          "moves_parked": 0,
+          "errors": 0
+        },
+        "moves": [
+          {
+            "id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+            "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+            "status": "confirmed",
+            "settled_at": null,
+            "refund_status": null,
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+            "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+            "status": "declined",
+            "settled_at": "2026-10-19T01:02:26.097014+00:00",
+            "refund_status": "submitted",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b",
+            "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+            "status": "lapsed",
+            "settled_at": "2026-10-19T01:02:37.534937+00:00",
+            "refund_status": "submitted",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          },
+          {
+            "id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "status": "declined",
+            "settled_at": "2026-10-19T01:02:48.913758+00:00",
+            "refund_status": "submitted",
+            "refund_case_id": null,
+            "reconciliation_case_id": null,
+            "notice_case_id": null
+          }
+        ]
+      }
+    }
+  ],
+  "scenarios": {
+    "S1": {
+      "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+      "demo_id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+      "payment_intent_id": "pi_3US4x3A6b3orPg0T1kXIbKMC",
+      "before": {
+        "demo_date": "2026-11-13",
+        "demo_time": "10:00 AM",
+        "start_at": "2026-11-13T18:00:00+00:00",
+        "schedule_revision": 1
+      },
+      "move": {
+        "ok": true,
+        "demo_id": "642efa20-5f5f-4eb1-a4b2-74e2e4b17bac",
+        "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+        "new_date": "2026-11-13",
+        "new_time": "2:00 PM",
+        "schedule_revision": 2,
+        "move_id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+        "reconfirm_due_at": "2026-10-22T01:02:01.301991+00:00"
+      },
+      "move_id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+      "after_move": {
+        "demo_date": "2026-11-13",
+        "demo_time": "2:00 PM",
+        "start_at": "2026-11-13T22:00:00+00:00",
+        "schedule_revision": 2,
+        "reconfirm_due_at": "2026-10-22T01:02:01.301991+00:00"
+      },
+      "respond": {
+        "ok": true,
+        "move_id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+        "status": "confirmed"
+      },
+      "final": {
+        "move_status": "confirmed",
+        "responded_at": "2026-10-19T01:02:18.802943+00:00",
+        "booking": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_time": "2:00 PM",
+          "schedule_revision": 2
+        },
+        "allocation": {
+          "id": "19fcc27c-89c3-4913-bb98-c9c2a3d52452",
+          "payment_group_id": "514ed75a-1386-4cc6-8001-ea2892211a0d",
+          "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+          "customer_amount": 3000,
+          "refunded_amount": 0,
+          "reserved_refund_amount": 0
+        },
+        "refund_requests": [],
+        "stripe_refunds": []
+      }
+    },
+    "S2": {
+      "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+      "demo_id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+      "payment_intent_id": "pi_3US4xFA6b3orPg0T0JDwRMHo",
+      "move": {
+        "ok": true,
+        "demo_id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+        "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+        "new_date": "2026-11-14",
+        "new_time": "11:00 AM",
+        "schedule_revision": 2,
+        "move_id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+        "reconfirm_due_at": "2026-10-22T01:02:20.882012+00:00"
+      },
+      "move_id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+      "respond": {
+        "ok": true,
+        "move_id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+        "status": "declined",
+        "cancelled": true,
+        "refund_status": "submitted",
+        "message": "You told us you cannot make the new time, so this demo was cancelled; the full refund has been submitted to your card provider."
+      },
+      "final": {
+        "move": {
+          "status": "declined",
+          "settled_at": "2026-10-19T01:02:26.097014+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "f776047b-ad9f-450e-bea9-3831336ee248",
+          "refund_case_id": null,
+          "reconciliation_case_id": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand could not make the new time after the store moved this demo.",
+          "cancelled_at": "2026-10-19T01:02:24.725+00:00",
+          "refund_id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+          "demo_date": "2026-11-14",
+          "demo_time": "11:00 AM"
+        },
+        "demo": {
+          "id": "6b54970c-15ae-48c2-8044-8c57071ef102",
+          "status": "cancelled",
+          "demo_date": "2026-11-14",
+          "demo_time": "11:00 AM"
+        },
+        "allocation": {
+          "id": "4909aced-9c19-494c-bd8b-f988b3228890",
+          "payment_group_id": "02b4702a-8e60-4432-8bf5-40f10aeac581",
+          "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "refund_requests": [
+          {
+            "id": "f776047b-ad9f-450e-bea9-3831336ee248",
+            "payment_allocation_id": "4909aced-9c19-494c-bd8b-f988b3228890",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_declined",
+            "reason": "The brand could not make the new time after the store moved this demo.",
+            "op_key": "43a5aed1-8316-4bea-b031-c26a3e94fb90:move_declined",
+            "stripe_refund_id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xFA6b3orPg0T0xqeH2r3",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xFA6b3orPg0T0GeCNk7B"
+          }
+        ]
+      }
+    },
+    "S3": {
+      "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+      "demo_id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+      "payment_intent_id": "pi_3US4xPA6b3orPg0T0WmSQXv4",
+      "move": {
+        "ok": true,
+        "demo_id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+        "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+        "new_date": "2026-11-15",
+        "new_time": "2:00 PM",
+        "schedule_revision": 2,
+        "move_id": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b",
+        "reconfirm_due_at": "2026-10-22T01:02:31.835124+00:00"
+      },
+      "move_id": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b",
+      "deadline_forced_to": "2026-10-19T00:57:35.330Z",
+      "refund_worker": {
+        "ok": true,
+        "moves_lapsed": 1,
+        "moves_settled": 1,
+        "moves_failed": 0,
+        "moves_parked": 0,
+        "errors": 0,
+        "status": 200
+      },
+      "final": {
+        "move": {
+          "status": "lapsed",
+          "settled_at": "2026-10-19T01:02:37.534937+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "8c8e454e-5dde-4d72-b83f-a15c6475973e",
+          "refund_case_id": null,
+          "reconciliation_case_id": null
+        },
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand did not reconfirm the new time after the store moved this demo.",
+          "cancelled_at": "2026-10-19T01:02:36.09+00:00",
+          "refund_id": "re_3US4xPA6b3orPg0T07Cf9HEm"
+        },
+        "demo": {
+          "id": "d75b0897-6174-4160-a16e-886fbb4c4c2a",
+          "status": "cancelled",
+          "demo_date": "2026-11-15",
+          "demo_time": "2:00 PM"
+        },
+        "allocation": {
+          "id": "d9b737f5-95c4-4a2d-beb5-4a88765f353b",
+          "payment_group_id": "46455408-be32-4fd1-a81d-e5da641ceb7d",
+          "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+          "customer_amount": 3000,
+          "refunded_amount": 3000,
+          "reserved_refund_amount": 0
+        },
+        "refund_requests": [
+          {
+            "id": "8c8e454e-5dde-4d72-b83f-a15c6475973e",
+            "payment_allocation_id": "d9b737f5-95c4-4a2d-beb5-4a88765f353b",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_lapsed",
+            "reason": "The brand did not reconfirm the new time after the store moved this demo.",
+            "op_key": "3f1f797e-868c-4a96-864b-57015aa06f09:move_lapsed",
+            "stripe_refund_id": "re_3US4xPA6b3orPg0T07Cf9HEm",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xPA6b3orPg0T07Cf9HEm",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xPA6b3orPg0T08m8c9sz"
+          }
+        ]
+      }
+    },
+    "S4": {
+      "moved_booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+      "sibling_booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+      "demo_id": "5a549a24-98ca-49dd-8065-8b0f2d5cb6d7",
+      "payment_intent_id": "pi_3US4xaA6b3orPg0T0ULvP6D9",
+      "payment": {
+        "payment_intent_id": "pi_3US4xaA6b3orPg0T0ULvP6D9",
+        "amount": 6000,
+        "amount_received": 6000,
+        "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+        "allocations_before": [
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          }
+        ]
+      },
+      "move": {
+        "ok": true,
+        "demo_id": "5a549a24-98ca-49dd-8065-8b0f2d5cb6d7",
+        "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+        "new_date": "2026-11-16",
+        "new_time": "11:00 AM",
+        "schedule_revision": 2,
+        "move_id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+        "reconfirm_due_at": "2026-10-22T01:02:43.863164+00:00"
+      },
+      "move_id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+      "respond": {
+        "ok": true,
+        "move_id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+        "status": "declined",
+        "cancelled": true,
+        "refund_status": "submitted",
+        "message": "You told us you cannot make the new time, so this demo was cancelled; the full refund has been submitted to your card provider."
+      },
+      "final": {
+        "move": {
+          "status": "declined",
+          "settled_at": "2026-10-19T01:02:48.913758+00:00",
+          "refund_status": "submitted",
+          "refund_request_id": "5e9e9923-5852-42b4-a089-57a94ff0a2c4"
+        },
+        "moved": {
+          "status": "cancelled",
+          "payment_status": "refunded",
+          "cancel_reason": "The brand could not make the new time after the store moved this demo.",
+          "refund_id": "re_3US4xaA6b3orPg0T0p6F6S7Z"
+        },
+        "sibling": {
+          "status": "confirmed",
+          "payment_status": "paid",
+          "demo_date": "2026-11-16",
+          "demo_time": "2:00 PM",
+          "schedule_revision": 1,
+          "demo": {
+            "id": "b2efcf84-a46e-4b3a-b9c0-7eff529cf05e",
+            "status": "confirmed",
+            "demo_date": "2026-11-16",
+            "demo_time": "2:00 PM"
+          }
+        },
+        "allocations": [
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "refund_requests_moved": [
+          {
+            "id": "5e9e9923-5852-42b4-a089-57a94ff0a2c4",
+            "payment_allocation_id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "amount": 3000,
+            "status": "succeeded",
+            "actor": "system:move_declined",
+            "reason": "The brand could not make the new time after the store moved this demo.",
+            "op_key": "0d199780-9a2b-4188-a62d-2baaaa596224:move_declined",
+            "stripe_refund_id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "customer_refund_status": "succeeded",
+            "settlement_status": "not_required",
+            "attempts": 0,
+            "last_error": null
+          }
+        ],
+        "refund_requests_sibling": [],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ],
+        "payment_intent_after": {
+          "amount": 6000,
+          "amount_received": 6000
+        }
+      },
+      "sibling_cancel": {
+        "status": 200,
+        "booking": {
+          "status": "cancelled",
+          "payment_status": "refunded"
+        },
+        "allocations": [
+          {
+            "id": "e554e542-8026-4b29-959a-1c4b5af230dc",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          },
+          {
+            "id": "9f349ba1-b619-4c73-a5d4-768053f73aed",
+            "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+            "booking_id": "48773df9-8f53-408b-a90f-bd4137901abf",
+            "customer_amount": 3000,
+            "refunded_amount": 3000,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "stripe_refunds": [
+          {
+            "id": "re_3US4xaA6b3orPg0T0TOLDDLF",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          },
+          {
+            "id": "re_3US4xaA6b3orPg0T0p6F6S7Z",
+            "amount": 3000,
+            "status": "succeeded",
+            "charge": "ch_3US4xaA6b3orPg0T0ugYwJIV"
+          }
+        ]
+      }
+    }
+  },
+  "alias": "demohub-1e3vp6fon-grms-projects-0d18c653.vercel.app    demohub-booker-preview.vercel.app                                              1d",
+  "sha": "57f9ff7",
+  "version": {
+    "ok": true,
+    "commit": null,
+    "commit_short": null,
+    "branch": null,
+    "env": "preview",
+    "binding": {
+      "target": "preview",
+      "project_ref_fingerprint": "tile…",
+      "db_environment_expected": "staging",
+      "stripe_mode": "test",
+      "email_mode": "sink",
+      "email_allowlist_count": 1,
+      "has_publishable_key": true,
+      "has_webhook_secret": true
+    },
+    "binding_error": null,
+    "has_cron_secret": true,
+    "flags": {
+      "provisionalHolds": true,
+      "publicRetailerSignup": false,
+      "coiAiVerification": false,
+      "checkoutEnabled": true,
+      "coiUploadEnabled": true,
+      "brandInviteEnabled": true,
+      "slotEditing": false,
+      "signinMaintenance": false,
+      "retailerMoves": true,
+      "notificationWorker": true,
+      "coiAutoEnforcementFlag": false,
+      "coiEnforcementModeRaw": "live",
+      "coiEnforcementEffective": "off",
+      "connectedCheckout": "hard_disabled",
+      "max_cart": 10
+    },
+    "now": "2026-10-19T01:01:09.977Z"
+  },
+  "product": {
+    "id": "p_A_hTuG_Q2d3d",
+    "sku": "",
+    "upc": "012345678905",
+    "name": "Walkthrough Smoked Serrano Hot Sauce",
+    "size": "5 oz",
+    "notes": "",
+    "case_pack": null,
+    "distributor": "direct",
+    "distributor_other": "",
+    "distributor_item_number": ""
+  },
+  "checkouts": {
+    "P-A": {
+      "status": 200,
+      "payment_group_id": "514ed75a-1386-4cc6-8001-ea2892211a0d",
+      "total_cents": 3000,
+      "booking_ids": [
+        "828ef203-8817-4496-94ab-a85369d9364d"
+      ]
+    },
+    "P-B": {
+      "status": 200,
+      "payment_group_id": "02b4702a-8e60-4432-8bf5-40f10aeac581",
+      "total_cents": 3000,
+      "booking_ids": [
+        "43a5aed1-8316-4bea-b031-c26a3e94fb90"
+      ]
+    },
+    "P-C": {
+      "status": 200,
+      "payment_group_id": "46455408-be32-4fd1-a81d-e5da641ceb7d",
+      "total_cents": 3000,
+      "booking_ids": [
+        "3f1f797e-868c-4a96-864b-57015aa06f09"
+      ]
+    },
+    "P-D": {
+      "status": 200,
+      "payment_group_id": "aec834e3-79aa-4c7c-90c8-89d5bde3631a",
+      "total_cents": 6000,
+      "booking_ids": [
+        "0d199780-9a2b-4188-a62d-2baaaa596224",
+        "48773df9-8f53-408b-a90f-bd4137901abf"
+      ]
+    }
+  },
+  "moves": [
+    {
+      "id": "1f954eb1-f889-4ab8-b313-7a70d10f3812",
+      "booking_id": "828ef203-8817-4496-94ab-a85369d9364d",
+      "status": "confirmed",
+      "settled_at": null,
+      "refund_status": null,
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "5b0b32d7-4994-4eae-91f0-28bb4823f94c",
+      "booking_id": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+      "status": "declined",
+      "settled_at": "2026-10-19T01:02:26.097014+00:00",
+      "refund_status": "submitted",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "1be3d5ce-79fc-4068-9754-e7fa39a2fa8b",
+      "booking_id": "3f1f797e-868c-4a96-864b-57015aa06f09",
+      "status": "lapsed",
+      "settled_at": "2026-10-19T01:02:37.534937+00:00",
+      "refund_status": "submitted",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    },
+    {
+      "id": "2f7e2858-56b4-4ea7-a0ae-a70f747a9c78",
+      "booking_id": "0d199780-9a2b-4188-a62d-2baaaa596224",
+      "status": "declined",
+      "settled_at": "2026-10-19T01:02:48.913758+00:00",
+      "refund_status": "submitted",
+      "refund_case_id": null,
+      "reconciliation_case_id": null,
+      "notice_case_id": null
+    }
+  ],
+  "bookings": {
+    "A": "828ef203-8817-4496-94ab-a85369d9364d",
+    "B": "43a5aed1-8316-4bea-b031-c26a3e94fb90",
+    "C": "3f1f797e-868c-4a96-864b-57015aa06f09",
+    "D1": "0d199780-9a2b-4188-a62d-2baaaa596224",
+    "D2": "48773df9-8f53-408b-a90f-bd4137901abf"
+  },
+  "finished_at": "2026-10-19T01:02:59.100Z"
+}
