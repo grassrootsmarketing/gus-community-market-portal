@@ -324,7 +324,7 @@ export function demoMovedMessage(b, ctx) {
     html: shell({
       eyebrow: 'Demo moved by the store', tone: 'green',
       heading: `${H(store)} moved your demo. Can you make the new time?`,
-      intro: `${H(store)} changed the date of your demo. Your booking and payment stay exactly as they are. Please confirm the new time${due ? ` by <strong>${H(due)}</strong>` : ''}, or tell us you cannot make it. If we do not hear from you by then, the demo is cancelled and your payment is refunded in full.`,
+      intro: `${H(store)} changed the date of your demo. Your booking and payment stay exactly as they are. Please confirm the new time${due ? ` by <strong>${H(due)}</strong>` : ''}, or tell us you cannot make it. If we do not hear from you by then, the demo is cancelled and this demo's fee is refunded in full.`,
       body: moveFactsTable(ctx) + moveNoteBlock(move.note, store),
       cta: { href: link(b, '/brand/dashboard'), label: 'Confirm or decline' },
       footer: brandFooter(brand),
@@ -343,7 +343,7 @@ export function moveReminderMessage(b, ctx) {
     html: shell({
       eyebrow: 'Reminder: demo moved', tone: 'clay',
       heading: `Still need your answer on the demo ${H(store)} moved.`,
-      intro: `About ${H(left)} left${due ? ` (until ${H(due)})` : ''}. If we do not hear from you by then, the demo is cancelled and your payment is refunded in full. Confirming takes one click.`,
+      intro: `About ${H(left)} left${due ? ` (until ${H(due)})` : ''}. If we do not hear from you by then, the demo is cancelled and this demo's fee is refunded in full. Confirming takes one click.`,
       body: moveFactsTable(ctx) + moveNoteBlock(move.note, store),
       cta: { href: link(b, '/brand/dashboard'), label: 'Confirm or decline' },
       footer: brandFooter(brand),
@@ -356,10 +356,10 @@ export function demoMoveCancelledMessage(b, ctx) {
   const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
   const declined = move.status === 'declined';
   const refund = move.refund_status === 'submitted'
-    ? 'Your full refund has been submitted. It usually reaches your card within 5 to 10 business days.'
+    ? 'This demo\'s fee is refunded in full; the refund has been submitted and usually reaches your card within 5 to 10 business days.'
     : move.refund_status === 'already_refunded' ? 'This booking had already been refunded.'
     : move.refund_status === 'not_paid' ? 'No charge was captured for this booking, so there is nothing to refund.'
-    : 'Your full refund is being processed. If it has not reached your card within 10 business days, reply to this email.';
+    : 'This demo\'s fee is refunded in full; the refund is being processed. If it has not reached your card within 10 business days, reply to this email.';
   return {
     subject: `Your demo at ${store} on ${moveSlotLabel(move.to_date, move.to_time, tz)} was cancelled, refund ${move.refund_status === 'submitted' ? 'submitted' : 'in progress'}`,
     html: shell({

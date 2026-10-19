@@ -856,26 +856,26 @@ function moveBannerHtml(d) {
   const toLabel = escapeHtml(_fmt(m.to_date || d.demo_date, m.to_time || d.demo_time));
   const fromLabel = escapeHtml(_fmt(m.from_date, m.from_time));
   let due = '';
-  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; } catch (_) { due = ''; }
+  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : ''; } catch (_) { due = ''; }
   const note = m.note ? '<div style="margin-top:6px;font-size:0.84rem;color:#5c4400;"><strong>Note from ' + store + ':</strong> ' + escapeHtml(m.note) + '</div>' : '';
   // 0097: a designated booker sees the move but cannot answer it (the server refuses move-respond for a booker; a
   // decline would cancel and refund). The banner says who answers instead of showing buttons that would fail.
   if (window._brandRole === 'booker') {
     return '<div class="resched-banner move-banner" title="The store moved this demo. The brand account owner confirms the new time or cancels for a full refund.">'
       + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>.'
-      + (due ? ' The brand account owner has been asked to confirm the new time by <strong>' + escapeHtml(due) + '</strong>; if they cannot make it, the demo is cancelled and refunded in full.' : ' The brand account owner has been asked to confirm the new time.')
+      + (due ? ' The brand account owner has been asked to confirm the new time by <strong>' + escapeHtml(due) + '</strong>; if they cannot make it, the demo is cancelled and this demo\'s fee is refunded in full.' : ' The brand account owner has been asked to confirm the new time.')
       + ' Only the owner can answer; talk to them if the new time does not work for you.' + note + '</div></div>';
   }
-  return '<div class="resched-banner move-banner" title="The store moved this demo. Your booking and payment stay the same. Confirm the new time, or tell us you cannot make it and you are refunded in full.">'
-    + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>. Please confirm' + (due ? ' by <strong>' + escapeHtml(due) + '</strong>' : '') + '. If we do not hear from you, the demo is cancelled and your payment is refunded in full.' + note + '</div>'
+  return '<div class="resched-banner move-banner" title="The store moved this demo. Your booking and payment stay the same. Confirm the new time, or tell us you cannot make it and this demo\'s fee is refunded in full.">'
+    + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>. Please confirm' + (due ? ' by <strong>' + escapeHtml(due) + '</strong>' : '') + '. If we do not hear from you, the demo is cancelled and this demo\'s fee is refunded in full.' + note + '</div>'
     + '<div class="resched-actions">'
     + '<button class="resched-accept" title="Confirm you will be there at the new time. Nothing else changes." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'confirm\',this)">Confirm new time</button>'
-    + '<button class="resched-decline" title="Cancel this demo and get a full refund." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'decline\',this)">We can\'t make it</button>'
+    + '<button class="resched-decline" title="Cancel this demo and get this demo\'s fee refunded in full." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'decline\',this)">We can\'t make it</button>'
     + '</div></div>';
 }
 window.respondMove = async function (moveId, decision, btn) {
   const wrap = btn && btn.closest('.resched-banner');
-  if (decision === 'decline' && !window.confirm('Cancel this demo? Your payment is refunded in full. This cannot be undone.')) return;
+  if (decision === 'decline' && !window.confirm('Cancel this demo? This demo\'s fee is refunded in full. This cannot be undone.')) return;
   if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
   if (btn) btn.textContent = decision === 'confirm' ? 'Confirming…' : 'Cancelling…';
   try {
@@ -2501,11 +2501,11 @@ function renderBookerOverview() {
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = demos.filter(d => d.demo_date >= today && d.status !== 'cancelled' && d.status !== 'declined');
   const mine = upcoming.filter(d => d.booked_by_me);
-  const row = (d) => '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
-    + '<div><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
+  const row = (d) => '<div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
+    + '<div style="flex:1 1 auto; min-width:0;"><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
     + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(_bookerDay(d.demo_date)) + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
-    + (d.pending_move ? _bookerMoveLine(d) : '')
-    + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div></div>';
+    + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div>'
+    + (d.pending_move ? _bookerMoveLine(d) : '') + '</div>';
   main.innerHTML = `
     <div class="page-head"><div><h1>${escapeHtml(profile.company_name || 'Your brand')}</h1><div class="sub">You book demos for this brand. The brand account owner manages everything else.</div></div></div>
     <div class="card" style="margin-bottom:18px;">
@@ -2530,8 +2530,8 @@ function _bookerMoveLine(d) {
   let from = '';
   try { from = m.from_date ? new Date(m.from_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (m.from_time ? ' at ' + m.from_time : '') : ''; } catch (_) { from = m.from_date || ''; }
   let due = '';
-  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''; } catch (_) { due = ''; }
-  return '<div style="color:#8a5a00; font-size:0.84rem; margin-top:4px;">Moved by the store' + (from ? ' (was ' + escapeHtml(from) + ')' : '') + '. The brand account owner has been asked to confirm the new time' + (due ? ' by ' + escapeHtml(due) : '') + '; only the owner can answer, and if they cannot make it the demo is cancelled and refunded in full.</div>';
+  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : ''; } catch (_) { due = ''; }
+  return '<div style="flex-basis:100%; color:#8a5a00; font-size:0.84rem; margin-top:2px; line-height:1.45;">Moved by the store' + (from ? ' (was ' + escapeHtml(from) + ')' : '') + '. The brand account owner has been asked to confirm the new time' + (due ? ' by ' + escapeHtml(due) : '') + '; only the owner can answer, and if they cannot make it the demo is cancelled and this demo\'s fee is refunded in full.</div>';
 }
 function renderBookerAccount() {
   const p = _data.profile || {};
@@ -2693,6 +2693,9 @@ let _tourIndex = 0;
 let _activeTourSteps = [];
 function startTour(force) {
   if (!force && localStorage.getItem(BRAND_TOUR_KEY) === '1') return;
+  // Codex final review F2 (2026-10-19): a demo the store moved needs an answer; the onboarding tour never auto-starts on top
+  // of it. The tour stays one click away (the "Take the tour" button) and starts by itself on a later visit.
+  if (!force && document.querySelector('.move-banner')) { const f = document.getElementById('tourFab'); if (f) f.style.display = 'flex'; return; }
   const welcome = document.getElementById('welcomeBanner');
   if (welcome && (welcome.style.display === 'none' || !welcome.classList.contains('active'))) {
     welcome.style.display = 'block';

@@ -161,6 +161,10 @@ try {
     ok('booker data: the booker sees the pending move on the demo (same id, slots, note, deadline) and no payments', bd && bd.role === 'booker' && bMine && bMine.pending_move && bMine.pending_move.id === moves1[0].id && bMine.pending_move.to_date === D2 && typeof bMine.pending_move.reconfirm_due_at === 'string' && Array.isArray(bd.payments) && bd.payments.length === 0, JSON.stringify(bMine && bMine.pending_move));
     const bRes = await respond({ move_id: moves1[0].id, decision: 'decline' }, sessTok);
     ok('booker move-respond is refused (403 role_not_allowed) and the move stays pending', bRes.statusCode === 403 && bRes.body.error === 'role_not_allowed' && (await movesFor(bk.id))[0].status === 'pending', JSON.stringify(bRes.body));
+    // Codex final review hardening (2026-10-19): the two schedule answers are POST only
+    const getResp = await callRoute('brand-account.js', req({ method: 'GET', query: { action: 'move-respond', move_id: moves1[0].id, decision: 'confirm' }, cookies: { dh_brand_session: brandCookie } }));
+    const getResched = await callRoute('brand-account.js', req({ method: 'GET', query: { action: 'reschedule-respond', demo_id: demo.id, decision: 'accept', proposal_version: 1 }, cookies: { dh_brand_session: brandCookie } }));
+    ok('GET move-respond and GET reschedule-respond are refused 405 method_not_allowed; the move stays pending', getResp.statusCode === 405 && getResp.body.error === 'method_not_allowed' && getResched.statusCode === 405 && getResched.body.error === 'method_not_allowed' && (await movesFor(bk.id))[0].status === 'pending', JSON.stringify([getResp.body, getResched.body]));
   }
   const wrongBrand = await respond({ move_id: moves1[0].id, decision: 'confirm' }, otherBrandCookie);
   ok('another brand cannot answer: 403', wrongBrand.statusCode === 403, JSON.stringify(wrongBrand.body));

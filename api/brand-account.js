@@ -517,7 +517,8 @@ export default async function handler(req, res) {
   // cookie, and a safe method bypasses requireSameOrigin by definition, so as GETs they were
   // reachable by cross-site navigation (sign the user out, or silently rotate/revoke their
   // calendar URL). Every caller in the repo already POSTs.
-  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke']);
+  // Codex demo-move final review (2026-10-19): the two schedule answers are state changes under the session cookie too.
+  const MUTATING_ACTIONS = new Set(['profile-update', 'remove-coi', 'remove-avatar', 'logout-everywhere', 'logout', 'cal_token', 'cal_revoke', 'move-respond', 'reschedule-respond']);
   if (MUTATING_ACTIONS.has(action) && req.method !== 'POST') {
     return jsonResp(res, 405, { error: 'method_not_allowed', message: 'This action requires POST.' });
   }

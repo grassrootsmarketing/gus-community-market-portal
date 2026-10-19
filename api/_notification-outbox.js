@@ -675,9 +675,14 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     let to = null;
     if (row.recipient_id === brand.id) to = brand.email;
     else {
-      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email');
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
       if (!member) return { skip: 'recipient_deleted' };
       if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // Codex final review F1 (2026-10-19): the move notices are the OWNER's. Re-read at send time, and again on a
+      // frozen-payload retry (this check runs before the replay return): a booker, a pending or a revoked row, or a
+      // row that lost its role after the delivery was queued, never receives one. Skipped with its reason; the
+      // frozen content is never forwarded to a different person.
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
       to = member.email;
     }
     to = String(to || '').trim();

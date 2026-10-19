@@ -1787,8 +1787,9 @@
                     `;
                     if (title) { const h = card.querySelector('h4.dhm-title'); if (h) h.textContent = String(title); }
                     bd.appendChild(card);
+                    if (typeof _suspendTourForDialog === 'function') { try { _suspendTourForDialog(); } catch (_) {} }
                     const input = card.querySelector('input.dhm-input');
-                    function close(val){ bd.remove(); document.removeEventListener('keydown', esc); resolve(val); }
+                    function close(val){ bd.remove(); document.removeEventListener('keydown', esc); if (typeof _resumeTourAfterDialog === 'function') { try { _resumeTourAfterDialog(); } catch (_) {} } resolve(val); }
                     function esc(e){
                         if (e.key === 'Escape') close(kind === 'prompt' ? null : false);
                         else if (e.key === 'Enter' && document.activeElement !== card.querySelector('textarea')) {
@@ -5217,9 +5218,35 @@ function escapeHtml(s) {
                     : d.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
             } catch (_) { return String(iso); }
         }
+        // Codex final review F2 (2026-10-19): an operational dialog outranks onboarding. While a dialog is open the tour is
+        // hidden (nothing is marked complete on its behalf) and it resumes at the same step when the dialog closes. The
+        // tour's own lifecycle (showTourStep) does the resuming; this never fights it with z-index.
+        function _suspendTourForDialog() {
+            const bd = document.getElementById('tourBackdrop');
+            if (!bd || !bd.classList.contains('active')) return false;
+            bd.classList.remove('active');
+            const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+            const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+            window._tourSuspendedForDialog = true;
+            return true;
+        }
+        function _resumeTourAfterDialog() {
+            if (!window._tourSuspendedForDialog) return;
+            if (document.getElementById('reschedModal') || document.querySelector('.dhm-backdrop')) return;   // another dialog is still open
+            window._tourSuspendedForDialog = false;
+            try { if (typeof showTourStep === 'function') showTourStep(); } catch (_) {}
+        }
+        function _reschedEsc(e) { if (e.key === 'Escape') { e.stopPropagation(); closeReschedModal(); } }
+        function closeReschedModal() {
+            const w = document.getElementById('reschedModal'); if (w) w.remove();
+            document.removeEventListener('keydown', _reschedEsc, true);
+            _resumeTourAfterDialog();
+        }
+        window.closeReschedModal = closeReschedModal;
         function openRescheduleModal(demoId, brandName, curDate, curTime, venueId) {
             const existing = document.getElementById('reschedModal');
             if (existing) existing.remove();
+            _suspendTourForDialog();
             const today = new Date().toISOString().slice(0, 10);
             // Release B: the new time is picked from the slots the location OFFERS on the chosen date
             // (configured slots, that weekday's hours, blackouts), never typed free-form.
@@ -5231,7 +5258,7 @@ function escapeHtml(s) {
                 '<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">'
                 + '<div id="reschedEyebrow" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2a5b32;margin-bottom:8px;">Move this demo</div>'
                 + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">' + escapeHtml(brandName) + '</h3>'
-                + '<p id="reschedIntro" style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and they are refunded in full. Nothing is charged.</p>'
+                + '<p id="reschedIntro" style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo\'s fee is refunded in full. Nothing is charged.</p>'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
                 + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" onchange="reschedRenderTimes()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time</label>'
@@ -5242,15 +5269,18 @@ function escapeHtml(s) {
                 + '<textarea id="reschedNote" maxlength="500" rows="2" placeholder="e.g. Agreed with Maria by phone on Tuesday; the Saturday crew is short-staffed." style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.9rem;resize:vertical;"></textarea></div>'
                 + '<div id="reschedErr" style="display:none;font-size:0.82rem;color:var(--clay-700);margin:6px 0 0;"></div>'
                 + '<div style="display:flex;gap:10px;margin-top:20px;">'
-                + '<button onclick="document.getElementById(\'reschedModal\').remove()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
+                + '<button type="button" onclick="closeReschedModal()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
                 + '<button id="reschedSubmit" title="Move the demo now and email the brand." onclick="submitReschedule(\'' + demoId + '\')" style="flex:1;background:var(--forest-900);color:#fff;border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;">Move demo</button>'
                 + '</div>'
                 + '<div style="margin-top:12px;text-align:center;"><button type="button" id="reschedModeToggle" onclick="reschedToggleMode()" style="background:none;border:none;color:var(--forest-700);font-size:0.8rem;text-decoration:underline;cursor:pointer;font-family:inherit;">Prefer to ask the brand first? Propose instead</button></div>'
                 + '</div>';
-            wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+            wrap.addEventListener('click', function (e) { if (e.target === wrap) closeReschedModal(); });
             document.body.appendChild(wrap);
             wrap._venue = reschedVenue; wrap._curTime = curTime || ''; wrap._mode = 'move';
             reschedRenderTimes();
+            // keyboard: Escape closes this dialog (captured, so the tour or another handler never sees it); focus starts on the date
+            document.addEventListener('keydown', _reschedEsc, true);
+            setTimeout(function () { const d = document.getElementById('reschedDate'); if (d) d.focus(); }, 40);
             // Codex RM-7: when move creation is switched off, the dialog is the ask-first proposal only.
             if (window.state.features && window.state.features.retailer_moves === false) {
                 reschedToggleMode();
@@ -5291,9 +5321,9 @@ function escapeHtml(s) {
             if (!start || start.getTime() <= now.getTime()) { el.textContent = start ? 'That slot has already started.' : ''; return; }
             const due = reschedDeadlineFor(start, now);
             let label = '';
-            try { label = due.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch (_) { label = due.toISOString(); }
+            try { label = due.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); } catch (_) { label = due.toISOString(); }
             const hours = Math.round((due.getTime() - now.getTime()) / 3600e3);
-            el.innerHTML = 'The brand has until <strong>' + escapeHtml(label) + '</strong> (' + hours + ' hours) to confirm. After that the demo is cancelled and refunded in full.';
+            el.innerHTML = 'The brand has until <strong>' + escapeHtml(label) + '</strong> (' + hours + ' hours) to confirm. After that the demo is cancelled and this demo\'s fee is refunded in full.';
         }
         function reschedToggleMode() {
             const wrap = document.getElementById('reschedModal'); if (!wrap) return;
@@ -5302,7 +5332,7 @@ function escapeHtml(s) {
             const eyebrow = document.getElementById('reschedEyebrow'), intro = document.getElementById('reschedIntro'), btn = document.getElementById('reschedSubmit'), toggle = document.getElementById('reschedModeToggle'), noteWrap = document.getElementById('reschedNoteWrap');
             if (eyebrow) { eyebrow.textContent = move ? 'Move this demo' : 'Propose a new date'; eyebrow.style.color = move ? '#2a5b32' : '#a14e2a'; }
             if (intro) intro.textContent = move
-                ? 'The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and they are refunded in full. Nothing is charged.'
+                ? 'The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo\'s fee is refunded in full. Nothing is charged.'
                 : 'Nothing changes until the brand accepts. They get an email and accept or decline from their dashboard. No money moves.';
             if (btn) { btn.textContent = move ? 'Move demo' : 'Propose to brand'; btn.title = move ? 'Move the demo now and email the brand.' : 'Send this proposed date to the brand for approval.'; }
             if (toggle) toggle.textContent = move ? 'Prefer to ask the brand first? Propose instead' : 'Move it now instead (no waiting on the brand)';
@@ -5337,13 +5367,18 @@ function escapeHtml(s) {
             }
             sel.disabled = false; if (btn) btn.disabled = false;
             const curMin = DhSlots.minutes(wrap._curTime);
+            // Codex final review (2026-10-19): the current slot is preselected when that date still offers it; otherwise the
+            // store picks explicitly (a placeholder, never the first slot by accident). The server keeps the same-slot guard.
+            const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Choose a new time'; ph.disabled = true; sel.appendChild(ph);
+            let matched = false;
             res.slots.forEach(s => {
                 const o = document.createElement('option');
                 o.value = DhSlots.label(s.startMin);
                 o.textContent = DhSlots.rangeLabel(s) + ' · ' + s.hours + (s.hours === 1 ? ' hour' : ' hours');
-                if (curMin != null && curMin === s.startMin) o.selected = true;
+                if (curMin != null && curMin === s.startMin) { o.selected = true; matched = true; }
                 sel.appendChild(o);
             });
+            if (!matched) ph.selected = true;
             if (note) note.textContent = res.slots.length === 1 ? 'The only slot offered that day.' : '';
             if (typeof reschedDeadlinePreview === 'function') reschedDeadlinePreview();
         }
@@ -5371,7 +5406,7 @@ function escapeHtml(s) {
                 });
                 const j = await r.json().catch(function () { return {}; });
                 if (!r.ok) throw new Error(j.message || j.error || (isMove ? 'Could not move the demo.' : 'Could not send the proposal.'));
-                const m = document.getElementById('reschedModal'); if (m) m.remove();
+                closeReschedModal();   // also resumes a suspended tour
                 if (window.DhModal && DhModal.toast) DhModal.toast(isMove
                     ? 'Demo moved. The brand has been emailed and has until ' + formatMoveDeadline(j.reconfirm_due_at) + ' to confirm.'
                     : 'New date proposed. The brand has been emailed.', 'success');
@@ -7010,7 +7045,7 @@ function escapeHtml(s) {
             const feats = (typeof window !== "undefined" && window.state && window.state.features) || null;   // the suite evaluates this function outside a browser
             const movesOn = !(feats && feats.retailer_moves === false);
             const reschedHint = movesOn
-                ? 'Move or reschedule moves the demo right away (the brand has up to 72 hours to confirm, or it is cancelled and refunded in full), or lets you propose a date for the brand to accept first; a confirmed move charges nothing. '
+                ? 'Move or reschedule moves the demo right away (the brand has up to 72 hours to confirm, or it is cancelled and this demo\'s fee is refunded in full), or lets you propose a date for the brand to accept first; a confirmed move charges nothing. '
                 : 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ';
             return '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">'
                 + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">' + (movesOn ? 'Move or reschedule' : 'Reschedule') + '</button>' : '')

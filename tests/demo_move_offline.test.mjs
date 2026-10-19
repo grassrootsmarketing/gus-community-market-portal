@@ -192,8 +192,26 @@ console.log('\n:: recheck and send ::');
   reset();
   const r = await run(row());
   ok('moved: accepted, frozen to the brand, key = delivery id', r.outcome === 'accepted' && sent.length === 1 && sent[0].msg.to === 'brand@example.test' && sent[0].key === 'delivery' && /please confirm/.test(sent[0].msg.subject), JSON.stringify(r));
-  reset(); const r2 = await run(row({ recipient_id: 'mate', recipient_email: 'mate@example.test' }));
-  ok('moved: the team member gets their own copy', r2.outcome === 'accepted' && sent[0].msg.to === 'mate@example.test');
+  // Codex final review F1 (2026-10-19): live owner eligibility at send time, for every move kind, and on a frozen retry
+  const mate = (o) => { tables.brand_members[0] = { id: 'mate', brand_id: 'brand', email: 'mate@example.test', ...o }; };
+  const mateRow = (extra = {}) => row({ recipient_id: 'mate', recipient_email: 'mate@example.test', ...extra });
+  reset(); mate({ role: 'owner', status: 'accepted' }); const r2 = await run(mateRow());
+  ok('moved: a second ACCEPTED OWNER gets their own copy', r2.outcome === 'accepted' && sent.length === 1 && sent[0].msg.to === 'mate@example.test', JSON.stringify(r2));
+  for (const [label, o] of [['accepted booker', { role: 'booker', status: 'accepted' }], ['pending owner', { role: 'owner', status: 'pending' }], ['revoked owner', { role: 'owner', status: 'revoked' }], ['row without a role', {}]]) {
+    reset(); mate(o); const rr = await run(mateRow());
+    ok(`moved: a ${label} is skipped recipient_not_owner, nothing sent`, rr.outcome !== 'accepted' && rr.reason === 'recipient_not_owner' && sent.length === 0, JSON.stringify(rr));
+  }
+  reset(); mate({ role: 'owner', status: 'accepted', brand_id: 'other' });
+  ok('moved: a member of another brand is skipped tenant_mismatch', (await run(mateRow())).reason === 'tenant_mismatch' && sent.length === 0);
+  reset(); mate({ role: 'booker', status: 'accepted' }); mv().status = 'declined'; mv().refund_status = 'submitted'; bk().status = 'cancelled';
+  ok('cancelled notice: an accepted booker is skipped recipient_not_owner', (await run(mateRow({ kind: 'demo_move_cancelled' }))).reason === 'recipient_not_owner' && sent.length === 0);
+  reset(); mate({ role: 'owner', status: 'revoked' });
+  ok('reminder: a revoked owner is skipped recipient_not_owner', (await run(mateRow({ kind: 'demo_move_reminder', offset_key: 'h24', expires_at: due }))).reason === 'recipient_not_owner' && sent.length === 0);
+  // queued while eligible, revoked before the retry: the frozen body is neither sent nor forwarded to anyone else
+  reset(); mate({ role: 'owner', status: 'revoked' });
+  const frozenMate = { to: 'mate@example.test', subject: 'Frozen', html: '<p>Frozen</p>', attempted_at: '2026-10-16T17:30:00Z', attempting_at: '2026-10-16T17:30:00Z', settled_at: null, uncertain: true };
+  const rf = await run(mateRow({ frozen_payload: frozenMate, attempts: 1, idempotency_key: 'delivery' }));
+  ok('frozen retry to a now-revoked owner: skipped recipient_not_owner, no provider call', rf.outcome !== 'accepted' && rf.reason === 'recipient_not_owner' && sent.length === 0, JSON.stringify(rf));
   reset(); mv().status = 'confirmed';
   ok('moved: brand confirmed before the send: skipped move_confirmed', (await run(row())).reason === 'move_confirmed' && sent.length === 0);
   reset(); mv().status = 'superseded';
