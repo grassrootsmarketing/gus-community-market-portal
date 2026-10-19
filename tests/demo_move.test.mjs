@@ -145,6 +145,23 @@ try {
   const data = await brandData();
   const mine = (data.demos || []).find(d => d.booking_id === bk.id);
   ok('brand data: the demo carries pending_move with id, slots, note and deadline', mine && mine.pending_move && mine.pending_move.id === moves1[0].id && mine.pending_move.from_date === D1 && mine.pending_move.to_date === D2 && mine.pending_move.note === 'Agreed with Rep M by phone' && mine.pending_move.reconfirm_due_at, JSON.stringify(mine && mine.pending_move));
+
+  // 0097 x 0094 (2026-10-19): a designated booker of the brand sees the pending move on the demo (new slot, deadline, note)
+  // but cannot answer it: move-respond is owner-only (a decline cancels and refunds).
+  {
+    const { DEMOHUB_TOS_VERSION, DEMOHUB_TOS_DIGEST } = await import('../api/booking.js');
+    const bookerEmail = `booker-${RUN}@fixture.test`;
+    const member = one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: bookerEmail, name: 'Move Booker', role: 'booker', status: 'accepted', accepted_at: new Date().toISOString(), terms_accepted_at: new Date().toISOString(), terms_version: DEMOHUB_TOS_VERSION, terms_digest: DEMOHUB_TOS_DIGEST }) }));
+    track('brand_members', member && member.id);
+    const sessTok = 'bk-' + RUN;
+    const sess = one(await db('brand_account_sessions', { method: 'POST', body: JSON.stringify({ brand_id: brandId, session_token: sessTok, email: bookerEmail, expires_at: hours(1) }) }));
+    track('brand_account_sessions', sess && sess.id);
+    const bd = await brandData(sessTok);
+    const bMine = (bd && bd.demos || []).find(x => x.booking_id === bk.id);
+    ok('booker data: the booker sees the pending move on the demo (same id, slots, note, deadline) and no payments', bd && bd.role === 'booker' && bMine && bMine.pending_move && bMine.pending_move.id === moves1[0].id && bMine.pending_move.to_date === D2 && typeof bMine.pending_move.reconfirm_due_at === 'string' && Array.isArray(bd.payments) && bd.payments.length === 0, JSON.stringify(bMine && bMine.pending_move));
+    const bRes = await respond({ move_id: moves1[0].id, decision: 'decline' }, sessTok);
+    ok('booker move-respond is refused (403 role_not_allowed) and the move stays pending', bRes.statusCode === 403 && bRes.body.error === 'role_not_allowed' && (await movesFor(bk.id))[0].status === 'pending', JSON.stringify(bRes.body));
+  }
   const wrongBrand = await respond({ move_id: moves1[0].id, decision: 'confirm' }, otherBrandCookie);
   ok('another brand cannot answer: 403', wrongBrand.statusCode === 403, JSON.stringify(wrongBrand.body));
   const bad = await respond({ move_id: moves1[0].id, decision: 'maybe' });

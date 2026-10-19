@@ -2503,7 +2503,7 @@ function renderBookerOverview() {
   const mine = upcoming.filter(d => d.booked_by_me);
   const row = (d) => '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
     + '<div><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
-    + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(d.demo_date || '') + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
+    + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(_bookerDay(d.demo_date)) + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
     + (d.pending_move ? _bookerMoveLine(d) : '')
     + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div></div>';
   main.innerHTML = `
@@ -2521,6 +2521,10 @@ function renderBookerOverview() {
 }
 // 0094 x 0097 (2026-10-18): the booker's row already shows the NEW time (the move changes the demo); this line says the
 // store moved it and that the owner answers (the booker cannot: move-respond is owner-only on the server).
+function _bookerDay(ymd) {   // 2026-10-19 visual pass: the booker's rows printed the raw ISO date
+  if (!ymd) return '';
+  try { return new Date(ymd + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return ymd; }
+}
 function _bookerMoveLine(d) {
   const m = d.pending_move || {};
   let from = '';

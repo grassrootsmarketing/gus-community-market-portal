@@ -474,7 +474,10 @@ function bookerDemoView(d, memberId) {
     retailers: d.retailers ? { id: d.retailers.id, name: d.retailers.name, slug: d.retailers.slug } : null,
     venues: d.venues ? { id: d.venues.id, name: d.venues.name, address: d.venues.address } : null,
     booked_by_me: !!(memberId && d.booked_by_member_id && String(d.booked_by_member_id) === String(memberId)),
-    booked_by_name: d.booked_by_name || null };
+    booked_by_name: d.booked_by_name || null,
+    // 0094 x 0097 (2026-10-19 visual pass): the booker sees that the store moved a demo (new slot, deadline, the
+    // store's note); answering it stays the owner's (move-respond is owner-only).
+    pending_move: d.pending_move || null };
 }
 function bookerPendingView(b, memberId) {
   if (!b) return null;

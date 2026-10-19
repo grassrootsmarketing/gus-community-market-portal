@@ -7006,11 +7006,17 @@ function escapeHtml(s) {
             const canResched = status === 'confirmed' && !!d.id;
             if (!canCancel && !canResched) return '';
             const btn = 'font-size:0.85rem; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; font-family:inherit;';
+            // 0094 (2026-10-19 visual pass): with moves switched on, the button opens the Move dialog, so the hint says so
+            const feats = (typeof window !== "undefined" && window.state && window.state.features) || null;   // the suite evaluates this function outside a browser
+            const movesOn = !(feats && feats.retailer_moves === false);
+            const reschedHint = movesOn
+                ? 'Move or reschedule moves the demo right away (the brand has up to 72 hours to confirm, or it is cancelled and refunded in full), or lets you propose a date for the brand to accept first; a confirmed move charges nothing. '
+                : 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ';
             return '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">'
-                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">Reschedule</button>' : '')
+                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">' + (movesOn ? 'Move or reschedule' : 'Reschedule') + '</button>' : '')
                 + (canCancel ? '<button type="button" class="js-cal-cancel" style="' + btn + ' background:#fff; border:1.5px solid #f0d6c6; color:#a14e2a;">Cancel demo</button>' : '')
                 + '</div>'
-                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ' : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
+                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? reschedHint : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
         }
         function openDemoEventDetail(id) {
             const d = (window.state.demos || []).find(x => String(x.id) === String(id));
