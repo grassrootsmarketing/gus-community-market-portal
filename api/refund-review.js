@@ -26,8 +26,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
-import { sendMailQuietly, link } from './_mail.js';
-import { brandHeader, loadCancellation, resolutionState, resolveCancellation } from './_cancellation-review.js';
+import { loadCancellation, resolutionState, resolveCancellation, refundStatusOf } from './_cancellation-review.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
@@ -134,7 +133,9 @@ export default async function handler(req, res) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Cancellation resolution (R2-2): booking-keyed, retailer owner/admin, same-origin (checked above).
+// Cancellation resolution (R2-2, reworked for R3-1 / R3-3): booking-keyed, retailer owner/admin, same-origin (checked
+// above). The decision is CLAIMED in the database before any provider effect; the answer is derived from the stored
+// decision and its execution state, never from this request's action. See api/_cancellation-review.js.
 // ---------------------------------------------------------------------------------------------
 const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
 async function handleCancellationResolution(req, res, auth, body, action) {
@@ -148,54 +149,18 @@ async function handleCancellationResolution(req, res, auth, body, action) {
     if (action === 'cancellation') {
       const cur = await loadCancellation(_b, bookingId);
       const st = resolutionState({ booking, decision: cur.decision, resolution: cur.resolution });
-      return res.status(200).json({ ok: true, booking_id: bookingId, status: booking.status, payment_status: booking.payment_status, decision: cur.decision, resolution: cur.resolution, review_case: cur.reviewCase, resolvable: st.resolvable, why: st.why });
+      return res.status(200).json({ ok: true, booking_id: bookingId, status: booking.status, payment_status: booking.payment_status, decision: cur.decision, resolution: cur.resolution, review_case: cur.reviewCase, resolvable: st.resolvable, why: st.why, refund_status: refundStatusOf(cur.resolution) });
     }
     const decision = action === 'grant' ? 'refund_granted' : 'no_refund';
     const reason = String(body.reason || '').trim();
     if (!reason) return res.status(400).json({ error: 'reason_required', message: 'Say why, in a sentence; it is recorded with your decision.' });
     const r = await resolveCancellation(_b, { booking, retailerId: auth.retailer_id, operator: auth.email, decision, reason });
-    if (!r.ok) return res.status(r.status || 409).json({ ok: false, error: r.error, detail: r.detail || undefined, decision: r.decision || undefined });
-    let brand_notified = null;
-    if (!r.existing) {
-      // The brand hears the answer once, when it is first recorded. A replay does not send again.
-      try { brand_notified = await notifyBrandOfResolution(booking, decision, r); } catch (_) { brand_notified = false; }
-    }
-    return res.status(200).json({ ok: true, booking_id: bookingId, outcome: r.outcome, existing: r.existing, decision: r.decision, resolution: r.resolution,
-      refund_status: decision === 'refund_granted' ? (r.existing ? 'recorded' : (r.refund && r.refund.ok ? 'submitted' : (r.refund && r.refund.retrying ? 'refund_pending' : 'none'))) : 'none',
-      refund_id: (r.refund && r.refund.refund_id) || undefined, refund_request_id: (r.refund && r.refund.refund_request_id) || undefined,
-      case_id: r.case_id || null, case_closed: r.case_closed, brand_notified });
+    if (!r.ok) return res.status(r.status || 409).json({ ok: false, error: r.error, decision: r.decision || undefined });
+    return res.status(200).json({ ok: true, booking_id: bookingId, outcome: r.outcome, existing: r.existing, requested: r.requested, decision: r.decision_stored, state: r.state, resolution: r.resolution,
+      refund_status: r.refund_status, refund_id: (r.refund && r.refund.refund_id) || undefined, refund_request_id: (r.resolution && r.resolution.refund_request_id) || undefined,
+      case_id: r.case_id, case_closed: r.case_closed, brand_notified: r.brand_notified, pending_step: r.failed || undefined });
   } catch (e) {
     console.error('refund-review cancellation error:', (e && e.message) || e);
     return res.status(500).json({ error: 'refund_review_error' });
   }
-}
-
-const FROM_ADDRESS = process.env.FROM_ADDRESS || 'Demohub <bookings@demohubhq.com>';
-const H = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-async function notifyBrandOfResolution(booking, decision, r) {
-  if (!booking.contact_email) return false;
-  let retailerName = 'The store';
-  try { const rt = await sbGet(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name`); if (Array.isArray(rt) && rt[0] && rt[0].name) retailerName = rt[0].name; } catch (_) {}
-  const dateLabel = booking.demo_date ? new Date(booking.demo_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : 'your demo date';
-  const granted = decision === 'refund_granted';
-  const body = granted
-    ? (r.refund && r.refund.ok
-      ? 'Your refund request was submitted. We\'ll email you to confirm once it\'s completed, typically within 5&ndash;10 business days.'
-      : 'Your refund is in progress and will be confirmed by email once it completes.')
-    : H(retailerName) + ' reviewed the cancellation and the demo fee is not refunded. This is the store\'s final answer on this booking.';
-  const subject = granted ? 'Refund approved for your demo on ' + dateLabel : 'Refund decision for your demo on ' + dateLabel;
-  const html = '<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',Roboto,Helvetica,sans-serif;color:#1c1c1a;">' +
-    '<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">' +
-    '<tr><td style="padding:28px 32px;background:#0f2c17;">' + brandHeader() + '</td></tr>' +
-    '<tr><td style="padding:36px 36px 28px;">' +
-    '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#2a5b32;margin-bottom:14px;">' + (granted ? 'Refund approved' : 'Refund decision') + '</div>' +
-    '<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">' + (granted ? 'Your demo fee is being refunded' : 'About the fee for your cancelled demo') + (booking.contact_name ? ', ' + H(booking.contact_name) : '') + '.</h1>' +
-    '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">This is about your cancelled demo for <strong>' + H(booking.brand_name || 'your brand') + '</strong> on ' + H(dateLabel) + (booking.demo_time ? ' at ' + H(booking.demo_time) : '') + ' at ' + H(retailerName) + '.</p>' +
-    '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + body + '</p>' +
-    '<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Questions about this decision go to the store. You\'re welcome to book another date at <a href="' + link(_b, '/') + '" style="color:#2a5b32;">demohubhq.com</a>.</p>' +
-    '</td></tr>' +
-    '<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>' +
-    '</table></body></html>';
-  const sent = await sendMailQuietly({ from: FROM_ADDRESS, to: booking.contact_email, replyTo: 'bookings@demohubhq.com', subject, html }, { idempotencyKey: 'cancellation-resolution:' + booking.id + ':' + decision });
-  return !!(sent && (sent.ok || sent.id || sent === true));
 }

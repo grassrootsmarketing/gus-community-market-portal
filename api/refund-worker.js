@@ -20,7 +20,7 @@ import { drainFulfillments } from './_fulfillment.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
 import { sweepMoves } from './_booking-moves.js';
-import { sweepCancellationReviews } from './_cancellation-review.js';
+import { sweepCancellationReviews, sweepUnfinishedResolutions, sweepAbandonedCancellations } from './_cancellation-review.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -284,6 +284,19 @@ export default async function handler(req, res) {
       out.cancellation_reviews_checked = cr.checked; out.cancellation_cases_opened = cr.opened; out.cancellation_cases_failed = cr.failed; out.cancellation_reviews_read_failed = !!cr.read_failed;
       if (cr.errors.length) noteError('cancellation reviews: ' + cr.errors[0]);
     } catch (e) { out.errors++; noteError('cancellation reviews: ' + ((e && e.message) || e)); console.error('cancellation review sweep error:', (e && e.message) || e); }
+    // Codex R3-3: a claimed resolution that still owes a step (refund, case closure, brand notice) is finished here.
+    try {
+      const ur = await sweepUnfinishedResolutions(_b, { limit: 25, graceSeconds: Number(process.env.RESOLUTION_RESUME_GRACE_SECONDS || 120) });
+      out.resolutions_checked = ur.checked; out.resolutions_completed = ur.completed; out.resolutions_still_open = ur.still_open; out.resolutions_failed = ur.failed; out.resolutions_read_failed = !!ur.read_failed;
+      if (ur.errors.length) noteError('resolutions: ' + ur.errors[0]);
+    } catch (e) { out.errors++; noteError('resolutions: ' + ((e && e.message) || e)); console.error('resolution resume error:', (e && e.message) || e); }
+    // Codex R3-4: a recorded cancellation whose cancellation never landed is made visible (deduplicated case) and the
+    // case is closed once the retry lands. The operator finishes it by cancelling again; the route replays the decision.
+    try {
+      const ab = await sweepAbandonedCancellations(_b, { limit: 25, minutes: Number(process.env.CANCELLATION_ABANDONED_MINUTES || 15) });
+      out.abandoned_cancellations = ab.checked; out.abandoned_cases_opened = ab.cases_opened; out.abandoned_cases_resolved = ab.cases_resolved; out.abandoned_failed = ab.failed; out.abandoned_read_failed = !!ab.read_failed;
+      if (ab.errors.length) noteError('abandoned cancellations: ' + ab.errors[0]);
+    } catch (e) { out.errors++; noteError('abandoned cancellations: ' + ((e && e.message) || e)); console.error('abandoned cancellation sweep error:', (e && e.message) || e); }
 
     // F-03 run verdict. 'succeeded' means EVERY claimed item succeeded: no per-item error after
     // claim (Stripe submit/get/list, ledger apply, park, lease release), no fulfilment row failed
@@ -295,7 +308,8 @@ export default async function handler(req, res) {
     const alertsFailed = (out.alerts_failed || 0) > 0 || out.alerts_claim_failed === true;
     // Codex RM-6: a failed move scan (claim or read), a malformed reply or any per-item failure is a failed run.
     const movesFailed = (out.moves_failed || 0) > 0 || out.moves_claim_failed === true || out.moves_read_failed === true || out.moves_notice_failed === true;
-    const reviewsFailed = (out.cancellation_cases_failed || 0) > 0 || out.cancellation_reviews_read_failed === true;
+    const reviewsFailed = (out.cancellation_cases_failed || 0) > 0 || out.cancellation_reviews_read_failed === true
+      || (out.resolutions_failed || 0) > 0 || out.resolutions_read_failed === true || (out.abandoned_failed || 0) > 0 || out.abandoned_read_failed === true;
     const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed && !reviewsFailed;
     if (runOk) {
       await heartbeat('succeeded', startMs, out);

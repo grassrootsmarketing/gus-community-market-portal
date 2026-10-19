@@ -20,7 +20,7 @@ const REFUNDABLE = 'Cancel at least 72 hours before your demo for a refund. Insi
 const NON_REFUNDABLE = 'Demo fees are not refunded when a demo is cancelled, because the store orders product for you as soon as you book. Please cancel as early as you can so the slot can go to another brand. Reschedules are welcome anytime.';
 function dayP(n) { const d = new Date(Date.now() + n * 864e5); const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: LA, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)) p[x.type] = x.value; return `${p.year}-${p.month}-${p.day}`; }
 const retailer = { id: 'r1', slug: 'gus', name: 'Gus Market', timezone: LA, cancellation_mode: 'refundable', cancellation_policy: null, verification_status: 'approved', auto_confirm_bookings: true, platform_keeps_all: true };
-const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', name: 'Main', address: '1 St', demo_fee: 30 }], bookings: [], brand_contacts: [], internal_contacts: [],
+const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', name: 'Main', address: '1 St', demo_fee: 30 }], bookings: [{ id: 'bk2', status: 'confirmed', payment_status: 'paid', cancellation_pending_at: new Date().toISOString() }], brand_contacts: [], internal_contacts: [],
   demos: [{ id: 'd1', booking_id: 'bk1', venue_id: 'v1', demo_date: dayP(1), demo_time: '1:00 PM', company_name: 'Fire Season Goods', contact_name: 'Kyle', status: 'confirmed', product: 'Sauce', demo_fee: 30 },
           { id: 'd2', booking_id: 'bk2', venue_id: 'v1', demo_date: dayP(10), demo_time: '1:00 PM', company_name: 'Ember Rubs', contact_name: 'Bea', status: 'confirmed', product: 'Rub', demo_fee: 30 },
           // Codex R2-2: cancelled rows. bk3 owes a refund decision (inside the window, pending_manual); bk4 was decided (no refund);
@@ -176,6 +176,7 @@ try {
     ok('a decided cancellation shows "No refund" and no buttons', cells['Decided Dips'] && /No refund/i.test(cells['Decided Dips'].text) && cells['Decided Dips'].buttons.length === 0, JSON.stringify(cells['Decided Dips']));
     ok('an automatically refunded cancellation shows "Refunded" and no buttons', cells['Refunded Rolls'] && /Refunded/i.test(cells['Refunded Rolls'].text) && cells['Refunded Rolls'].buttons.length === 0, JSON.stringify(cells['Refunded Rolls']));
     ok('a live demo keeps its Cancel button (no decision cell)', cells['Ember Rubs'] && cells['Ember Rubs'].buttons.length === 0 && /Cancel/i.test(cells['Ember Rubs'].text), JSON.stringify(cells['Ember Rubs']));
+    ok('a live demo whose recorded cancellation never landed shows the Cancellation pending pill next to its Cancel button (Codex R3-4)', cells['Ember Rubs'] && /Cancellation pending/i.test(cells['Ember Rubs'].text), JSON.stringify(cells['Ember Rubs']));
     // Grant: the dialog asks why; OK with no reason posts nothing
     await clickBtn('button.js-resolve-cancel[data-decision="grant"][data-booking-id="bk3"]'); await page.waitForTimeout(250);
     const t1 = await dialog().innerText();

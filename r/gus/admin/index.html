@@ -5624,13 +5624,16 @@ function escapeHtml(s) {
             tbody.innerHTML = list.map(d => {
                 const status = (d.status || '').toLowerCase();
                 const cancelled = status === 'cancelled' || status === 'declined';
-                const cancelBtn = cancelled
+                // 0106/0107: a cancellation was recorded on this booking but did not finish; the retry replays it
+                const bkLive = (!cancelled && d.booking_id) ? ((window.state.bookings || []).find(function(b){ return b && b.id === d.booking_id; }) || null) : null;
+                const pendingCancelPill = (bkLive && bkLive.cancellation_pending_at) ? _coiPill('Cancellation pending', 'amber', 'A cancellation of this booking was recorded but did not finish. Click Cancel again to complete it; the recorded decision is replayed, nothing is judged twice.') : '';
+                const cancelBtn = (pendingCancelPill) + (cancelled
                     ? _cancellationResolutionHtml(d)
                     : (d.booking_id
                         // Cancel/refund is a BOOKING operation, send booking_id, never the demo id.
                         ? '<button class="js-cancel-demo" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>'
                         // A demo with no linked booking (historical/manual) has no paid booking to refund/cancel here.
-                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">n/a</span>');
+                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">n/a</span>'));
                 // Move (0094): the store moves the demo now; the brand reconfirms or it cancels with a refund.
                 // "Reschedule proposed" is the older ask-first flow, still available from the same dialog.
                 const canResched = status === 'confirmed' && d.id;
@@ -5669,8 +5672,11 @@ function escapeHtml(s) {
                     : _coiPill('No refund', 'warn', 'Decided by ' + (res.operator || 'the store') + (res.reason ? ': ' + res.reason : ''));
             }
             if (dec.refund === true) return _coiPill('Refunded', 'ok', dec.reason === 'store_caused' ? 'The store cancelled, so the fee was refunded in full.' : dec.reason === 'forced' ? 'Refunded on your instruction.' : 'Cancelled outside the 72-hour window, so the fee was refunded.');
-            if (dec.status === 'not_paid') return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
-            const why = dec.status === 'under_review'
+            const bkRow = (window.state.bookings || []).find(function(b){ return b && b.id === d.booking_id; }) || null;
+            if (dec.status === 'not_paid' && !(bkRow && bkRow.payment_status === 'paid')) return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
+            const why = dec.status === 'not_paid'
+                ? 'The fee was captured after this cancellation was recorded. Decide the refund here.'
+                : dec.status === 'under_review'
                 ? 'The demo\'s scheduled time could not be confirmed, so the 72-hour rule could not be applied automatically. Decide the refund here.'
                 : (dec.reason === 'non_refundable' ? 'Your policy is non-refundable, so the fee was kept. You can still refund it here.' : 'The brand cancelled inside the 72-hour window, so the fee was kept. You can still refund it here.');
             const btn = 'font-size:0.72rem; font-weight:700; padding:5px 9px; border-radius:7px; cursor:pointer; font-family:inherit; margin-left:6px;';

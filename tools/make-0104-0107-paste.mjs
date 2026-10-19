@@ -1,4 +1,4 @@
-// tools/make-0104-0106-paste.mjs (2026-10-19, Codex refund-cutoff rev2 review R2-4): the guarded, single-transaction
+// tools/make-0104-0107-paste.mjs (2026-10-19, Codex refund-cutoff rev2 review R2-4; 0107 added for the rev3 review): the guarded, single-transaction
 // production paste for the 72-hour refund cutoff: migrations 0104 (cancellation mode + sentence backfill, with its
 // backup table), 0105 (the cancellation decision record) and 0106 (decision binding, the cancellation barrier, the
 // operator resolution, explicit grants) together, three ledger rows, one COMMIT. Each body is its file verbatim
@@ -18,7 +18,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 const ROOT = 'C:/Users/David/demohub-refund-72h/supabase/migrations/';
-const files = { '0104': '0104_cancellation_mode_72h.sql', '0105': '0105_booking_cancellations.sql', '0106': '0106_cancellation_decision_binding.sql' };
+const files = { '0104': '0104_cancellation_mode_72h.sql', '0105': '0105_booking_cancellations.sql', '0106': '0106_cancellation_decision_binding.sql', '0107': '0107_cancellation_resolution_claims.sql' };
 const bodies = {};
 for (const [v, f] of Object.entries(files)) {
   bodies[v] = readFileSync(ROOT + f, 'utf8');
@@ -31,7 +31,7 @@ const sentence = (n) => { if (typeof cut[n] !== 'string') throw new Error(n); re
 const q = (s) => "'" + s.replace(/'/g, "''") + "'";
 const R = sentence('REFUNDABLE_CANCELLATION_POLICY'), N = sentence('NON_REFUNDABLE_CANCELLATION_POLICY');
 const kit = `-- ============================================================================================
--- DEMOHUB PRODUCTION, migrations 0104 + 0105 + 0106 (72-hour refund cutoff), ONE paste, run ONCE in the SQL editor of demohub-prod
+-- DEMOHUB PRODUCTION, migrations 0104 + 0105 + 0106 + 0107 (72-hour refund cutoff), ONE paste, run ONCE in the SQL editor of demohub-prod
 -- ONE TRANSACTION: guard, the three migration bodies, their postconditions and the three ledger rows commit together or
 -- not at all. A failure anywhere leaves nothing behind; after the cause is fixed the paste is simply run again.
 -- Guard: refuses unless this database identifies as ${IDENTITY}; the ledger holds 0078, 0095 and 0103 and none of 0104,
@@ -52,12 +52,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '0103') THEN RAISE EXCEPTION 'CUTOVER GUARD: 0103 is not in the ledger. STOP'; END IF;
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '0095') THEN RAISE EXCEPTION 'CUTOVER GUARD: 0095 (demo moves) is not in the ledger; this release re-declares its functions. STOP'; END IF;
   IF NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '0078') THEN RAISE EXCEPTION 'CUTOVER GUARD: 0078 (booking_transition) is not in the ledger. STOP'; END IF;
-  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version IN ('0104','0105','0106')) THEN RAISE EXCEPTION 'CUTOVER GUARD: 0104, 0105 or 0106 is already in the ledger. Applied before? STOP and review'; END IF;
+  IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version IN ('0104','0105','0106','0107')) THEN RAISE EXCEPTION 'CUTOVER GUARD: 0104, 0105, 0106 or 0107 is already in the ledger. Applied before? STOP and review'; END IF;
   IF to_regclass('public.booking_cancellations') IS NOT NULL THEN RAISE EXCEPTION 'CUTOVER GUARD: booking_cancellations already exists. STOP and review'; END IF;
   IF to_regclass('public.booking_cancellation_resolutions') IS NOT NULL THEN RAISE EXCEPTION 'CUTOVER GUARD: booking_cancellation_resolutions already exists. STOP and review'; END IF;
   IF to_regclass('public.retailers_cancellation_policy_backup_0104') IS NOT NULL THEN RAISE EXCEPTION 'CUTOVER GUARD: the 0104 backup table already exists. STOP and review'; END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'bookings' AND column_name = 'cancellation_pending_at') THEN RAISE EXCEPTION 'CUTOVER GUARD: bookings.cancellation_pending_at already exists. STOP and review'; END IF;
-  SELECT count(*) INTO n FROM pg_proc p JOIN pg_namespace s ON s.oid = p.pronamespace WHERE s.nspname = 'public' AND p.proname IN ('booking_cancellation_record', 'booking_cancellation_resolve');
+  SELECT count(*) INTO n FROM pg_proc p JOIN pg_namespace s ON s.oid = p.pronamespace WHERE s.nspname = 'public' AND p.proname IN ('booking_cancellation_record', 'booking_cancellation_resolve', 'booking_cancellation_claim', 'booking_cancellation_progress', 'cancellation_reviews_outstanding', 'cancellation_resolutions_unfinished');
   IF n <> 0 THEN RAISE EXCEPTION 'CUTOVER GUARD: % cutoff function(s) already exist. STOP and review', n; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'retailers' AND column_name = 'cancellation_mode') THEN RAISE EXCEPTION 'CUTOVER GUARD: retailers.cancellation_mode is missing. STOP'; END IF;
   IF to_regprocedure('public.booking_transition(uuid, uuid, text, jsonb, numeric)') IS NULL THEN RAISE EXCEPTION 'CUTOVER GUARD: booking_transition(uuid, uuid, text, jsonb, numeric) is missing. STOP'; END IF;
@@ -88,6 +88,9 @@ ${bodies['0105'].trim()}
 -- ======================= migration 0106: file content, verbatim =======================
 ${bodies['0106'].trim()}
 
+-- ======================= migration 0107: file content, verbatim =======================
+${bodies['0107'].trim()}
+
 -- ======================= rollback record (same transaction) =======================
 DO $$
 DECLARE v_prev text;
@@ -102,35 +105,37 @@ DROP TABLE _cutoff_prev_default;
 INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0104', 'cancellation_mode_72h');
 INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0105', 'booking_cancellations');
 INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0106', 'cancellation_decision_binding');
+INSERT INTO supabase_migrations.schema_migrations (version, name) VALUES ('0107', 'cancellation_resolution_claims');
 COMMIT;
 
 -- ======================= verify (read-only) =======================
-SELECT 'OK 0104+0105+0106 RECORDED' AS result,
-       (SELECT string_agg(version, ',' ORDER BY version) FROM supabase_migrations.schema_migrations WHERE version >= '0100') AS ledger_from_0100_expect_0106_last,
+SELECT 'OK 0104+0105+0106+0107 RECORDED' AS result,
+       (SELECT string_agg(version, ',' ORDER BY version) FROM supabase_migrations.schema_migrations WHERE version >= '0100') AS ledger_from_0100_expect_0107_last,
        (SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum WHERE d.adrelid = 'public.retailers'::regclass AND a.attname = 'cancellation_mode') AS mode_default_expect_refundable,
        (SELECT count(*) FROM retailers WHERE cancellation_mode NOT IN ('refundable', 'non_refundable') OR cancellation_mode IS NULL) AS retailers_with_unread_mode_expect_0,
        (SELECT count(*) FROM retailers_cancellation_policy_backup_0104) AS rows_backed_up_by_0104,
        (SELECT obj_description('public.retailers_cancellation_policy_backup_0104'::regclass)) AS backup_note_with_previous_default,
        (SELECT to_regprocedure('public.booking_cancellation_record(uuid, uuid, jsonb, jsonb)') IS NOT NULL) AS record_fn_4args_expect_true,
        (SELECT to_regprocedure('public.booking_cancellation_record(uuid, uuid, jsonb)') IS NULL) AS record_fn_3args_gone_expect_true,
-       (SELECT to_regprocedure('public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid)') IS NOT NULL) AS resolve_fn_expect_true,
+       (SELECT to_regprocedure('public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid)') IS NULL) AS resolve_fn_0106_gone_expect_true,
+       (SELECT to_regprocedure('public.booking_cancellation_claim(uuid, uuid, text, text, text)') IS NOT NULL AND to_regprocedure('public.booking_cancellation_progress(uuid, uuid, text, uuid, text)') IS NOT NULL AND to_regprocedure('public.cancellation_reviews_outstanding(integer)') IS NOT NULL AND to_regprocedure('public.cancellation_resolutions_unfinished(integer, integer)') IS NOT NULL) AS claim_progress_sweep_fns_expect_true,
        (SELECT position('cancellation_pending' IN pg_get_functiondef('public.booking_transition(uuid, uuid, text, jsonb, numeric)'::regprocedure)) > 0) AS transition_barrier_expect_true,
        (SELECT bool_and(position('cancellation_pending_at' IN pg_get_functiondef(f::regprocedure)) > 0) FROM unnest(ARRAY['public.move_booking_by_retailer(uuid, uuid, date, text, text, text, integer)', 'public.propose_reschedule(uuid, uuid, date, text)', 'public.accept_reschedule(uuid, uuid, integer)']) f) AS move_barriers_expect_true,
        (SELECT has_function_privilege('service_role', 'public.booking_cancellation_record(uuid, uuid, jsonb, jsonb)', 'EXECUTE')) AS service_role_record_expect_true,
-       (SELECT has_function_privilege('service_role', 'public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid)', 'EXECUTE')) AS service_role_resolve_expect_true,
+       (SELECT has_function_privilege('service_role', 'public.booking_cancellation_claim(uuid, uuid, text, text, text)', 'EXECUTE') AND has_function_privilege('service_role', 'public.booking_cancellation_progress(uuid, uuid, text, uuid, text)', 'EXECUTE') AND has_function_privilege('service_role', 'public.cancellation_reviews_outstanding(integer)', 'EXECUTE') AND has_function_privilege('service_role', 'public.cancellation_resolutions_unfinished(integer, integer)', 'EXECUTE')) AS service_role_claim_progress_sweeps_expect_true,
        (SELECT has_function_privilege('service_role', 'public.booking_transition(uuid, uuid, text, jsonb, numeric)', 'EXECUTE')) AS service_role_transition_expect_true,
        (SELECT has_function_privilege('anon', 'public.booking_cancellation_record(uuid, uuid, jsonb, jsonb)', 'EXECUTE') OR has_function_privilege('authenticated', 'public.booking_cancellation_record(uuid, uuid, jsonb, jsonb)', 'EXECUTE')) AS anon_or_authenticated_record_expect_false,
-       (SELECT has_function_privilege('anon', 'public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid)', 'EXECUTE') OR has_function_privilege('authenticated', 'public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid)', 'EXECUTE')) AS anon_or_authenticated_resolve_expect_false,
+       (SELECT has_function_privilege('anon', 'public.booking_cancellation_claim(uuid, uuid, text, text, text)', 'EXECUTE') OR has_function_privilege('authenticated', 'public.booking_cancellation_claim(uuid, uuid, text, text, text)', 'EXECUTE') OR has_function_privilege('anon', 'public.booking_cancellation_progress(uuid, uuid, text, uuid, text)', 'EXECUTE') OR has_function_privilege('authenticated', 'public.booking_cancellation_progress(uuid, uuid, text, uuid, text)', 'EXECUTE')) AS anon_or_authenticated_claim_progress_expect_false,
        (SELECT has_table_privilege('anon', 'public.booking_cancellations', 'SELECT') OR has_table_privilege('authenticated', 'public.booking_cancellations', 'SELECT')) AS anon_or_authenticated_read_decisions_expect_false,
        (SELECT count(*) FROM bookings WHERE cancellation_pending_at IS NOT NULL) AS bookings_with_barrier_expect_0,
        (SELECT count(*) FROM booking_cancellations) AS decisions_expect_0_until_the_deploy;
 `;
 if (/\u2014/.test(kit)) throw new Error('em dash');
 const dir = 'C:/Users/David/Documents/Codex/cutover-kit/';
-const outPath = process.argv[4] || (dir + '0104-0106-refund-cutoff-paste.sql');
+const outPath = process.argv[4] || (dir + '0104-0107-refund-cutoff-paste.sql');
 writeFileSync(outPath, kit);
 if (!process.argv[4]) {
-  writeFileSync(dir + 'MANIFEST-0104-0106.json', JSON.stringify({ generated_at: new Date().toISOString(), atomic: true, identity: IDENTITY, custom_sentences_reviewed: CUSTOM_OK,
+  writeFileSync(dir + 'MANIFEST-0104-0107.json', JSON.stringify({ generated_at: new Date().toISOString(), atomic: true, identity: IDENTITY, custom_sentences_reviewed: CUSTOM_OK,
     guard: 'identity; ledger 0078+0095+0103 present, 0104/0105/0106 absent; no cutoff objects; 0078/0095 signatures present; refund_reserve_cas and _open_case present; custom sentence count equals the reviewed count; previous default recorded',
     migrations: Object.entries(files).map(([v, f]) => ({ version: v, file: 'supabase/migrations/' + f, sha256: sha(bodies[v]) })), kit_sha256: sha(kit), kit_chars: kit.length }, null, 2));
 }

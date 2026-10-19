@@ -831,6 +831,10 @@ export default async function handler(req, res) {
             : 'Reload and try again.'),
       });
     }
+    if (action === 'cancel') {
+      // Codex R3-4: if the worker had flagged this cancellation as abandoned, the landed retry closes that case.
+      try { await sb(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent('cancel-abandoned:' + booking_id)}&status=neq.resolved`, { method: 'PATCH', body: JSON.stringify({ status: 'resolved', resolved_by: (session && session.email) || 'booking-action', resolved_at: new Date().toISOString() }) }); } catch (_) { /* the worker also closes it once the barrier is clear */ }
+    }
     // Codex C2-A: reason 'already_applied' = this action's terminal state was ALREADY in place when
     // the transition ran, the authorization release above did it (held cancel/decline), the
     // capture-side auto-confirm did it (held confirm), or a concurrent identical request did. The

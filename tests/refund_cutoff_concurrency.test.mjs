@@ -319,10 +319,10 @@ try {
     const c = await cancel(np.id);
     ok('unpaid cancel: not_paid', c.statusCode === 200 && c.body.refund_status === 'not_paid', `${c.statusCode} ${JSON.stringify(c.body).slice(0, 120)}`);
     const g = await review({ action: 'grant', booking_id: np.id, reason: 'x' });
-    ok('grant on a not_paid decision: 409 nothing_to_refund', g.statusCode === 409 && g.body.error === 'nothing_to_refund', `${g.statusCode} ${JSON.stringify(g.body).slice(0, 120)}`);
+    ok('grant on a not_paid decision with no ledger charge: 409 refund_not_possible, nothing claimed', g.statusCode === 409 && g.body.error === 'refund_not_possible' && (await resolutionRows(np.id)).length === 0, `${g.statusCode} ${JSON.stringify(g.body).slice(0, 120)}`);
     const notCancelled = await seed({ days: 11 });
     const g2 = await review({ action: 'deny', booking_id: notCancelled.id, reason: 'x' });
-    ok('deny on a booking that is not cancelled: 409 no_decision', g2.statusCode === 409 && g2.body.error === 'no_decision', `${g2.statusCode} ${JSON.stringify(g2.body).slice(0, 120)}`);
+    ok('deny on a booking that is not cancelled: 409 not_cancelled', g2.statusCode === 409 && g2.body.error === 'not_cancelled', `${g2.statusCode} ${JSON.stringify(g2.body).slice(0, 120)}`);
     const anon = await callRoute('refund-review.js', req({ body: { action: 'grant', booking_id: np.id, reason: 'x' } }));
     ok('anonymous: 401', anon.statusCode === 401, `${anon.statusCode}`);
   }
