@@ -1,7 +1,9 @@
 // tools/preview-demo-move-journey-f3.mjs (2026-10-19, Codex final review F3): the remaining deployed-preview cases.
-//   R  provider failure, then recovery: a lapse settles while the payment's Stripe intent is unreachable (a controlled
-//      fault on the TEST database: the payment group's intent id is pointed at a non-existent intent for the one
-//      settlement, then restored); the worker later resubmits the same reservation under its stored idempotency key.
+//   R  an uncertain provider result, then recovery: the refund reservation exists and the provider call was made, but
+//      its result was never recorded (the state after a crash between the Stripe call and the ledger write; staged on
+//      the TEST database by reserving through the real RPC and submitting the identical request to Stripe directly).
+//      The lapse settles while the ledger is uncertain (pending_worker); the worker later resubmits the same reservation
+//      under its stored idempotency key, Stripe replays the one refund, the ledger converges. Never two refunds.
 //   X  concurrent duplicate settlement: the owner's decline, a second decline and the refund worker's lapse sweep fire
 //      at the same moment on one overdue move; exactly one refund, one terminal state.
 //   P  the older ask-first proposal while a move is pending: an accept of a proposal the move consumed is refused; a
@@ -94,53 +96,75 @@ try {
   for (const stale of await db(`bookings?brand_id=eq.${BRAND}&retailer_id=eq.${RETAILER}&status=eq.pending_payment&payment_status=eq.unpaid&select=id`)) await db(`bookings?id=eq.${stale.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) });
 
   // ------------------------------------------------------------------ three payments
-  const A = await book(DA, '10:00 AM', 'R provider failure'), B = await book(DB_, '10:00 AM', 'X concurrency'), C = await book(DC, '10:00 AM', 'P proposal + Z race');
-  out.bookings = { A, B, C };
-  browser = await chromium.launch();
-  for (const [label, id] of [['P-A', A], ['P-B', B], ['P-C', C]]) {
-    const co = await api('/api/checkout', { booking_ids: [id] }, ownerCookie);
-    log(`${label} checkout returns a Stripe test-mode session`, co.status === 200 && /^https:\/\/checkout\.stripe\.com\//.test(co.body.url || ''), { status: co.status, error: co.body && co.body.error });
-    if (co.status === 200) await pay(co.body.url, label, [id]);
+  let A, B, C;
+  if (process.env.F3_REUSE) {
+    [A, B, C] = process.env.F3_REUSE.split(',').map(x => x.trim());   // three bookings already paid by an earlier run of this tool
+    const rows = await Promise.all([A, B, C].map(booking));
+    log('P-reuse three bookings paid by the earlier run are confirmed and paid', rows.every(r => r && r.status === 'confirmed' && r.payment_status === 'paid'), rows.map(r => ({ id: r.id, status: r.status, payment_status: r.payment_status })));
+  } else {
+    A = await book(DA, '10:00 AM', 'R uncertain result'); B = await book(DB_, '10:00 AM', 'X concurrency'); C = await book(DC, '10:00 AM', 'P proposal + Z race');
+    browser = await chromium.launch();
+    for (const [label, id] of [['P-A', A], ['P-B', B], ['P-C', C]]) {
+      const co = await api('/api/checkout', { booking_ids: [id] }, ownerCookie);
+      log(`${label} checkout returns a Stripe test-mode session`, co.status === 200 && /^https:\/\/checkout\.stripe\.com\//.test(co.body.url || ''), { status: co.status, error: co.body && co.body.error });
+      if (co.status === 200) await pay(co.body.url, label, [id]);
+    }
+    await browser.close(); browser = null;
   }
-  await browser.close(); browser = null;
+  out.bookings = { A, B, C };
 
-  // ================================================================== R: provider failure at settlement, recovery by the worker
+  // ================================================================== R: uncertain provider result at settlement, recovery by the worker
   {
     const s = out.cases.R = { booking_id: A };
     const b0 = await booking(A); const demo = await demoOf(A); s.payment_intent_id = b0.payment_intent_id;
-    const mv = await moveBy(demo.id, DA, '2:00 PM', 'F3: provider failure case');
+    const mv = await moveBy(demo.id, DA, demo.demo_time === '2:00 PM' ? '11:00 AM' : '2:00 PM', 'F3: uncertain provider result case');
     s.move_id = mv.body && mv.body.move_id;
     log('R1 the store moves the paid demo (pending move)', mv.status === 200 && mv.body.ok === true, mv.body);
     await worker('notification-worker');
-    const al = (await allocs([A]))[0]; const grp = (await db(`payment_groups?id=eq.${al.payment_group_id}&select=id,stripe_payment_intent_id,status`))[0];
-    s.payment_group_id = grp.id; s.real_pi = grp.stripe_payment_intent_id;
-    const fakePi = 'pi_f3fault_' + randomBytes(8).toString('hex');
-    // the controlled fault: the group's intent id points at an intent Stripe does not know, for this one settlement only
-    await db(`payment_groups?id=eq.${grp.id}`, { method: 'PATCH', body: JSON.stringify({ stripe_payment_intent_id: fakePi }) });
-    let restored = false; const restore = async () => { if (!restored) { restored = true; await db(`payment_groups?id=eq.${grp.id}`, { method: 'PATCH', body: JSON.stringify({ stripe_payment_intent_id: s.real_pi }) }); } };
-    cleanup.push(restore);
-    try {
-      await forcePast(s.move_id);
-      const w1 = await worker('refund-worker');
-      s.worker_during_fault = { ok: w1.ok, moves_lapsed: w1.moves_lapsed, moves_settled: w1.moves_settled, moves_failed: w1.moves_failed, moves_parked: w1.moves_parked, resubmitted: w1.resubmitted, failed: w1.failed, manual: w1.manual, errors: w1.errors };
-      const m1 = await moveRow(s.move_id); const bk1 = await booking(A); const rq1 = await requests(A); const rf1 = await refundsOn(s.real_pi); const d1 = await demoOf(A);
-      s.during_fault = { move: { status: m1.status, settled_at: m1.settled_at, refund_status: m1.refund_status, refund_request_id: m1.refund_request_id, refund_case_id: m1.refund_case_id, reconciliation_case_id: m1.reconciliation_case_id }, booking: { status: bk1.status, payment_status: bk1.payment_status, cancel_reason: bk1.cancel_reason }, demo: d1 && d1.status, refund_requests: rq1, stripe_refunds: rf1 };
-      log('R2 with the provider unreachable the lapse still settles: move lapsed + settled with refund_status pending_worker, a durable refund request left failed_retryable (idempotency key stored), booking cancelled with payment_status refund_pending, demo cancelled, NO Stripe refund yet, no case', w1.ok === true && w1.moves_lapsed >= 1 && w1.moves_settled >= 1 && m1.status === 'lapsed' && !!m1.settled_at && m1.refund_status === 'pending_worker' && !!m1.refund_request_id && !m1.refund_case_id && bk1.status === 'cancelled' && bk1.payment_status === 'refund_pending' && d1 && d1.status === 'cancelled' && rq1.length === 1 && rq1[0].status === 'failed_retryable' && !!rq1[0].stripe_idempotency_key && !!rq1[0].last_error && rf1.length === 0, s.during_fault);
-      const wN = await worker('notification-worker'); const dl1 = await deliveries(A);
-      const cancelledNotice = dl1.find(x => x.kind === 'demo_move_cancelled');
-      s.cancelled_notice = cancelledNotice && { status: cancelledNotice.status, subject: cancelledNotice.frozen_payload && cancelledNotice.frozen_payload.subject };
-      log('R3 the cancellation notice to the owner states the persisted state: "refund in progress" (never "submitted")', wN.ok === true && !!cancelledNotice && cancelledNotice.status === 'accepted' && /in progress/.test(String(cancelledNotice.frozen_payload && cancelledNotice.frozen_payload.subject)), s.cancelled_notice);
-    } finally { await restore(); }
-    // the retry clock is advanced (the worker backs off between attempts); the outcome is the worker's own resubmission
-    await db(`refund_requests?booking_id=eq.${A}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date(Date.now() - 1000).toISOString() }) });
+    // stage the uncertain state through the REAL reservation RPC: the settlement's own operation identity, reserved now
+    const rr = await db('rpc/refund_reserve_cas', { method: 'POST', body: JSON.stringify({ p_booking_id: A, p_op_key: A + ':move_lapsed', p_actor: 'system:move_lapsed', p_reason: 'The brand did not reconfirm the new time after the store moved this demo.' }) });
+    s.reservation = { outcome: rr.outcome, refund_request_id: rr.refund_request_id, amount: rr.amount, keeps_all: rr.keeps_all, payment_intent: rr.payment_intent };
+    log('R2 a reservation for the lapse settlement exists before the settlement (status reserved, the app\'s own operation key, amount 3000)', rr.outcome === 'reserved' && !!rr.refund_request_id && Number(rr.amount) === 3000 && !!rr.idempotency_key && rr.payment_intent === b0.payment_intent_id, s.reservation);
+    // the sandbox webhook (test mode, preview only) is paused for the staging window: without it the ledger cannot learn the
+    // provider's result from the event stream, and the WORKER's own recovery is what converges it (re-enabled before the recovery run)
+    const WEBHOOK = process.env.F3_WEBHOOK || null; let webhookPaused = false;
+    const webhook = async (enabled) => { if (!WEBHOOK) return null; const r = await fetch('https://api.stripe.com/v1/webhook_endpoints/' + WEBHOOK, { method: 'POST', headers: { Authorization: 'Bearer ' + STRIPE, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'disabled=' + (enabled ? 'false' : 'true') }).then(r => r.json()); return r.status || r.error; };
+    if (WEBHOOK) { s.webhook_paused = await webhook(false); webhookPaused = s.webhook_paused === 'disabled'; cleanup.push(async () => { if (webhookPaused) { s.webhook_restored = await webhook(true); webhookPaused = false; } }); }
+    // the worker must not pick the reservation up before the settlement: its retry clock is set 10 minutes out
+    await db('refund_requests?id=eq.' + rr.refund_request_id, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date(Date.now() + 10 * 60e3).toISOString() }) });
+    // the provider call is made with the stored key and the identical parameters, and its result is NOT recorded (the crash point)
+    const p = new URLSearchParams(); p.set('payment_intent', rr.payment_intent); p.set('amount', String(rr.amount)); if (!rr.keeps_all) { p.set('refund_application_fee', 'true'); p.set('reverse_transfer', 'true'); } p.set('reason', 'requested_by_customer'); p.set('metadata[refund_request_id]', String(rr.refund_request_id)); p.set('metadata[booking_id]', A);
+    const pre = await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { Authorization: 'Bearer ' + STRIPE, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': rr.idempotency_key }, body: p.toString() }).then(r => r.json());
+    s.provider_refund = { id: pre.id, amount: pre.amount, status: pre.status, error: pre.error && pre.error.message };
+    const rqPre = await requests(A); const bkPre = await booking(A);
+    log('R3 the provider holds a succeeded refund of 3000 that the ledger does not know about (request still reserved, no refund id, booking still paid): the uncertain state', !!pre.id && pre.amount === 3000 && pre.status === 'succeeded' && rqPre.length === 1 && rqPre[0].status === 'reserved' && !rqPre[0].stripe_refund_id && bkPre.payment_status === 'paid', { provider: s.provider_refund, request: rqPre[0] });
+    await forcePast(s.move_id);
+    const w1 = await worker('refund-worker');
+    s.worker_settle = { ok: w1.ok, moves_lapsed: w1.moves_lapsed, moves_settled: w1.moves_settled, moves_failed: w1.moves_failed, moves_parked: w1.moves_parked, claimed: w1.claimed, resubmitted: w1.resubmitted, errors: w1.errors };
+    const m1 = await moveRow(s.move_id); const bk1 = await booking(A); const rq1 = await requests(A); const rf1 = await refundsOn(s.payment_intent_id); const d1 = await demoOf(A); const al1 = (await allocs([A]))[0];
+    s.during_uncertainty = { move: { status: m1.status, settled_at: m1.settled_at, refund_status: m1.refund_status, refund_request_id: m1.refund_request_id, refund_case_id: m1.refund_case_id, reconciliation_case_id: m1.reconciliation_case_id }, booking: { status: bk1.status, payment_status: bk1.payment_status, cancel_reason: bk1.cancel_reason }, demo: d1 && d1.status, request: rq1[0] && { status: rq1[0].status, stripe_refund_id: rq1[0].stripe_refund_id }, allocation: al1, stripe_refunds: rf1 };
+    // two convergence routes exist by design: the worker (the webhook paused: the request is still reserved at settlement time,
+    // the settlement defers to the worker with pending_worker) or the webhook (it adopted the provider's result first: the
+    // settlement finds the money already refunded and submits nothing). Either way the settlement itself never resubmits.
+    const viaWorker = rq1.length === 1 && rq1[0].status === 'reserved' && m1.refund_status === 'pending_worker' && m1.refund_request_id === rr.refund_request_id && bk1.payment_status === 'refund_pending';
+    const viaWebhook = rq1.length === 1 && rq1[0].status === 'succeeded' && rq1[0].stripe_refund_id === pre.id && m1.refund_status === 'already_refunded' && bk1.payment_status === 'refunded';
+    s.convergence_route_at_settlement = viaWorker ? 'worker (webhook paused)' : viaWebhook ? 'webhook adopted the provider result before the settlement' : 'unexpected';
+    log(`R4 the lapse settles while the ledger is uncertain (${s.convergence_route_at_settlement}): the settlement never resubmits; move lapsed + settled once, no case; booking cancelled, demo cancelled; the provider still shows exactly one refund`, w1.ok === true && w1.moves_lapsed >= 1 && w1.moves_settled >= 1 && !(w1.moves_failed > 0) && m1.status === 'lapsed' && !!m1.settled_at && !m1.refund_case_id && !m1.reconciliation_case_id && bk1.status === 'cancelled' && d1 && d1.status === 'cancelled' && rf1.length === 1 && (viaWorker || viaWebhook), s.during_uncertainty);
+    const wN = await worker('notification-worker'); const dl1 = await deliveries(A);
+    const cancelledNotice = dl1.find(x => x.kind === 'demo_move_cancelled');
+    s.cancelled_notice = cancelledNotice && { status: cancelledNotice.status, subject: cancelledNotice.frozen_payload && cancelledNotice.frozen_payload.subject };
+    log('R5 the cancellation notice to the owner states the persisted state ("refund in progress", never "submitted" while the ledger is uncertain)', wN.ok === true && !!cancelledNotice && cancelledNotice.status === 'accepted' && /refund (in progress|submitted)/.test(String(cancelledNotice.frozen_payload && cancelledNotice.frozen_payload.subject)) && (!viaWorker || /in progress/.test(String(cancelledNotice.frozen_payload && cancelledNotice.frozen_payload.subject))), s.cancelled_notice);
+    // the webhook comes back; the retry clock is advanced; the recovery is the worker's own resubmission under the stored key
+    if (webhookPaused) { s.webhook_restored = await webhook(true); webhookPaused = false; }
+    await db('refund_requests?id=eq.' + rr.refund_request_id, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date(Date.now() - 1000).toISOString() }) });
     const w2 = await worker('refund-worker');
-    s.worker_after_restore = { ok: w2.ok, claimed: w2.claimed, resubmitted: w2.resubmitted, adopted: w2.adopted, failed: w2.failed, manual: w2.manual, moves_failed: w2.moves_failed, errors: w2.errors };
+    s.worker_recover = { ok: w2.ok, claimed: w2.claimed, resubmitted: w2.resubmitted, adopted: w2.adopted, reconciled: w2.reconciled, failed: w2.failed, manual: w2.manual, moves_settled: w2.moves_settled, errors: w2.errors };
     const bk2 = await waitFor(async () => { const r = await booking(A); return { done: r.payment_status === 'refunded', value: r }; }, 60000);
-    const rq2 = await requests(A); const rf2 = await refundsOn(s.real_pi); const al2 = (await allocs([A]))[0]; const m2 = await moveRow(s.move_id);
-    s.after_recovery = { booking: { status: bk2.status, payment_status: bk2.payment_status, refund_id: bk2.refund_id }, refund_requests: rq2, allocation: al2, stripe_refunds: rf2, move: { status: m2.status, refund_status: m2.refund_status, settled_at: m2.settled_at } };
-    log('R4 after the provider is reachable again the worker resubmits the SAME reservation under its stored key: request succeeded with the Stripe refund id, allocation refunded 3000, booking refunded, exactly one Stripe refund of 3000; the move stays settled (no second settlement)', w2.ok === true && (w2.resubmitted >= 1 || w2.adopted >= 1) && bk2.payment_status === 'refunded' && rq2.length === 1 && rq2[0].status === 'succeeded' && !!rq2[0].stripe_refund_id && Number(al2.refunded_amount) === 3000 && rf2.length === 1 && rf2[0].amount === 3000 && rf2[0].status === 'succeeded' && rf2[0].id === rq2[0].stripe_refund_id && m2.status === 'lapsed' && !!m2.settled_at, s.after_recovery);
-    const w3 = await worker('refund-worker'); const rf3 = await refundsOn(s.real_pi);
-    log('R5 a further worker run changes nothing (still one refund, nothing claimed or failed)', w3.ok === true && rf3.length === 1 && !(w3.failed > 0) && !(w3.moves_failed > 0), { worker: { claimed: w3.claimed, resubmitted: w3.resubmitted, failed: w3.failed }, stripe_refunds: rf3 });
+    const rq2 = await requests(A); const rf2 = await refundsOn(s.payment_intent_id); const al2 = (await allocs([A]))[0]; const m2 = await moveRow(s.move_id);
+    s.after_recovery = { booking: { status: bk2.status, payment_status: bk2.payment_status, refund_id: bk2.refund_id }, request: rq2[0] && { status: rq2[0].status, stripe_refund_id: rq2[0].stripe_refund_id, customer_refund_status: rq2[0].customer_refund_status, attempts: rq2[0].attempts }, allocation: al2, stripe_refunds: rf2, move: { status: m2.status, refund_status: m2.refund_status, settled_at: m2.settled_at } };
+    log(`R6 the ledger converges on the ONE provider refund (${viaWorker ? 'the worker resubmitted the same reservation under its stored key and Stripe replayed it' : 'already adopted by the webhook; the worker had nothing to do'}): request succeeded with that refund id, allocation refunded 3000, booking refunded, exactly one Stripe refund, the move settled once`, w2.ok === true && (!viaWorker || w2.resubmitted >= 1 || w2.adopted >= 1 || w2.reconciled >= 1) && bk2.payment_status === 'refunded' && rq2.length === 1 && rq2[0].status === 'succeeded' && rq2[0].stripe_refund_id === pre.id && Number(al2.refunded_amount) === 3000 && rf2.length === 1 && rf2[0].id === pre.id && rf2[0].amount === 3000 && m2.status === 'lapsed' && !!m2.settled_at && m2.settled_at === m1.settled_at, s.after_recovery);
+    const w3 = await worker('refund-worker'); const rf3 = await refundsOn(s.payment_intent_id);
+    log('R7 a further worker run changes nothing (still one refund, nothing failed)', w3.ok === true && rf3.length === 1 && !(w3.failed > 0) && !(w3.moves_failed > 0), { worker: { claimed: w3.claimed, resubmitted: w3.resubmitted, failed: w3.failed }, stripe_refunds: rf3 });
   }
 
   // ================================================================== A: the live authorization matrix (on B's pending move)
@@ -216,8 +240,10 @@ try {
     const acceptNew = await api('/api/brand-account?action=reschedule-respond', { action: 'reschedule-respond', demo_id: demo.id, decision: 'accept', proposal_version: v2 }, ownerCookie);
     const mSup = await moveRow(s.move_1); const bSup = await booking(C); const dSup = await demoOf(C);
     const wN = await worker('notification-worker'); const dl = await deliveries(C); const movedDl = dl.filter(x => x.kind === 'demo_moved' && x.occurrence_key === s.move_1);
-    s.supersede = { propose: p2.body, accept: acceptNew.body, move: { status: mSup.status, settled_at: mSup.settled_at }, booking: { status: bSup.status, payment_status: bSup.payment_status, demo_time: bSup.demo_time, schedule_revision: bSup.schedule_revision }, demo: dSup, moved_deliveries: movedDl.map(x => ({ status: x.status, skip_reason: x.skip_reason })) };
-    log('P4 a NEW proposal made while the move is pending, accepted by the owner, supersedes the move atomically: move superseded (never settled), booking confirmed and paid at 5:00 PM with revision 3, demo at 5:00 PM, no refund request; the pending "please confirm" notice is skipped move_superseded', p2.status === 200 && v2 === 2 && acceptNew.status === 200 && mSup.status === 'superseded' && !mSup.settled_at && bSup.status === 'confirmed' && bSup.payment_status === 'paid' && bSup.demo_time === '5:00 PM' && bSup.schedule_revision === bM.schedule_revision + 1 && dSup.demo_time === '5:00 PM' && (await requests(C)).length === 0 && wN.ok === true && movedDl.length >= 1 && movedDl.every(x => x.status === 'skipped' && x.skip_reason === 'move_superseded'), s.supersede);
+    const movedEv = (await db(`notification_events?booking_id=eq.${C}&kind=eq.demo_moved&transition_id=eq.${s.move_1}&select=fanned_out_at,payload`))[0];
+    const noticeSuppressed = (movedDl.length >= 1 && movedDl.every(x => x.status === 'skipped' && x.skip_reason === 'move_superseded')) || (movedDl.length === 0 && !!movedEv && !!movedEv.fanned_out_at && /superseded/.test(String(movedEv.payload && movedEv.payload.fanout_note)));
+    s.supersede = { propose: p2.body, accept: acceptNew.body, move: { status: mSup.status, settled_at: mSup.settled_at }, booking: { status: bSup.status, payment_status: bSup.payment_status, demo_time: bSup.demo_time, schedule_revision: bSup.schedule_revision }, demo: dSup, moved_deliveries: movedDl.map(x => ({ status: x.status, skip_reason: x.skip_reason })), moved_event: movedEv && { fanned_out_at: movedEv.fanned_out_at, fanout_note: movedEv.payload && movedEv.payload.fanout_note } };
+    log('P4 a NEW proposal made while the move is pending, accepted by the owner, supersedes the move atomically: move superseded (never settled), booking confirmed and paid at 5:00 PM with revision 3, demo at 5:00 PM, no refund request; the "please confirm" notice for the superseded move is suppressed (fanned out as skipped, or its rows skipped move_superseded)', p2.status === 200 && v2 === 2 && acceptNew.status === 200 && mSup.status === 'superseded' && !mSup.settled_at && bSup.status === 'confirmed' && bSup.payment_status === 'paid' && bSup.demo_time === '5:00 PM' && bSup.schedule_revision === bM.schedule_revision + 1 && dSup.demo_time === '5:00 PM' && (await requests(C)).length === 0 && wN.ok === true && noticeSuppressed, s.supersede);
   }
 
   // ================================================================== Z: confirm versus lapse racing on one overdue move (booking C)

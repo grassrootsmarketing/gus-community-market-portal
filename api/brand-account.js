@@ -955,7 +955,7 @@ export default async function handler(req, res) {
       } catch (e) { console.error('move settle failed:', (e && e.message) || e); }
       const after = await loadMove(_b, moveId).catch(() => null);
       return jsonResp(res, 200, { ok: true, move_id: moveId, status: lapsedNow ? 'lapsed' : 'declined',
-        cancelled: !!(settle && settle.ok), refund_status: (after && after.refund_status) || (settle ? settle.refund_status : null) || 'pending',
+        cancelled: !!(settle && settle.ok) || !!(after && after.settled_at), refund_status: (after && after.refund_status) || (settle ? settle.refund_status : null) || 'pending',
         message: moveWords(after) || 'Your answer is saved. The cancellation and refund are being processed and you will get an email when they complete.' });
     }
 
