@@ -875,7 +875,7 @@ function actionNeededHtml(demos) {
   const where = (d) => escapeHtml((d.retailers && d.retailers.name) || 'Store') + (d.venues && d.venues.name ? ' <span style="color:var(--ink-500);font-weight:500;">' + escapeHtml(d.venues.name) + '</span>' : '');
   return '<div class="action-card" id="actionNeeded">'
     + '<h2>Needs your answer' + (list.length > 1 ? ' (' + list.length + ')' : '') + '</h2>'
-    + '<div class="sub">A store changed, or asked to change, a demo of yours. Nothing else about the booking changes until you answer.</div>'
+    + '<div class="sub">Review the updated or proposed time below. A move applies immediately; a proposal applies only if you accept.</div>'
     + list.map(d => '<div class="action-item"><div class="action-where">' + where(d) + '</div>' + (d.pending_move ? moveBannerHtml(d) : rescheduleBannerHtml(d)) + '</div>').join('')
     + '</div>';
 }

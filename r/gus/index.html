@@ -1720,8 +1720,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         function confirmBooking() {
             if (cart.length === 0) return;
             ['bookBrandName','bookContactName','bookContactEmail','bookContactPhone','bookCategory','bookNotes','bookPassword'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-            // 2026-10-19 (David): "What are you demoing?" is not asked of a signed-in brand; the store reads the items and UPCs
-            { const cg = document.getElementById('bookCategoryGroup'); if (cg) cg.style.display = 'none'; }
+            // 2026-10-19 (David): "What are you demoing?" is not asked of a signed-in brand (the store reads the items and UPCs);
+            // a visitor without a brand session still answers it (Codex: hide only for a resolved signed-in brand)
+            { const cg = document.getElementById('bookCategoryGroup'); if (cg) cg.style.display = window._brandProfile ? 'none' : ''; }
             { const sg = document.getElementById('bookSkuGroup'); if (sg) sg.style.display = 'none'; }
             window._bookSkuSource = null; { const ce = document.getElementById('bookNeedsElectricity'); if (ce) { ce.checked = false; const s=document.getElementById('bookElecSlider'),k=document.getElementById('bookElecKnob'); if(s)s.style.background='#c4c1b8'; if(k)k.style.transform='translateX(0)'; } }
             const err = document.getElementById('bookErrorMsg'); if (err) { err.textContent = ''; err.style.display = 'none'; }

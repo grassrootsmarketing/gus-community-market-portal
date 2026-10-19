@@ -97,6 +97,17 @@ try {
     ok('no page errors', errors.length === 0, errors.join(' | '));
     await ctx.close();
   }
+  // 2026-10-19 (Codex): the distributor item number is no longer typed on a row (Products rows, 2026-10-17), but a saved
+  // value stays on the item and travels in the booking snapshot with the item code and size
+  {
+    const s4 = await openBooking({ ...profileBase, products: catalog }, {});
+    await s4.page.evaluate(() => document.querySelectorAll('#bookSkuList .book-sku').forEach((c, i) => { c.checked = i === 0; }));
+    await s4.page.click('#bookSubmitBtn');
+    await s4.page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
+    const p4 = s4.calls.bookings[0] && s4.calls.bookings[0].product_skus && s4.calls.bookings[0].product_skus[0];
+    ok('a saved item keeps its item number, item code and size in the booking snapshot, with no visible box for them on a row', !!p4 && p4.id === 'c1' && p4.distributor_item_number === '0007' && p4.sku === 'CC-5' && p4.size === '5 oz' && (await s4.page.$$('#bookNewItems .bni-item-number, #bookNewItems .bni-size')).length === 0, JSON.stringify(p4));
+    await s4.ctx.close();
+  }
 
   console.log('\n— booking page: 41+ catalog items preselect only 40 —');
   {
@@ -150,7 +161,10 @@ try {
     await page.click('#bookSubmitBtn');
     await page.waitForFunction(() => document.querySelector('#bookSubmitBtn') && !document.querySelector('#bookSubmitBtn').disabled, null, { timeout: 15000 }).catch(() => {});
     const checkedNow = await page.$$eval('#bookSkuList .book-sku', els => els.filter(e => e.checked).length);
-    ok('PL-C2: retry after the failure: no second catalog save, the two saved items stay selected (and only they), no duplicates in the snapshot', saved.calls === 1 && checkedNow === 2 && calls.bookings.length === 4 && calls.bookings[2].product_skus.length === 2 && new Set(calls.bookings[2].product_skus.map(p => p.id)).size === 2, JSON.stringify([saved.calls, checkedNow, calls.bookings.slice(2).map(b => b.product_skus.map(p => p.id))]));
+    // 2026-10-19 (Codex triage): since the saved-outcome retry (booking codes, Codex review 2 item 2) a succeeded demo leaves the cart and is
+    // NOT re-requested; the retry sends only the failed demo. The old expectation of four requests was stale; the invariants stay: one
+    // catalog save, the saved items still the selection, the retry carries both items with their own ids, only the failed demo retried.
+    ok('PL-C2: retry after the failure: no second catalog save, the two saved items stay selected (and only they), ONLY the failed demo is re-requested with both items and distinct ids', saved.calls === 1 && checkedNow === 2 && calls.bookings.length === 3 && calls.bookings[2].demo_date === ymd(21) && calls.bookings[2].product_skus.length === 2 && new Set(calls.bookings[2].product_skus.map(p => p.id)).size === 2 && calls.bookings[2].product_skus.map(p => p.id).sort().join() === calls.bookings[0].product_skus.map(p => p.id).sort().join(), JSON.stringify([saved.calls, checkedNow, calls.bookings.slice(2).map(b => [b.demo_date, b.product_skus.map(p => p.id)])]));
     await ctx.close();
     // malformed save response (ids missing): the draft is kept and nothing is booked
     const s3 = await openBooking({ ...profileBase, products: [] }, { profileUpdate: (b) => ({ status: 200, body: { ok: true, products: b.products.map(p => ({ name: p.name })), products_version: 8 } }) });
@@ -198,7 +212,7 @@ try {
     ok('the help text explains the fields and the sharing', /UPC \(the barcode number\)/.test(await text(page, '#mainContent')) && /shared with the retailers you book and their notification contacts/.test(await text(page, '#mainContent')));
     await page.click('#skuAddBtn');
     const newRow = (await page.$$('#skuList .sku-row')).pop();
-    await newRow.$eval('.sku-name', (e) => { e.value = 'New Bar'; }); await newRow.$eval('.sku-upc', (e) => { e.value = '1234-5678'; }); await newRow.$eval('.sku-case-pack', (e) => { e.value = '6'; });
+    await newRow.$eval('.sku-name', (e) => { e.value = 'New Bar'; }); await newRow.$eval('.sku-upc', (e) => { e.value = '1234-5678'; }); await newRow.$eval('.sku-case-pack', (e) => { e.value = '6'; }); await newRow.$eval('.sku-distributor', (e) => { e.value = 'unfi'; });   // the distributor is required since 2026-10-19
     await page.click('#saveProfileBtn');
     await page.waitForFunction(() => document.querySelectorAll('#skuList .sku-row').length === 3 && document.querySelectorAll('#skuList .sku-row')[2].dataset.id === 'new-2', null, { timeout: 10000 });
     ok('save sends the integer version and the full items (case_pack as a number); the server-normalised list (new id, digit UPC) is re-rendered', updates.length === 1 && updates[0].expected_products_version === 7 && !('expected_updated_at' in updates[0]) && updates[0].products[2].case_pack === 6 && updates[0].products[2].upc === '1234-5678' && (await page.$$eval('#skuList .sku-row', els => els[2].querySelector('.sku-upc').value)) === '12345678', JSON.stringify(updates[0] && updates[0].products[2]));
