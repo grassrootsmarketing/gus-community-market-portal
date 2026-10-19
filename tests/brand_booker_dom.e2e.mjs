@@ -256,6 +256,13 @@ try {
       ok('7b. the booker gets no Confirm or Cannot-make-it button anywhere (the server would refuse the answer)', !b && t.buttons.length === 0, JSON.stringify({ banner: b, buttons: t.buttons }));
     } else {
       ok('7c. the owner sees the same move with both answers', !!b && /moved this demo/.test(b.text) && b.buttons.length === 2 && /Confirm new time/.test(b.buttons[0]) && /can.t make it/i.test(b.buttons[1]), JSON.stringify(b));
+      // 2026-10-19: the moved demo is the OLDEST of fourteen; the Recent demos list shows ten, and the move must still be on top
+      const many = { ...base, demos: [...Array.from({ length: 13 }, (_, i) => ({ ...base.demos[0], id: 'dx' + i, booking_id: 'bkx' + i, demo_date: '2026-12-' + String(10 + i).padStart(2, '0') })), moved.demos[0]] };
+      const p2 = await ctx.newPage();
+      await p2.route('**/api/**', async (route) => { const u = route.request().url(); let body = {}; try { body = JSON.parse(route.request().postData() || '{}'); } catch (_) {} if (u.includes('brand-account') && (u.includes('action=data') || body.action === 'data')) return json(route, many); return json(route, { ok: true, items: [], agreements: [], booker: null, history: [] }); });
+      await p2.goto(`${BASE}/brand/dashboard#overview`, { waitUntil: 'domcontentloaded' }); await p2.waitForSelector('.move-banner', { timeout: 10000 }).catch(() => {}); await p2.waitForTimeout(800);
+      const pinned = await p2.evaluate(() => { const rows = [...document.querySelectorAll('.demos-row')]; return { rows: rows.length, firstHasBanner: !!(rows[0] && rows[0].nextElementSibling && rows[0].nextElementSibling.classList && rows[0].nextElementSibling.classList.contains('move-banner')), banners: document.querySelectorAll('.move-banner').length }; });
+      ok('7e. with fourteen demos the one waiting for an answer is pinned to the top of the ten-row list', pinned.rows === 10 && pinned.banners === 1 && pinned.firstHasBanner, JSON.stringify(pinned));
     }
     ok(`7d. no page errors (${role})`, errs.length === 0, errs.join(' | '));
     await ctx.close();

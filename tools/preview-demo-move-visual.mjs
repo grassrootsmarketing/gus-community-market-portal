@@ -42,7 +42,7 @@ async function shoot(page, role, width, name, opts = {}) {
 const ctxFor = async (browser, W, cookie, visit, tourKey) => {
   const ctx = await browser.newContext({ viewport: { width: W.width, height: W.height }, deviceScaleFactor: 1, extraHTTPHeaders: { 'x-vercel-protection-bypass': BYPASS } });
   if (cookie) await ctx.addCookies([{ name: cookie[0], value: cookie[1], domain: 'demohub-booker-preview.vercel.app', path: '/', httpOnly: true, secure: true, sameSite: 'Lax' }]);
-  if (visit === 'returning' && tourKey) await ctx.addInitScript((k) => { try { localStorage.setItem(k, '1'); } catch (_) {} }, tourKey);
+  if (visit === 'returning' && tourKey) await ctx.addInitScript((k) => { try { localStorage.setItem(k, '1'); } catch (_) {} }, tourKey);   // eslint-disable-line no-undef
   return ctx;
 };
 const tourState = (page) => page.evaluate(() => { const bd = document.getElementById('tourBackdrop'), tp = document.getElementById('tourTooltip'); return { backdrop_active: !!(bd && bd.classList.contains('active')), tooltip_shown: !!(tp && tp.style.display !== 'none' && tp.classList.contains('active')), tooltip_text: tp ? tp.innerText.slice(0, 60) : null }; });   // eslint-disable-line no-undef
@@ -138,7 +138,8 @@ try {
     for (const visit of ['first', 'returning']) {
       const ctx = await ctxFor(browser, W, ['dh_brand_session', ownerTok], visit, 'demohub_brand_tour_complete'); const page = await ctx.newPage();
       await page.goto(`${ALIAS}/brand/dashboard#overview`, { waitUntil: 'networkidle' }).catch(() => {});
-      await page.waitForTimeout(1800);
+      await page.waitForSelector('.move-banner', { timeout: 30000 }).catch(() => {});   // the data load can be slow on a cold preview
+      await page.waitForTimeout(1200);
       const ts = await tourState(page);
       const banner = await page.evaluate(() => { const el = document.querySelector('.move-banner'); if (!el) return null; const r = el.getBoundingClientRect(); return { top: r.top, h: r.height, text: el.innerText.slice(0, 400), buttons: [...el.querySelectorAll('button')].map(b => b.textContent.trim()) }; });   // eslint-disable-line no-undef
       const fab = await page.evaluate(() => { const f = document.getElementById('tourFab'); return f ? getComputedStyle(f).display : null; });   // eslint-disable-line no-undef

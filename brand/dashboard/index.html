@@ -787,7 +787,7 @@ function render() {
   if (typeof updateAgreementBand === 'function') updateAgreementBand();
   if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
   if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
-  if (_currentTab === 'overview') renderOverview();
+  if (_currentTab === 'overview') { renderOverview(); _deferTourForPendingMove(); }
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'retailers') renderRetailers();
   else if (_currentTab === 'profile') renderProfile();
@@ -1303,7 +1303,7 @@ function renderOverview() {
         <div class="dh-empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
         <div class="dh-empty-title">Your demos will show up here</div>
         <div class="dh-empty-sub">Book at any Demohub retailer using their link and it lands on your calendar automatically.</div>
-      </div>` : demos.slice(0, 10).map(d => {
+      </div>` : [...demos.filter(d => d.pending_move || d.reschedule_to_date), ...demos.filter(d => !(d.pending_move || d.reschedule_to_date))].slice(0, 10).map(d => {   // 2026-10-19 (Codex final review F2): a demo waiting for the brand's answer is never pushed below the cut-off by newer bookings
         const f = fmtDate(d.demo_date) || {};
         return `<div class="demos-row">
           <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
@@ -2691,6 +2691,16 @@ const TOUR_STEPS = [
 const BRAND_TOUR_KEY = 'demohub_brand_tour_complete';
 let _tourIndex = 0;
 let _activeTourSteps = [];
+// Codex final review F2 (2026-10-19): a pending-move banner that renders AFTER the tour has already started (slow data on
+// a first load) sends the tour away the same way: hidden, not marked complete, the Take-the-tour button offered instead.
+function _deferTourForPendingMove() {
+  if (!document.querySelector('.move-banner')) return;
+  const bd = document.getElementById('tourBackdrop'); if (!bd || !bd.classList.contains('active')) return;
+  bd.classList.remove('active');
+  const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+  const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+  const fab = document.getElementById('tourFab'); if (fab) fab.style.display = 'flex';
+}
 function startTour(force) {
   if (!force && localStorage.getItem(BRAND_TOUR_KEY) === '1') return;
   // Codex final review F2 (2026-10-19): a demo the store moved needs an answer; the onboarding tour never auto-starts on top
