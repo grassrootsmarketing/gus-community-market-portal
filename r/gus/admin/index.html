@@ -5666,14 +5666,25 @@ function escapeHtml(s) {
             const dec = (window.state.cancellations || {})[d.booking_id] || null;
             const res = (window.state.cancellationResolutions || {})[d.booking_id] || null;
             if (!dec) return '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>';
-            if (res) {
-                return res.decision === 'refund_granted'
-                    ? _coiPill('Refund granted', 'ok', 'Granted by ' + (res.operator || 'the store') + (res.reason ? ': ' + res.reason : ''))
-                    : _coiPill('No refund', 'warn', 'Decided by ' + (res.operator || 'the store') + (res.reason ? ': ' + res.reason : ''));
-            }
-            if (dec.refund === true) return _coiPill('Refunded', 'ok', dec.reason === 'store_caused' ? 'The store cancelled, so the fee was refunded in full.' : dec.reason === 'forced' ? 'Refunded on your instruction.' : 'Cancelled outside the 72-hour window, so the fee was refunded.');
             const bkRow = (window.state.bookings || []).find(function(b){ return b && b.id === d.booking_id; }) || null;
-            if (dec.status === 'not_paid' && !(bkRow && bkRow.payment_status === 'paid')) return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
+            const pay = String((bkRow && bkRow.payment_status) || '').toLowerCase();
+            // Codex R4-4: the money word comes from the ledger result on the booking (Refunded only when Stripe confirmed it)
+            // and from the resolution's execution state; a decision to refund is never shown as completed money.
+            const who = function(r){ return (r.operator || 'the store') + (r.reason ? ': ' + r.reason : ''); };
+            if (res) {
+                if (res.decision !== 'refund_granted') return _coiPill('No refund', 'warn', 'Decided by ' + who(res));
+                if (pay === 'refunded') return _coiPill('Refunded', 'ok', 'Granted by ' + who(res) + '. Stripe confirmed the refund.');
+                if (res.escalated_at || res.state === 'failed') return _coiPill('Needs review', 'warn', 'Granted by ' + who(res) + ', but the refund did not go through automatically. Demohub is reviewing it.');
+                if (res.refund_submitted_at) return _coiPill('Refund submitted', 'ok', 'Granted by ' + who(res) + '. The refund was submitted to Stripe and is awaiting confirmation.');
+                return _coiPill('Refund pending', 'amber', 'Granted by ' + who(res) + '. The refund is being retried by the refund worker.');
+            }
+            if (dec.refund === true) {
+                const why0 = dec.reason === 'store_caused' ? 'The store cancelled, so the fee is refunded in full.' : dec.reason === 'forced' ? 'Refunded on your instruction.' : 'Cancelled outside the 72-hour window, so the fee is refunded.';
+                if (pay === 'refunded') return _coiPill('Refunded', 'ok', why0 + ' Stripe confirmed the refund.');
+                if (pay === 'refund_pending') return _coiPill('Refund pending', 'amber', why0 + ' The refund did not reach Stripe on the first try and is being retried.');
+                return _coiPill('Refund submitted', 'ok', why0 + ' The refund was submitted to Stripe and is awaiting confirmation.');
+            }
+            if (dec.status === 'not_paid' && pay !== 'paid') return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
             const why = dec.status === 'not_paid'
                 ? 'The fee was captured after this cancellation was recorded. Decide the refund here.'
                 : dec.status === 'under_review'

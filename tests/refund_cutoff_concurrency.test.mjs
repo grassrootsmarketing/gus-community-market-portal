@@ -23,6 +23,8 @@
 import { createHmac } from 'node:crypto';
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
+import { getBinding } from '../api/_env.js';
+import { fanOutEvents, dispatchDue } from '../api/_notification-outbox.js';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -71,6 +73,9 @@ const brandId = track('brands', one(await db('brands', { method: 'POST', body: J
 const brandTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: brandEmail, token: 'tk-' + uniq('c'), expires_at: hours(1) }) }));
 const brandCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: brandTok.token } }))).cookie('dh_brand_session');
 ok('fixtures: two retailers, staff sessions, brand session exist', !!retailerId && !!venueId && !!cookie && !!otherCookie && !!brandId && !!brandCookie);
+const b = await getBinding();
+// Codex R4-3: the resolution notice is an outbox event; the suite drains the outbox the way the notification worker does
+const notices = async (now = new Date()) => { await fanOutEvents(b, { now }); await dispatchDue(b, { now }); };
 
 let seedN = 0;
 async function seed({ days, status = 'confirmed', payment_status = 'paid', pi = true, time = null }) {
@@ -252,10 +257,12 @@ try {
     const al = await allocOf(C); const res = await resolutionRows(C); const reqs = await requestsOf(C);
     ok('grant: 200, refund submitted, ONE Stripe refund, C\'s allocation refunded in full, one refund request', grant.statusCode === 200 && grant.body.refund_status === 'submitted' && grant.body.existing === false && stripeRefundCalls() === r0 + 1 && Number(al.refunded_amount) === Number(al.customer_amount) && reqs.length === 1, `${grant.statusCode} ${JSON.stringify(grant.body).slice(0, 200)} ${JSON.stringify({ al, reqs })}`);
     ok('one resolution row: refund_granted, operator, reason, the refund request linked; the initial decision unchanged (refund false, pending_manual)', res.length === 1 && res[0].decision === 'refund_granted' && res[0].operator === staffEmail && /goodwill/.test(res[0].reason) && res[0].refund_request_id === reqs[0].id && (await decisionRows(C))[0].refund === false && (await decisionRows(C))[0].status === 'pending_manual', JSON.stringify(res));
+    await notices();
     const mails = mailsSince(m0, /Refund approved/);
-    ok('the brand was told once: "Refund approved", refund submitted wording', mails.length === 1 && /refund request was submitted/i.test(text(mails[0])), JSON.stringify(mails.map(m => m.subject)));
+    ok('the brand was told once: "Refund approved", refund submitted wording', mails.length === 1 && /(has been submitted|refund request was submitted)/i.test(text(mails[0])), JSON.stringify(mails.map(m => m.subject)));
     ok('siblings untouched (D)', await siblingsUntouched([A, B, C]));
     const again = await review({ action: 'grant', booking_id: C, reason: 'clicked twice' });
+    await notices();
     ok('grant again: 200 existing, no second refund, no second mail, still one resolution', again.statusCode === 200 && again.body.existing === true && stripeRefundCalls() === r0 + 1 && mailsSince(m0, /Refund approved/).length === 1 && (await resolutionRows(C)).length === 1, `${again.statusCode} ${JSON.stringify(again.body).slice(0, 160)}`);
     const deny = await review({ action: 'deny', booking_id: C, reason: 'changed my mind' });
     ok('deny after a grant: the recorded grant is returned (existing), nothing changes', deny.statusCode === 200 && deny.body.existing === true && deny.body.resolution.decision === 'refund_granted', `${deny.statusCode} ${JSON.stringify(deny.body).slice(0, 160)}`);
@@ -305,11 +312,13 @@ try {
     const deny = await review({ action: 'deny', booking_id: u.id, reason: 'the demo time was never valid; fee kept per policy' });
     const res = await resolutionRows(u.id); const cs2 = await caseOf(u.id);
     ok('deny: 200, one no_refund resolution linked to the case, the case resolved by the operator, no money moved', deny.statusCode === 200 && deny.body.outcome === 'resolved' && res.length === 1 && res[0].decision === 'no_refund' && res[0].case_id === cs.id && cs2.status === 'resolved' && cs2.resolved_by === staffEmail && stripeRefundCalls() === r0, `${deny.statusCode} ${JSON.stringify(deny.body).slice(0, 200)} ${JSON.stringify({ res, cs2 })}`);
+    await notices();
     const mails = mailsSince(m0, /Refund decision/);
     ok('the brand was told the fee is not refunded (final)', mails.length === 1 && /not refunded/.test(text(mails[0])) && /final answer/.test(text(mails[0])), JSON.stringify(mails.map(m => m.subject)));
     const wk3 = await worker();
     ok('the sweep ignores a resolved under_review cancellation', wk3.statusCode === 200 && wk3.body.cancellation_cases_opened === 0);
     const again = await review({ action: 'deny', booking_id: u.id, reason: 'again' });
+    await notices();
     ok('deny again: existing, no second mail', again.statusCode === 200 && again.body.existing === true && mailsSince(m0, /Refund decision/).length === 1, `${again.statusCode}`);
   }
 

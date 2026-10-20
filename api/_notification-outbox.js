@@ -44,7 +44,7 @@ import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notificatio
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
-  coiApprovedMessage, coiRejectedMessage, receiptMessage, demoMovedMessage, moveReminderMessage, demoMoveCancelledMessage,
+  coiApprovedMessage, coiRejectedMessage, receiptMessage, demoMovedMessage, moveReminderMessage, demoMoveCancelledMessage, refundResolutionMessage,
 } from './_notification-mail.js';
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
@@ -56,6 +56,8 @@ export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_resche
 // Every one is rechecked against the CURRENT move row and booking at dispatch: a move the brand has
 // answered, a booking moved again (superseded) or cancelled, never produces a stale email.
 export const MOVE_KINDS = ['demo_moved', 'demo_move_cancelled'];
+// Codex R4-3 (2026-10-19): the store's refund resolution on a cancelled booking, the brand owner's notice.
+export const RESOLUTION_KINDS = ['refund_resolution'];
 export const MOVE_REMINDER_KIND = 'demo_move_reminder';
 export const MOVE_REMINDER_OFFSETS = [{ key: 'h24', ms: 24 * 60 * 60 * 1000 }, { key: 'h48', ms: 48 * 60 * 60 * 1000 }];
 export const MOVE_REMINDER_CATCHUP_MS = 6 * 60 * 60 * 1000;
@@ -226,6 +228,11 @@ async function loadOne(b, cache, table, id, select = '*') {
   return row;
 }
 // Fresh (uncached) read, used by the dispatch recheck, which must see the CURRENT state.
+// the resolution row is keyed by booking_id, not id (Codex R4-3)
+async function loadResolution(b, bookingId) {
+  const rows = await sb(b, `booking_cancellation_resolutions?booking_id=eq.${enc(bookingId)}&select=*`);
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
 async function loadFresh(b, table, id, select = '*') {
   if (!id) return null;
   const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
@@ -402,6 +409,28 @@ async function fanOutOne(b, cache, ev, now) {
       event_id: ev.id, retailer_id: move.retailer_id, booking_id: move.booking_id,
       recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
       kind: ev.kind, offset_key: null, occurrence_key: move.id,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }));
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (RESOLUTION_KINDS.includes(ev.kind)) {
+    // the recipients are the brand account owner(s), resolved now and re-checked at send time; a booker, a pending or a
+    // revoked member never receives this notice, whoever made the booking
+    const resolution = await loadResolution(b, ev.booking_id);
+    if (!resolution) { await markFannedOut(b, ev, now, 'resolution_missing'); return { deliveries: 0, skipped: true }; }
+    const booking = await loadFresh(b, 'bookings', ev.booking_id, 'id,brand_id,retailer_id,status');
+    if (!booking) { await markFannedOut(b, ev, now, 'booking_missing'); return { deliveries: 0, skipped: true }; }
+    if (ev.retailer_id && booking.retailer_id !== ev.retailer_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
+    const brand = await loadFresh(b, 'brands', booking.brand_id, 'id,email,company_name');
+    if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
+    const recipients = await brandRecipients(b, brand);
+    const rows = recipients.map(r => ({
+      event_id: ev.id, retailer_id: booking.retailer_id, booking_id: booking.id,
+      recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+      kind: ev.kind, offset_key: null, occurrence_key: booking.id,
       dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
       due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
     }));
@@ -694,6 +723,33 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     const message = row.kind === 'demo_moved' ? demoMovedMessage(b, ctx)
       : row.kind === MOVE_REMINDER_KIND ? moveReminderMessage(b, ctx)
       : demoMoveCancelledMessage(b, ctx);
+    return { ok: true, to, message };
+  }
+  if (row.recipient_kind === 'brand' && RESOLUTION_KINDS.includes(row.kind)) {
+    // Judged on the CURRENT resolution, booking and membership. On a frozen-payload replay the recipient checks run and
+    // nothing is rebuilt: the same content goes to the same person under the same key, or it is skipped with its reason.
+    const resolution = await loadResolution(b, row.booking_id);
+    if (!resolution) return { skip: 'resolution_missing' };
+    const booking = await loadFresh(b, 'bookings', row.booking_id);
+    if (!booking) return { skip: 'booking_missing' };
+    if (row.retailer_id && booking.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    const brand = await loadFresh(b, 'brands', booking.brand_id, 'id,email,company_name,contact_name');
+    if (!brand) return { skip: 'brand_missing' };
+    let to = null;
+    if (row.recipient_id === brand.id) to = brand.email;
+    else {
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
+      if (!member) return { skip: 'recipient_deleted' };
+      if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      to = member.email;
+    }
+    to = String(to || '').trim();
+    if (!to) return { skip: 'recipient_no_email' };
+    if (replay) return { ok: true, to };
+    const retailer = await loadOne(b, cache, 'retailers', booking.retailer_id, 'id,name,slug,timezone');
+    const venue = booking.venue_id ? await loadOne(b, cache, 'venues', booking.venue_id, 'id,name,address') : null;
+    const message = refundResolutionMessage(b, { brand, retailer, venue, booking, resolution, now });
     return { ok: true, to, message };
   }
   if (row.recipient_kind === 'brand' && RECEIPT_KINDS.includes(row.kind)) {

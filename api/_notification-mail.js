@@ -350,6 +350,36 @@ export function moveReminderMessage(b, ctx) {
     }),
   };
 }
+// ---------------------------------------------------------------------------------------------
+// Refund resolution (2026-10-19, Codex R4-3): the store's later answer on a cancelled booking whose refund the rule
+// left undecided. Built from the STORED resolution row at first dispatch and then frozen by the outbox per delivery.
+// Workflow state only: "submitted" is the refund request's state, never a claim that the bank has paid.
+// ---------------------------------------------------------------------------------------------
+export function refundResolutionMessage(b, ctx) {
+  const { brand, retailer, booking, resolution } = ctx;
+  const store = (retailer && retailer.name) || 'The store';
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const when = moveSlotLabel(booking.demo_date, booking.demo_time, tz);
+  const granted = resolution.decision === 'refund_granted';
+  const submitted = !!(resolution.refund_request_id && resolution.refund_submitted_at);
+  const money = granted
+    ? (submitted
+      ? 'This demo\'s fee is being refunded: the refund has been submitted and usually reaches your card within 5 to 10 business days.'
+      : 'This demo\'s fee is being refunded: the refund is being processed. If it has not reached your card within 10 business days, reply to this email.')
+    : `${store} reviewed the cancellation and the demo fee is not refunded. This is the store's final answer on this booking.`;
+  return {
+    subject: granted ? `Refund approved for your demo at ${store} on ${when}` : `Refund decision for your demo at ${store} on ${when}`,
+    html: shell({
+      eyebrow: granted ? 'Refund approved' : 'Refund decision', tone: granted ? 'green' : 'clay',
+      heading: granted ? 'Your demo fee is being refunded.' : 'About the fee for your cancelled demo.',
+      intro: `This is about your cancelled demo for ${H((brand && brand.company_name) || booking.brand_name || 'your brand')} on ${H(when)} at ${H(store)}.`,
+      body: `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>${H(money)}</strong></p><p style="font-size:14px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Questions about this decision go to the store. You are welcome to book another date from your dashboard.</p>`,
+      cta: { href: link(b, '/brand/dashboard'), label: 'Open your dashboard' },
+      footer: brandFooter(brand),
+    }),
+  };
+}
+
 export function demoMoveCancelledMessage(b, ctx) {
   const { brand, retailer, booking, move } = ctx;
   const store = (retailer && retailer.name) || 'The store';

@@ -24,6 +24,8 @@
 import { createHmac } from 'node:crypto';
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
+import { getBinding } from '../api/_env.js';
+import { fanOutEvents, dispatchDue } from '../api/_notification-outbox.js';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -73,6 +75,11 @@ const holdBrandId = track('brands', one(await db('brands', { method: 'POST', bod
 const holdTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: holdBrandId, email: holdEmail, token: 'tk-' + uniq('h'), expires_at: hours(1) }) }));
 const holdCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: holdTok.token } }))).cookie('dh_brand_session');
 ok('fixtures: retailer, staff session, two brand sessions exist', !!retailerId && !!venueId && !!cookie && !!brandCookie && !!holdCookie);
+const b = await getBinding();
+// Codex R4-3: the resolution notice is an outbox event (kind refund_resolution); the suite drains the outbox the way the
+// notification worker does: fan-out (live recipients) then dispatch (recheck, freeze, send under the delivery's key).
+const notices = async (now = new Date()) => { await fanOutEvents(b, { now }); return dispatchDue(b, { now }); };
+const deliveriesOf = async (id) => (await db(`notification_deliveries?booking_id=eq.${id}&kind=eq.refund_resolution&select=id,status,attempts,recipient_email,recipient_kind,frozen_payload&order=created_at.asc`)).body || [];
 
 let seedN = 0;
 async function seed({ days, status = 'confirmed', payment_status = 'paid', pi = true, time = null }) {
@@ -142,6 +149,7 @@ try {
     ok('A: a denial is claimed directly (state claimed)', d && d.outcome === 'claimed' && d.resolution.state === 'claimed', JSON.stringify(d).slice(0, 160));
     await db(`booking_cancellation_resolutions?booking_id=eq.${A}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });   // the claimant is long gone (a replay inside the grace window only reports the stored decision)
     const g = await review({ action: 'grant', booking_id: A, reason: 'please refund' });
+    await notices();
     const resA = await resolutionRows(A);
     ok('A: the later grant returns the STORED denial (existing, decision no_refund), issues ZERO provider calls, and finishes the denial (completed, brand told once, Refund decision)', g.statusCode === 200 && g.body.existing === true && g.body.decision === 'no_refund' && g.body.requested === 'refund_granted' && g.body.refund_status === 'none' && stripeRefundCalls() === r0 && resA.length === 1 && resA[0].state === 'completed' && resA[0].decision === 'no_refund' && mailsSince(m0, /Refund decision/).length === 1 && mailsSince(m0, /Refund approved/).length === 0, `${g.statusCode} ${JSON.stringify(g.body).slice(0, 220)} ${JSON.stringify(resA[0] && { state: resA[0].state, notified: resA[0].brand_notified_at })}`);
     ok('A: the allocation is untouched', Number((await allocOf(A)).refunded_amount) === 0);
@@ -151,16 +159,19 @@ try {
     ok('B: a grant is claimed directly (crash after the claim: no refund yet)', gc && gc.outcome === 'claimed' && (await requestsOf(B)).length === 0 && stripeRefundCalls() === r1, JSON.stringify(gc).slice(0, 120));
     await db(`booking_cancellation_resolutions?booking_id=eq.${B}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });   // the crash was a while ago
     const dn = await review({ action: 'deny', booking_id: B, reason: 'changed my mind' });
+    await notices();
     const resB = await resolutionRows(B); const alB = await allocOf(B);
     ok('B: the denial returns the STORED grant (existing, decision refund_granted) and finishes it: ONE refund, the allocation refunded in full, refund_status submitted, completed, Refund approved mail once', dn.statusCode === 200 && dn.body.existing === true && dn.body.decision === 'refund_granted' && dn.body.requested === 'no_refund' && dn.body.refund_status === 'submitted' && stripeRefundCalls() === r1 + 1 && Number(alB.refunded_amount) === Number(alB.customer_amount) && resB.length === 1 && resB[0].state === 'completed' && resB[0].refund_request_id && mailsSince(m1, /Refund approved/).length === 1 && mailsSince(m1, /Refund decision/).length === 0, `${dn.statusCode} ${JSON.stringify(dn.body).slice(0, 220)}`);
     // C: two grants at once
     const r2 = stripeRefundCalls(); const m2 = spy.calls.resend.length;
     const [c1, c2] = await Promise.all([review({ action: 'grant', booking_id: C, reason: 'one' }), review({ action: 'grant', booking_id: C, reason: 'two' })]);
+    await notices();
     const resC = await resolutionRows(C); const alC = await allocOf(C);
     ok('C: two concurrent grants: both 200, exactly one won the claim, ONE Stripe refund, one request, one resolution (completed), one mail', c1.statusCode === 200 && c2.statusCode === 200 && [c1.body.existing, c2.body.existing].filter(x => x === false).length === 1 && stripeRefundCalls() === r2 + 1 && (await requestsOf(C)).length === 1 && resC.length === 1 && resC[0].state === 'completed' && Number(alC.refunded_amount) === Number(alC.customer_amount) && mailsSince(m2, /Refund approved/).length === 1, JSON.stringify({ c1: c1.body && { existing: c1.body.existing, state: c1.body.state }, c2: c2.body && { existing: c2.body.existing, state: c2.body.state }, refunds: stripeRefundCalls() - r2, mails: mailsSince(m2, /Refund approved/).length }));
     // D: two denials at once
     const r3 = stripeRefundCalls(); const m3 = spy.calls.resend.length;
     const [d1, d2] = await Promise.all([review({ action: 'deny', booking_id: D, reason: 'one' }), review({ action: 'deny', booking_id: D, reason: 'two' })]);
+    await notices();
     const resD = await resolutionRows(D);
     ok('D: two concurrent denials: one resolution (reason of the winner), zero refunds, one mail', d1.statusCode === 200 && d2.statusCode === 200 && resD.length === 1 && ['one', 'two'].includes(resD[0].reason) && stripeRefundCalls() === r3 && mailsSince(m3, /Refund decision/).length === 1, JSON.stringify({ reason: resD[0] && resD[0].reason, mails: mailsSince(m3, /Refund decision/).length }));
     ok('D: the allocation is untouched; C and B are refunded exactly once each (one request per booking)', Number((await allocOf(D)).refunded_amount) === 0 && (await requestsOf(B)).length === 1 && (await requestsOf(C)).length === 1);
@@ -175,23 +186,34 @@ try {
     spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
     const m0 = spy.calls.resend.length;
     const e1 = await review({ action: 'grant', booking_id: E, reason: 'goodwill' });
+    await notices();
     const resE1 = await resolutionRows(E); const rqE1 = await requestsOf(E);
-    ok('E: 200 in_progress, refund_status refund_pending, the request parked failed_retryable with the reservation kept, state refund_pending, the brand told the refund is in progress', e1.statusCode === 200 && e1.body.outcome === 'in_progress' && e1.body.refund_status === 'refund_pending' && resE1[0].state === 'refund_pending' && rqE1.length === 1 && rqE1[0].status === 'failed_retryable' && /refund is in progress/.test(text(mailsSince(m0, /Refund approved/)[0])), `${e1.statusCode} ${JSON.stringify(e1.body).slice(0, 200)} ${JSON.stringify(rqE1)}`);
+    ok('E: 200 in_progress, refund_status refund_pending, the request parked failed_retryable with the reservation kept, state refund_pending, the brand told the refund is in progress', e1.statusCode === 200 && e1.body.outcome === 'in_progress' && e1.body.refund_status === 'refund_pending' && resE1[0].state === 'refund_pending' && rqE1.length === 1 && rqE1[0].status === 'failed_retryable' && /being processed/.test(text(mailsSince(m0, /Refund approved/)[0])), `${e1.statusCode} ${JSON.stringify(e1.body).slice(0, 200)} ${JSON.stringify(rqE1)}`);
     const wk = await worker();
     const rqE2 = await requestsOf(E); const resE2 = await resolutionRows(E); const alE = await allocOf(E);
     ok('E: the refund worker resubmits the parked request under its stored key and the resolution resume marks it submitted and completed; the allocation holds exactly one obligation (reserved or refunded); still one request', wk.statusCode === 200 && rqE2.length === 1 && ['submitted', 'succeeded', 'pending'].includes(rqE2[0].status) && resE2[0].state === 'completed' && resE2[0].refund_request_id === rqE2[0].id && Number(alE.refunded_amount) + Number(alE.reserved_refund_amount || 0) === Number(alE.customer_amount), JSON.stringify({ wk: wk.statusCode, body: wk.body && { resubmitted: wk.body.resubmitted, resolutions: [wk.body.resolutions_checked, wk.body.resolutions_completed], first_error: wk.body.first_error }, rq: rqE2, state: resE2[0].state, linked: resE2[0].refund_request_id, al: alE }));
-    ok('E: the brand was told once', mailsSince(m0, /Refund approved/).length === 1);
-    // F: the mail provider fails once
-    spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_outage', once: true });
+    await notices();
+    ok('E: the brand was told once (the event is unique per booking; the later state change does not resend)', mailsSince(m0, /Refund approved/).length === 1, String(mailsSince(m0, /Refund approved/).length));
+    // F: the notice provider is down when the outbox first dispatches; the retry re-sends the FROZEN payload under the same key
     const m1 = spy.calls.resend.length; const r1 = stripeRefundCalls();
     const f1 = await review({ action: 'grant', booking_id: F, reason: 'goodwill' });
     const resF1 = await resolutionRows(F);
-    ok('F: the refund is submitted but the notice failed: 200 in_progress, state failed, brand_notified false, pending_step names the notice', f1.statusCode === 200 && f1.body.outcome === 'in_progress' && f1.body.refund_status === 'submitted' && f1.body.brand_notified === false && resF1[0].state === 'failed' && resF1[0].brand_notified_at == null && /notice/.test(String(f1.body.pending_step || '')), `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 220)}`);
-    const keyFailed = spy.calls.resend.slice(m1).map(m => m.idempotency_key).filter(Boolean)[0];
-    const wk2 = await worker();
-    const resF2 = await resolutionRows(F);
-    const sentF = mailsSince(m1, /Refund approved/);
-    ok('F: the worker resumes: the notice is re-sent under the SAME notice key, the row completes, no second refund', wk2.statusCode === 200 && resF2[0].state === 'completed' && resF2[0].brand_notified_at && sentF.length === 2 && keyFailed && sentF.every(m => m.idempotency_key === keyFailed) && keyFailed === resF2[0].notice_key && stripeRefundCalls() === r1 + 1, JSON.stringify({ state: resF2[0].state, keys: sentF.map(m => m.idempotency_key), notice_key: resF2[0].notice_key }));
+    ok('F: the grant completes its workflow: refund submitted, case step, the notice handed to the outbox (notice_event_id set), state completed', f1.statusCode === 200 && f1.body.outcome === 'resolved' && resF1[0].state === 'completed' && !!resF1[0].notice_event_id && resF1[0].brand_notified_at, `${f1.statusCode} ${JSON.stringify(f1.body).slice(0, 200)}`);
+    const evF = one(await db(`notification_events?id=eq.${resF1[0].notice_event_id}&select=id,kind,transition_id,booking_id`));
+    ok('F: one refund_resolution event for the booking (unique per booking)', evF && evF.kind === 'refund_resolution' && evF.transition_id === F + ':resolution' && evF.booking_id === F, JSON.stringify(evF));
+    spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_outage' });   // persistent until cleared
+    await notices();
+    const dl1 = await deliveriesOf(F);
+    ok('F: the delivery to the brand owner failed and is kept for retry (failed, one attempt, payload frozen, recipient the owner, nothing accepted)', dl1.length === 1 && dl1[0].status === 'failed' && dl1[0].attempts === 1 && dl1[0].recipient_email === brandEmail && !!dl1[0].frozen_payload && mailsSince(m1, /Refund approved/).length === 1, JSON.stringify(dl1.map(d => ({ status: d.status, attempts: d.attempts, to: d.recipient_email, frozen: !!d.frozen_payload }))));
+    spy.faults.length = 0;
+    // the refund state changes in between (the mark is cleared to simulate a later change); the frozen payload must still be what is re-sent
+    await db(`booking_cancellation_resolutions?booking_id=eq.${F}`, { method: 'PATCH', body: JSON.stringify({ refund_submitted_at: null }) });
+    await notices(new Date(Date.now() + 3 * 60e3));   // past the first backoff
+    await db(`booking_cancellation_resolutions?booking_id=eq.${F}`, { method: 'PATCH', body: JSON.stringify({ refund_submitted_at: resF1[0].refund_submitted_at }) });
+    const dl2 = await deliveriesOf(F); const sentF = mailsSince(m1, /Refund approved/);
+    ok('F: the retry re-sent the FROZEN payload under the same provider key: two provider calls, identical key and html, the delivery now accepted, no second refund', dl2.length === 1 && ['sent', 'accepted'].includes(dl2[0].status) && sentF.length === 2 && !!sentF[0].idempotency_key && sentF[0].idempotency_key === sentF[1].idempotency_key && sentF[0].html === sentF[1].html && stripeRefundCalls() === r1 + 1, JSON.stringify({ status: dl2[0] && dl2[0].status, keys: sentF.map(m => m.idempotency_key), sameHtml: sentF.length === 2 && sentF[0].html === sentF[1].html }));
+    await notices(new Date(Date.now() + 6 * 60e3));
+    ok('F: a further dispatch sends nothing more (one accepted notice)', mailsSince(m1, /Refund approved/).length === 2);
     // G: the progress mark is lost right after the provider refund
     spy.faults.push({ url: '/rpc/booking_cancellation_progress', method: 'POST', status: 500, message: 'injected_mark_loss', once: true });
     const r2 = stripeRefundCalls();
@@ -207,7 +229,8 @@ try {
     ok('I: claimed, nothing else', ic && ic.outcome === 'claimed' && stripeRefundCalls() === r3);
     const wk3 = await worker();
     const resI = await resolutionRows(I); const alI = await allocOf(I);
-    ok('I: the worker finishes the claimed grant: one refund, allocation refunded, brand told once, completed', wk3.statusCode === 200 && resI[0].state === 'completed' && stripeRefundCalls() === r3 + 1 && Number(alI.refunded_amount) === Number(alI.customer_amount) && mailsSince(m3, /Refund approved/).length === 1, JSON.stringify({ state: resI[0].state, wk: wk3.body && { checked: wk3.body.resolutions_checked, completed: wk3.body.resolutions_completed } }));
+    await notices();
+    ok('I: the worker finishes the claimed grant: one refund, allocation refunded, brand told once, completed', wk3.statusCode === 200 && resI[0].state === 'completed' && stripeRefundCalls() === r3 + 1 && Number(alI.refunded_amount) === Number(alI.customer_amount) && (await deliveriesOf(I)).length === 1 && (await deliveriesOf(I))[0].status === 'accepted', JSON.stringify({ state: resI[0].state, wk: wk3.body && { checked: wk3.body.resolutions_checked, completed: wk3.body.resolutions_completed }, mails: mailsSince(m3, /Refund approved/).length, deliveries: (await deliveriesOf(I)).map(d => d.status), event: resI[0].notice_event_id }));
     const wk4 = await worker();
     ok('I: a further run finds nothing unfinished', wk4.statusCode === 200 && wk4.body.resolutions_checked === 0, JSON.stringify(wk4.body && { checked: wk4.body.resolutions_checked }));
   }
@@ -371,6 +394,130 @@ try {
     const after = await row(a.id); const cs2 = await caseOf(a.id, 'cancel-abandoned:');
     ok('the operator retries the cancel: 200 with the recorded decision replayed, cancelled, barrier cleared, the abandoned case resolved by the route', c.statusCode === 200 && c.body.decision_replayed === true && after.status === 'cancelled' && after.cancellation_pending_at == null && cs2 && cs2.status === 'resolved', `${c.statusCode} ${JSON.stringify(c.body).slice(0, 120)} ${JSON.stringify(cs2)}`);
   }
+
+  console.log('\nR4-1 compound failures: the money step is judged on the refund request, whatever the state label');
+  const g3 = await paidGroup([[1, '13:00'], [1, '14:00'], [2, '13:00'], [2, '14:00']]);
+  for (const id of g3.ids) await pendingManual(id);
+  {
+    const [J, K, L, M] = g3.ids;
+    // J: provider timeout, then the row is left exactly as Codex's probe found it: linked request, state failed, no submitted mark, case step done
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    const j1 = await review({ action: 'grant', booking_id: J, reason: 'goodwill' });
+    const rqJ = await requestsOf(J);
+    ok('J: provider timeout: refund_pending with the request parked failed_retryable', j1.statusCode === 200 && j1.body.refund_status === 'refund_pending' && rqJ.length === 1 && rqJ[0].status === 'failed_retryable', `${j1.statusCode} ${JSON.stringify(j1.body).slice(0, 160)}`);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${J}`, { method: 'PATCH', body: JSON.stringify({ state: 'failed', last_error: 'notice: simulated later failure', updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const m0 = spy.calls.resend.length;
+    const wk = await worker();
+    const rqJ2 = await requestsOf(J); const resJ = await resolutionRows(J);
+    ok('J: the refund worker resubmits the parked request; the resolution sweep re-reads it despite the failed label and marks it submitted; completed; still one request', wk.statusCode === 200 && rqJ2.length === 1 && ['submitted', 'pending', 'succeeded'].includes(rqJ2[0].status) && resJ[0].state === 'completed' && !!resJ[0].refund_submitted_at && resJ[0].refund_request_id === rqJ2[0].id, JSON.stringify({ wk: wk.body && { resubmitted: wk.body.resubmitted, resolutions: [wk.body.resolutions_checked, wk.body.resolutions_completed, wk.body.resolutions_step_failed] }, rq: rqJ2, res: resJ[0] && { state: resJ[0].state, submitted: resJ[0].refund_submitted_at } }));
+    await notices();
+    ok('J: exactly one notice event and one accepted notice to the owner, no second refund', (await deliveriesOf(J)).length === 1 && mailsSince(m0, /Refund approved/).length === 1 && stripeRefundCalls() >= 1, JSON.stringify((await deliveriesOf(J)).map(d => d.status)));
+    // K: the request is parked for operator review: the resolution is escalated, visible, and finishes once the operator fixes the request
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    const k1 = await review({ action: 'grant', booking_id: K, reason: 'goodwill' });
+    const rqK = (await requestsOf(K))[0];
+    ok('K: refund_pending after the timeout', k1.statusCode === 200 && k1.body.refund_status === 'refund_pending' && !!rqK);
+    await db(`refund_requests?id=eq.${rqK.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review' }) });   // the ledger parked it (as park_refund_for_review does)
+    await db(`booking_cancellation_resolutions?booking_id=eq.${K}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkK = await worker();
+    const resK = await resolutionRows(K); const csK = await caseOf(K, 'resolution-failed:');
+    ok('K: the sweep escalates: one deduplicated case (resolution_refund_request_parked, the request and the recovery action in its details), the resolution linked and failed, the run reported as not clean', wkK.statusCode === 500 && wkK.body.resolutions_escalated === 1 && csK && csK.reason === 'resolution_refund_request_parked' && csK.details && csK.details.refund_request_id === rqK.id && /refund review/.test(String(csK.details.recovery)) && resK[0].escalated_case_id === csK.id && resK[0].state === 'failed' && !!resK[0].escalated_at, JSON.stringify({ wk: wkK.statusCode, body: wkK.body && { escalated: wkK.body.resolutions_escalated, first_error: wkK.body.first_error }, csK, res: resK[0] && { state: resK[0].state, esc: resK[0].escalated_case_id } }));
+    if (csK) track('reconciliation_cases', csK.id);
+    const lookK = await review({ action: 'cancellation', booking_id: K });
+    ok('K: action=cancellation reports refund_status needs_review', lookK.statusCode === 200 && lookK.body.refund_status === 'needs_review', JSON.stringify(lookK.body && lookK.body.refund_status));
+    const wkK2 = await worker();
+    ok('K: an escalated resolution is no longer retried automatically', wkK2.body.resolutions_checked === 0, JSON.stringify(wkK2.body && { checked: wkK2.body.resolutions_checked }));
+    await db(`refund_requests?id=eq.${rqK.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'submitted' }) });   // the operator adopted the refund in refund review
+    const k2 = await review({ action: 'grant', booking_id: K, reason: 'finish after review' });
+    const resK2 = await resolutionRows(K); const csK2 = await caseOf(K, 'resolution-failed:');
+    ok('K: the operator\'s grant finishes it: existing, refund_status submitted, completed, the escalation case resolved', k2.statusCode === 200 && k2.body.existing === true && k2.body.refund_status === 'submitted' && resK2[0].state === 'completed' && csK2.status === 'resolved', `${k2.statusCode} ${JSON.stringify(k2.body).slice(0, 160)} ${JSON.stringify(csK2)}`);
+    // L: the RPC refuses marks that disagree with the request
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: L, reason: 'goodwill' });
+    const rqL = (await requestsOf(L))[0];
+    const badSub = await rpc('booking_cancellation_progress', { p_booking_id: L, p_retailer_id: retailerId, p_mark: 'refund_submitted', p_refund_request_id: rqL.id });
+    ok('L: refund_submitted on a failed_retryable request is refused (refund_request_not_submitted)', badSub && badSub.outcome === 'refund_request_not_submitted' && badSub.request_status === 'failed_retryable', JSON.stringify(badSub).slice(0, 160));
+    const foreign = await rpc('booking_cancellation_progress', { p_booking_id: L, p_retailer_id: retailerId, p_mark: 'refund_submitted', p_refund_request_id: rqJ2[0].id });
+    ok('L: another booking\'s request is refused (refund_request_mismatch)', foreign && foreign.outcome === 'refund_request_mismatch', JSON.stringify(foreign).slice(0, 120));
+    await db(`refund_requests?id=eq.${rqL.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'requires_review' }) });
+    const term = await rpc('booking_cancellation_progress', { p_booking_id: L, p_retailer_id: retailerId, p_mark: 'refund_pending', p_refund_request_id: rqL.id });
+    ok('L: refund_pending on a parked request is refused (refund_request_terminal)', term && term.outcome === 'refund_request_terminal', JSON.stringify(term).slice(0, 120));
+    await db(`refund_requests?id=eq.${rqL.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable' }) });
+    ok('L: the resolution still shows no submitted mark (nothing was accepted)', !(await resolutionRows(L))[0].refund_submitted_at);
+    // M: the attempt cap is reached: an escalation case is written before the work leaves automatic retries; a case-write failure keeps it retryable
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: M, reason: 'goodwill' });
+    await db(`booking_cancellation_resolutions?booking_id=eq.${M}`, { method: 'PATCH', body: JSON.stringify({ attempts: 21, state: 'failed', last_error: 'case_closed: simulated', updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    spy.faults.push({ url: '/rpc/_open_case', method: 'POST', status: 500, message: 'injected_case_service_down', once: true });
+    const wkM1 = await worker();
+    const resM1 = await resolutionRows(M);
+    ok('M: the escalation case could not be written: the run is reported failed and the resolution stays selectable (not escalated)', wkM1.statusCode === 500 && (wkM1.body.resolutions_failed || 0) >= 1 && resM1[0].escalated_at == null, JSON.stringify({ wk: wkM1.statusCode, body: wkM1.body && { failed: wkM1.body.resolutions_failed, first_error: wkM1.body.first_error } }));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${M}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkM2 = await worker();
+    const resM2 = await resolutionRows(M); const csM = await caseOf(M, 'resolution-failed:');
+    ok('M: the next run writes the case (resolution_retry_exhausted, attempts recorded) and links it; the row leaves automatic retries', wkM2.body.resolutions_escalated === 1 && csM && csM.reason === 'resolution_retry_exhausted' && Number(csM.details && csM.details.attempts) >= 21 && resM2[0].escalated_case_id === csM.id, JSON.stringify({ wk: wkM2.body && { escalated: wkM2.body.resolutions_escalated }, csM: csM && { reason: csM.reason, attempts: csM.details && csM.details.attempts } }));
+    if (csM) track('reconciliation_cases', csM.id);
+    const wkM3 = await worker();
+    ok('M: a further run does not pick it up again', wkM3.body.resolutions_checked === 0);
+    const csJ = await caseOf(J, 'resolution-failed:'); const csL = await caseOf(L, 'resolution-failed:');
+    if (csJ) track('reconciliation_cases', csJ.id); if (csL) track('reconciliation_cases', csL.id);
+  }
+
+  console.log('\nR4-2 abandoned recorded cancellations: discovery beyond one batch, closure in batches');
+  {
+    const ids = [];
+    for (let i = 0; i < 27; i++) {
+      const bk = await seed({ days: 30 + i, time: '9:00' });
+      const live = await row(bk.id);
+      const rec = await rpc('booking_cancellation_record', { p_booking_id: bk.id, p_retailer_id: retailerId, p_decision: { category: 'store_caused', requested_at: new Date().toISOString(), actor: staffEmail, cancellation_mode: 'refundable', cutoff_hours: 72, start_source: 'computed', hours_before_demo: 500, refund: true, status: 'auto', reason: 'store_caused' }, p_expect: { schedule_revision: live.schedule_revision, payment_status: 'paid' } });
+      if (!rec || rec.outcome !== 'recorded') throw new Error('record seed ' + JSON.stringify(rec).slice(0, 120));
+      ids.push(bk.id);
+    }
+    await db(`bookings?id=in.(${ids.join(',')})`, { method: 'PATCH', body: JSON.stringify({ cancellation_pending_at: hours(-2) }) });
+    const w1 = await worker(); const w2 = await worker(); const w3 = await worker();
+    const cases = (await db(`reconciliation_cases?dedupe_key=in.(${ids.map(id => '"cancel-abandoned:' + id + '"').join(',')})&select=dedupe_key,status`)).body || [];
+    ok('27 abandoned barriers: the first run reports 25, the second the remaining 2, the third none; every one has exactly one case', w1.body.abandoned_cases_opened === 25 && w2.body.abandoned_cases_opened === 2 && w3.body.abandoned_cases_opened === 0 && cases.length === 27, JSON.stringify({ a: w1.body && w1.body.abandoned_cases_opened, b: w2.body && w2.body.abandoned_cases_opened, c: w3.body && w3.body.abandoned_cases_opened, cases: cases.length }));
+    for (const c of cases) { const id = String(c.dedupe_key).slice('cancel-abandoned:'.length); const cs = await caseOf(id, 'cancel-abandoned:'); if (cs) track('reconciliation_cases', cs.id); }
+    // twelve of them land (the barrier clears); closure runs in batches of five
+    await db(`bookings?id=in.(${ids.slice(0, 12).join(',')})`, { method: 'PATCH', body: JSON.stringify({ cancellation_pending_at: null }) });
+    const n1 = await rpc('cancellation_abandoned_close', { p_limit: 5 }), n2 = await rpc('cancellation_abandoned_close', { p_limit: 5 }), n3 = await rpc('cancellation_abandoned_close', { p_limit: 5 }), n4 = await rpc('cancellation_abandoned_close', { p_limit: 5 });
+    const resolvedN = (await db(`reconciliation_cases?dedupe_key=in.(${ids.map(id => '"cancel-abandoned:' + id + '"').join(',')})&status=eq.resolved&select=id`)).body || [];
+    ok('closure in batches of five: 5, 5, 2, 0; twelve cases resolved, fifteen still open', Number(n1) === 5 && Number(n2) === 5 && Number(n3) === 2 && Number(n4) === 0 && resolvedN.length === 12, JSON.stringify({ n1, n2, n3, n4, resolved: resolvedN.length }));
+    const w4 = await worker();
+    ok('the worker run after that reports nothing new to open or close', w4.body.abandoned_cases_opened === 0 && w4.body.abandoned_cases_resolved === 0, JSON.stringify(w4.body && { opened: w4.body.abandoned_cases_opened, resolved: w4.body.abandoned_cases_resolved }));
+  }
+
+  console.log('\nR4-3 the live recipient contract for the resolution notice');
+  {
+    // a booking made by a designated booker whose membership is revoked before the notice goes out
+    const bookerEmail = `booker-${slug}@fixture.test`;
+    const member = one(await db('brand_members', { method: 'POST', body: JSON.stringify({ brand_id: brandId, email: bookerEmail, name: 'Rev Booker', role: 'booker', status: 'accepted', accepted_at: new Date().toISOString() }) }));
+    track('brand_members', member && member.id);
+    const nb = await seed({ days: 1, time: '15:00' });
+    await db(`bookings?id=eq.${nb.id}`, { method: 'PATCH', body: JSON.stringify({ contact_email: bookerEmail, booked_by_member_id: member.id, booked_by_email: bookerEmail, booked_by_name: 'Rev Booker' }) });
+    const c = await cancel(nb.id);
+    ok('fixture: the booker\'s booking is cancelled inside the window (pending_manual)', c.statusCode === 200 && c.body.refund_status === 'pending_manual', `${c.statusCode}`);
+    await db(`brand_members?id=eq.${member.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'revoked' }) });
+    const m0 = spy.calls.resend.length;
+    const d = await review({ action: 'deny', booking_id: nb.id, reason: 'kept per policy' });
+    await notices();
+    const dls = await deliveriesOf(nb.id); const sent = spy.calls.resend.slice(m0).filter(m => /Refund decision/.test(String(m.subject || '')));
+    ok('the notice goes to the brand account owner only; the revoked booker (the booking\'s contact email) receives nothing', d.statusCode === 200 && dls.length === 1 && dls[0].recipient_email === brandEmail && ['sent', 'accepted'].includes(dls[0].status) && sent.length === 1 && [].concat(sent[0].to).every(t => String(t).toLowerCase() !== bookerEmail), JSON.stringify({ dls: dls.map(x => ({ to: x.recipient_email, status: x.status })), sentTo: sent.map(m => m.to) }));
+    // an owner-made booking: one notice to the owner; a brand lookup outage at dispatch keeps the delivery recoverable
+    const ob = await seed({ days: 2, time: '15:00' });
+    const c2 = await cancel(ob.id);
+    ok('fixture: an owner-made booking cancelled inside the window', c2.statusCode === 200 && c2.body.refund_status === 'pending_manual');
+    const m1 = spy.calls.resend.length;
+    await review({ action: 'deny', booking_id: ob.id, reason: 'kept per policy' });
+    await fanOutEvents(b, { now: new Date() });
+    spy.faults.push({ url: 'brands?id=eq.', method: 'GET', status: 500, message: 'injected_lookup_outage', once: true });
+    await dispatchDue(b, { now: new Date() });
+    const dlo1 = await deliveriesOf(ob.id);
+    ok('a recipient lookup outage at dispatch leaves the delivery unsent and retryable (not marked delivered)', dlo1.length === 1 && !['sent', 'accepted'].includes(dlo1[0].status) && spy.calls.resend.length === m1, JSON.stringify(dlo1.map(x => ({ status: x.status, attempts: x.attempts }))));
+    await dispatchDue(b, { now: new Date(Date.now() + 6 * 60e3) });   // past the claim lease left by the failed attempt
+    const dlo2 = await deliveriesOf(ob.id);
+    ok('the retry delivers once to the owner', dlo2.length === 1 && ['sent', 'accepted'].includes(dlo2[0].status) && dlo2[0].recipient_email === brandEmail && spy.calls.resend.slice(m1).filter(m => /Refund decision/.test(String(m.subject || ''))).length === 1, JSON.stringify(dlo2.map(x => ({ to: x.recipient_email, status: x.status }))));
+  }
 } catch (e) {
   ok('suite ran without an unexpected exception', false, String((e && e.stack) || e).slice(0, 800));
 } finally {
@@ -403,7 +550,9 @@ try {
   await del(`demos?retailer_id=eq.${retailerId}`);
   for (const bid of [brandId, holdBrandId]) await del(`brand_account_sessions?brand_id=eq.${bid}`);
   await del(`admin_sessions?retailer_id=eq.${retailerId}`);
-  for (const [t, id] of bin.reverse()) if (t !== 'reconciliation_cases') await del(`${t}?id=eq.${id}`);
+  for (const [t, id] of bin) if (t === 'brand_members') await del(`brand_members?id=eq.${id}`);
+  if (bin.filter(([t]) => t === 'bookings').length) await del(`reconciliation_cases?dedupe_key=in.(${bin.filter(([t]) => t === 'bookings').map(([, id]) => '"resolution-failed:' + id + '"').join(',')})`);
+  for (const [t, id] of bin.reverse()) if (t !== 'reconciliation_cases' && t !== 'brand_members') await del(`${t}?id=eq.${id}`);
   clearTimeout(watchdog);
   spy.restore();
 }
