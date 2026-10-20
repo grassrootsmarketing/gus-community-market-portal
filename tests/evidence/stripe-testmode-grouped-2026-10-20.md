@@ -1,6 +1,6 @@
 # Stripe TEST-MODE grouped payment + partial refund evidence — 2026-10-20
 
-Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (harness `tests/_route.mjs`, real Stripe test mode, real staging DB `tileejdviuvijumjeplv`, Resend intercepted).
+Run id: `e2e-mvglvh88-1kvan`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (harness `tests/_route.mjs`, real Stripe test mode, real staging DB `tileejdviuvijumjeplv`, Resend intercepted).
 
 ## Flow driven (all via the shipped route handlers, in-process)
 
@@ -18,28 +18,28 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
 
 ```json
 {
-  "retailer_id": "ca56ca57-e1a0-432f-9221-ea74920cfb45",
-  "brand_id": "40ac803f-6508-4818-ab63-9312e29324eb",
-  "venue_a": "a3366946-1e30-4258-b2dc-37a844c7fc0d",
-  "venue_b": "52ddac22-b0a1-48f6-8e3a-acd186815542",
-  "booking_a": "f8f95ce8-960c-4567-b75e-43411337eb7e",
-  "booking_b": "241f580f-c8ca-4735-a175-6852b9714a0a",
-  "checkout_session": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-  "payment_group": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
-  "success_redirect": "https://staging.demohubhq.test/r/e2e-grp-mvg71ldy-19kv7/?paid=1&bookings=241f580f-c8ca-4735-a175-6852b9714a0a,f8f95ce8-960c-4567-b75e-43411337eb7e",
-  "payment_intent": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-  "charge": "ch_3USUpgA6b3orPg0T1Q1wSE9C",
+  "retailer_id": "910deaf4-ee55-4ada-b1c7-14e82c500e2e",
+  "brand_id": "c70a0fb7-3a92-4444-b5b4-0cc64baecc19",
+  "venue_a": "1c1e4153-ee6c-4807-827c-28de2b48bfc4",
+  "venue_b": "6bbb054f-5a60-487f-ba08-cd8857e97b92",
+  "booking_a": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
+  "booking_b": "27adfd83-67c7-441f-bb46-c6e20b346162",
+  "checkout_session": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+  "payment_group": "62f4b70c-6e86-4f86-8315-288142792f55",
+  "success_redirect": "https://staging.demohubhq.test/r/e2e-grp-mvglvhi0-inn5p/?paid=1&bookings=27adfd83-67c7-441f-bb46-c6e20b346162,3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
+  "payment_intent": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+  "charge": "ch_3USbJQA6b3orPg0T0zsA2LZg",
   "card_fingerprint_brand": "visa",
-  "evt_checkout_completed": "evt_1USUphA6b3orPg0TdcMXo4bR",
-  "evt_pi_succeeded": "evt_3USUpgA6b3orPg0T1dCQbRmh",
-  "refund_a": "re_3USUpgA6b3orPg0T1gmDdWwd",
-  "refund_request_a": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-  "evt_refund_created_a": "evt_3USUpgA6b3orPg0T1bheKXhF",
-  "evt_charge_refunded_a": "evt_3USUpgA6b3orPg0T1FgziTy6",
-  "refund_b": "re_3USUpgA6b3orPg0T1jxfkZ3N",
-  "refund_request_b": "d5f6b1ba-61aa-407c-bc3c-d887af70a6a2",
-  "evt_refund_created_b": "evt_3USUpgA6b3orPg0T1uX38ED3",
-  "evt_charge_refunded_b": "evt_3USUpgA6b3orPg0T1F64ThWT"
+  "evt_checkout_completed": "evt_1USbJRA6b3orPg0TKkReYWUh",
+  "evt_pi_succeeded": "evt_3USbJQA6b3orPg0T0rsPrfoW",
+  "refund_a": "re_3USbJQA6b3orPg0T0jDaTe6e",
+  "refund_request_a": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+  "evt_refund_created_a": "evt_3USbJQA6b3orPg0T0cwXRPM3",
+  "evt_charge_refunded_a": "evt_3USbJQA6b3orPg0T0uvobxaC",
+  "refund_b": "re_3USbJQA6b3orPg0T0A6p2Odz",
+  "refund_request_b": "f12d3d43-7afc-4e30-955a-b48875f148b8",
+  "evt_refund_created_b": "evt_3USbJQA6b3orPg0T0XOd5OCH",
+  "evt_charge_refunded_b": "evt_3USbJQA6b3orPg0T04SZO6Bk"
 }
 ```
 
@@ -65,7 +65,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
 
 - custom-duration: A 1h (hourly venue), B 2h (custom slots); retailer feed DTSTART/DTEND for B = 20261120T210000Z/20261120T230000Z; brand feed = 20261120T210000Z/20261120T230000Z
 - route-originated Stripe calls: 5 (writes: /v1/webhook_endpoints/we_1UGuAnA6b3orPg0Tagj0q9RX, /v1/checkout/sessions, /v1/refunds, /v1/refunds)
-- intercepted Resend sends: 6 (every recipient rewritten to the allowlisted sink; nothing left the machine)
+- intercepted Resend sends: 7 (every recipient rewritten to the allowlisted sink; nothing left the machine)
 
 ## Redacted DB rows (before / after)
 
@@ -75,7 +75,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "session_created",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
@@ -89,7 +89,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -97,7 +97,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -111,7 +111,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "pending_payment",
     "payment_status": "unpaid",
     "payment_intent_id": null,
@@ -119,7 +119,7 @@ Run id: `e2e-mvg71l5v-uiuv9`. Script: `tests/stripe_testmode_grouped.e2e.mjs` (h
     "cancelled_at": null
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "pending_payment",
     "payment_status": "unpaid",
     "payment_intent_id": null,
@@ -136,7 +136,7 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
     "stripe_payment_intent_id": null,
     "status": "open"
   }
@@ -152,12 +152,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "paid",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -166,7 +166,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -174,7 +174,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -188,18 +188,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "pending",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "pending",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -213,8 +213,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -224,12 +224,12 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   }
@@ -242,12 +242,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "paid",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -256,7 +256,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -264,7 +264,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -278,18 +278,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "pending",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "pending",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -303,8 +303,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -314,12 +314,12 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   }
@@ -332,12 +332,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "paid",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -346,7 +346,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -354,7 +354,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -368,18 +368,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "confirmed",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "confirmed",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -393,8 +393,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -404,12 +404,12 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   }
@@ -422,12 +422,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "partially_refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -436,7 +436,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -444,7 +444,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -458,18 +458,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "confirmed",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -480,12 +480,12 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   }
 ]
@@ -495,8 +495,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -506,12 +506,12 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   }
@@ -524,12 +524,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "partially_refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -538,7 +538,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -546,7 +546,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -560,18 +560,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "confirmed",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -582,12 +582,12 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   }
 ]
@@ -597,8 +597,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -608,22 +608,22 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1bheKXhF",
+    "event_id": "evt_3USbJQA6b3orPg0T0cwXRPM3",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1FgziTy6",
+    "event_id": "evt_3USbJQA6b3orPg0T0uvobxaC",
     "event_type": "charge.refunded",
     "status": "completed"
   }
@@ -636,12 +636,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "partially_refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -650,7 +650,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -658,7 +658,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -672,18 +672,18 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "confirmed",
     "payment_status": "paid",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "refund_id": null,
     "cancelled_at": null
   }
@@ -694,12 +694,12 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   }
 ]
@@ -709,8 +709,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -720,22 +720,22 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1bheKXhF",
+    "event_id": "evt_3USbJQA6b3orPg0T0cwXRPM3",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1FgziTy6",
+    "event_id": "evt_3USbJQA6b3orPg0T0uvobxaC",
     "event_type": "charge.refunded",
     "status": "completed"
   }
@@ -748,12 +748,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -762,7 +762,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -770,7 +770,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -784,20 +784,20 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
-    "cancelled_at": "2026-10-20T04:39:57.222+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
+    "cancelled_at": "2026-10-20T11:35:04.048+00:00"
   }
 ]
 ```
@@ -806,21 +806,21 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   },
   {
-    "id": "d5f6b1ba-61aa-407c-bc3c-d887af70a6a2",
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "f12d3d43-7afc-4e30-955a-b48875f148b8",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "amount": 900,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
     "attempts": 0
   }
 ]
@@ -830,8 +830,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -841,22 +841,22 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1bheKXhF",
+    "event_id": "evt_3USbJQA6b3orPg0T0cwXRPM3",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1FgziTy6",
+    "event_id": "evt_3USbJQA6b3orPg0T0uvobxaC",
     "event_type": "charge.refunded",
     "status": "completed"
   }
@@ -869,12 +869,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -883,7 +883,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -891,7 +891,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -905,20 +905,20 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
-    "cancelled_at": "2026-10-20T04:39:57.222+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
+    "cancelled_at": "2026-10-20T11:35:04.048+00:00"
   }
 ]
 ```
@@ -927,21 +927,21 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   },
   {
-    "id": "d5f6b1ba-61aa-407c-bc3c-d887af70a6a2",
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "f12d3d43-7afc-4e30-955a-b48875f148b8",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "amount": 900,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
     "attempts": 0
   }
 ]
@@ -951,8 +951,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -962,32 +962,32 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1bheKXhF",
+    "event_id": "evt_3USbJQA6b3orPg0T0cwXRPM3",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1FgziTy6",
+    "event_id": "evt_3USbJQA6b3orPg0T0uvobxaC",
     "event_type": "charge.refunded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1uX38ED3",
+    "event_id": "evt_3USbJQA6b3orPg0T0XOd5OCH",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1F64ThWT",
+    "event_id": "evt_3USbJQA6b3orPg0T04SZO6Bk",
     "event_type": "charge.refunded",
     "status": "completed"
   }
@@ -1000,12 +1000,12 @@ _none_
 ```json
 [
   {
-    "id": "96d9448e-3b63-4c16-a6cf-cbc9c5ebbb6c",
+    "id": "62f4b70c-6e86-4f86-8315-288142792f55",
     "status": "refunded",
     "total_customer_amount": 1600,
     "platform_keeps_all": true,
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "stripe_charge_id": "ch_3USUpgA6b3orPg0T1Q1wSE9C"
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "stripe_charge_id": "ch_3USbJQA6b3orPg0T0zsA2LZg"
   }
 ]
 ```
@@ -1014,7 +1014,7 @@ _none_
 ```json
 [
   {
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "customer_amount": 700,
     "venue_amount": 700,
     "platform_fee_amount": 0,
@@ -1022,7 +1022,7 @@ _none_
     "reserved_refund_amount": 0
   },
   {
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "customer_amount": 900,
     "venue_amount": 900,
     "platform_fee_amount": 0,
@@ -1036,20 +1036,20 @@ _none_
 ```json
 [
   {
-    "id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
-    "cancelled_at": "2026-10-20T04:39:47.975+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
+    "cancelled_at": "2026-10-20T11:34:54.875+00:00"
   },
   {
-    "id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "status": "cancelled",
     "payment_status": "refunded",
-    "payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
-    "refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
-    "cancelled_at": "2026-10-20T04:39:57.222+00:00"
+    "payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
+    "refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
+    "cancelled_at": "2026-10-20T11:35:04.048+00:00"
   }
 ]
 ```
@@ -1058,21 +1058,21 @@ _none_
 ```json
 [
   {
-    "id": "4ddf11bc-025d-4c50-b0ba-4c7a298bbd10",
-    "booking_id": "f8f95ce8-960c-4567-b75e-43411337eb7e",
+    "id": "637bab83-ab3b-4e5f-9319-b5cc77738995",
+    "booking_id": "3e1a8165-e48f-488a-a8ee-b7d0802b6bfc",
     "amount": 700,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1gmDdWwd",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0jDaTe6e",
     "attempts": 0
   },
   {
-    "id": "d5f6b1ba-61aa-407c-bc3c-d887af70a6a2",
-    "booking_id": "241f580f-c8ca-4735-a175-6852b9714a0a",
+    "id": "f12d3d43-7afc-4e30-955a-b48875f148b8",
+    "booking_id": "27adfd83-67c7-441f-bb46-c6e20b346162",
     "amount": 900,
     "currency": "usd",
     "status": "succeeded",
-    "stripe_refund_id": "re_3USUpgA6b3orPg0T1jxfkZ3N",
+    "stripe_refund_id": "re_3USbJQA6b3orPg0T0A6p2Odz",
     "attempts": 0
   }
 ]
@@ -1082,8 +1082,8 @@ _none_
 ```json
 [
   {
-    "stripe_checkout_session_id": "cs_test_b1WJ9PttOci45aIi7QsKVTkxinujuhIpN4sWWgtG3BxYV6EQnIP88WuJAv",
-    "stripe_payment_intent_id": "pi_3USUpgA6b3orPg0T15kxFvZ9",
+    "stripe_checkout_session_id": "cs_test_b1u76ni7x4ElkVQxp3p1tchYjR8V9txA8LJlcnQBdfI2NpWdPQHJ7KYaDN",
+    "stripe_payment_intent_id": "pi_3USbJQA6b3orPg0T0PtEOXd4",
     "status": "paid"
   }
 ]
@@ -1093,32 +1093,32 @@ _none_
 ```json
 [
   {
-    "event_id": "evt_1USUphA6b3orPg0TdcMXo4bR",
+    "event_id": "evt_1USbJRA6b3orPg0TKkReYWUh",
     "event_type": "checkout.session.completed",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1dCQbRmh",
+    "event_id": "evt_3USbJQA6b3orPg0T0rsPrfoW",
     "event_type": "payment_intent.succeeded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1bheKXhF",
+    "event_id": "evt_3USbJQA6b3orPg0T0cwXRPM3",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1FgziTy6",
+    "event_id": "evt_3USbJQA6b3orPg0T0uvobxaC",
     "event_type": "charge.refunded",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1uX38ED3",
+    "event_id": "evt_3USbJQA6b3orPg0T0XOd5OCH",
     "event_type": "refund.created",
     "status": "completed"
   },
   {
-    "event_id": "evt_3USUpgA6b3orPg0T1F64ThWT",
+    "event_id": "evt_3USbJQA6b3orPg0T04SZO6Bk",
     "event_type": "charge.refunded",
     "status": "completed"
   }
