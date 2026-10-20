@@ -462,6 +462,11 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'awaiting_confirmation', message: 'This free booking is still being confirmed (usually under a minute). Try again shortly.' });
     }
     if (action === 'cancel') {
+      if (process.env.CANCELLATION_MAINTENANCE === 'true' && !booking.cancellation_pending_at) {
+        // R6-3 step 1: during maintenance no NEW cancellation decision is recorded; a cancellation already recorded
+        // (the barrier is set) may be retried so its work can finish
+        return res.status(503).json({ error: 'cancellations_paused', message: 'Cancellations are paused for maintenance. Try again shortly.' });
+      }
       if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
       }

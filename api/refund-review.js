@@ -161,6 +161,11 @@ async function handleCancellationResolution(req, res, auth, body, action) {
       // R5-3: the rollback procedure stops every producer of resolution work before draining the outbox
       return res.status(503).json({ error: 'resolution_quiesced', message: 'Refund decisions are paused for maintenance. Try again shortly.' });
     }
+    if (process.env.CANCELLATION_MAINTENANCE === 'true') {
+      // R6-3 step 1: no NEW decision during maintenance; finishing an existing one (a replay) stays allowed
+      const prior = await sbGet(`booking_cancellation_resolutions?booking_id=eq.${encodeURIComponent(bookingId)}&select=booking_id`);
+      if (!Array.isArray(prior) || !prior.length) return res.status(503).json({ error: 'cancellations_paused', message: 'Refund decisions are paused for maintenance. Try again shortly.' });
+    }
     const decision = action === 'grant' ? 'refund_granted' : 'no_refund';
     const reason = String(body.reason || '').trim();
     if (!reason) return res.status(400).json({ error: 'reason_required', message: 'Say why, in a sentence; it is recorded with your decision.' });

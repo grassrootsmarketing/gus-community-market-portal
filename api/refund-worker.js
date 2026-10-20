@@ -291,7 +291,7 @@ export default async function handler(req, res) {
     // Codex R3-3: a claimed resolution that still owes a step (refund, case closure, brand notice) is finished here.
     try {
       const ur = await sweepUnfinishedResolutions(_b, { limit: 25, graceSeconds: Number(process.env.RESOLUTION_RESUME_GRACE_SECONDS || 120) });
-      out.resolutions_checked = ur.checked; out.resolutions_completed = ur.completed; out.resolutions_still_open = ur.still_open; out.resolutions_escalated = ur.escalated; out.resolutions_step_failed = ur.step_failed; out.resolutions_failed = ur.failed; out.resolutions_read_failed = !!ur.read_failed;
+      out.resolutions_checked = ur.checked; out.resolutions_completed = ur.completed; out.resolutions_relinked = ur.relinked || 0; out.resolutions_still_open = ur.still_open; out.resolutions_escalated = ur.escalated; out.resolutions_step_failed = ur.step_failed; out.resolutions_failed = ur.failed; out.resolutions_read_failed = !!ur.read_failed;
       if (ur.errors.length) noteError('resolutions: ' + ur.errors[0]);
     } catch (e) { out.errors++; noteError('resolutions: ' + ((e && e.message) || e)); console.error('resolution resume error:', (e && e.message) || e); }
     // Codex R3-4: a recorded cancellation whose cancellation never landed is made visible (deduplicated case) and the

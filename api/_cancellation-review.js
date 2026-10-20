@@ -180,6 +180,9 @@ export async function resumeResolution(b, booking, row, { operator = null } = {}
     }
     if (!cur.case_closed_at) cur = await progress(b, bookingId, retailerId, 'case_closed');
     if (!cur.brand_notified_at) cur = await progress(b, bookingId, retailerId, 'brand_notified');   // handed to the outbox (R4-3)
+    // R6-1: completion is the shared database rule, reachable even when no other step remains (a relink that found an
+    // already-submitted successor, a replay after every mark landed); it fabricates nothing
+    if (cur.state !== 'completed') cur = await progress(b, bookingId, retailerId, 'finalize');
   } catch (e) {
     failed = String((e && e.message) || e).slice(0, 200);
     try { cur = await progress(b, bookingId, retailerId, 'failed', { error: failed }); } catch (_) { /* the row keeps its last mark; the worker retries */ }
@@ -253,15 +256,26 @@ export async function sweepUnfinishedResolutions(b, { limit = 25, graceSeconds =
   try { rows = await sbRpc(b, 'cancellation_resolutions_unfinished', { p_limit: Math.max(1, Math.min(100, limit)), p_grace_seconds: graceSeconds }); }
   catch (e) { out.read_failed = true; out.errors.push('read: ' + ((e && e.message) || e)); return out; }
   rows = Array.isArray(rows) ? rows : (rows ? [rows] : []);
-  for (const row of rows) {
+  for (let row of rows) {
     out.checked++;
     try {
       const bk = first(await sbGet(b, `bookings?id=eq.${encodeURIComponent(row.booking_id)}&select=*`));
       if (!bk) { out.failed++; out.errors.push('resume: booking missing ' + row.booking_id); continue; }
-      if (Number(row.attempts || 0) > attemptCap) {
+      // R6-2: a validated replacement is adopted BEFORE any budget judgement (the exhausted budget belonged to the old
+      // request); the relink records a new baseline, so the budget is the attempts of the current recovery generation
+      let generationAttempts = Number(row.attempts || 0) - Number(row.attempts_baseline || 0);
+      if (row.decision === 'refund_granted' && row.refund_request_id && !row.refund_submitted_at) {
+        const lk = first(await sbGet(b, `refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}&select=id,status`));
+        if (lk && lk.status === 'superseded') {
+          const rl = first(await sbRpc(b, 'booking_cancellation_relink', { p_booking_id: row.booking_id, p_retailer_id: row.retailer_id }));
+          if (rl && rl.outcome === 'relinked') { row = rl.resolution; generationAttempts = Number(row.attempts || 0) - Number(row.attempts_baseline || 0); out.relinked = (out.relinked || 0) + 1; }
+        }
+      }
+      if (row.state === 'completed') { out.completed++; continue; }
+      if (generationAttempts > attemptCap) {
         // R4-2: at the cap the work leaves automatic retries only through a recorded, deduplicated operator case
-        await escalateResolution(b, bk, row, 'retry_exhausted', 'last error: ' + String(row.last_error || 'none'), null);
-        out.escalated++; out.errors.push('escalated: ' + row.booking_id + ' after ' + row.attempts + ' attempts');
+        await escalateResolution(b, bk, row, 'retry_exhausted', 'last error: ' + String(row.last_error || 'none') + ' (generation ' + (row.recovery_generation || 0) + ', ' + generationAttempts + ' attempts)', null);
+        out.escalated++; out.errors.push('escalated: ' + row.booking_id + ' after ' + generationAttempts + ' attempts of generation ' + (row.recovery_generation || 0));
         continue;
       }
       const r = await resumeResolution(b, bk, row, {});

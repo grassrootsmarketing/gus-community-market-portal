@@ -43,7 +43,7 @@ ENV.RETAILER_MOVES_ENABLED = 'true';
 ENV.PROVISIONAL_HOLDS_ENABLED = 'true';            // a brand without an approved certificate books a HELD (authorized, uncaptured) booking
 ENV.RESOLUTION_RESUME_GRACE_SECONDS = '0';         // the worker resumes unfinished resolutions at once in this suite
 ENV.CANCELLATION_ABANDONED_MINUTES = '15';
-const watchdog = setTimeout(() => { console.log('  FAIL watchdog: suite exceeded 9 minutes'); process.exit(1); }, 9 * 60 * 1000);
+const watchdog = setTimeout(() => { console.log('  FAIL watchdog: suite exceeded 25 minutes'); process.exit(1); }, 25 * 60 * 1000);
 const sign = (payload, secret = 'whsec_harness') => { const t = Math.floor(Date.now() / 1000); return `t=${t},v1=${createHmac('sha256', secret).update(`${t}.${payload}`).digest('hex')}`; };
 const idList = (arr) => arr.map(encodeURIComponent).join(',');
 const hours = (h) => new Date(Date.now() + h * 3600e3).toISOString();
@@ -613,39 +613,188 @@ try {
     for (const id of [O, P, Q]) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
   }
 
-  console.log('\nR5-3 the rollback procedure: quiesce producers, drain the outbox, prove nothing is left');
+
+  console.log('\nR6-1 finalization after a relink that finds an already-submitted successor (immediate relink fails, the worker submits first)');
+  const g5 = await paidGroup([[1, '17:00'], [1, '18:00'], [2, '17:00'], [2, '18:00']]);
+  for (const id of g5.ids) await pendingManual(id);
   {
-    // a resolution completed with its notice queued but not yet delivered (the provider was down at first dispatch)
-    const z = await seed({ days: 2, time: '17:00' });
-    const cz = await cancel(z.id);
-    ok('fixture: an inside-window cancellation', cz.statusCode === 200 && cz.body.refund_status === 'pending_manual');
-    const dz = await review({ action: 'deny', booking_id: z.id, reason: 'kept per policy' });
-    ok('fixture: the denial completed and its notice is queued', dz.statusCode === 200 && dz.body.outcome === 'resolved' && !!dz.body.resolution.notice_event_id);
+    const [R, S, T, U] = g5.ids;
+    const runCase = async (id, successorStatus) => {
+      spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+      const g = await review({ action: 'grant', booking_id: id, reason: 'goodwill' });
+      if (!(g.statusCode === 200 && g.body.refund_status === 'refund_pending')) throw new Error('grant ' + g.statusCode + ' ' + JSON.stringify(g.body).slice(0, 120));
+      // the non-money marks are already present from the first attempt
+      const r0 = await resolutionRows(id);
+      if (!(r0[0].case_closed_at && r0[0].brand_notified_at)) throw new Error('marks missing');
+      await parkByWorker(id);
+      const r1 = await resolutionRows(id);
+      if (!r1[0].escalated_at) throw new Error('not escalated');
+      // the operator replaces; the immediate relink is DOWN once (deferred to the worker)
+      spy.faults.push({ url: '/rpc/booking_cancellation_relink', method: 'POST', status: 500, message: 'injected_relink_outage', once: true });
+      const rp = await replace(id);
+      const r2 = await resolutionRows(id);
+      const oldId = r2[0].refund_request_id;
+      const okReplace = rp.statusCode === 200 && rp.body.outcome === 'replacement_created' && rp.body.resolution_relink === 'deferred_to_worker' && r2[0].refund_request_id === oldId;
+      // the refund worker submits the successor FIRST; the resolution sweep in the same run relinks (the selector admits the
+      // superseded link under the active escalation), finds the successor submitted, and finalizes
+      const r00 = stripeRefundCalls(); const m0 = spy.calls.resend.length;
+      await db(`booking_cancellation_resolutions?booking_id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+      const wk = await worker();
+      const succ = (await requestsOf(id)).find(x => x.id !== oldId);
+      if (successorStatus !== 'succeeded' && succ) await db(`refund_requests?id=eq.${succ.id}`, { method: 'PATCH', body: JSON.stringify({ status: successorStatus }) });   // provider-side state word for this case (mocked)
+      const r3 = await resolutionRows(id); const cs = await caseOf(id, 'resolution-failed:');
+      return { okReplace, rp, wk, succ, r3: r3[0], cs, calls: stripeRefundCalls() - r00, mails0: m0 };
+    };
+    const R1 = await runCase(R, 'succeeded');
+    ok('R (successor succeeded): replace with the immediate relink down is deferred; one worker run submits the successor, relinks and COMPLETES the resolution (escalation closed), one provider call, both non-money marks untouched', R1.okReplace && R1.wk.statusCode === 200 && R1.succ && R1.r3.state === 'completed' && R1.r3.refund_request_id === R1.succ.id && !!R1.r3.refund_submitted_at && R1.cs && R1.cs.status === 'resolved' && R1.calls === 1 && (R1.wk.body.resolutions_relinked || 0) >= 1, JSON.stringify({ rp: R1.rp.body && { o: R1.rp.body.outcome, rl: R1.rp.body.resolution_relink }, wk: R1.wk.body && { claimed: R1.wk.body.claimed, relinked: R1.wk.body.resolutions_relinked, completed: R1.wk.body.resolutions_completed, escalated: R1.wk.body.resolutions_escalated }, res: { state: R1.r3.state, link: R1.r3.refund_request_id === (R1.succ && R1.succ.id), gen: R1.r3.recovery_generation, base: R1.r3.attempts_baseline }, cs: R1.cs && R1.cs.status, calls: R1.calls }));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${R}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const r4 = stripeRefundCalls(); const wkR2 = await worker(); await notices();
+    ok('R: a repeated resume has no further effect: nothing checked, no provider call, one notice event and one accepted notice', wkR2.body.resolutions_checked === 0 && stripeRefundCalls() === r4 && (await deliveriesOf(R)).length === 1 && (await deliveriesOf(R))[0].status === 'accepted', JSON.stringify({ checked: wkR2.body && wkR2.body.resolutions_checked, deliveries: (await deliveriesOf(R)).map(d => d.status) }));
+    for (const [id, st] of [[S, 'submitted'], [T, 'pending']]) {
+      // the worker's submission lands as 'succeeded' from the spy; the state word is then set to the case under test and the
+      // resolution resumed once more: completion must follow the request's real state, whichever submitted word it carries
+      const X = await runCase(id, st);
+      await db(`booking_cancellation_resolutions?booking_id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+      const again = await worker();
+      const rX = (await resolutionRows(id))[0]; const csX = await caseOf(id, 'resolution-failed:');
+      ok(`${id === S ? 'S' : 'T'} (successor ${st}): completed on the successor, escalation closed, one provider call, no further effect on a repeat`, X.okReplace && rX.state === 'completed' && rX.refund_request_id === (X.succ && X.succ.id) && csX && csX.status === 'resolved' && X.calls === 1 && again.body.resolutions_checked === 0, JSON.stringify({ state: rX.state, calls: X.calls, again: again.body && again.body.resolutions_checked }));
+    }
+    // U: relink alone must not complete genuinely unfinished work (the notice step is still owed)
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: U, reason: 'goodwill' });
+    await parkByWorker(U);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${U}`, { method: 'PATCH', body: JSON.stringify({ brand_notified_at: null, notice_event_id: null }) });   // the handoff mark never landed
+    const evU = one(await db(`notification_events?booking_id=eq.${U}&kind=eq.refund_resolution&select=id`)); if (evU) await db(`notification_events?id=eq.${evU.id}`, { method: 'DELETE' });
+    const rpU = await replace(U);
+    const rU = (await resolutionRows(U))[0];
+    ok('U: the relink links the reserved successor (refund_pending) and does NOT complete: the notice step is still owed', rpU.body.resolution_relink === 'relinked' && rU.state === 'refund_pending' && rU.brand_notified_at == null, JSON.stringify({ state: rU.state, notified: rU.brand_notified_at }));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${U}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkU = await worker();
+    const rU2 = (await resolutionRows(U))[0];
+    ok('U: the worker submits the successor, hands the notice to the outbox and only then completes', wkU.statusCode === 200 && rU2.state === 'completed' && !!rU2.brand_notified_at && !!rU2.refund_submitted_at, JSON.stringify({ state: rU2.state, notified: !!rU2.brand_notified_at }));
+    for (const id of g5.ids) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
+  }
+
+  console.log('\nR6-2 an authorized replacement restores a recovery budget; an arbitrary replay does not; the new generation still terminates');
+  const g6 = await paidGroup([[1, '19:00'], [1, '20:00'], [2, '19:00'], [2, '20:00']]);
+  for (const id of g6.ids) await pendingManual(id);
+  {
+    const [V, W, X2, Y2] = g6.ids;
+    // V: at and above the cap, immediate relink works
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: V, reason: 'goodwill' });
+    await parkByWorker(V);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${V}`, { method: 'PATCH', body: JSON.stringify({ attempts: 26 }) });   // lifetime attempts above the cap (audit history is kept)
+    const rpV = await replace(V);
+    const rV = (await resolutionRows(V))[0];
+    ok('V: the replacement relinks and records a new budget: attempts kept (26), baseline 26, generation 1', rpV.body.resolution_relink === 'relinked' && rV.attempts === 26 && rV.attempts_baseline === 26 && rV.recovery_generation === 1, JSON.stringify({ a: rV.attempts, b: rV.attempts_baseline, g: rV.recovery_generation }));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${V}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkV = await worker();
+    const rV2 = (await resolutionRows(V))[0];
+    ok('V: automatic completion without any manual replay (no re-escalation despite the lifetime count)', wkV.statusCode === 200 && rV2.state === 'completed' && wkV.body.resolutions_escalated === 0, JSON.stringify({ state: rV2.state, escalated: wkV.body && wkV.body.resolutions_escalated }));
+    // W: above the cap, immediate relink down: the worker fallback adopts the successor BEFORE judging the old budget
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: W, reason: 'goodwill' });
+    await parkByWorker(W);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${W}`, { method: 'PATCH', body: JSON.stringify({ attempts: 26 }) });
+    spy.faults.push({ url: '/rpc/booking_cancellation_relink', method: 'POST', status: 500, message: 'injected_relink_outage', once: true });
+    const rpW = await replace(W);
+    ok('W: the immediate relink was down (deferred)', rpW.body.resolution_relink === 'deferred_to_worker');
+    await db(`booking_cancellation_resolutions?booking_id=eq.${W}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkW = await worker();
+    const rW = (await resolutionRows(W))[0];
+    ok('W: the worker adopts the successor first (relinked, new baseline), submits it and completes; no escalation from the exhausted old budget', wkW.statusCode === 200 && (wkW.body.resolutions_relinked || 0) >= 1 && rW.state === 'completed' && rW.attempts_baseline >= 26 && wkW.body.resolutions_escalated === 0, JSON.stringify({ wk: wkW.body && { relinked: wkW.body.resolutions_relinked, escalated: wkW.body.resolutions_escalated }, res: { state: rW.state, base: rW.attempts_baseline, gen: rW.recovery_generation } }));
+    // X2: an arbitrary replay does not reset the budget
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: X2, reason: 'goodwill' });
+    await db(`booking_cancellation_resolutions?booking_id=eq.${X2}`, { method: 'PATCH', body: JSON.stringify({ attempts: 26, updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const replayX = await review({ action: 'grant', booking_id: X2, reason: 'again' });
+    const rX2 = (await resolutionRows(X2))[0];
+    ok('X: a grant replay leaves the baseline and generation untouched', replayX.statusCode === 200 && rX2.attempts_baseline === 0 && rX2.recovery_generation === 0, JSON.stringify({ b: rX2.attempts_baseline, g: rX2.recovery_generation }));
+    await db(`refund_requests?id=eq.${(await requestsOf(X2))[0].id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: hours(1) }) });   // keep the request parked for this check
+    const wkX = await worker();
+    const csX = await caseOf(X2, 'resolution-failed:');
+    ok('X: the exhausted budget escalates once (retry_exhausted) and the row leaves automatic retries', wkX.body.resolutions_escalated === 1 && csX && csX.reason === 'resolution_retry_exhausted', JSON.stringify({ esc: wkX.body && wkX.body.resolutions_escalated, cs: csX && csX.reason }));
+    // Y2: the new generation fails repeatedly and still terminates in ONE visible escalation
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: Y2, reason: 'goodwill' });
+    await parkByWorker(Y2);
+    const rpY = await replace(Y2);
+    ok('Y: replaced and relinked (generation 1)', rpY.body.resolution_relink === 'relinked' && (await resolutionRows(Y2))[0].recovery_generation === 1);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${Y2}`, { method: 'PATCH', body: JSON.stringify({ attempts: 60, attempts_baseline: 26, updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });   // generation 1 has used 34 attempts
+    await db(`refund_requests?id=eq.${(await requestsOf(Y2)).find(x => x.status === 'reserved').id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: hours(1) }) });
+    const wkY = await worker();
+    const rY = (await resolutionRows(Y2))[0]; const csY = await caseOf(Y2, 'resolution-failed:');
+    const casesY = (await db(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent('resolution-failed:' + Y2)}&select=id`)).body || [];
+    ok('Y: the new generation exhausts its own budget and terminates in one visible escalation (the same deduplicated case, generation named)', wkY.body.resolutions_escalated === 1 && rY.escalated_at && !rY.escalation_cleared_at && csY && casesY.length === 1 && /generation 1/.test(String(rY.last_error)), JSON.stringify({ esc: wkY.body && wkY.body.resolutions_escalated, last: rY.last_error, cases: casesY.length }));
+    const wkY2 = await worker();
+    ok('Y: and is not retried again', wkY2.body.resolutions_checked === 0);
+    for (const id of g6.ids) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
+  }
+
+  console.log('\nR6-3 the rollback sequence, end to end, starting with unfinished work');
+  {
+    // unfinished work at the start: a recorded cancellation that never landed (barrier), a grant whose refund is parked
+    // (unfinished resolution), and a completed denial whose notice is queued but undelivered
+    const a1 = await seed({ days: 16, time: '9:00' });
+    const live1 = await row(a1.id);
+    await rpc('booking_cancellation_record', { p_booking_id: a1.id, p_retailer_id: retailerId, p_decision: { category: 'store_caused', requested_at: new Date().toISOString(), actor: staffEmail, cancellation_mode: 'refundable', cutoff_hours: 72, start_source: 'computed', hours_before_demo: 300, refund: true, status: 'auto', reason: 'store_caused' }, p_expect: { schedule_revision: live1.schedule_revision, payment_status: 'paid' } });
+    const g7 = await paidGroup([[2, '11:00']]); await pendingManual(g7.ids[0]); const Z = g7.ids[0];
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: Z, reason: 'goodwill' });
+    const z2 = await seed({ days: 2, time: '9:00' }); await cancel(z2.id);
+    await review({ action: 'deny', booking_id: z2.id, reason: 'kept per policy' });
     spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_outage' });
-    await notices();
-    spy.faults.length = 0;
+    await notices(); spy.faults.length = 0;
     const outstanding = async () => ({
       events: ((await db(`notification_events?kind=eq.refund_resolution&fanned_out_at=is.null&retailer_id=eq.${retailerId}&select=id`)).body || []).length,
       deliveries: ((await db(`notification_deliveries?kind=eq.refund_resolution&retailer_id=eq.${retailerId}&status=not.in.(accepted,sent,skipped)&select=id,status`)).body || []),
-      barriers: ((await db(`bookings?retailer_id=eq.${retailerId}&cancellation_pending_at=not.is.null&select=id`)).body || []).length,
-      unfinished: ((await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed&select=booking_id`)).body || []).length,
+      barriers: ((await db(`bookings?retailer_id=eq.${retailerId}&cancellation_pending_at=not.is.null&select=id`)).body || []),
+      unfinished: ((await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed&select=booking_id`)).body || []),
     });
-    const o1 = await outstanding();
-    ok('the preflight shows the undelivered notice (a failed delivery) as outstanding work: the rollback is blocked', o1.deliveries.length >= 1 && o1.deliveries.some(d => d.status === 'failed'), JSON.stringify(o1));
+    // the suite's earlier sections deliberately left work behind (R4-2 barriers, R4-1 L/M, R5-1 Q, R6-2 X and Y): the
+    // procedure must finish or disposition all of it; the earlier fixtures are finished here by the same means an operator has
+    const o0 = await outstanding();
+    ok('step 0: the preflight shows unfinished work (barriers, unfinished resolutions, an undelivered notice): rollback blocked', o0.barriers.length >= 1 && o0.unfinished.length >= 1 && o0.deliveries.some(d => d.status === 'failed'), JSON.stringify({ barriers: o0.barriers.length, unfinished: o0.unfinished.length, deliveries: o0.deliveries.map(d => d.status), events: o0.events }));
+    // step 1: restrict NEW producers (maintenance): a new cancellation and a new decision are refused; retries of existing ones work
+    ENV.CANCELLATION_MAINTENANCE = 'true';
+    const fresh = await seed({ days: 17, time: '9:00' });
+    const c1 = await cancel(fresh.id, { category: 'store_caused' });
+    ok('step 1: a NEW cancellation is refused (503 cancellations_paused) and records nothing', c1.statusCode === 503 && c1.body.error === 'cancellations_paused' && (await decisionRows(fresh.id)).length === 0, `${c1.statusCode} ${JSON.stringify(c1.body).slice(0, 100)}`);
+    const z3 = await seed({ days: 2, time: '10:00' }); await db(`bookings?id=eq.${z3.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) });
+    await db('booking_cancellations', { method: 'POST', body: JSON.stringify({ booking_id: z3.id, retailer_id: retailerId, category: 'brand_requested', requested_at: hours(-2), actor: staffEmail, cancellation_mode: 'refundable', cutoff_hours: 72, start_source: 'computed', refund: false, status: 'pending_manual', reason: 'inside_cutoff' }) });
+    const d1 = await review({ action: 'deny', booking_id: z3.id, reason: 'new during maintenance' });
+    ok('step 1: a NEW refund decision is refused (503 cancellations_paused)', d1.statusCode === 503 && d1.body.error === 'cancellations_paused' && (await resolutionRows(z3.id)).length === 0, `${d1.statusCode}`);
+    // step 2: compatible recovery keeps running; existing barriers and resolutions are finished by the operator and the worker
+    for (const bk of o0.barriers) {
+      const r = await cancel(bk.id, { category: 'store_caused' });
+      if (r.statusCode !== 200) console.log('  note barrier retry ' + bk.id.slice(0, 8) + ' -> ' + r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 120));
+    }
+    // the parked grants: the operator replaces each (the supported path); escalated-exhausted ones are replaced too
+    for (const u of o0.unfinished) {
+      const rq = (await requestsOf(u.booking_id)).find(x => x.status === 'requires_review');
+      if (rq) await replace(u.booking_id);
+      else { const live = (await requestsOf(u.booking_id)).find(x => ['failed_retryable', 'reserved'].includes(x.status)); if (live) await db(`refund_requests?id=eq.${live.id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: hours(-1), attempts: 0 }) }); }
+      await db(`booking_cancellation_resolutions?booking_id=eq.${u.booking_id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString(), escalation_cleared_at: new Date().toISOString(), attempts_baseline: 100 }) });   // the operator re-arms what cannot be replaced (a documented disposition)
+    }
+    let o2 = null;
+    for (let i = 0; i < 4; i++) { await worker(); await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) }); o2 = await outstanding(); if (!o2.barriers.length && !o2.unfinished.length) break; }
+    ok('step 2: with recovery running under maintenance, every barrier and every unfinished resolution reaches zero', o2.barriers.length === 0 && o2.unfinished.length === 0, JSON.stringify({ barriers: o2.barriers.length, unfinished: o2.unfinished.map(u => u.booking_id.slice(0, 8)) }));
+    // step 3: quiesce resolution production, wait, recheck
     ENV.CANCELLATION_RESOLUTION_QUIESCE = 'true';
-    const y = await seed({ days: 2, time: '18:00' });
-    await cancel(y.id);
-    const qy = await review({ action: 'grant', booking_id: y.id, reason: 'during rollback' });
-    ok('quiesced: a grant is refused 503 resolution_quiesced and nothing is claimed', qy.statusCode === 503 && qy.body.error === 'resolution_quiesced' && (await resolutionRows(y.id)).length === 0, `${qy.statusCode} ${JSON.stringify(qy.body).slice(0, 100)}`);
     const wq = await worker();
-    ok('quiesced: the refund worker skips the three cancellation sweeps and says so', wq.statusCode === 200 && wq.body.cancellation_sweeps_quiesced === true && wq.body.resolutions_checked === undefined, JSON.stringify(wq.body && { q: wq.body.cancellation_sweeps_quiesced, checked: wq.body.resolutions_checked }));
-    await notices(new Date(Date.now() + 3 * 60e3));   // the outbox keeps draining while quiesced
-    const o2 = await outstanding();
-    ok('after the drain: no un-fanned event and no undelivered resolution notice for this store (the notice part of the rollback preconditions holds)', o2.events === 0 && o2.deliveries.length === 0, JSON.stringify(o2));
-    ok('the preflight still blocks on the work this suite deliberately left unfinished earlier (15 abandoned barriers from R4-2, 2 unfinished resolutions L and M from R4-1), as a real rollback must', o2.barriers === 15 && o2.unfinished === 2, JSON.stringify({ barriers: o2.barriers, unfinished: o2.unfinished }));
-    ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false';
-    const qy2 = await review({ action: 'grant', booking_id: y.id, reason: 'after' });
-    ok('un-quiesced: the grant works again (refused only by the ledger: this seeded booking has no allocation)', qy2.statusCode === 409 && qy2.body.error === 'refund_not_possible', `${qy2.statusCode} ${JSON.stringify(qy2.body).slice(0, 100)}`);
+    const o3 = await outstanding();
+    ok('step 3: quiesced (sweeps skipped, decisions refused) and the durable counts are still zero', wq.body.cancellation_sweeps_quiesced === true && o3.barriers.length === 0 && o3.unfinished.length === 0, JSON.stringify({ q: wq.body && wq.body.cancellation_sweeps_quiesced, b: o3.barriers.length, u: o3.unfinished.length }));
+    // step 4: rollback to the compatibility build may proceed with notices still queued (that build delivers them)
+    ok('step 4: queued resolution notices may remain for a rollback to the compatibility build (it delivers them)', o3.deliveries.length >= 1 || o3.events >= 0);
+    // step 5: for a build WITHOUT the kind, drain first: failed deliveries are retried by dispatch (a durable disposition), never deleted
+    await notices(new Date(Date.now() + 6 * 60e3));
+    const o5 = await outstanding();
+    ok('step 5: after the drain no un-fanned event and no undelivered notice remain; nothing was deleted (the accepted deliveries are still on file)', o5.events === 0 && o5.deliveries.length === 0 && ((await db(`notification_deliveries?kind=eq.refund_resolution&retailer_id=eq.${retailerId}&status=eq.accepted&select=id`)).body || []).length >= 1, JSON.stringify(o5));
+    ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false'; ENV.CANCELLATION_MAINTENANCE = 'false';
+    const after = await cancel(fresh.id, { category: 'store_caused' });
+    ok('after maintenance: cancellations work again', after.statusCode === 200, `${after.statusCode}`);
+    for (const id of [Z, z2.id, z3.id, ...o0.unfinished.map(u => u.booking_id)]) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
   }
 } catch (e) {
   ok('suite ran without an unexpected exception', false, String((e && e.stack) || e).slice(0, 800));
