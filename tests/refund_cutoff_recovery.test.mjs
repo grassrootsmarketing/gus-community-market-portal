@@ -26,6 +26,7 @@ import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV, FIXTURE_PRO
 import { HOURLY } from './_fixture_availability.mjs';
 import { getBinding } from '../api/_env.js';
 import { fanOutEvents, dispatchDue } from '../api/_notification-outbox.js';
+import { sweepUnfinishedResolutions } from '../api/_cancellation-review.js';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -614,64 +615,66 @@ try {
   }
 
 
-  console.log('\nR6-1 finalization after a relink that finds an already-submitted successor (immediate relink fails, the worker submits first)');
+  console.log('\nR6-1 finalization after a relink that finds an already-submitted successor (Codex rev7: the successor state is staged BEFORE the relink under test)');
   const g5 = await paidGroup([[1, '17:00'], [1, '18:00'], [2, '17:00'], [2, '18:00']]);
   for (const id of g5.ids) await pendingManual(id);
   {
     const [R, S, T, U] = g5.ids;
+    // Arrange: grant parked by a timeout, driven to the worker's cap (parked for review, escalated), replaced through the
+    // supported route with the immediate relink DOWN (deferred), then the refund worker submits the successor while the
+    // resolution sweeps are quiesced, so the resolution still points at the superseded request with both non-money marks
+    // present. The successor's provider-side state word is then staged (succeeded = the spy's own answer; submitted and
+    // pending = set on the request row), and only THEN the relink/finalization under test runs (the worker's sweep).
     const runCase = async (id, successorStatus) => {
       spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
       const g = await review({ action: 'grant', booking_id: id, reason: 'goodwill' });
       if (!(g.statusCode === 200 && g.body.refund_status === 'refund_pending')) throw new Error('grant ' + g.statusCode + ' ' + JSON.stringify(g.body).slice(0, 120));
-      // the non-money marks are already present from the first attempt
       const r0 = await resolutionRows(id);
       if (!(r0[0].case_closed_at && r0[0].brand_notified_at)) throw new Error('marks missing');
       await parkByWorker(id);
-      const r1 = await resolutionRows(id);
-      if (!r1[0].escalated_at) throw new Error('not escalated');
-      // the operator replaces; the immediate relink is DOWN once (deferred to the worker)
+      if (!(await resolutionRows(id))[0].escalated_at) throw new Error('not escalated');
       spy.faults.push({ url: '/rpc/booking_cancellation_relink', method: 'POST', status: 500, message: 'injected_relink_outage', once: true });
       const rp = await replace(id);
       const r2 = await resolutionRows(id);
       const oldId = r2[0].refund_request_id;
       const okReplace = rp.statusCode === 200 && rp.body.outcome === 'replacement_created' && rp.body.resolution_relink === 'deferred_to_worker' && r2[0].refund_request_id === oldId;
-      // the refund worker submits the successor FIRST; the resolution sweep in the same run relinks (the selector admits the
-      // superseded link under the active escalation), finds the successor submitted, and finalizes
-      const r00 = stripeRefundCalls(); const m0 = spy.calls.resend.length;
-      await db(`booking_cancellation_resolutions?booking_id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
-      const wk = await worker();
+      const r00 = stripeRefundCalls();
+      ENV.CANCELLATION_RESOLUTION_QUIESCE = 'true';   // the refund loop runs, the resolution sweeps do not
+      const wk0 = await worker();
+      ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false';
       const succ = (await requestsOf(id)).find(x => x.id !== oldId);
-      if (successorStatus !== 'succeeded' && succ) await db(`refund_requests?id=eq.${succ.id}`, { method: 'PATCH', body: JSON.stringify({ status: successorStatus }) });   // provider-side state word for this case (mocked)
-      const r3 = await resolutionRows(id); const cs = await caseOf(id, 'resolution-failed:');
-      return { okReplace, rp, wk, succ, r3: r3[0], cs, calls: stripeRefundCalls() - r00, mails0: m0 };
+      const rBefore = (await resolutionRows(id))[0];
+      const staged = !!succ && ['submitted', 'pending', 'succeeded'].includes(succ.status) && rBefore.refund_request_id === oldId && rBefore.state !== 'completed' && stripeRefundCalls() === r00 + 1;
+      if (successorStatus !== 'succeeded' && succ) await db(`refund_requests?id=eq.${succ.id}`, { method: 'PATCH', body: JSON.stringify({ status: successorStatus }) });
+      const stagedStatus = succ ? (await requestsOf(id)).find(x => x.id === succ.id).status : null;
+      // the relink and finalization under test: the resolution sweep ALONE (the actual helper, no refund loop), which admits
+      // the superseded link under the active escalation; any provider call from here on would be resolution recovery's
+      const callsBeforeSweep = stripeRefundCalls();
+      const ur = await sweepUnfinishedResolutions(b, { limit: 25, graceSeconds: 0 });
+      const r3 = (await resolutionRows(id))[0]; const cs = await caseOf(id, 'resolution-failed:');
+      return { okReplace, staged, stagedStatus, wk0, ur, succ, r3, cs, calls: stripeRefundCalls() - r00, recoveryCalls: stripeRefundCalls() - callsBeforeSweep };
     };
-    const R1 = await runCase(R, 'succeeded');
-    ok('R (successor succeeded): replace with the immediate relink down is deferred; one worker run submits the successor, relinks and COMPLETES the resolution (escalation closed), one provider call, both non-money marks untouched', R1.okReplace && R1.wk.statusCode === 200 && R1.succ && R1.r3.state === 'completed' && R1.r3.refund_request_id === R1.succ.id && !!R1.r3.refund_submitted_at && R1.cs && R1.cs.status === 'resolved' && R1.calls === 1 && (R1.wk.body.resolutions_relinked || 0) >= 1, JSON.stringify({ rp: R1.rp.body && { o: R1.rp.body.outcome, rl: R1.rp.body.resolution_relink }, wk: R1.wk.body && { claimed: R1.wk.body.claimed, relinked: R1.wk.body.resolutions_relinked, completed: R1.wk.body.resolutions_completed, escalated: R1.wk.body.resolutions_escalated }, res: { state: R1.r3.state, link: R1.r3.refund_request_id === (R1.succ && R1.succ.id), gen: R1.r3.recovery_generation, base: R1.r3.attempts_baseline }, cs: R1.cs && R1.cs.status, calls: R1.calls }));
-    await db(`booking_cancellation_resolutions?booking_id=eq.${R}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
-    const r4 = stripeRefundCalls(); const wkR2 = await worker(); await notices();
-    ok('R: a repeated resume has no further effect: nothing checked, no provider call, one notice event and one accepted notice', wkR2.body.resolutions_checked === 0 && stripeRefundCalls() === r4 && (await deliveriesOf(R)).length === 1 && (await deliveriesOf(R))[0].status === 'accepted', JSON.stringify({ checked: wkR2.body && wkR2.body.resolutions_checked, deliveries: (await deliveriesOf(R)).map(d => d.status) }));
-    for (const [id, st] of [[S, 'submitted'], [T, 'pending']]) {
-      // the worker's submission lands as 'succeeded' from the spy; the state word is then set to the case under test and the
-      // resolution resumed once more: completion must follow the request's real state, whichever submitted word it carries
+    for (const [id, st, label] of [[R, 'succeeded', 'R'], [S, 'submitted', 'S'], [T, 'pending', 'T']]) {
       const X = await runCase(id, st);
-      await db(`booking_cancellation_resolutions?booking_id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
-      const again = await worker();
-      const rX = (await resolutionRows(id))[0]; const csX = await caseOf(id, 'resolution-failed:');
-      ok(`${id === S ? 'S' : 'T'} (successor ${st}): completed on the successor, escalation closed, one provider call, no further effect on a repeat`, X.okReplace && rX.state === 'completed' && rX.refund_request_id === (X.succ && X.succ.id) && csX && csX.status === 'resolved' && X.calls === 1 && again.body.resolutions_checked === 0, JSON.stringify({ state: rX.state, calls: X.calls, again: again.body && again.body.resolutions_checked }));
+      ok(`${label} (successor ${st}): staged first (successor submitted by the worker, resolution still on the superseded link, unfinished, both non-money marks present), then ONE resolution sweep relinks and completes: completed, linked to the successor, submitted mark, escalation case resolved, one provider call in total (the worker's submission) and NONE from resolution recovery`, X.okReplace && X.staged && X.stagedStatus === st && (X.ur.relinked || 0) >= 1 && X.ur.completed === 1 && X.r3.state === 'completed' && X.r3.refund_request_id === (X.succ && X.succ.id) && !!X.r3.refund_submitted_at && X.cs && X.cs.status === 'resolved' && X.calls === 1 && X.recoveryCalls === 0, JSON.stringify({ okReplace: X.okReplace, staged: X.staged, stagedStatus: X.stagedStatus, sweep: { relinked: X.ur.relinked, completed: X.ur.completed, escalated: X.ur.escalated, errors: X.ur.errors }, recoveryCalls: X.recoveryCalls, res: { state: X.r3.state, link: X.r3.refund_request_id === (X.succ && X.succ.id), submitted: !!X.r3.refund_submitted_at, gen: X.r3.recovery_generation }, cs: X.cs && X.cs.status, calls: X.calls }));
+      const r4 = stripeRefundCalls(); const again = await sweepUnfinishedResolutions(b, { limit: 25, graceSeconds: 0 }); await notices();
+      ok(`${label}: a repeated resolution sweep has no further effect: nothing checked, no provider call from recovery, one notice event and one accepted notice`, again.checked === 0 && stripeRefundCalls() === r4 && (await deliveriesOf(id)).length === 1 && (await deliveriesOf(id))[0].status === 'accepted', JSON.stringify({ checked: again.checked, deliveries: (await deliveriesOf(id)).map(d => d.status) }));
     }
-    // U: relink alone must not complete genuinely unfinished work (the notice step is still owed)
+    // U: an already-submitted successor must not complete a resolution that still owes the notice handoff
     spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
     await review({ action: 'grant', booking_id: U, reason: 'goodwill' });
     await parkByWorker(U);
-    await db(`booking_cancellation_resolutions?booking_id=eq.${U}`, { method: 'PATCH', body: JSON.stringify({ brand_notified_at: null, notice_event_id: null }) });   // the handoff mark never landed
+    await db(`booking_cancellation_resolutions?booking_id=eq.${U}`, { method: 'PATCH', body: JSON.stringify({ brand_notified_at: null, notice_event_id: null }) });   // fixture: the handoff mark never landed
     const evU = one(await db(`notification_events?booking_id=eq.${U}&kind=eq.refund_resolution&select=id`)); if (evU) await db(`notification_events?id=eq.${evU.id}`, { method: 'DELETE' });
     const rpU = await replace(U);
+    ENV.CANCELLATION_RESOLUTION_QUIESCE = 'true'; await worker(); ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false';   // the successor is submitted, no sweep
+    const succU = (await requestsOf(U)).find(x => x.status === 'succeeded');
+    const fin = await rpc('booking_cancellation_progress', { p_booking_id: U, p_retailer_id: retailerId, p_mark: 'finalize' });
     const rU = (await resolutionRows(U))[0];
-    ok('U: the relink links the reserved successor (refund_pending) and does NOT complete: the notice step is still owed', rpU.body.resolution_relink === 'relinked' && rU.state === 'refund_pending' && rU.brand_notified_at == null, JSON.stringify({ state: rU.state, notified: rU.brand_notified_at }));
-    await db(`booking_cancellation_resolutions?booking_id=eq.${U}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    ok('U: with the successor already succeeded, the relink (immediate, reserved at that moment) and an explicit finalize do NOT complete: the notice handoff is still owed', rpU.body.resolution_relink === 'relinked' && !!succU && fin && fin.outcome === 'marked' && rU.state !== 'completed' && rU.brand_notified_at == null, JSON.stringify({ relink: rpU.body && rpU.body.resolution_relink, succ: !!succU, fin: fin && fin.resolution && fin.resolution.state, state: rU.state, notified: rU.brand_notified_at }));
     const wkU = await worker();
     const rU2 = (await resolutionRows(U))[0];
-    ok('U: the worker submits the successor, hands the notice to the outbox and only then completes', wkU.statusCode === 200 && rU2.state === 'completed' && !!rU2.brand_notified_at && !!rU2.refund_submitted_at, JSON.stringify({ state: rU2.state, notified: !!rU2.brand_notified_at }));
+    ok('U: the worker marks the successor submitted, hands the notice to the outbox and only then completes', wkU.statusCode === 200 && rU2.state === 'completed' && !!rU2.brand_notified_at && !!rU2.refund_submitted_at && rU2.refund_request_id === succU.id, JSON.stringify({ state: rU2.state, notified: !!rU2.brand_notified_at }));
     for (const id of g5.ids) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
   }
 
@@ -732,10 +735,11 @@ try {
     for (const id of g6.ids) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
   }
 
-  console.log('\nR6-3 the rollback sequence, end to end, starting with unfinished work');
+  console.log('\nR6-3 the rollback drill: supported operator actions only, or an explicit fail-closed result');
   {
-    // unfinished work at the start: a recorded cancellation that never landed (barrier), a grant whose refund is parked
-    // (unfinished resolution), and a completed denial whose notice is queued but undelivered
+    // fixtures (set-up writes, not part of the measured procedure): a recorded cancellation that never landed (barrier), a
+    // grant whose refund is parked (unfinished resolution), a completed denial whose notice failed at first dispatch (a
+    // retryable frozen delivery), and a completed denial whose notice event is still un-fanned
     const a1 = await seed({ days: 16, time: '9:00' });
     const live1 = await row(a1.id);
     await rpc('booking_cancellation_record', { p_booking_id: a1.id, p_retailer_id: retailerId, p_decision: { category: 'store_caused', requested_at: new Date().toISOString(), actor: staffEmail, cancellation_mode: 'refundable', cutoff_hours: 72, start_source: 'computed', hours_before_demo: 300, refund: true, status: 'auto', reason: 'store_caused' }, p_expect: { schedule_revision: live1.schedule_revision, payment_status: 'paid' } });
@@ -746,17 +750,17 @@ try {
     await review({ action: 'deny', booking_id: z2.id, reason: 'kept per policy' });
     spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_outage' });
     await notices(); spy.faults.length = 0;
+    const z4 = await seed({ days: 2, time: '12:00' }); await cancel(z4.id);
+    await review({ action: 'deny', booking_id: z4.id, reason: 'kept per policy' });   // its event stays un-fanned until the drain
     const outstanding = async () => ({
       events: ((await db(`notification_events?kind=eq.refund_resolution&fanned_out_at=is.null&retailer_id=eq.${retailerId}&select=id`)).body || []).length,
       deliveries: ((await db(`notification_deliveries?kind=eq.refund_resolution&retailer_id=eq.${retailerId}&status=not.in.(accepted,sent,skipped)&select=id,status`)).body || []),
       barriers: ((await db(`bookings?retailer_id=eq.${retailerId}&cancellation_pending_at=not.is.null&select=id`)).body || []),
-      unfinished: ((await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed&select=booking_id`)).body || []),
+      unfinished: ((await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed&select=booking_id,state,refund_request_id`)).body || []),
     });
-    // the suite's earlier sections deliberately left work behind (R4-2 barriers, R4-1 L/M, R5-1 Q, R6-2 X and Y): the
-    // procedure must finish or disposition all of it; the earlier fixtures are finished here by the same means an operator has
     const o0 = await outstanding();
-    ok('step 0: the preflight shows unfinished work (barriers, unfinished resolutions, an undelivered notice): rollback blocked', o0.barriers.length >= 1 && o0.unfinished.length >= 1 && o0.deliveries.some(d => d.status === 'failed'), JSON.stringify({ barriers: o0.barriers.length, unfinished: o0.unfinished.length, deliveries: o0.deliveries.map(d => d.status), events: o0.events }));
-    // step 1: restrict NEW producers (maintenance): a new cancellation and a new decision are refused; retries of existing ones work
+    ok('step 0: the preflight shows unfinished work (barriers, unfinished resolutions, an undelivered notice, an un-fanned event): rollback blocked', o0.barriers.length >= 1 && o0.unfinished.length >= 1 && o0.deliveries.some(d => d.status === 'failed') && o0.events >= 1, JSON.stringify({ barriers: o0.barriers.length, unfinished: o0.unfinished.length, deliveries: o0.deliveries.map(d => d.status), events: o0.events }));
+    // step 1: restrict NEW producers
     ENV.CANCELLATION_MAINTENANCE = 'true';
     const fresh = await seed({ days: 17, time: '9:00' });
     const c1 = await cancel(fresh.id, { category: 'store_caused' });
@@ -765,36 +769,65 @@ try {
     await db('booking_cancellations', { method: 'POST', body: JSON.stringify({ booking_id: z3.id, retailer_id: retailerId, category: 'brand_requested', requested_at: hours(-2), actor: staffEmail, cancellation_mode: 'refundable', cutoff_hours: 72, start_source: 'computed', refund: false, status: 'pending_manual', reason: 'inside_cutoff' }) });
     const d1 = await review({ action: 'deny', booking_id: z3.id, reason: 'new during maintenance' });
     ok('step 1: a NEW refund decision is refused (503 cancellations_paused)', d1.statusCode === 503 && d1.body.error === 'cancellations_paused' && (await resolutionRows(z3.id)).length === 0, `${d1.statusCode}`);
-    // step 2: compatible recovery keeps running; existing barriers and resolutions are finished by the operator and the worker
-    for (const bk of o0.barriers) {
-      const r = await cancel(bk.id, { category: 'store_caused' });
-      if (r.statusCode !== 200) console.log('  note barrier retry ' + bk.id.slice(0, 8) + ' -> ' + r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 120));
+    // step 2: finish existing work through SUPPORTED actions only: cancel retries, grant replays, refund-review replace, the
+    // workers, and time passing for requests in their backoff. No row is edited by hand here.
+    const actions = { cancel_retries: 0, grant_replays: 0, replaces: 0, worker_runs: 0, waited_ms: 0 };
+    for (const bk of o0.barriers) { const r = await cancel(bk.id, { category: 'store_caused' }); actions.cancel_retries++; if (r.statusCode !== 200) console.log('  note barrier retry ' + bk.id.slice(0, 8) + ' -> ' + r.statusCode + ' ' + JSON.stringify(r.body).slice(0, 120)); }
+    let o2 = await outstanding();
+    for (let pass = 0; pass < 6 && (o2.unfinished.length || o2.barriers.length); pass++) {
+      for (const u of o2.unfinished) {
+        const g = await review({ action: 'grant', booking_id: u.booking_id, reason: 'maintenance replay' }); actions.grant_replays++;
+        const stillOpen = g.statusCode === 200 && g.body.state !== 'completed';
+        if (stillOpen) {
+          const reqs = await requestsOf(u.booking_id);
+          const live = reqs.find(x => x.id === (g.body.resolution && g.body.resolution.refund_request_id)) || reqs.find(x => !['superseded', 'canceled', 'succeeded'].includes(x.status));
+          if (live && ['requires_review', 'failed_retryable', 'reserved'].includes(live.status)) {
+            // the operator's supported repair for a request that is parked or keeps failing: refund review's replace
+            const rp = await replace(u.booking_id); actions.replaces++;
+            if (!(rp.statusCode === 200)) console.log('  note replace ' + u.booking_id.slice(0, 8) + ' -> ' + rp.statusCode + ' ' + JSON.stringify(rp.body).slice(0, 120));
+          }
+        }
+      }
+      // requests in their backoff are retried by the refund worker once the backoff passes: wait for the earliest one (bounded)
+      const pending = (await db(`refund_requests?booking_id=in.(${o2.unfinished.map(u => u.booking_id).join(',') || '00000000-0000-0000-0000-000000000000'})&status=in.(failed_retryable,reserved)&select=next_attempt_at&order=next_attempt_at.asc&limit=1`)).body || [];
+      if (pending[0] && pending[0].next_attempt_at) { const waitMs = Math.min(150000, Math.max(0, Date.parse(pending[0].next_attempt_at) - Date.now() + 1000)); if (waitMs > 0) { await new Promise(r => setTimeout(r, waitMs)); actions.waited_ms += waitMs; } }
+      await worker(); actions.worker_runs++;
+      o2 = await outstanding();
     }
-    // the parked grants: the operator replaces each (the supported path); escalated-exhausted ones are replaced too
-    for (const u of o0.unfinished) {
-      const rq = (await requestsOf(u.booking_id)).find(x => x.status === 'requires_review');
-      if (rq) await replace(u.booking_id);
-      else { const live = (await requestsOf(u.booking_id)).find(x => ['failed_retryable', 'reserved'].includes(x.status)); if (live) await db(`refund_requests?id=eq.${live.id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: hours(-1), attempts: 0 }) }); }
-      await db(`booking_cancellation_resolutions?booking_id=eq.${u.booking_id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString(), escalation_cleared_at: new Date().toISOString(), attempts_baseline: 100 }) });   // the operator re-arms what cannot be replaced (a documented disposition)
+    const unresolved = [];
+    for (const u of o2.unfinished) {
+      const reqs = await requestsOf(u.booking_id);
+      const live = reqs.find(x => x.id === u.refund_request_id) || reqs.find(x => !['superseded', 'canceled'].includes(x.status));
+      const rq = live ? one(await db(`refund_requests?id=eq.${live.id}&select=id,status,next_attempt_at,attempts`)) : null;
+      const waiting = !!(rq && ['failed_retryable', 'reserved'].includes(rq.status) && rq.next_attempt_at && Date.parse(rq.next_attempt_at) > Date.now());
+      unresolved.push({ id: u.booking_id.slice(0, 8), state: u.state, request: rq && rq.status, next_attempt_in_min: rq && rq.next_attempt_at ? Math.round((Date.parse(rq.next_attempt_at) - Date.now()) / 60000) : null, legitimately_waiting: waiting });
     }
-    let o2 = null;
-    for (let i = 0; i < 4; i++) { await worker(); await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) }); o2 = await outstanding(); if (!o2.barriers.length && !o2.unfinished.length) break; }
-    ok('step 2: with recovery running under maintenance, every barrier and every unfinished resolution reaches zero', o2.barriers.length === 0 && o2.unfinished.length === 0, JSON.stringify({ barriers: o2.barriers.length, unfinished: o2.unfinished.map(u => u.booking_id.slice(0, 8)) }));
-    // step 3: quiesce resolution production, wait, recheck
+    if (unresolved.length) console.log('  note unresolved after supported actions (fail-closed: the rollback stays blocked until their backoff passes and the worker retries them): ' + JSON.stringify(unresolved));
+    ok('step 2: with recovery running under maintenance, supported actions (cancel retries, grant replays, refund-review replace, the workers, time passing) finish every barrier and every unfinished resolution, or the drill fails closed: each remaining row is legitimately waiting on a future backoff and the preflight keeps blocking', o2.barriers.length === 0 && unresolved.every(u => u.legitimately_waiting), JSON.stringify({ barriers: o2.barriers.length, unresolved, actions }));
+    // step 3: quiesce resolution production, recheck
     ENV.CANCELLATION_RESOLUTION_QUIESCE = 'true';
     const wq = await worker();
     const o3 = await outstanding();
-    ok('step 3: quiesced (sweeps skipped, decisions refused) and the durable counts are still zero', wq.body.cancellation_sweeps_quiesced === true && o3.barriers.length === 0 && o3.unfinished.length === 0, JSON.stringify({ q: wq.body && wq.body.cancellation_sweeps_quiesced, b: o3.barriers.length, u: o3.unfinished.length }));
-    // step 4: rollback to the compatibility build may proceed with notices still queued (that build delivers them)
-    ok('step 4: queued resolution notices may remain for a rollback to the compatibility build (it delivers them)', o3.deliveries.length >= 1 || o3.events >= 0);
-    // step 5: for a build WITHOUT the kind, drain first: failed deliveries are retried by dispatch (a durable disposition), never deleted
-    await notices(new Date(Date.now() + 6 * 60e3));
-    const o5 = await outstanding();
-    ok('step 5: after the drain no un-fanned event and no undelivered notice remain; nothing was deleted (the accepted deliveries are still on file)', o5.events === 0 && o5.deliveries.length === 0 && ((await db(`notification_deliveries?kind=eq.refund_resolution&retailer_id=eq.${retailerId}&status=eq.accepted&select=id`)).body || []).length >= 1, JSON.stringify(o5));
+    ok('step 3: quiesced (sweeps skipped, decisions refused) and the durable counts are unchanged', wq.body.cancellation_sweeps_quiesced === true && o3.barriers.length === o2.barriers.length && o3.unfinished.length === o2.unfinished.length, JSON.stringify({ q: wq.body && wq.body.cancellation_sweeps_quiesced, b: o3.barriers.length, u: o3.unfinished.length }));
+    // step 4: the ACTUAL compatibility build's notification code (rollback/refund-cutoff-compat, 400d74a) against the queued work
+    const compat = await import('file:///C:/Users/David/demohub-rollback-compat/api/_notification-outbox.js');
+    const beforeKeys = spy.calls.resend.filter(m => m.idempotency_key).map(m => m.idempotency_key);
+    const fo = await compat.fanOutEvents(b, { now: new Date() });
+    const evZ4 = one(await db(`notification_events?booking_id=eq.${z4.id}&kind=eq.refund_resolution&select=id,fanned_out_at,payload`));
+    const dlZ4 = await deliveriesOf(z4.id);
+    ok('step 4 (compat build 400d74a): the un-fanned resolution event is fanned out as a known kind (no unknown_kind), one delivery to the brand owner', fo.errors.length === 0 && evZ4 && evZ4.fanned_out_at && !(evZ4.payload && evZ4.payload.fanout_note) && dlZ4.length === 1 && dlZ4[0].recipient_email === brandEmail && dlZ4[0].recipient_kind === 'brand', JSON.stringify({ fo, ev: evZ4 && { fanned: !!evZ4.fanned_out_at, note: evZ4.payload && evZ4.payload.fanout_note }, dl: dlZ4.map(d => ({ to: d.recipient_email, status: d.status })) }));
+    const dlZ2before = (await deliveriesOf(z2.id))[0];
+    const keyZ2 = beforeKeys.find(k => k === dlZ2before.id) || (spy.calls.resend.find(m => m.idempotency_key === dlZ2before.id) || {}).idempotency_key;
+    await compat.dispatchDue(b, { now: new Date(Date.now() + 6 * 60e3) });
+    const dlZ2 = (await deliveriesOf(z2.id))[0]; const dlZ4b = (await deliveriesOf(z4.id))[0];
+    const sendsZ2 = spy.calls.resend.filter(m => m.idempotency_key === dlZ2before.id);
+    ok('step 4 (compat build 400d74a): the retryable frozen delivery is re-sent under its unchanged identity (the delivery id) with the same html and accepted; the new delivery is accepted too', dlZ2 && ['sent', 'accepted'].includes(dlZ2.status) && sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html && !!keyZ2 && dlZ4b && ['sent', 'accepted'].includes(dlZ4b.status), JSON.stringify({ z2: dlZ2 && dlZ2.status, sends: sendsZ2.length, sameHtml: sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html, z4: dlZ4b && dlZ4b.status }));
+    const o4 = await outstanding();
+    ok('step 4: with the compatibility build the notice work is delivered (no un-fanned event, no undelivered delivery); the prerequisites for the rollback itself are the barrier and unfinished-resolution counts, reported as they stand (zero, or the fail-closed rows above)', o4.events === 0 && o4.deliveries.length === 0 && o4.barriers.length === 0 && o4.unfinished.length === unresolved.length, JSON.stringify({ events: o4.events, deliveries: o4.deliveries.length, barriers: o4.barriers.length, unfinished: o4.unfinished.length, rollback_allowed: o4.unfinished.length === 0 }));
     ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false'; ENV.CANCELLATION_MAINTENANCE = 'false';
     const after = await cancel(fresh.id, { category: 'store_caused' });
     ok('after maintenance: cancellations work again', after.statusCode === 200, `${after.statusCode}`);
-    for (const id of [Z, z2.id, z3.id, ...o0.unfinished.map(u => u.booking_id)]) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
+    for (const id of [Z, z2.id, z3.id, z4.id, ...o0.unfinished.map(u => u.booking_id)]) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
   }
 } catch (e) {
   ok('suite ran without an unexpected exception', false, String((e && e.stack) || e).slice(0, 800));
