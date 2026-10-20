@@ -20,7 +20,7 @@ const REFUNDABLE = 'Cancel at least 72 hours before your demo for a refund. Insi
 const NON_REFUNDABLE = 'Demo fees are not refunded when a demo is cancelled, because the store orders product for you as soon as you book. Please cancel as early as you can so the slot can go to another brand. Reschedules are welcome anytime.';
 function dayP(n) { const d = new Date(Date.now() + n * 864e5); const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: LA, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)) p[x.type] = x.value; return `${p.year}-${p.month}-${p.day}`; }
 const retailer = { id: 'r1', slug: 'gus', name: 'Gus Market', timezone: LA, cancellation_mode: 'refundable', cancellation_policy: null, verification_status: 'approved', auto_confirm_bookings: true, platform_keeps_all: true };
-const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', name: 'Main', address: '1 St', demo_fee: 30 }], bookings: [{ id: 'bk2', status: 'confirmed', payment_status: 'paid', cancellation_pending_at: new Date().toISOString() }, { id: 'bk5', status: 'cancelled', payment_status: 'refund_pending' }, { id: 'bk7', status: 'cancelled', payment_status: 'refunded' }, { id: 'bk8', status: 'cancelled', payment_status: 'paid' }, { id: 'bk9', status: 'cancelled', payment_status: 'paid' }], brand_contacts: [], internal_contacts: [],
+const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', name: 'Main', address: '1 St', demo_fee: 30 }], bookings: [{ id: 'bk2', status: 'confirmed', payment_status: 'paid', cancellation_pending_at: new Date().toISOString() }, { id: 'bk5', status: 'cancelled', payment_status: 'refund_pending' }, { id: 'bk7', status: 'cancelled', payment_status: 'refunded' }, { id: 'bk8', status: 'cancelled', payment_status: 'paid' }, { id: 'bk9', status: 'cancelled', payment_status: 'paid' }, { id: 'bk10', status: 'cancelled', payment_status: 'paid' }, { id: 'bk11', status: 'cancelled', payment_status: 'paid' }, { id: 'bk12', status: 'cancelled', payment_status: 'refunded' }], brand_contacts: [], internal_contacts: [],
   demos: [{ id: 'd1', booking_id: 'bk1', venue_id: 'v1', demo_date: dayP(1), demo_time: '1:00 PM', company_name: 'Fire Season Goods', contact_name: 'Kyle', status: 'confirmed', product: 'Sauce', demo_fee: 30 },
           { id: 'd2', booking_id: 'bk2', venue_id: 'v1', demo_date: dayP(10), demo_time: '1:00 PM', company_name: 'Ember Rubs', contact_name: 'Bea', status: 'confirmed', product: 'Rub', demo_fee: 30 },
           // Codex R2-2: cancelled rows. bk3 owes a refund decision (inside the window, pending_manual); bk4 was decided (no refund);
@@ -31,7 +31,10 @@ const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', n
           { id: 'd6', booking_id: 'bk6', venue_id: 'v1', demo_date: dayP(7), demo_time: '1:00 PM', company_name: 'Review Relish', contact_name: 'Rae', status: 'cancelled', product: 'Relish', demo_fee: 30 },
           { id: 'd7', booking_id: 'bk7', venue_id: 'v1', demo_date: dayP(8), demo_time: '1:00 PM', company_name: 'Confirmed Crackers', contact_name: 'Cy', status: 'cancelled', product: 'Crackers', demo_fee: 30 },
           { id: 'd8', booking_id: 'bk8', venue_id: 'v1', demo_date: dayP(8), demo_time: '2:00 PM', company_name: 'Granted Granola', contact_name: 'Gil', status: 'cancelled', product: 'Granola', demo_fee: 30 },
-          { id: 'd9', booking_id: 'bk9', venue_id: 'v1', demo_date: dayP(8), demo_time: '3:00 PM', company_name: 'Stuck Syrup', contact_name: 'Sy', status: 'cancelled', product: 'Syrup', demo_fee: 30 }],
+          { id: 'd9', booking_id: 'bk9', venue_id: 'v1', demo_date: dayP(8), demo_time: '3:00 PM', company_name: 'Stuck Syrup', contact_name: 'Sy', status: 'cancelled', product: 'Syrup', demo_fee: 30 },
+          { id: 'd10', booking_id: 'bk10', venue_id: 'v1', demo_date: dayP(9), demo_time: '1:00 PM', company_name: 'Recovered Rice', contact_name: 'Ri', status: 'cancelled', product: 'Rice', demo_fee: 30 },
+          { id: 'd11', booking_id: 'bk11', venue_id: 'v1', demo_date: dayP(9), demo_time: '2:00 PM', company_name: 'Replaced Relish', contact_name: 'Re', status: 'cancelled', product: 'Relish', demo_fee: 30 },
+          { id: 'd12', booking_id: 'bk12', venue_id: 'v1', demo_date: dayP(9), demo_time: '3:00 PM', company_name: 'Finished Figs', contact_name: 'Fi', status: 'cancelled', product: 'Figs', demo_fee: 30 }],
   cancellations: [
     { booking_id: 'bk3', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 30 },
     { booking_id: 'bk4', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
@@ -39,10 +42,16 @@ const data = () => ({ ok: true, retailer, features: null, venues: [{ id: 'v1', n
     { booking_id: 'bk6', category: 'brand_requested', refund: false, status: 'under_review', reason: 'start_unresolvable', cancellation_mode: 'refundable', hours_before_demo: null },
     { booking_id: 'bk7', category: 'brand_requested', refund: true, status: 'auto', reason: 'outside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 100 },
     { booking_id: 'bk8', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
-    { booking_id: 'bk9', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 }],
+    { booking_id: 'bk9', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
+    { booking_id: 'bk10', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
+    { booking_id: 'bk11', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 },
+    { booking_id: 'bk12', category: 'brand_requested', refund: false, status: 'pending_manual', reason: 'inside_cutoff', cancellation_mode: 'refundable', hours_before_demo: 20 }],
   cancellation_resolutions: [{ booking_id: 'bk4', decision: 'no_refund', operator: 'owner@gus.test', reason: 'product was delivered', resolved_at: new Date().toISOString(), state: 'completed' },
     { booking_id: 'bk8', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'completed', refund_request_id: 'rq8', refund_submitted_at: new Date().toISOString() },
-    { booking_id: 'bk9', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'failed', refund_request_id: 'rq9', escalated_at: new Date().toISOString() }],
+    { booking_id: 'bk9', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'failed', refund_request_id: 'rq9', escalated_at: new Date().toISOString() },
+    { booking_id: 'bk10', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'completed', refund_request_id: 'rq10', refund_submitted_at: new Date().toISOString(), escalated_at: new Date(Date.now() - 36e5).toISOString(), escalation_cleared_at: new Date().toISOString() },
+    { booking_id: 'bk11', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'refund_pending', refund_request_id: 'rq11b', escalated_at: new Date(Date.now() - 36e5).toISOString(), escalation_cleared_at: new Date().toISOString() },
+    { booking_id: 'bk12', decision: 'refund_granted', operator: 'owner@gus.test', reason: 'goodwill', resolved_at: new Date().toISOString(), state: 'completed', refund_request_id: 'rq12', refund_submitted_at: new Date().toISOString(), escalated_at: new Date(Date.now() - 36e5).toISOString(), escalation_cleared_at: new Date().toISOString() }],
   settings: { demo_fee: 30, advance_booking_days: 14, retailer_name: 'Gus Market' }, compliance: [] });
 
 const browser = await chromium.launch();
@@ -71,7 +80,7 @@ const localValue = (d) => { const p2 = (n) => String(n).padStart(2, '0'); return
 try {
   await page.goto(`${BASE}/r/gus/admin`, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.state && window.state.retailer && window.state.retailer.id === 'r1', null, { timeout: 15000 });
-  ok('the admin loaded the stubbed retailer and demos', await page.evaluate(() => window.state.demos.length) === 9);
+  ok('the admin loaded the stubbed retailer and demos', await page.evaluate(() => window.state.demos.length) === 12);
 
   console.log('\nPolicies tab');
   {
@@ -185,7 +194,10 @@ try {
     ok('an automatic refund whose provider call failed shows "Refund pending" (never Refunded) and no buttons (Codex R4-4)', cells['Refunded Rolls'] && /Refund pending/i.test(cells['Refunded Rolls'].text) && !/^Refunded\b/i.test(cells['Refunded Rolls'].text) && cells['Refunded Rolls'].buttons.length === 0, JSON.stringify(cells['Refunded Rolls']));
     ok('an automatic refund confirmed by Stripe shows "Refunded"', cells['Confirmed Crackers'] && /^Refunded/i.test(cells['Confirmed Crackers'].text), JSON.stringify(cells['Confirmed Crackers']));
     ok('a granted resolution whose request is submitted but not yet confirmed shows "Refund submitted"', cells['Granted Granola'] && /Refund submitted/i.test(cells['Granted Granola'].text) && cells['Granted Granola'].buttons.length === 0, JSON.stringify(cells['Granted Granola']));
-    ok('a granted resolution that failed and was escalated shows "Needs review"', cells['Stuck Syrup'] && /Needs review/i.test(cells['Stuck Syrup'].text) && cells['Stuck Syrup'].buttons.length === 0, JSON.stringify(cells['Stuck Syrup']));
+    ok('a granted resolution that failed and was escalated (active) shows "Needs review"', cells['Stuck Syrup'] && /Needs review/i.test(cells['Stuck Syrup'].text) && cells['Stuck Syrup'].buttons.length === 0, JSON.stringify(cells['Stuck Syrup']));
+    ok('a recovered grant (same request adopted, completed and submitted, escalation historical) shows "Refund submitted", not Needs review (Codex R5-2)', cells['Recovered Rice'] && /Refund submitted/i.test(cells['Recovered Rice'].text) && !/Needs review/i.test(cells['Recovered Rice'].text), JSON.stringify(cells['Recovered Rice']));
+    ok('a replaced request still in flight (escalation re-armed) shows "Refund pending", not Needs review', cells['Replaced Relish'] && /Refund pending/i.test(cells['Replaced Relish'].text) && !/Needs review/i.test(cells['Replaced Relish'].text), JSON.stringify(cells['Replaced Relish']));
+    ok('a recovered grant whose refund Stripe then confirmed shows "Refunded"', cells['Finished Figs'] && /^Refunded/i.test(cells['Finished Figs'].text), JSON.stringify(cells['Finished Figs']));
     ok('a live demo keeps its Cancel button (no decision cell)', cells['Ember Rubs'] && cells['Ember Rubs'].buttons.length === 0 && /Cancel/i.test(cells['Ember Rubs'].text), JSON.stringify(cells['Ember Rubs']));
     ok('a live demo whose recorded cancellation never landed shows the Cancellation pending pill next to its Cancel button (Codex R3-4)', cells['Ember Rubs'] && /Cancellation pending/i.test(cells['Ember Rubs'].text), JSON.stringify(cells['Ember Rubs']));
     // Grant: the dialog asks why; OK with no reason posts nothing

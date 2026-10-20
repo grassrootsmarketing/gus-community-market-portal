@@ -1,4 +1,4 @@
-// tools/rehearse-0104-0108-paste.mjs (2026-10-19, Codex R2-4; 0107 for rev3, 0108 for rev4): rehearses the 0104+0105+0106+0107+0108 paste on the TEST project
+// tools/rehearse-0104-0109-paste.mjs (2026-10-19, Codex R2-4; 0107 rev3, 0108 rev4, 0109 rev5): rehearses the 0104+0105+0106+0107+0108+0109 paste on the TEST project
 // (demohub-rebuild-check) inside ONE outer transaction that is rolled back at the end, so the test database is left
 // exactly as found. The test project already carries the cutoff objects, so the rehearsal first simulates the
 // production shape (pre-0104) inside that transaction:
@@ -24,13 +24,13 @@ await c.connect();
 const id = (await c.query('select environment from get_deployment_identity()')).rows[0].environment;
 if (id === 'production') { console.error('REFUSING: production'); process.exit(2); }
 const paste = readFileSync(process.argv[2], 'utf8');
-const bodyStart = paste.indexOf('DO $cutover_guard$'), bodyEnd = paste.indexOf('COMMIT;', paste.indexOf("VALUES ('0108', 'cancellation_resolution_recovery');"));
+const bodyStart = paste.indexOf('DO $cutover_guard$'), bodyEnd = paste.indexOf('COMMIT;', paste.indexOf("VALUES ('0109', 'cancellation_resolution_relink');"));
 if (bodyStart < 0 || bodyEnd < 0) throw new Error('paste anchors');
 let body = paste.slice(bodyStart, bodyEnd);
 const cutMod = await import('file:///C:/Users/David/demohub-refund-72h/api/_refund-cutoff.js');
 const lit = (x) => "'" + x.replace(/'/g, "''") + "'";
 const sentenceLiterals = lit(cutMod.REFUNDABLE_CANCELLATION_POLICY) + ', ' + lit(cutMod.NON_REFUNDABLE_CANCELLATION_POLICY);
-const verifyStart = paste.indexOf("SELECT 'OK 0104+0105+0106+0107+0108 RECORDED'");
+const verifyStart = paste.indexOf("SELECT 'OK 0104+0105+0106+0107+0108+0109 RECORDED'");
 const verifySql = paste.slice(verifyStart);
 const guardOnly = body.slice(0, body.indexOf('$cutover_guard$;') + '$cutover_guard$;'.length);
 const kit95 = readFileSync('C:/Users/David/demohub-refund-72h/tools/sources/0095_move_functions_as_shipped.sql', 'utf8').split('\n');
@@ -43,10 +43,10 @@ const state = async () => {
   return {
     tables: Number((await q("select count(*)::int n from information_schema.tables where table_schema='public' and table_name in ('booking_cancellations','booking_cancellation_resolutions','retailers_cancellation_policy_backup_0104')")).n),
     column: Number((await q("select count(*)::int n from information_schema.columns where table_name='bookings' and column_name='cancellation_pending_at'")).n),
-    fns: Number((await q("select count(*)::int n from pg_proc p join pg_namespace s on s.oid=p.pronamespace where s.nspname='public' and p.proname in ('booking_cancellation_record','booking_cancellation_claim','booking_cancellation_progress','cancellation_reviews_outstanding','cancellation_resolutions_unfinished','cancellation_abandoned_outstanding','cancellation_abandoned_close')")).n),
+    fns: Number((await q("select count(*)::int n from pg_proc p join pg_namespace s on s.oid=p.pronamespace where s.nspname='public' and p.proname in ('booking_cancellation_record','booking_cancellation_claim','booking_cancellation_progress','cancellation_reviews_outstanding','cancellation_resolutions_unfinished','cancellation_abandoned_outstanding','cancellation_abandoned_close','booking_cancellation_relink')")).n),
     record4: (await q("select to_regprocedure('public.booking_cancellation_record(uuid, uuid, jsonb, jsonb)') is not null as v")).v,
     record3: (await q("select to_regprocedure('public.booking_cancellation_record(uuid, uuid, jsonb)') is not null as v")).v,
-    ledger: (await q("select string_agg(version, ',' order by version) as v from supabase_migrations.schema_migrations where version in ('0104','0105','0106','0107','0108')")).v,
+    ledger: (await q("select string_agg(version, ',' order by version) as v from supabase_migrations.schema_migrations where version in ('0104','0105','0106','0107','0108','0109')")).v,
     def: (await q("select pg_get_expr(d.adbin, d.adrelid) as v from pg_attrdef d join pg_attribute a on a.attrelid=d.adrelid and a.attnum=d.adnum where d.adrelid='public.retailers'::regclass and a.attname='cancellation_mode'")).v,
     transitionBarrier: (await q("select position('cancellation_pending' in pg_get_functiondef('public.booking_transition(uuid, uuid, text, jsonb, numeric)'::regprocedure)) > 0 as v")).v,
     moveBarrier: (await q("select position('cancellation_pending_at' in pg_get_functiondef('public.move_booking_by_retailer(uuid, uuid, date, text, text, text, integer)'::regprocedure)) > 0 as v")).v,
@@ -57,14 +57,14 @@ console.log('live before', JSON.stringify(live0));
 try {
   await c.query('BEGIN');
   // 0. the production shape, pre-0104
-  await c.query('DROP FUNCTION IF EXISTS public.booking_cancellation_record(uuid, uuid, jsonb, jsonb); DROP FUNCTION IF EXISTS public.booking_cancellation_record(uuid, uuid, jsonb); DROP FUNCTION IF EXISTS public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid); DROP FUNCTION IF EXISTS public.booking_cancellation_claim(uuid, uuid, text, text, text); DROP FUNCTION IF EXISTS public.booking_cancellation_progress(uuid, uuid, text, uuid, text); DROP FUNCTION IF EXISTS public.cancellation_reviews_outstanding(integer); DROP FUNCTION IF EXISTS public.cancellation_resolutions_unfinished(integer, integer); DROP FUNCTION IF EXISTS public.booking_cancellation_progress(uuid, uuid, text, uuid, text, uuid); DROP FUNCTION IF EXISTS public.cancellation_abandoned_outstanding(integer, integer); DROP FUNCTION IF EXISTS public.cancellation_abandoned_close(integer);');
+  await c.query('DROP FUNCTION IF EXISTS public.booking_cancellation_record(uuid, uuid, jsonb, jsonb); DROP FUNCTION IF EXISTS public.booking_cancellation_record(uuid, uuid, jsonb); DROP FUNCTION IF EXISTS public.booking_cancellation_resolve(uuid, uuid, text, text, text, uuid, uuid); DROP FUNCTION IF EXISTS public.booking_cancellation_claim(uuid, uuid, text, text, text); DROP FUNCTION IF EXISTS public.booking_cancellation_progress(uuid, uuid, text, uuid, text); DROP FUNCTION IF EXISTS public.cancellation_reviews_outstanding(integer); DROP FUNCTION IF EXISTS public.cancellation_resolutions_unfinished(integer, integer); DROP FUNCTION IF EXISTS public.booking_cancellation_progress(uuid, uuid, text, uuid, text, uuid); DROP FUNCTION IF EXISTS public.cancellation_abandoned_outstanding(integer, integer); DROP FUNCTION IF EXISTS public.cancellation_abandoned_close(integer); DROP FUNCTION IF EXISTS public.booking_cancellation_relink(uuid, uuid);');
   await c.query('DROP TABLE IF EXISTS public.booking_cancellation_resolutions; DROP TABLE IF EXISTS public.booking_cancellations; DROP TABLE IF EXISTS public.retailers_cancellation_policy_backup_0104;');
   await c.query('ALTER TABLE public.bookings DROP COLUMN IF EXISTS cancellation_pending_at; ALTER TABLE public.bookings DROP COLUMN IF EXISTS abandoned_sweep_checked_at;');
   await c.query("ALTER TABLE public.notification_events DROP CONSTRAINT IF EXISTS notification_events_kind_check; ALTER TABLE public.notification_events ADD CONSTRAINT notification_events_kind_check CHECK (kind IN ('demo_confirmed','demo_cancelled','demo_rescheduled','coi_approved','coi_rejected','owner_booking_created','payment_receipt','demo_moved','demo_move_cancelled'));");
   await c.query("ALTER TABLE public.retailers ALTER COLUMN cancellation_mode SET DEFAULT '14_day_refund';");
   await c.query(bt78);
   await c.query(slice(2, 131)); await c.query(slice(133, 180)); await c.query(slice(182, 277));
-  await c.query("DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('0104','0105','0106','0107','0108');");
+  await c.query("DELETE FROM supabase_migrations.schema_migrations WHERE version IN ('0104','0105','0106','0107','0108','0109');");
   const legacy = (await c.query("select id from retailers order by created_at limit 1")).rows[0];
   await c.query("update retailers set cancellation_mode = '14_day_refund', cancellation_policy = null where id = $1", [legacy.id]);
   const nonref = (await c.query("select id from retailers where id <> $1 order by created_at limit 1", [legacy.id])).rows[0];
@@ -97,7 +97,7 @@ try {
   await c.query(body);
   const v = (await c.query(verifySql)).rows[0];
   const after3 = await state();
-  ok('3. the paste installs everything: three tables, the column, the 4-arg record function (3-arg gone), claim/progress/sweep functions, barriers, ledger 0104..0108', after3.tables === 3 && after3.column === 1 && after3.fns === 7 && after3.record4 && !after3.record3 && after3.transitionBarrier && after3.moveBarrier && after3.ledger === '0104,0105,0106,0107,0108', JSON.stringify(after3));
+  ok('3. the paste installs everything: three tables, the column, the 4-arg record function (3-arg gone), claim/progress/sweep functions, barriers, ledger 0104..0109', after3.tables === 3 && after3.column === 1 && after3.fns === 8 && after3.record4 && !after3.record3 && after3.transitionBarrier && after3.moveBarrier && after3.ledger === '0104,0105,0106,0107,0108,0109', JSON.stringify(after3));
   ok('3. verify row: default refundable, no unread modes, barrier count 0, record/resolve/transition executable by service_role, not by anon/authenticated', /refundable/.test(v.mode_default_expect_refundable) && !/14_day/.test(v.mode_default_expect_refundable) && Number(v.retailers_with_unread_mode_expect_0) === 0 && Number(v.bookings_with_barrier_expect_0) === 0 && v.record_fn_4args_expect_true && v.record_fn_3args_gone_expect_true && v.resolve_fn_0106_gone_expect_true && v.claim_progress_sweep_fns_expect_true && v.event_kind_refund_resolution_expect_true && v.transition_barrier_expect_true && v.move_barriers_expect_true && v.service_role_record_expect_true && v.service_role_claim_progress_sweeps_expect_true && v.service_role_transition_expect_true && v.anon_or_authenticated_record_expect_false === false && v.anon_or_authenticated_claim_progress_expect_false === false && v.anon_or_authenticated_read_decisions_expect_false === false, JSON.stringify(v));
   const leg = (await c.query("select cancellation_mode, cancellation_policy from retailers where id = $1", [legacy.id])).rows[0];
   const bk = (await c.query("select cancellation_mode, cancellation_policy from retailers_cancellation_policy_backup_0104 where retailer_id = $1", [legacy.id])).rows[0];
@@ -125,5 +125,5 @@ try {
   ok('5. outer ROLLBACK: the test project is exactly as found', JSON.stringify(live1) === JSON.stringify(live0), JSON.stringify({ live0, live1 }));
   await c.end();
 }
-console.log(`\nrehearsal 0104+0105+0106+0107+0108: ${pass} passed, ${fail} failed`);
+console.log(`\nrehearsal 0104+0105+0106+0107+0108+0109: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

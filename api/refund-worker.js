@@ -276,6 +276,10 @@ export default async function handler(req, res) {
       if (mv.errors.length) noteError('moves: ' + mv.errors[0]);
     } catch (e) { out.errors++; noteError('moves: ' + ((e && e.message) || e)); console.error('move sweep error:', (e && e.message) || e); }
 
+    if (process.env.CANCELLATION_RESOLUTION_QUIESCE === 'true') {
+      // R5-3 (rollback procedure): no resolution work is produced or resumed while quiesced; the outbox keeps draining.
+      out.cancellation_sweeps_quiesced = true;
+    } else {
     // Codex refund-cutoff R2-2 (2026-10-19): every under_review cancellation without an operator resolution must
     // have its open review case. The cancel route opens it; if that call failed, this bounded sweep opens it here,
     // so an unresolved refund eligibility is a discoverable work item, never only a stored row.
@@ -297,6 +301,7 @@ export default async function handler(req, res) {
       out.abandoned_cancellations = ab.checked; out.abandoned_cases_opened = ab.cases_opened; out.abandoned_cases_resolved = ab.cases_resolved; out.abandoned_failed = ab.failed; out.abandoned_read_failed = !!ab.read_failed;
       if (ab.errors.length) noteError('abandoned cancellations: ' + ab.errors[0]);
     } catch (e) { out.errors++; noteError('abandoned cancellations: ' + ((e && e.message) || e)); console.error('abandoned cancellation sweep error:', (e && e.message) || e); }
+    }
 
     // F-03 run verdict. 'succeeded' means EVERY claimed item succeeded: no per-item error after
     // claim (Stripe submit/get/list, ledger apply, park, lease release), no fulfilment row failed

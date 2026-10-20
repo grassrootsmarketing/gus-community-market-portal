@@ -326,7 +326,7 @@ export default async function handler(req, res) {
           const inList = cancelledIds.map(encodeURIComponent).join(',');
           [cancellations, cancellationResolutions] = await Promise.all([
             sb(`booking_cancellations?booking_id=in.(${inList})&select=booking_id,category,requested_at,decided_at,cancellation_mode,hours_before_demo,refund,status,reason,force_refund`),
-            sb(`booking_cancellation_resolutions?booking_id=in.(${inList})&select=booking_id,decision,operator,reason,resolved_at,refund_request_id,case_id,state,refund_submitted_at,escalated_at`),
+            sb(`booking_cancellation_resolutions?booking_id=in.(${inList})&select=booking_id,decision,operator,reason,resolved_at,refund_request_id,case_id,state,refund_submitted_at,escalated_at,escalation_cleared_at`),
           ]);
           cancellations = Array.isArray(cancellations) ? cancellations : []; cancellationResolutions = Array.isArray(cancellationResolutions) ? cancellationResolutions : [];
         }

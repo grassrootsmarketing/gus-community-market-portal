@@ -5674,7 +5674,9 @@ function escapeHtml(s) {
             if (res) {
                 if (res.decision !== 'refund_granted') return _coiPill('No refund', 'warn', 'Decided by ' + who(res));
                 if (pay === 'refunded') return _coiPill('Refunded', 'ok', 'Granted by ' + who(res) + '. Stripe confirmed the refund.');
-                if (res.escalated_at || res.state === 'failed') return _coiPill('Needs review', 'warn', 'Granted by ' + who(res) + ', but the refund did not go through automatically. Demohub is reviewing it.');
+                // R5-2: the warning follows an ACTIVE escalation or a failed execution state; escalated_at alone is audit history
+                const activeEsc = !!(res.escalated_at && !res.escalation_cleared_at && res.state !== 'completed');
+                if (activeEsc || res.state === 'failed') return _coiPill('Needs review', 'warn', 'Granted by ' + who(res) + ', but the refund did not go through automatically. Demohub is reviewing it.');
                 if (res.refund_submitted_at) return _coiPill('Refund submitted', 'ok', 'Granted by ' + who(res) + '. The refund was submitted to Stripe and is awaiting confirmation.');
                 return _coiPill('Refund pending', 'amber', 'Granted by ' + who(res) + '. The refund is being retried by the refund worker.');
             }

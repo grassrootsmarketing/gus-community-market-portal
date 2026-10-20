@@ -75,6 +75,7 @@ const holdBrandId = track('brands', one(await db('brands', { method: 'POST', bod
 const holdTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: holdBrandId, email: holdEmail, token: 'tk-' + uniq('h'), expires_at: hours(1) }) }));
 const holdCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: holdTok.token } }))).cookie('dh_brand_session');
 ok('fixtures: retailer, staff session, two brand sessions exist', !!retailerId && !!venueId && !!cookie && !!brandCookie && !!holdCookie);
+const otherRetailerIdForQ = track('retailers', one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug: uniq('rcq'), name: 'Other Market Q', billing_email: `${uniq('rcq')}@fixture.test`, billing_tier: 'pro', billing_status: 'active', timezone: LA, verification_status: 'approved' }) })).id);
 const b = await getBinding();
 // Codex R4-3: the resolution notice is an outbox event (kind refund_resolution); the suite drains the outbox the way the
 // notification worker does: fan-out (live recipients) then dispatch (recheck, freeze, send under the delivery's key).
@@ -103,7 +104,7 @@ const resolutionRows = async (id) => (await db(`booking_cancellation_resolutions
 const caseOf = async (id, prefix = 'refund-eligibility:') => one(await db(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent(prefix + id)}&select=id,status,resolved_by,resolved_at,kind,reason,details`));
 const allocOf = async (id) => one(await db(`payment_allocations?booking_id=eq.${id}&select=customer_amount,refunded_amount,reserved_refund_amount`));
 const requestsOf = async (id) => (await db(`refund_requests?booking_id=eq.${id}&select=id,status,amount`)).body || [];
-const stripeRefundCalls = () => spy.calls.stripe.filter(c => /\/refunds/.test(c.url)).length;
+const stripeRefundCalls = () => spy.calls.stripe.filter(c => /\/refunds/.test(c.url) && String(c.method || 'GET').toUpperCase() === 'POST').length;   // refund SUBMISSIONS; the operator replace route also lists refunds (GET)
 const mailsSince = (n, re) => spy.calls.resend.slice(n).filter(m => re.test(String(m.subject || '')));
 const text = (m) => (m ? String(m.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ') : 'no mail');
 const groups = [];
@@ -517,6 +518,134 @@ try {
     await dispatchDue(b, { now: new Date(Date.now() + 6 * 60e3) });   // past the claim lease left by the failed attempt
     const dlo2 = await deliveriesOf(ob.id);
     ok('the retry delivers once to the owner', dlo2.length === 1 && ['sent', 'accepted'].includes(dlo2[0].status) && dlo2[0].recipient_email === brandEmail && spy.calls.resend.slice(m1).filter(m => /Refund decision/.test(String(m.subject || ''))).length === 1, JSON.stringify(dlo2.map(x => ({ to: x.recipient_email, status: x.status }))));
+  }
+
+  console.log('\nR5-1 an authorized replacement of a parked refund request is followed by the resolution');
+  const g4 = await paidGroup([[1, '15:00'], [1, '16:00'], [2, '15:00'], [2, '16:00']]);
+  for (const id of g4.ids) await pendingManual(id);
+  const replace = (id) => review({ action: 'replace', op_key: id + ':review_grant' });
+  const parkByWorker = async (id) => {
+    // the real parking path: the request is one attempt from the refund worker's cap and the provider keeps failing
+    const rq = (await requestsOf(id)).find(x => !['superseded', 'canceled', 'requires_review'].includes(x.status));   // the LIVE request (a replaced one is superseded)
+    if (!rq) throw new Error('parkByWorker: no live request for ' + id);
+    await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ attempts: 7, next_attempt_at: hours(-1) }) });
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_provider_down' });
+    await db(`booking_cancellation_resolutions?booking_id=eq.${id}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wk = await worker();
+    spy.faults.length = 0;
+    return { wk, rq: (await requestsOf(id)).find(x => x.id === rq.id) };
+  };
+  {
+    const [N, O, P, Q] = g4.ids;
+    // N: parked -> replaced through the supported route -> pending -> submitted -> completed; escalation closed; one notice
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    const n1 = await review({ action: 'grant', booking_id: N, reason: 'goodwill' });
+    ok('N: grant parked by a provider timeout (refund_pending)', n1.statusCode === 200 && n1.body.refund_status === 'refund_pending');
+    const parkedN = await parkByWorker(N);
+    const resN1 = await resolutionRows(N); const csN = await caseOf(N, 'resolution-failed:');
+    ok('N: the refund worker parks the request for review at its cap (requires_review, the real park path) and the resolution sweep escalates it in the same run (active escalation, Needs review)', parkedN.rq && parkedN.rq.status === 'requires_review' && resN1[0].escalated_at && !resN1[0].escalation_cleared_at && csN && csN.reason === 'resolution_refund_request_parked', JSON.stringify({ rq: parkedN.rq && parkedN.rq.status, wk: parkedN.wk.body && { manual: parkedN.wk.body.manual, escalated: parkedN.wk.body.resolutions_escalated }, cs: csN && csN.reason }));
+    if (csN) track('reconciliation_cases', csN.id);
+    const r0 = stripeRefundCalls(); const m0 = spy.calls.resend.length;
+    const rp = await replace(N);
+    const reqsN = await requestsOf(N); const resN2 = await resolutionRows(N); const alN = await allocOf(N);
+    const oldN = reqsN.find(x => x.id === parkedN.rq.id), newN = reqsN.find(x => x.id !== parkedN.rq.id);
+    ok('N: the operator replaces through the supported route: the old request superseded, a new reserved request under the same operation, and the resolution relinked to it at once (refund_pending, no submitted mark, escalation re-armed)', rp.statusCode === 200 && rp.body.outcome === 'replacement_created' && rp.body.resolution_relink === 'relinked' && oldN && oldN.status === 'superseded' && newN && newN.status === 'reserved' && resN2[0].refund_request_id === newN.id && resN2[0].state === 'refund_pending' && resN2[0].refund_submitted_at == null && !!resN2[0].escalation_cleared_at && Number(alN.reserved_refund_amount) === Number(alN.customer_amount), `${rp.statusCode} ${JSON.stringify(rp.body).slice(0, 200)} ${JSON.stringify({ old: oldN && oldN.status, nw: newN && newN.status, res: resN2[0] && { state: resN2[0].state, link: resN2[0].refund_request_id === (newN && newN.id), cleared: !!resN2[0].escalation_cleared_at }, alN })}`);
+    const lookN = await review({ action: 'cancellation', booking_id: N });
+    ok('N: action=cancellation now says refund_pending, not needs_review', lookN.body.refund_status === 'refund_pending', JSON.stringify(lookN.body && lookN.body.refund_status));
+    ok('N: no provider call was made by the relink itself', stripeRefundCalls() === r0);
+    await db(`booking_cancellation_resolutions?booking_id=eq.${N}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkN = await worker();
+    const reqsN2 = await requestsOf(N); const resN3 = await resolutionRows(N); const alN2 = await allocOf(N); const csN2 = await caseOf(N, 'resolution-failed:');
+    const newN2 = reqsN2.find(x => x.id === newN.id);
+    ok('N: the refund worker submits the successor (one provider call) and the resolution completes on it: submitted mark, completed, the escalation case resolved, exactly one obligation on the allocation', wkN.statusCode === 200 && newN2 && ['submitted', 'pending', 'succeeded'].includes(newN2.status) && stripeRefundCalls() === r0 + 1 && resN3[0].state === 'completed' && resN3[0].refund_request_id === newN.id && !!resN3[0].refund_submitted_at && csN2.status === 'resolved' && Number(alN2.refunded_amount) + Number(alN2.reserved_refund_amount || 0) === Number(alN2.customer_amount) && reqsN2.length === 2, JSON.stringify({ wk: wkN.statusCode, body: wkN.body && { resubmitted: wkN.body.resubmitted, claimed: wkN.body.claimed, completed: wkN.body.resolutions_completed }, newN2: newN2 && newN2.status, res: resN3[0] && { state: resN3[0].state, submitted: !!resN3[0].refund_submitted_at }, cs: csN2 && csN2.status, alN2 }));
+    await notices();
+    ok('N: one notice event, one accepted notice to the owner', (await deliveriesOf(N)).length === 1 && (await deliveriesOf(N))[0].status === 'accepted' && mailsSince(m0, /Refund approved/).length === 1, JSON.stringify((await deliveriesOf(N)).map(d => d.status)));
+    // O: a repeated replacement chain (v1 parked, v2 parked, v3 submits) and a replay while the successor is in flight
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: O, reason: 'goodwill' });
+    await parkByWorker(O);
+    const rp1 = await replace(O);
+    ok('O: first replacement relinked', rp1.statusCode === 200 && rp1.body.resolution_relink === 'relinked', JSON.stringify(rp1.body).slice(0, 160));
+    const v2 = (await requestsOf(O)).find(x => x.status === 'reserved');
+    // the replay while v2 is still reserved: the stored decision is reported, nothing is submitted, no second mark
+    const replayO = await review({ action: 'grant', booking_id: O, reason: 'again' });
+    ok('O: a grant replay while the successor is in flight reports refund_pending and does not mark submitted', replayO.statusCode === 200 && replayO.body.existing === true && replayO.body.refund_status === 'refund_pending' && (await resolutionRows(O))[0].refund_submitted_at == null, JSON.stringify(replayO.body && { rs: replayO.body.refund_status, state: replayO.body.state }));
+    await parkByWorker(O);   // v2 is parked as well
+    const v2parked = (await requestsOf(O)).find(x => x.id === v2.id);
+    const resO2 = await resolutionRows(O);
+    ok('O: the parked successor escalates again (active)', v2parked.status === 'requires_review' && resO2[0].escalated_at && !resO2[0].escalation_cleared_at, JSON.stringify({ v2: v2parked.status, res: resO2[0] && { esc: !!resO2[0].escalated_at, cleared: resO2[0].escalation_cleared_at } }));
+    const rp2 = await replace(O);
+    const v3 = (await requestsOf(O)).find(x => x.status === 'reserved');
+    ok('O: second replacement relinked to v3', rp2.statusCode === 200 && rp2.body.resolution_relink === 'relinked' && !!v3 && (await resolutionRows(O))[0].refund_request_id === v3.id, JSON.stringify(rp2.body).slice(0, 120));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${O}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const r1 = stripeRefundCalls();
+    const wkO = await worker();
+    const resO3 = await resolutionRows(O); const alO = await allocOf(O); const reqsO = await requestsOf(O);
+    ok('O: v3 submits (one provider call), the resolution completes on v3; three requests in history (two superseded), one obligation', wkO.statusCode === 200 && stripeRefundCalls() === r1 + 1 && resO3[0].state === 'completed' && resO3[0].refund_request_id === v3.id && reqsO.length === 3 && reqsO.filter(x => x.status === 'superseded').length === 2 && Number(alO.refunded_amount) + Number(alO.reserved_refund_amount || 0) === Number(alO.customer_amount), JSON.stringify({ res: resO3[0] && resO3[0].state, reqs: reqsO.map(x => x.status), alO }));
+    // P: two concurrent grant replays right after a replacement: one relink, consistent row
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: P, reason: 'goodwill' });
+    await parkByWorker(P);
+    const [pa, pb] = await Promise.all([replace(P), review({ action: 'grant', booking_id: P, reason: 'retry' })]);
+    const resP = await resolutionRows(P); const reqsP = await requestsOf(P);
+    const live = reqsP.find(x => x.status !== 'superseded' && x.status !== 'requires_review');
+    ok('P: a replace and a grant replay at once: the row ends linked to the live successor (or still parked if the replay ran first), never to a superseded request, and no provider call from the helper', pa.statusCode === 200 && pb.statusCode === 200 && (!live || resP[0].refund_request_id === live.id || resP[0].refund_request_id === reqsP.find(x => x.status === 'requires_review')?.id) && !reqsP.some(x => x.status === 'superseded' && x.id === resP[0].refund_request_id), JSON.stringify({ pa: pa.body && { o: pa.body.outcome, rl: pa.body.resolution_relink }, pb: pb.body && { rs: pb.body.refund_status, st: pb.body.state }, link: resP[0] && resP[0].refund_request_id, reqs: reqsP.map(x => [x.id.slice(0, 8), x.status]) }));
+    const wkP = await worker();
+    const resP2 = await resolutionRows(P);
+    const reqsP2 = await requestsOf(P);
+    ok('P: the worker converges it (relink if still needed, submit, complete)', resP2[0].state === 'completed' && !!resP2[0].refund_submitted_at, JSON.stringify({ wk: wkP.statusCode, body: wkP.body && { claimed: wkP.body.claimed, resubmitted: wkP.body.resubmitted, completed: wkP.body.resolutions_completed, escalated: wkP.body.resolutions_escalated, first_error: wkP.body.first_error }, res: resP2[0] && { state: resP2[0].state, link: resP2[0].refund_request_id && resP2[0].refund_request_id.slice(0, 8), last_error: resP2[0].last_error, esc: resP2[0].escalated_at, cleared: resP2[0].escalation_cleared_at }, reqs: reqsP2.map(x => [x.id.slice(0, 8), x.status]) }));
+    // Q: refusals of the relink itself
+    spy.faults.push({ url: '/refunds', method: 'POST', status: 500, message: 'injected_stripe_timeout', once: true });
+    await review({ action: 'grant', booking_id: Q, reason: 'goodwill' });
+    const notSup = await rpc('booking_cancellation_relink', { p_booking_id: Q, p_retailer_id: retailerId });
+    ok('Q: relink on a request that is not superseded is refused (not_superseded)', notSup && notSup.outcome === 'not_superseded', JSON.stringify(notSup).slice(0, 120));
+    const rqQ = (await requestsOf(Q))[0];
+    await db(`refund_requests?id=eq.${rqQ.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'superseded' }) });   // superseded with NO authorized replacement behind it
+    const noSucc = await rpc('booking_cancellation_relink', { p_booking_id: Q, p_retailer_id: retailerId });
+    ok('Q: a superseded link with no authorized successor is refused (no_successor); the row is not relinked', noSucc && noSucc.outcome === 'no_successor' && (await resolutionRows(Q))[0].refund_request_id === rqQ.id, JSON.stringify(noSucc).slice(0, 120));
+    const foreignQ = await rpc('booking_cancellation_relink', { p_booking_id: Q, p_retailer_id: otherRetailerIdForQ });
+    ok('Q: another retailer cannot relink it (forbidden)', foreignQ && foreignQ.outcome === 'forbidden', JSON.stringify(foreignQ).slice(0, 100));
+    await db(`booking_cancellation_resolutions?booking_id=eq.${Q}`, { method: 'PATCH', body: JSON.stringify({ updated_at: new Date(Date.now() - 5 * 60e3).toISOString() }) });
+    const wkQ = await worker();
+    const resQ = await resolutionRows(Q); const csQ = await caseOf(Q, 'resolution-failed:');
+    ok('Q: the sweep escalates a superseded link without a successor (visible, not silently stuck)', resQ[0].escalated_at && csQ && /no authorized successor/.test(String(csQ.details && csQ.details.detail)), JSON.stringify({ wk: wkQ.statusCode, cs: csQ && csQ.details && csQ.details.detail }));
+    await db(`refund_requests?id=eq.${rqQ.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable' }) });
+    for (const id of [O, P, Q]) { const c = await caseOf(id, 'resolution-failed:'); if (c) track('reconciliation_cases', c.id); }
+  }
+
+  console.log('\nR5-3 the rollback procedure: quiesce producers, drain the outbox, prove nothing is left');
+  {
+    // a resolution completed with its notice queued but not yet delivered (the provider was down at first dispatch)
+    const z = await seed({ days: 2, time: '17:00' });
+    const cz = await cancel(z.id);
+    ok('fixture: an inside-window cancellation', cz.statusCode === 200 && cz.body.refund_status === 'pending_manual');
+    const dz = await review({ action: 'deny', booking_id: z.id, reason: 'kept per policy' });
+    ok('fixture: the denial completed and its notice is queued', dz.statusCode === 200 && dz.body.outcome === 'resolved' && !!dz.body.resolution.notice_event_id);
+    spy.faults.push({ url: 'api.resend.com', method: 'POST', status: 500, message: 'injected_mail_outage' });
+    await notices();
+    spy.faults.length = 0;
+    const outstanding = async () => ({
+      events: ((await db(`notification_events?kind=eq.refund_resolution&fanned_out_at=is.null&retailer_id=eq.${retailerId}&select=id`)).body || []).length,
+      deliveries: ((await db(`notification_deliveries?kind=eq.refund_resolution&retailer_id=eq.${retailerId}&status=not.in.(accepted,sent,skipped)&select=id,status`)).body || []),
+      barriers: ((await db(`bookings?retailer_id=eq.${retailerId}&cancellation_pending_at=not.is.null&select=id`)).body || []).length,
+      unfinished: ((await db(`booking_cancellation_resolutions?retailer_id=eq.${retailerId}&state=neq.completed&select=booking_id`)).body || []).length,
+    });
+    const o1 = await outstanding();
+    ok('the preflight shows the undelivered notice (a failed delivery) as outstanding work: the rollback is blocked', o1.deliveries.length >= 1 && o1.deliveries.some(d => d.status === 'failed'), JSON.stringify(o1));
+    ENV.CANCELLATION_RESOLUTION_QUIESCE = 'true';
+    const y = await seed({ days: 2, time: '18:00' });
+    await cancel(y.id);
+    const qy = await review({ action: 'grant', booking_id: y.id, reason: 'during rollback' });
+    ok('quiesced: a grant is refused 503 resolution_quiesced and nothing is claimed', qy.statusCode === 503 && qy.body.error === 'resolution_quiesced' && (await resolutionRows(y.id)).length === 0, `${qy.statusCode} ${JSON.stringify(qy.body).slice(0, 100)}`);
+    const wq = await worker();
+    ok('quiesced: the refund worker skips the three cancellation sweeps and says so', wq.statusCode === 200 && wq.body.cancellation_sweeps_quiesced === true && wq.body.resolutions_checked === undefined, JSON.stringify(wq.body && { q: wq.body.cancellation_sweeps_quiesced, checked: wq.body.resolutions_checked }));
+    await notices(new Date(Date.now() + 3 * 60e3));   // the outbox keeps draining while quiesced
+    const o2 = await outstanding();
+    ok('after the drain: no un-fanned event and no undelivered resolution notice for this store (the notice part of the rollback preconditions holds)', o2.events === 0 && o2.deliveries.length === 0, JSON.stringify(o2));
+    ok('the preflight still blocks on the work this suite deliberately left unfinished earlier (15 abandoned barriers from R4-2, 2 unfinished resolutions L and M from R4-1), as a real rollback must', o2.barriers === 15 && o2.unfinished === 2, JSON.stringify({ barriers: o2.barriers, unfinished: o2.unfinished }));
+    ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false';
+    const qy2 = await review({ action: 'grant', booking_id: y.id, reason: 'after' });
+    ok('un-quiesced: the grant works again (refused only by the ledger: this seeded booking has no allocation)', qy2.statusCode === 409 && qy2.body.error === 'refund_not_possible', `${qy2.statusCode} ${JSON.stringify(qy2.body).slice(0, 100)}`);
   }
 } catch (e) {
   ok('suite ran without an unexpected exception', false, String((e && e.stack) || e).slice(0, 800));

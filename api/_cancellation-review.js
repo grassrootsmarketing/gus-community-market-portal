@@ -80,7 +80,7 @@ export function resolutionState({ booking, decision, resolution }) {
 export function refundStatusOf(row) {
   if (!row) return 'none';
   if (row.decision !== 'refund_granted') return 'none';
-  if (row.escalated_at && !row.refund_submitted_at) return 'needs_review';
+  if (activeEscalation(row) && !row.refund_submitted_at) return 'needs_review';
   if (row.refund_request_id && row.refund_submitted_at) return 'submitted';
   if (row.refund_request_id) return 'refund_pending';   // in flight: the refund worker's leased retry owns it
   return 'pending';   // claimed or failed before the refund step
@@ -102,7 +102,13 @@ async function findGrantRequest(b, bookingId) {
 
 // Durable escalation: one deduplicated case per booking naming the failed step and the recovery action; the
 // resolution is linked to it (mark 'escalated') and leaves automatic retries only once the link is recorded.
-export async function escalateResolution(b, booking, row, step, detail) {
+// An escalation about a parked request names it (parkedRequestId): if a replacement has relinked the resolution in
+// the meantime, nothing is escalated and the caller continues from the current row (R5-1 race).
+export async function escalateResolution(b, booking, row, step, detail, parkedRequestId = null) {
+  if (parkedRequestId) {
+    const now = first(await sbGet(b, 'booking_cancellation_resolutions?booking_id=eq.' + encodeURIComponent(booking.id) + '&select=*'));
+    if (now && now.refund_request_id !== parkedRequestId) return { row: now, stale: true };
+  }
   const id = first(await sbRpc(b, '_open_case', {
     p_kind: 'settlement_exception', p_dedupe: ESCALATION_DEDUPE_PREFIX + booking.id, p_reason: step === 'refund_request_parked' ? 'resolution_refund_request_parked' : 'resolution_retry_exhausted',
     p_group: null, p_request: row.refund_request_id || null, p_operation: null, p_session: null, p_pi: booking.payment_intent_id || null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
@@ -112,13 +118,22 @@ export async function escalateResolution(b, booking, row, step, detail) {
         : 'retry the decision from the store admin; if the case closure or the notice keeps failing, finish them by hand and resolve this case' },
   }));
   if (!id) throw new Error('escalation_case_not_created');
-  return progress(b, booking.id, booking.retailer_id, 'escalated', { case_id: id, error: step + ': ' + String(detail || '').slice(0, 200) });
+  const r = first(await sbRpc(b, 'booking_cancellation_progress', { p_booking_id: booking.id, p_retailer_id: booking.retailer_id, p_mark: 'escalated', p_refund_request_id: parkedRequestId || null, p_error: step + ': ' + String(detail || '').slice(0, 200), p_case_id: id }));
+  if (r && r.outcome === 'stale_escalation') return { row: r.resolution, stale: true };
+  if (!r || r.outcome !== 'marked') throw new Error('progress_escalated:' + ((r && r.outcome) || 'no_result'));
+  return { row: r.resolution, stale: false };
 }
 
 // The steps a claimed resolution still owes, derived from its durable marks and the refund request's real state.
 export async function resumeResolution(b, booking, row, { operator = null } = {}) {
   const bookingId = booking.id, retailerId = booking.retailer_id;
-  let cur = row, refund = null, failed = null, escalated = false;
+  let cur = row, refund = null, failed = null, escalated = false, relinked = null;
+  const parked = async (parkedId, detail) => {
+    const esc = await escalateResolution(b, booking, cur, 'refund_request_parked', detail, parkedId);
+    cur = esc.row;
+    if (!esc.stale) { escalated = true; failed = 'refund_request_parked'; }
+    return esc.stale;
+  };
   try {
     if (cur.decision === 'refund_granted' && !cur.refund_request_id) {
       // ONE allocation-scoped refund: this booking's allocation, its remaining entitlement, a stable operation key; a
@@ -129,18 +144,39 @@ export async function resumeResolution(b, booking, row, { operator = null } = {}
       else if (refund.retrying && refund.refund_request_id) cur = await progress(b, bookingId, retailerId, 'refund_pending', { refund_request_id: refund.refund_request_id });
       else {
         const adopted = ['nothing_refundable', 'already_refunded', 'existing'].includes(String(refund.error || '')) ? await findGrantRequest(b, bookingId) : null;
-        if (adopted && REQUEST_TERMINAL.includes(adopted.status)) { cur = await escalateResolution(b, booking, { ...cur, refund_request_id: adopted.id }, 'refund_request_parked', 'request ' + adopted.id + ' is ' + adopted.status); escalated = true; failed = 'refund_request_parked'; return { row: cur, refund, failed, escalated }; }
-        if (adopted) { cur = await progress(b, bookingId, retailerId, REQUEST_SUBMITTED.includes(adopted.status) ? 'refund_submitted' : 'refund_pending', { refund_request_id: adopted.id }); refund = { ok: true, adopted: true, refund_request_id: adopted.id }; }
-        else { failed = 'refund:' + (refund.error || 'unknown'); cur = await progress(b, bookingId, retailerId, 'failed', { error: failed }); return { row: cur, refund, failed, escalated }; }
+        if (adopted && REQUEST_TERMINAL.includes(adopted.status)) {
+          cur = await progress(b, bookingId, retailerId, 'refund_pending', { refund_request_id: adopted.id }).catch(() => cur);   // link it if the RPC allows; a terminal request is refused, so the escalation names it
+          const stale = await parked(adopted.id, 'request ' + adopted.id + ' is ' + adopted.status);
+          if (!stale) return { row: cur, refund, failed, escalated, relinked };
+        } else if (adopted) { cur = await progress(b, bookingId, retailerId, REQUEST_SUBMITTED.includes(adopted.status) ? 'refund_submitted' : 'refund_pending', { refund_request_id: adopted.id }); refund = { ok: true, adopted: true, refund_request_id: adopted.id }; }
+        else { failed = 'refund:' + (refund.error || 'unknown'); cur = await progress(b, bookingId, retailerId, 'failed', { error: failed }); return { row: cur, refund, failed, escalated, relinked }; }
       }
     }
-    if (cur.decision === 'refund_granted' && cur.refund_request_id && !cur.refund_submitted_at) {
-      // R4-1: a linked request without a verified submitted mark is re-read on every resume, whatever the state label
+    // R4-1: a linked request without a verified submitted mark is re-read on every resume, whatever the state label.
+    // R5-1: a superseded link is followed to its authorized successor (relink), then judged again; a few rounds cover
+    // a replacement chain and a replacement that lands while this resume runs.
+    for (let round = 0; round < 4 && cur.decision === 'refund_granted' && cur.refund_request_id && !cur.refund_submitted_at; round++) {
       const rq = first(await sbGet(b, `refund_requests?id=eq.${encodeURIComponent(cur.refund_request_id)}&select=id,status`));
       if (!rq) throw new Error('refund_request_missing');
-      if (REQUEST_SUBMITTED.includes(rq.status)) cur = await progress(b, bookingId, retailerId, 'refund_submitted', { refund_request_id: cur.refund_request_id });
-      else if (REQUEST_TERMINAL.includes(rq.status)) { cur = await escalateResolution(b, booking, cur, 'refund_request_parked', 'request ' + rq.id + ' is ' + rq.status); escalated = true; failed = 'refund_request_parked'; return { row: cur, refund, failed, escalated }; }
-      // in flight: the refund worker's leased retry owns the resubmission; the other steps proceed, completion waits
+      if (rq.status === 'superseded') {
+        // an operator replaced the parked request through refund review (resolve_refund_replace). The resolution follows
+        // the authorized successor, derived and validated in the database; the refund worker owns its submission.
+        const rl = first(await sbRpc(b, 'booking_cancellation_relink', { p_booking_id: bookingId, p_retailer_id: retailerId }));
+        if (!rl || rl.outcome !== 'relinked') {
+          const stale = await parked(rq.id, 'request ' + rq.id + ' is superseded with no authorized successor (' + ((rl && rl.outcome) || 'no_result') + ')');
+          if (stale) continue;
+          return { row: cur, refund, failed, escalated, relinked };
+        }
+        cur = rl.resolution; relinked = { from: rl.previous_request_id, to: rl.request_id, status: rl.request_status };
+        continue;   // judge the successor
+      }
+      if (REQUEST_SUBMITTED.includes(rq.status)) { cur = await progress(b, bookingId, retailerId, 'refund_submitted', { refund_request_id: cur.refund_request_id }); break; }
+      if (REQUEST_TERMINAL.includes(rq.status)) {
+        const stale = await parked(rq.id, 'request ' + rq.id + ' is ' + rq.status);
+        if (stale) continue;   // a replacement relinked it meanwhile: judge the successor
+        return { row: cur, refund, failed, escalated, relinked };
+      }
+      break;   // in flight: the refund worker's leased retry owns the resubmission; the other steps proceed, completion waits
     }
     if (!cur.case_closed_at) cur = await progress(b, bookingId, retailerId, 'case_closed');
     if (!cur.brand_notified_at) cur = await progress(b, bookingId, retailerId, 'brand_notified');   // handed to the outbox (R4-3)
@@ -148,7 +184,12 @@ export async function resumeResolution(b, booking, row, { operator = null } = {}
     failed = String((e && e.message) || e).slice(0, 200);
     try { cur = await progress(b, bookingId, retailerId, 'failed', { error: failed }); } catch (_) { /* the row keeps its last mark; the worker retries */ }
   }
-  return { row: cur, refund, failed, escalated };
+  return { row: cur, refund, failed, escalated, relinked };
+}
+
+// An escalation is ACTIVE until it is re-armed (a replacement) or the resolution completes; escalated_at stays as audit.
+export function activeEscalation(row) {
+  return !!(row && row.escalated_at && !row.escalation_cleared_at && row.state !== 'completed');
 }
 
 export async function resolveCancellation(b, { booking, retailerId, operator, decision, reason }) {
@@ -171,23 +212,23 @@ export async function resolveCancellation(b, { booking, retailerId, operator, de
     return { ok: false, status: ['invalid_decision', 'reason_required'].includes(claim && claim.outcome) ? 400 : 409, error: (claim && claim.outcome) || 'claim_failed', decision: claim && claim.decision };
   }
   const existing = claim.outcome === 'existing';
-  let row = claim.resolution, refund = null, failed = null, escalated = false;
+  let row = claim.resolution, refund = null, failed = null, escalated = false, relinked = null;
   if (row.state !== 'completed') {
     // the winner runs its steps. A replay (same or opposite request) continues the STORED operation only when it is not
     // being worked right now: a row claimed within the grace window belongs to the request that claimed it (two
     // concurrent grants must not both resubmit), and the refund worker finishes anything left behind after the grace.
     const ageMs = Date.now() - Date.parse(row.updated_at || 0);
     const graceMs = Number(process.env.RESOLUTION_REPLAY_GRACE_SECONDS || 120) * 1000;
-    const mayResume = !existing || row.state === 'failed' || row.state === 'refund_pending' || !!row.escalated_at || !(ageMs < graceMs);   // an escalated row is finished by the operator's own replay
+    const mayResume = !existing || row.state === 'failed' || row.state === 'refund_pending' || activeEscalation(row) || !(ageMs < graceMs);   // an escalated row is finished by the operator's own replay
     if (mayResume) {
       const r = await resumeResolution(b, booking, row, { operator: existing ? null : operator });
-      row = r.row; refund = r.refund; failed = r.failed; escalated = r.escalated;
+      row = r.row; refund = r.refund; failed = r.failed; escalated = r.escalated; relinked = r.relinked;
     }
   }
   return { ok: true, status: 200, existing, requested: decision, decision_stored: row.decision, state: row.state, resolution: row,
-    outcome: row.state === 'completed' ? (existing ? 'existing' : 'resolved') : (row.escalated_at ? 'needs_review' : 'in_progress'),
+    outcome: row.state === 'completed' ? (existing ? 'existing' : 'resolved') : (activeEscalation(row) ? 'needs_review' : 'in_progress'),
     refund, refund_status: refundStatusOf(row), case_id: row.case_id || null, case_closed: !!row.case_closed_at, brand_notified: !!row.brand_notified_at,
-    escalated_case_id: row.escalated_case_id || null, failed };
+    escalated_case_id: row.escalated_case_id || null, escalation_active: activeEscalation(row), relinked: relinked || undefined, failed };
 }
 
 export async function sweepCancellationReviews(b, { limit = 25 } = {}) {
@@ -219,7 +260,7 @@ export async function sweepUnfinishedResolutions(b, { limit = 25, graceSeconds =
       if (!bk) { out.failed++; out.errors.push('resume: booking missing ' + row.booking_id); continue; }
       if (Number(row.attempts || 0) > attemptCap) {
         // R4-2: at the cap the work leaves automatic retries only through a recorded, deduplicated operator case
-        await escalateResolution(b, bk, row, 'retry_exhausted', 'last error: ' + String(row.last_error || 'none'));
+        await escalateResolution(b, bk, row, 'retry_exhausted', 'last error: ' + String(row.last_error || 'none'), null);
         out.escalated++; out.errors.push('escalated: ' + row.booking_id + ' after ' + row.attempts + ' attempts');
         continue;
       }

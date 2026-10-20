@@ -35,7 +35,8 @@ console.log('\n— admin cancel/refund wiring —');
 
 // 2. Cancel button + click handler + cancelDemoConfirm use booking_id, never the demo id
 {
-  const cancelBtn = slice('const cancelBtn = cancelled', 'js-reschedule-demo');
+  // the expression now starts with the Cancellation pending pill (0106/0107); the whole assignment is selected
+  const cancelBtn = slice('const cancelBtn = ', 'js-reschedule-demo');
   check('the Cancel button carries data-booking-id from d.booking_id',
     /data-booking-id="'\s*\+\s*escapeHtml\(String\(d\.booking_id\)\)/.test(cancelBtn), 'cancel button not keyed on booking_id');
   check('the Cancel button does NOT use the demo id (d.id) as its identifier',

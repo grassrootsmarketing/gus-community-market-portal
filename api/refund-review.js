@@ -122,7 +122,13 @@ export default async function handler(req, res) {
       if (!look.ok) return res.status(502).json({ error: 'stripe_lookup_failed', detail: look.error });
       if (look.match) return res.status(409).json({ error: 'stripe_refund_exists', stripe_refund_id: look.match.id, hint: 'use action=adopt' });
       const r = await sbRpc('resolve_refund_replace', { p_op_key: opKey, p_operator: auth.email, p_retailer_id: auth.retailer_id, p_evidence: evidence });
-      return res.status(r && r.outcome === 'replacement_created' ? 200 : 409).json(r);
+      // R5-1: a replaced request under a cancellation resolution's grant re-arms that resolution now (the worker also
+      // re-arms it on its own: the selector picks a superseded link even while the escalation is active)
+      let relink = null;
+      if (r && r.outcome === 'replacement_created' && /:review_grant$/.test(opKey)) {
+        try { const rl = await sbRpc('booking_cancellation_relink', { p_booking_id: op.booking_id, p_retailer_id: auth.retailer_id }); relink = rl && rl.outcome; } catch (_) { relink = 'deferred_to_worker'; }
+      }
+      return res.status(r && r.outcome === 'replacement_created' ? 200 : 409).json(relink ? { ...r, resolution_relink: relink } : r);
     }
 
     return res.status(400).json({ error: 'unknown action' });
@@ -150,6 +156,10 @@ async function handleCancellationResolution(req, res, auth, body, action) {
       const cur = await loadCancellation(_b, bookingId);
       const st = resolutionState({ booking, decision: cur.decision, resolution: cur.resolution });
       return res.status(200).json({ ok: true, booking_id: bookingId, status: booking.status, payment_status: booking.payment_status, decision: cur.decision, resolution: cur.resolution, review_case: cur.reviewCase, resolvable: st.resolvable, why: st.why, refund_status: refundStatusOf(cur.resolution) });
+    }
+    if (process.env.CANCELLATION_RESOLUTION_QUIESCE === 'true') {
+      // R5-3: the rollback procedure stops every producer of resolution work before draining the outbox
+      return res.status(503).json({ error: 'resolution_quiesced', message: 'Refund decisions are paused for maintenance. Try again shortly.' });
     }
     const decision = action === 'grant' ? 'refund_granted' : 'no_refund';
     const reason = String(body.reason || '').trim();
