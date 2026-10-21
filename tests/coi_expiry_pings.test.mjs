@@ -207,6 +207,14 @@ try {
     const d3Def = (await rowsFor(EXP1)).find(x => x.id === d3r.id);
     ok('OFF: a COI row handed to the worker is deferred back to pending with no provider call, its frozen payload (from the earlier send) untouched', rDef.outcome === 'deferred' && rDef.reason === 'coi_expiry_disabled' && d3Def.status === 'pending' && d3Def.claim_token === null && JSON.stringify(d3Def.frozen_payload) === JSON.stringify(d3Off.frozen_payload) && recOff.calls.length === 0, JSON.stringify(rDef));
     delete ENV.COI_EXPIRY_PINGS_ENABLED;
+    // The heartbeat: a worker run with the switch off records coi_expiry { enabled:false, held } (the route is the
+    // real one; Resend is spied, so any send of another kind this run makes is contained).
+    const hbBefore = ((await db('cron_heartbeat?cron_name=eq.notification-worker&select=id&order=ran_at.desc&limit=1')).body || [])[0];
+    const wr = await callRoute('notification-worker.js', req({ method: 'GET', headers: { authorization: 'Bearer ' + ENV.CRON_SECRET } }));
+    const hbOff = ((await db('cron_heartbeat?cron_name=eq.notification-worker&select=id,outcome,summary&order=ran_at.desc&limit=1')).body || [])[0];
+    ok('OFF: the worker route ran and its heartbeat summary reports coi_expiry enabled:false with the held count, no scheduling', wr.statusCode === 200 && hbOff && (!hbBefore || hbOff.id !== hbBefore.id) && hbOff.summary && hbOff.summary.coi_expiry && hbOff.summary.coi_expiry.enabled === false && hbOff.summary.coi_expiry.held >= 1 && hbOff.summary.coi_expiry.brands === 0, JSON.stringify({ status: wr.statusCode, before: hbBefore && hbBefore.id, after: hbOff && hbOff.id, outcome: hbOff && hbOff.outcome, coi: hbOff && hbOff.summary && hbOff.summary.coi_expiry, body_coi: wr.body && wr.body.coi_expiry }));
+    const d3AfterRoute = (await rowsFor(EXP1)).find(x => x.id === d3r.id);
+    ok('OFF: that worker run left the due COI row pending (not claimed, not sent)', d3AfterRoute.status === 'pending' && d3AfterRoute.claim_token === null, d3AfterRoute.status);
     const offRes = await callRoute('admin-auth.js', req({ body: { action: 'owner-coi-expiring' }, cookies: { dh_owner_session: ownerCookie } }));
     ok('OFF: the panel action still lists the brand and reports enabled:false', offRes.statusCode === 200 && offRes.body.enabled === false && Array.isArray(offRes.body.expiring) && offRes.body.expiring.some(x => x.brand_id === brandId), JSON.stringify([offRes.statusCode, offRes.body && offRes.body.enabled]));
     ENV.COI_EXPIRY_PINGS_ENABLED = 'true'; process.env.COI_EXPIRY_PINGS_ENABLED = 'true';

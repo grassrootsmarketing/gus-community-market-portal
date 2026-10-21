@@ -11,6 +11,7 @@ import { installSpy, callRoute, req, ok, summary, uniq, ENV } from './_route.mjs
 import { STANDARD } from './_fixture_availability.mjs';
 import pg from 'pg';
 process.env.CHECKOUT_ENABLED = 'true'; process.env.BRAND_INVITE_ENABLED = 'true';
+ENV.BRAND_INVITE_ENABLED = 'true';   // flags read at request time since 2026-10-21: the harness ENV must carry the switch the line above always meant
 ENV.BRAND_INVITE_ENABLED = 'true';
 const { hashCode } = await import('../api/_verify.js');
 const { Client } = pg;

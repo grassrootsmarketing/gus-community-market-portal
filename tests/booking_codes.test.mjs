@@ -6,6 +6,8 @@ import { STANDARD } from './_fixture_availability.mjs';
 import { generateCode, normalizeCode, validateCreate, kindOf } from '../api/_booking-codes.js';
 // api/_flags.js reads env once per process: checkout + provisional holds must be on BEFORE the first route import.
 process.env.CHECKOUT_ENABLED = 'true'; process.env.PROVISIONAL_HOLDS_ENABLED = 'true';
+// Flags are read at request time since 2026-10-21 (api/_flags.js getters), so the harness ENV the routes run under must carry the holds switch too, as process.env above always meant it to.
+ENV.PROVISIONAL_HOLDS_ENABLED = 'true';
 const { earliestBookableYmd } = await import('../api/book.js');
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
