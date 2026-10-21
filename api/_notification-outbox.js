@@ -44,7 +44,7 @@ import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notificatio
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
 import {
   FROM_ADDRESS, REPLY_TO, buildContext, confirmedMessage, reminderMessage, cancelledMessage, rescheduledMessage,
-  coiApprovedMessage, coiRejectedMessage, receiptMessage, coiExpiryOwnerMessage,
+  coiApprovedMessage, coiRejectedMessage, receiptMessage, demoMovedMessage, moveReminderMessage, demoMoveCancelledMessage, refundResolutionMessage, coiExpiryOwnerMessage,
 } from './_notification-mail.js';
 import {
   COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS, OWNER_TZ, coiExpiryWindow, coiExpiryOffsetKey,
@@ -59,6 +59,20 @@ import {
 export const COI_EXPIRY_KINDS = [COI_EXPIRY_KIND];
 
 export const LIFECYCLE_KINDS = ['demo_confirmed', 'demo_cancelled', 'demo_rescheduled'];
+// Retailer-initiated demo moves (0094, 2026-10-16). The brand hears three things, all through here:
+//   demo_moved            the store moved your demo, confirm by <deadline> (event written by the move RPC);
+//   demo_move_reminder    worker-scheduled nudges at +24h and +48h after the move while unanswered (no event);
+//   demo_move_cancelled   it was cancelled (you declined, or the deadline passed) and the refund was submitted
+//                         (event written by the settlement, api/_booking-moves.js).
+// Every one is rechecked against the CURRENT move row and booking at dispatch: a move the brand has
+// answered, a booking moved again (superseded) or cancelled, never produces a stale email.
+export const MOVE_KINDS = ['demo_moved', 'demo_move_cancelled'];
+// Codex R4-3 (2026-10-19): the store's refund resolution on a cancelled booking, the brand owner's notice.
+export const RESOLUTION_KINDS = ['refund_resolution'];
+export const MOVE_REMINDER_KIND = 'demo_move_reminder';
+export const MOVE_REMINDER_OFFSETS = [{ key: 'h24', ms: 24 * 60 * 60 * 1000 }, { key: 'h48', ms: 48 * 60 * 60 * 1000 }];
+export const MOVE_REMINDER_CATCHUP_MS = 6 * 60 * 60 * 1000;
+export const MOVE_REMINDER_MIN_LEAD_MS = 60 * 60 * 1000;   // a nudge due within an hour of the deadline is pointless
 export const COI_KINDS = ['coi_approved', 'coi_rejected'];
 // Codex H2 (2026-09-12): the operator's "a brand actually booked" notice. One event per booking
 // (0080 trigger on the first verified payment state), one delivery to the fixed owner address; the
@@ -225,6 +239,11 @@ async function loadOne(b, cache, table, id, select = '*') {
   return row;
 }
 // Fresh (uncached) read, used by the dispatch recheck, which must see the CURRENT state.
+// the resolution row is keyed by booking_id, not id (Codex R4-3)
+async function loadResolution(b, bookingId) {
+  const rows = await sb(b, `booking_cancellation_resolutions?booking_id=eq.${enc(bookingId)}&select=*`);
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
+}
 async function loadFresh(b, table, id, select = '*') {
   if (!id) return null;
   const rows = rowsOf(await sb(b, `${table}?id=eq.${enc(id)}&select=${select}`), table);
@@ -378,6 +397,51 @@ async function fanOutOne(b, cache, ev, now) {
       event_id: ev.id, retailer_id: group.retailer_id, booking_id: null,
       recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
       kind: ev.kind, offset_key: null, occurrence_key: null,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }));
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (MOVE_KINDS.includes(ev.kind)) {
+    const moveId = (payload && payload.move_id) || String(ev.transition_id || '').split(':')[0];
+    const move = await loadFresh(b, 'booking_moves', moveId);
+    if (!move) { await markFannedOut(b, ev, now, 'move_missing'); return { deliveries: 0, skipped: true }; }
+    if (ev.booking_id && move.booking_id !== ev.booking_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
+    // A moved notice for a move that is no longer waiting on the brand is stale before it is sent.
+    if (ev.kind === 'demo_moved' && move.status !== 'pending') { await markFannedOut(b, ev, now, `skipped_move_${move.status}`); return { deliveries: 0, skipped: true }; }
+    const booking = await loadFresh(b, 'bookings', move.booking_id, 'id,brand_id,retailer_id,status');
+    if (!booking) { await markFannedOut(b, ev, now, 'booking_missing'); return { deliveries: 0, skipped: true }; }
+    const brand = await loadFresh(b, 'brands', booking.brand_id || move.brand_id, 'id,email,company_name');
+    if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
+    const recipients = await brandRecipients(b, brand);
+    const rows = recipients.map(r => ({
+      event_id: ev.id, retailer_id: move.retailer_id, booking_id: move.booking_id,
+      recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+      kind: ev.kind, offset_key: null, occurrence_key: move.id,
+      dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
+      due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
+    }));
+    const n = await insertDeliveries(b, rows);
+    await markFannedOut(b, ev, now, recipients.length ? null : 'no_recipients');
+    return { deliveries: n, skipped: false };
+  }
+  if (RESOLUTION_KINDS.includes(ev.kind)) {
+    // the recipients are the brand account owner(s), resolved now and re-checked at send time; a booker, a pending or a
+    // revoked member never receives this notice, whoever made the booking
+    const resolution = await loadResolution(b, ev.booking_id);
+    if (!resolution) { await markFannedOut(b, ev, now, 'resolution_missing'); return { deliveries: 0, skipped: true }; }
+    const booking = await loadFresh(b, 'bookings', ev.booking_id, 'id,brand_id,retailer_id,status');
+    if (!booking) { await markFannedOut(b, ev, now, 'booking_missing'); return { deliveries: 0, skipped: true }; }
+    if (ev.retailer_id && booking.retailer_id !== ev.retailer_id) { await markFannedOut(b, ev, now, 'tenant_mismatch'); return { deliveries: 0, skipped: true }; }
+    const brand = await loadFresh(b, 'brands', booking.brand_id, 'id,email,company_name');
+    if (!brand) { await markFannedOut(b, ev, now, 'brand_missing'); return { deliveries: 0, skipped: true }; }
+    const recipients = await brandRecipients(b, brand);
+    const rows = recipients.map(r => ({
+      event_id: ev.id, retailer_id: booking.retailer_id, booking_id: booking.id,
+      recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+      kind: ev.kind, offset_key: null, occurrence_key: booking.id,
       dedupe_key: `${ev.kind}:${ev.transition_id}:brand:${r.recipient_id}`,
       due_at: now.toISOString(), expires_at: null, status: 'pending', attempts: 0,
     }));
@@ -542,6 +606,51 @@ async function insertDeliveriesRows(b, rows) {
   });
   return Array.isArray(inserted) ? inserted : [];
 }
+// 2c. MOVE REMINDERS: unanswered retailer moves x brand recipients x +24h / +48h after the move.
+// ---------------------------------------------------------------------------
+// Rows are keyed on the move id, so a second move of the same booking (which supersedes the first)
+// gets its own nudges and the first move's rows are skipped at dispatch ('move_superseded'). A nudge
+// whose time is already past when first scheduled is recorded skipped 'due_before_scheduling'; one
+// that would land within an hour of the deadline is recorded skipped 'too_close_to_deadline'.
+export async function scheduleMoveReminders(b, { now = new Date(), limit = 200 } = {}) {
+  const out = { moves: 0, rows_pending: 0, rows_skipped: 0, errors: [] };
+  let moves;
+  try { moves = rowsOf(await sb(b, `booking_moves?status=eq.pending&reconfirm_due_at=gt.${enc(now.toISOString())}&select=id,booking_id,retailer_id,brand_id,moved_at,reconfirm_due_at&order=moved_at.asc&limit=${limit}`), 'booking_moves'); }
+  catch (e) { out.errors.push(`moves:${errCode(e)}`); return out; }
+  for (const m of moves) {
+    out.moves++;
+    try {
+      const booking = await loadFresh(b, 'bookings', m.booking_id, 'id,brand_id,status');
+      if (!booking || !['pending', 'confirmed'].includes(String(booking.status || ''))) continue;
+      const brand = await loadFresh(b, 'brands', booking.brand_id || m.brand_id, 'id,email,company_name');
+      if (!brand) continue;
+      const recipients = await brandRecipients(b, brand);
+      const movedAt = new Date(m.moved_at).getTime(), due = new Date(m.reconfirm_due_at).getTime();
+      const rows = [];
+      for (const r of recipients) {
+        for (const off of MOVE_REMINDER_OFFSETS) {
+          const dueAt = new Date(movedAt + off.ms);
+          const row = {
+            event_id: null, retailer_id: m.retailer_id, booking_id: m.booking_id,
+            recipient_kind: 'brand', recipient_id: r.recipient_id, recipient_email: r.email,
+            kind: MOVE_REMINDER_KIND, offset_key: off.key, occurrence_key: m.id,
+            dedupe_key: `${MOVE_REMINDER_KIND}:${m.id}:brand:${r.recipient_id}:${off.key}`,
+            attempts: 0, due_at: dueAt.toISOString(), expires_at: new Date(Math.min(dueAt.getTime() + MOVE_REMINDER_CATCHUP_MS, due)).toISOString(), status: 'pending', skip_reason: null,
+          };
+          if (dueAt.getTime() + MOVE_REMINDER_MIN_LEAD_MS >= due) Object.assign(row, { status: 'skipped', skip_reason: 'too_close_to_deadline' });
+          else if (dueAt.getTime() <= now.getTime()) Object.assign(row, { status: 'skipped', skip_reason: 'due_before_scheduling' });
+          rows.push(row);
+        }
+      }
+      if (!rows.length) continue;
+      const inserted = await sb(b, 'notification_deliveries?on_conflict=dedupe_key', {
+        method: 'POST', headers: { Prefer: 'return=representation,resolution=ignore-duplicates' }, body: JSON.stringify(rows),
+      });
+      for (const r of (Array.isArray(inserted) ? inserted : [])) { if (r.status === 'skipped') out.rows_skipped++; else out.rows_pending++; }
+    } catch (e) { out.errors.push(`move_reminders:${errCode(e)}`); }
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // 3. DISPATCH: claim due rows, recheck, freeze, send, record.
@@ -634,6 +743,78 @@ async function recheckAndBuild(b, cache, row, now, { replay = false } = {}) {
     return { ok: true, to, message };
   }
 
+  if (row.recipient_kind === 'brand' && (MOVE_KINDS.includes(row.kind) || row.kind === MOVE_REMINDER_KIND)) {
+    // Judged on the CURRENT move row and booking. occurrence_key is the move id for all three kinds.
+    const move = await loadFresh(b, 'booking_moves', row.occurrence_key);
+    if (!move) return { skip: 'move_missing' };
+    if (row.booking_id && move.booking_id !== row.booking_id) return { skip: 'tenant_mismatch' };
+    const booking = await loadFresh(b, 'bookings', move.booking_id);
+    if (!booking) return { skip: 'booking_missing' };
+    if (row.retailer_id && booking.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    const active = ['pending', 'confirmed'].includes(String(booking.status || ''));
+    if (row.kind === 'demo_move_cancelled') {
+      if (!['declined', 'lapsed'].includes(move.status)) return { skip: `move_${move.status}` };
+      if (active) return { skip: 'booking_still_active' };
+    } else {
+      if (move.status !== 'pending') return { skip: `move_${move.status}` };
+      if (!active) return { skip: `booking_${booking.status || 'not_active'}` };
+      if (Number(booking.schedule_revision == null ? 1 : booking.schedule_revision) !== Number(move.schedule_revision)) return { skip: 'rescheduled' };
+      if (row.kind === MOVE_REMINDER_KIND && row.expires_at && new Date(row.expires_at).getTime() < now.getTime()) return { skip: 'expired' };
+      if (new Date(move.reconfirm_due_at).getTime() <= now.getTime()) return { skip: 'deadline_passed' };
+    }
+    const brand = await loadFresh(b, 'brands', booking.brand_id || move.brand_id, 'id,email,company_name,contact_name');
+    if (!brand) return { skip: 'brand_missing' };
+    let to = null;
+    if (row.recipient_id === brand.id) to = brand.email;
+    else {
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
+      if (!member) return { skip: 'recipient_deleted' };
+      if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      // Codex final review F1 (2026-10-19): the move notices are the OWNER's. Re-read at send time, and again on a
+      // frozen-payload retry (this check runs before the replay return): a booker, a pending or a revoked row, or a
+      // row that lost its role after the delivery was queued, never receives one. Skipped with its reason; the
+      // frozen content is never forwarded to a different person.
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      to = member.email;
+    }
+    to = String(to || '').trim();
+    if (!to) return { skip: 'recipient_no_email' };
+    if (replay) return { ok: true, to };
+    const retailer = await loadOne(b, cache, 'retailers', booking.retailer_id, 'id,name,slug,timezone');
+    const venue = booking.venue_id ? await loadOne(b, cache, 'venues', booking.venue_id, 'id,name,address') : null;
+    const ctx = { brand, retailer, venue, booking, move, now };
+    const message = row.kind === 'demo_moved' ? demoMovedMessage(b, ctx)
+      : row.kind === MOVE_REMINDER_KIND ? moveReminderMessage(b, ctx)
+      : demoMoveCancelledMessage(b, ctx);
+    return { ok: true, to, message };
+  }
+  if (row.recipient_kind === 'brand' && RESOLUTION_KINDS.includes(row.kind)) {
+    // Judged on the CURRENT resolution, booking and membership. On a frozen-payload replay the recipient checks run and
+    // nothing is rebuilt: the same content goes to the same person under the same key, or it is skipped with its reason.
+    const resolution = await loadResolution(b, row.booking_id);
+    if (!resolution) return { skip: 'resolution_missing' };
+    const booking = await loadFresh(b, 'bookings', row.booking_id);
+    if (!booking) return { skip: 'booking_missing' };
+    if (row.retailer_id && booking.retailer_id !== row.retailer_id) return { skip: 'tenant_mismatch' };
+    const brand = await loadFresh(b, 'brands', booking.brand_id, 'id,email,company_name,contact_name');
+    if (!brand) return { skip: 'brand_missing' };
+    let to = null;
+    if (row.recipient_id === brand.id) to = brand.email;
+    else {
+      const member = await loadFresh(b, 'brand_members', row.recipient_id, 'id,brand_id,email,role,status');
+      if (!member) return { skip: 'recipient_deleted' };
+      if (member.brand_id !== brand.id) return { skip: 'tenant_mismatch' };
+      if (member.role !== 'owner' || member.status !== 'accepted') return { skip: 'recipient_not_owner' };
+      to = member.email;
+    }
+    to = String(to || '').trim();
+    if (!to) return { skip: 'recipient_no_email' };
+    if (replay) return { ok: true, to };
+    const retailer = await loadOne(b, cache, 'retailers', booking.retailer_id, 'id,name,slug,timezone');
+    const venue = booking.venue_id ? await loadOne(b, cache, 'venues', booking.venue_id, 'id,name,address') : null;
+    const message = refundResolutionMessage(b, { brand, retailer, venue, booking, resolution, now });
+    return { ok: true, to, message };
+  }
   if (row.recipient_kind === 'brand' && RECEIPT_KINDS.includes(row.kind)) {
     // Judged on the CURRENT ledger row: the group must still be settled (paid, or paid then refunded),
     // the brand must still own it, and the recipient must still belong to the brand. Figures come from
@@ -977,9 +1158,10 @@ export async function runWorker(b, { now = new Date(), mailer = sendMail, budget
   await step('fanout', () => fanOutEvents(b, { now, cache, batch: budgets.fanoutBatch }));
   await step('schedule', () => scheduleReminders(b, { now, cache, batch: budgets.scheduleBatch }));
   await step('dispatch', () => dispatchDue(b, { now, clock, cache, mailer, batch: budgets.dispatchBatch, maxAttempts: budgets.maxAttemptsPerRun, sendTimeoutMs: budgets.sendTimeoutMs }));
+  await step('move_reminders', () => scheduleMoveReminders(b, { now }));
   await step('coi_expiry', () => scheduleCoiExpiryPings(b, { now }));
   await step('metrics', () => collectMetrics(b, { now }));
-  for (const k of ['fanout', 'schedule', 'coi_expiry', 'dispatch']) if (summary[k] && Array.isArray(summary[k].errors)) summary[k].errors = summary[k].errors.length;
+  for (const k of ['fanout', 'schedule', 'move_reminders', 'coi_expiry', 'dispatch']) if (summary[k] && Array.isArray(summary[k].errors)) summary[k].errors = summary[k].errors.length;
   summary.errors = errors.length;
   summary.first_error = errors.length ? String(errors[0]).slice(0, 200) : null;
   summary.ok = errors.length === 0;

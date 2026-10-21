@@ -32,6 +32,19 @@ import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availab
 // ---------------------------------------------------------------------------
 const ORIG_ENV = { ...process.env };
 const { SB_URL, SB_KEY, SB_REF, STRIPE_TEST_SECRET_KEY } = process.env;
+// Codex refund-cutoff R2-5 (2026-10-19): the Stripe sandbox webhook endpoint (GROUPED_WEBHOOK=we_...) points at the
+// preview deployment, which is bound to this same test project. Left enabled, Stripe delivers the real paid events
+// there first; the suite's local replay is then a duplicate ack (no PaymentIntent retrieval, no mail) and the two
+// webhook assertions fail for that reason alone. The endpoint is paused for the run and restored afterwards.
+const GROUPED_WEBHOOK = process.env.GROUPED_WEBHOOK || null;
+let webhookPaused = false;
+async function setSandboxWebhook(enabled) {
+  if (!GROUPED_WEBHOOK) return null;
+  const r = await fetch('https://api.stripe.com/v1/webhook_endpoints/' + encodeURIComponent(GROUPED_WEBHOOK), { method: 'POST',
+    headers: { Authorization: 'Bearer ' + STRIPE_TEST_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'disabled=' + (enabled ? 'false' : 'true') });
+  const j = await r.json().catch(() => ({}));
+  return j.status || (j.error && j.error.message) || ('HTTP ' + r.status);
+}
 const refuse = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
 if (!SB_URL || !SB_KEY || !SB_REF) refuse('SB_URL, SB_KEY, SB_REF are required');
 if (SB_REF !== 'tileejdviuvijumjeplv') refuse(`SB_REF must be the rebuilt staging project (got ${SB_REF.slice(0, 4)}…)`);
@@ -421,7 +434,7 @@ async function run() {
   // ---- 6. Cancel A -> REAL partial refund of A's allocation only ----------------------------
   console.log('\n— 6: cancel A (shipped admin payload) -> real Stripe refund of 700 —');
   const stripeBeforeA = calls.stripe.length;
-  const cA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel A -> 200, refund_status=submitted, demo_cancelled=true', cA.statusCode === 200 && cA.body && cA.body.refund_status === 'submitted' && cA.body.demo_cancelled === true, `${cA.statusCode} ${JSON.stringify(cA.body).slice(0, 200)}`);
   const routeStripeA = calls.stripe.slice(stripeBeforeA);
   ok('the cancel made exactly ONE Stripe write: POST /v1/refunds', routeStripeA.filter(c => c.method === 'POST').length === 1 && routeStripeA.filter(c => c.method === 'POST')[0].url.endsWith('/v1/refunds'), JSON.stringify(routeStripeA));
@@ -464,7 +477,7 @@ async function run() {
     const w = await postWebhook(e);
     ok(`re-posting ${e.type} is a duplicate no-op`, w.statusCode === 200 && w.body && w.body.duplicate === true, JSON.stringify(w.body));
   }
-  const cA2 = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cA2 = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('replaying the cancel of A is refused (409 already cancelled)', cA2.statusCode === 409, `${cA2.statusCode} ${JSON.stringify(cA2.body)}`);
   const wk = await callRoute('refund-worker.js', req({ method: 'POST', headers: { authorization: 'Bearer harness-cron-secret' } }));
   ok('refund-worker runs clean with nothing to resubmit (claimed 0, resubmitted 0)', wk.statusCode === 200 && wk.body && wk.body.claimed === 0 && wk.body.resubmitted === 0, `${wk.statusCode} ${JSON.stringify(wk.body).slice(0, 200)}`);
@@ -476,7 +489,7 @@ async function run() {
 
   // ---- 8. Cancel B -> second refund; total == capture; group refunded ------------------------
   console.log('\n— 8: cancel B -> total refunds == original capture —');
-  const cB = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cB = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel B -> 200, refund_status=submitted, demo_cancelled=true', cB.statusCode === 200 && cB.body && cB.body.refund_status === 'submitted' && cB.body.demo_cancelled === true, `${cB.statusCode} ${JSON.stringify(cB.body).slice(0, 200)}`);
   const refundsB = ((await stripe(`/v1/refunds?payment_intent=${encodeURIComponent(piId)}&limit=100`)).body || {}).data || [];
   const reB = refundsB.find(r => r.id !== reA.id);
@@ -502,7 +515,7 @@ async function run() {
   // ---- 9. Over-refund impossible -------------------------------------------------------------
   console.log('\n— 9: over-refund is refused everywhere —');
   const stripeBeforeOver = calls.stripe.length;
-  const cB2 = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel' }, cookies: { dh_retailer_session: retailerCookie } }));
+  const cB2 = await callRoute('booking-action.js', req({ body: { booking_id: B, action: 'cancel', category: 'brand_requested' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('cancel B again -> 409 (already cancelled), no Stripe call', cB2.statusCode === 409 && calls.stripe.slice(stripeBeforeOver).length === 0, `${cB2.statusCode}`);
   const dA = await callRoute('booking-action.js', req({ body: { booking_id: A, action: 'decline' }, cookies: { dh_retailer_session: retailerCookie } }));
   ok('decline A (alternate refund op) -> 409 (already cancelled), no Stripe call', dA.statusCode === 409 && calls.stripe.slice(stripeBeforeOver).length === 0, `${dA.statusCode}`);
@@ -616,12 +629,15 @@ async function teardown() {
 }
 
 let runErr = null;
+if (GROUPED_WEBHOOK) { const st = await setSandboxWebhook(false); webhookPaused = st === 'disabled'; console.log('sandbox webhook ' + GROUPED_WEBHOOK + ' paused: ' + st); }
+else console.log('note: GROUPED_WEBHOOK not set; if the sandbox endpoint delivers to the preview first, the local webhook replay is a duplicate ack');
 try { await run(); }
 catch (e) { runErr = e; console.error('E2E ERROR', (e && e.stack) || e, e && e.cause ? `cause: ${e.cause.code || ''} ${e.cause.message || ''}` : ''); state.fail++; state.fails.push('run aborted: ' + String(e && e.message || e)); }
 finally {
   try { writeEvidence(runErr); } catch (e) { console.error('evidence write failed', e); }
   await teardown();
   globalThis.fetch = realFetch;
+  if (webhookPaused) { const st = await setSandboxWebhook(true); console.log('sandbox webhook restored: ' + st); }
 }
 const green = summary('stripe test-mode grouped e2e');
 process.exit(green ? 0 : 1);

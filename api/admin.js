@@ -15,6 +15,7 @@ import { readCookies, getSessionToken } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { validateNotificationPrefs, normalizePrefs } from './_notification-prefs.js';
 import { isValidZone, parseYmd } from './_local-time.js';
+import { isCancellationMode, cancellationPolicyFor } from './_refund-cutoff.js';
 import { validateSlots } from './_slots.js';
 import { FLAGS } from './_flags.js';
 let _b = null;
@@ -289,7 +290,7 @@ export default async function handler(req, res) {
       const callerIsViewer = _callerRoleStr === 'viewer';
       const viewerVenueIds = (callerIsViewer && Array.isArray(_mem.venue_ids) && _mem.venue_ids.length > 0) ? _mem.venue_ids : null;
       const [retailerArr, venues, brandContacts, internalContacts, demos, settingsArr, compliance, bookings] = await Promise.all([
-        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key,verification_status,is_demo,platform_keeps_all`),   // platform_keeps_all (2026-10-16): the Settings fee card and the Billing statement draw the pilot arrangement from it; without it a keeps-all pilot showed the standard $5 split
+        sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,name,branding,demo_policy,cancellation_policy,logo_url,billing_status,billing_tier,monthly_summary_enabled,cal_feed_key,verification_status,is_demo,platform_keeps_all,timezone`),   // platform_keeps_all (2026-10-16): the Settings fee card and the Billing statement draw the pilot arrangement from it; without it a keeps-all pilot showed the standard $5 split
         sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=display_order`),
         sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
         sb(`internal_contacts?retailer_id=eq.${encodeURIComponent(rid)}&select=*&order=name`),
@@ -308,6 +309,28 @@ export default async function handler(req, res) {
         filteredBookings = (bookings || []).filter(b => scopeSet.has(b.venue_id));
         filteredVenues = (venues || []).filter(v => scopeSet.has(v.id));
       }
+      // 0094: a retailer-initiated move still waiting on the brand rides on its demo as pending_move so the
+      // calendar can say "moved, awaiting the brand's reconfirmation by <deadline>".
+      try {
+        const mv = await sb(`booking_moves?retailer_id=eq.${encodeURIComponent(rid)}&status=eq.pending&select=id,booking_id,to_date,to_time,note,moved_at,reconfirm_due_at`);
+        const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
+        if (byBooking.size) filteredDemos = (filteredDemos || []).map(d => (d && d.booking_id && byBooking.has(d.booking_id)) ? { ...d, pending_move: byBooking.get(d.booking_id) } : d);
+      } catch (_) { /* non-fatal: the badge is simply absent */ }
+      // Codex refund-cutoff R2-2 (2026-10-19): cancelled bookings carry their recorded cancellation decision and, when
+      // the refund was left undecided, the operator's resolution (if any), so the admin can show "Grant refund /
+      // No refund" on exactly the rows that still owe an answer. Non-fatal: the buttons are simply absent.
+      let cancellations = [], cancellationResolutions = [];
+      try {
+        const cancelledIds = (filteredBookings || []).filter(b => ['cancelled', 'declined'].includes(String(b.status || ''))).map(b => b.id);
+        if (cancelledIds.length) {
+          const inList = cancelledIds.map(encodeURIComponent).join(',');
+          [cancellations, cancellationResolutions] = await Promise.all([
+            sb(`booking_cancellations?booking_id=in.(${inList})&select=booking_id,category,requested_at,decided_at,cancellation_mode,hours_before_demo,refund,status,reason,force_refund`),
+            sb(`booking_cancellation_resolutions?booking_id=in.(${inList})&select=booking_id,decision,operator,reason,resolved_at,refund_request_id,case_id,state,refund_submitted_at,escalated_at,escalation_cleared_at`),
+          ]);
+          cancellations = Array.isArray(cancellations) ? cancellations : []; cancellationResolutions = Array.isArray(cancellationResolutions) ? cancellationResolutions : [];
+        }
+      } catch (_) { cancellations = []; cancellationResolutions = []; }
       // Enrich HELD (provisional-hold) bookings with the brand's real COI verification status so the
       // admin inbox can distinguish "ready to confirm" (COI approved → Confirm captures) from "still
       // pending". Without this the badge was a hardcoded "COI pending" that never updated on approval.
@@ -385,9 +408,11 @@ export default async function handler(req, res) {
         settings: settingsObj,
         compliance: compliance || [],
         bookings: filteredBookings,
+        cancellations,
+        cancellation_resolutions: cancellationResolutions,
         viewer_venue_ids: viewerVenueIds || null,
         // Release B: the admin shows the slot/blackout editors only while editing is switched on.
-        features: { slot_editing: FLAGS.slotEditing },
+        features: { slot_editing: FLAGS.slotEditing, retailer_moves: FLAGS.retailerMoves },
       });
     } catch (e) {
       return send(res, 500, { error: 'admin-data read failed: ' + (e?.message || e) });
@@ -577,6 +602,24 @@ export default async function handler(req, res) {
       }
       if ('timezone' in safe && !isValidZone(safe.timezone)) {
         return send(res, 400, { error: 'invalid_timezone', message: 'timezone must be an IANA zone such as America/Los_Angeles.' });
+      }
+      // 2026-10-18: only the two modes api/_refund-cutoff.js reads may be stored. The legacy '14_day_refund' is
+      // refused on WRITE (the admin page no longer sends it); existing rows keep reading as refundable.
+      if ('cancellation_mode' in safe && !isCancellationMode(safe.cancellation_mode)) {
+        return send(res, 400, { error: 'invalid_cancellation_mode', message: "cancellation_mode must be 'refundable' (automatic refund when the demo is at least 72 hours away) or 'non_refundable'." });
+      }
+      // Codex RC-2 (2026-10-18): the mode and the sentence brands sign are one write. The server generates the
+      // standard sentence for the mode; a supplied sentence must be exactly that one; a sentence without its mode
+      // is refused. Prose is never interpreted, so a stale refundable sentence cannot sit under non-refundable money.
+      if ('cancellation_mode' in safe) {
+        const wanted = cancellationPolicyFor(safe.cancellation_mode);
+        const given = 'cancellation_policy' in safe ? String(safe.cancellation_policy == null ? '' : safe.cancellation_policy).trim() : '';
+        if (given && given !== wanted) {
+          return send(res, 400, { error: 'policy_text_mismatch', message: 'cancellation_policy must be the standard sentence for the chosen cancellation_mode; the server writes it for you when it is omitted.', expected: wanted });
+        }
+        safe.cancellation_policy = wanted;
+      } else if ('cancellation_policy' in safe) {
+        return send(res, 400, { error: 'policy_text_requires_mode', message: 'cancellation_policy is written together with cancellation_mode; send both.' });
       }
       req.body = JSON.stringify(safe);
     } catch (_) { return send(res, 400, { error: 'Invalid body' }); }

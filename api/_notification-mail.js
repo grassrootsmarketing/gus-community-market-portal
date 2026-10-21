@@ -326,6 +326,128 @@ export function coiExpiryOwnerMessage(b, { brand, expiry, offsetDays, demos = []
 }
 
 // ---------------------------------------------------------------------------
+// Retailer-initiated demo moves (0094, 2026-10-16): the three brand-facing notices. Every fact comes
+// from the CURRENT move row and booking at dispatch. The store's note is store-typed text rendered as
+// text. Links go to the brand dashboard, where the Confirm / Can't make it buttons live.
+// ---------------------------------------------------------------------------
+function moveSlotLabel(date, time, tz) {
+  const d = date ? dateLabel(String(date).slice(0, 10), { year: true }) : 'date not recorded';
+  return time ? `${d} at ${String(time)}` : d;
+}
+function deadlineLabel(iso, tz) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return null;
+  const zone = safeZone(tz) || 'America/Los_Angeles';
+  try { return d.toLocaleString('en-US', { timeZone: zone, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' ' + zoneAbbrevAt(zone, d); }
+  catch (_) { return d.toISOString(); }
+}
+function moveNoteBlock(note, storeName) {
+  if (!note) return '';
+  return `<div style="background:#f9f7f2;border-left:4px solid #2a5b32;border-radius:10px;padding:14px 18px;margin:0 0 22px;"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#6b6a64;margin-bottom:6px;">Note from ${H(storeName)}</div><div style="font-size:14px;line-height:1.6;color:#1c1c1a;white-space:pre-wrap;">${H(note)}</div></div>`;
+}
+function moveFactsTable(ctx) {
+  const { retailer, venue, booking, move } = ctx;
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const rows = [
+    ['Store', H([(retailer && retailer.name) || 'The store', venue && venue.name].filter(Boolean).join(', '))],
+    ['Was', H(moveSlotLabel(move.from_date, move.from_time, tz))],
+    ['Now', `<strong>${H(moveSlotLabel(move.to_date, move.to_time, tz))}</strong>`],
+  ];
+  if (booking && booking.product) rows.push(['Product', H(booking.product)]);
+  return `<table cellpadding="0" cellspacing="0" style="width:100%;background:#f9f7f2;border-radius:10px;margin-bottom:22px;">${rows.map(([k, v], i) => row(k, v, i === 0)).join('')}</table>`;
+}
+export function demoMovedMessage(b, ctx) {
+  const { brand, retailer, booking, move } = ctx;
+  const store = (retailer && retailer.name) || 'The store';
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const due = deadlineLabel(move.reconfirm_due_at, tz);
+  return {
+    subject: `${store} moved your demo to ${moveSlotLabel(move.to_date, move.to_time, tz)}: please confirm`,
+    html: shell({
+      eyebrow: 'Demo moved by the store', tone: 'green',
+      heading: `${H(store)} moved your demo. Can you make the new time?`,
+      intro: `${H(store)} changed the date of your demo. Your booking and payment stay exactly as they are. Please confirm the new time${due ? ` by <strong>${H(due)}</strong>` : ''}, or tell us you cannot make it. If we do not hear from you by then, the demo is cancelled and this demo's fee is refunded in full.`,
+      body: moveFactsTable(ctx) + moveNoteBlock(move.note, store),
+      cta: { href: link(b, '/brand/dashboard'), label: 'Confirm or decline' },
+      footer: brandFooter(brand),
+    }),
+  };
+}
+export function moveReminderMessage(b, ctx) {
+  const { brand, retailer, booking, move, now = new Date() } = ctx;
+  const store = (retailer && retailer.name) || 'The store';
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const due = deadlineLabel(move.reconfirm_due_at, tz);
+  const hoursLeft = Math.max(1, Math.round((new Date(move.reconfirm_due_at).getTime() - now.getTime()) / 3600000));
+  const left = hoursLeft >= 36 ? `${Math.round(hoursLeft / 24)} days` : `${hoursLeft} hours`;
+  return {
+    subject: `Reminder: confirm your moved demo at ${store} (${left} left)`,
+    html: shell({
+      eyebrow: 'Reminder: demo moved', tone: 'clay',
+      heading: `Still need your answer on the demo ${H(store)} moved.`,
+      intro: `About ${H(left)} left${due ? ` (until ${H(due)})` : ''}. If we do not hear from you by then, the demo is cancelled and this demo's fee is refunded in full. Confirming takes one click.`,
+      body: moveFactsTable(ctx) + moveNoteBlock(move.note, store),
+      cta: { href: link(b, '/brand/dashboard'), label: 'Confirm or decline' },
+      footer: brandFooter(brand),
+    }),
+  };
+}
+// ---------------------------------------------------------------------------------------------
+// Refund resolution (2026-10-19, Codex R4-3): the store's later answer on a cancelled booking whose refund the rule
+// left undecided. Built from the STORED resolution row at first dispatch and then frozen by the outbox per delivery.
+// Workflow state only: "submitted" is the refund request's state, never a claim that the bank has paid.
+// ---------------------------------------------------------------------------------------------
+export function refundResolutionMessage(b, ctx) {
+  const { brand, retailer, booking, resolution } = ctx;
+  const store = (retailer && retailer.name) || 'The store';
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const when = moveSlotLabel(booking.demo_date, booking.demo_time, tz);
+  const granted = resolution.decision === 'refund_granted';
+  const submitted = !!(resolution.refund_request_id && resolution.refund_submitted_at);
+  const money = granted
+    ? (submitted
+      ? 'This demo\'s fee is being refunded: the refund has been submitted and usually reaches your card within 5 to 10 business days.'
+      : 'This demo\'s fee is being refunded: the refund is being processed. If it has not reached your card within 10 business days, reply to this email.')
+    : `${store} reviewed the cancellation and the demo fee is not refunded. This is the store's final answer on this booking.`;
+  return {
+    subject: granted ? `Refund approved for your demo at ${store} on ${when}` : `Refund decision for your demo at ${store} on ${when}`,
+    html: shell({
+      eyebrow: granted ? 'Refund approved' : 'Refund decision', tone: granted ? 'green' : 'clay',
+      heading: granted ? 'Your demo fee is being refunded.' : 'About the fee for your cancelled demo.',
+      intro: `This is about your cancelled demo for ${H((brand && brand.company_name) || booking.brand_name || 'your brand')} on ${H(when)} at ${H(store)}.`,
+      body: `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>${H(money)}</strong></p><p style="font-size:14px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Questions about this decision go to the store. You are welcome to book another date from your dashboard.</p>`,
+      cta: { href: link(b, '/brand/dashboard'), label: 'Open your dashboard' },
+      footer: brandFooter(brand),
+    }),
+  };
+}
+
+export function demoMoveCancelledMessage(b, ctx) {
+  const { brand, retailer, booking, move } = ctx;
+  const store = (retailer && retailer.name) || 'The store';
+  const tz = (booking && booking.timezone) || (retailer && retailer.timezone) || null;
+  const declined = move.status === 'declined';
+  const refund = move.refund_status === 'submitted'
+    ? 'This demo\'s fee is refunded in full; the refund has been submitted and usually reaches your card within 5 to 10 business days.'
+    : move.refund_status === 'already_refunded' ? 'This booking had already been refunded.'
+    : move.refund_status === 'not_paid' ? 'No charge was captured for this booking, so there is nothing to refund.'
+    : 'This demo\'s fee is refunded in full; the refund is being processed. If it has not reached your card within 10 business days, reply to this email.';
+  return {
+    subject: `Your demo at ${store} on ${moveSlotLabel(move.to_date, move.to_time, tz)} was cancelled, refund ${move.refund_status === 'submitted' ? 'submitted' : 'in progress'}`,
+    html: shell({
+      eyebrow: 'Demo cancelled', tone: 'clay',
+      heading: declined ? 'You told us the new time does not work, so this demo is cancelled.' : 'We did not hear back in time, so this demo is cancelled.',
+      intro: declined
+        ? `${H(store)} had moved this demo and you let us know you could not make the new time. The booking is cancelled and nothing further is owed.`
+        : `${H(store)} moved this demo and the reconfirmation deadline passed without an answer, so the booking is cancelled and the slot has been released.`,
+      body: moveFactsTable(ctx) + `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>${H(refund)}</strong></p><p style="font-size:14px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Want to demo at ${H(store)} on another day? Book a new slot from your dashboard.</p>`,
+      cta: { href: link(b, '/brand/dashboard'), label: 'Open your dashboard' },
+      footer: brandFooter(brand),
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Brand payment receipt (2026-10-11). One per payment group, sent by the outbox when the ledger
 // records the group as paid (0091). The figures come from the LEDGER (payment_groups +
 // payment_allocations), never from a client; the card line and the Stripe receipt link are

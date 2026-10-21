@@ -1091,20 +1091,24 @@
                         <div class="settings-card-body">
                             <div style="font-size:0.85rem; color:var(--ink-500); margin-bottom:12px; line-height:1.55;">What a brand agrees to about cancelling and refunds. Shown before they sign at their first booking.</div>
                             <div id="policiesBlock"></div>
+                            <!-- The two values api/booking-action.js reads (api/_refund-cutoff.js): 'refundable' = automatic refund when the
+                                 demo starts at least 72 hours away, 'non_refundable' = never automatic. The legacy '14_day_refund' value reads as
+                                 refundable on the server and is rewritten the next time this card is saved. -->
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer; margin-bottom:8px;">
-                                <input type="radio" name="cancellationMode" value="14_day_refund" id="cancel14Day" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
+                                <input type="radio" name="cancellationMode" value="refundable" id="cancelRefund72" checked style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
                                 <div style="flex:1;">
-                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">14-day refund window <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">RECOMMENDED</span></div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">Brands can cancel and receive a full refund within 14 days of the booking date. After 14 days, non-refundable.</div>
+                                    <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Refund if cancelled 72 hours ahead <span style="background:#e3edd6; color:#1f4a26; padding:1px 8px; border-radius:99px; font-size:0.68rem; font-weight:700; letter-spacing:0.04em; margin-left:6px;">RECOMMENDED</span></div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">When you cancel a paid demo that starts at least 72 hours from now, the brand is refunded automatically through Stripe. Inside 72 hours the fee stays with you, and you can still choose to refund the brand when you cancel.</div>
                                 </div>
                             </label>
                             <label style="display:flex; gap:14px; align-items:flex-start; padding:12px 14px; background:#f9f7f2; border-radius:10px; cursor:pointer;">
                                 <input type="radio" name="cancellationMode" value="non_refundable" id="cancelNonRefundable" style="margin-top:4px; flex-shrink:0; accent-color:var(--forest-700);" onchange="saveBookingPrefs()">
                                 <div style="flex:1;">
                                     <div style="font-weight:600; color:var(--forest-900); font-size:0.94rem;">Non-refundable</div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">All bookings are final immediately. No refunds for cancellations. Brands see this clearly before signing.</div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-top:3px; line-height:1.55;">No automatic refunds at any time. You can still refund a brand yourself when you cancel a demo. Brands see this clearly before they book.</div>
                                 </div>
                             </label>
+                            <div id="cancellationPolicySentence" style="margin-top:12px; padding:10px 12px; background:var(--forest-50); border-radius:8px; font-size:0.8rem; color:var(--forest-900); line-height:1.5;"></div>
                             <div id="cancellationPolicyStatus" style="font-size:0.78rem; color:var(--ink-500); margin-top:12px;"></div>
                         </div>
                     </div>
@@ -1787,8 +1791,9 @@
                     `;
                     if (title) { const h = card.querySelector('h4.dhm-title'); if (h) h.textContent = String(title); }
                     bd.appendChild(card);
+                    if (typeof _suspendTourForDialog === 'function') { try { _suspendTourForDialog(); } catch (_) {} }
                     const input = card.querySelector('input.dhm-input');
-                    function close(val){ bd.remove(); document.removeEventListener('keydown', esc); resolve(val); }
+                    function close(val){ bd.remove(); document.removeEventListener('keydown', esc); if (typeof _resumeTourAfterDialog === 'function') { try { _resumeTourAfterDialog(); } catch (_) {} } resolve(val); }
                     function esc(e){
                         if (e.key === 'Escape') close(kind === 'prompt' ? null : false);
                         else if (e.key === 'Enter' && document.activeElement !== card.querySelector('textarea')) {
@@ -2703,6 +2708,10 @@ END:VEVENT
             window.state.features = data.features || null;
             window.state.venues = data.venues || [];
             window.state.bookings = data.bookings || [];
+            // Codex refund-cutoff R2-2: the recorded cancellation decision per cancelled booking, and the store's later
+            // answer (refund granted / no refund) where the decision left the refund undecided.
+            window.state.cancellations = {}; (data.cancellations || []).forEach(function(c){ if (c && c.booking_id) window.state.cancellations[c.booking_id] = c; });
+            window.state.cancellationResolutions = {}; (data.cancellation_resolutions || []).forEach(function(r){ if (r && r.booking_id) window.state.cancellationResolutions[r.booking_id] = r; });
             window.state.brandContacts = data.brand_contacts || [];
             window.state.internalContacts = data.internal_contacts || [];
             window.state.demos = (data.demos || []).map(d => ({
@@ -2718,6 +2727,8 @@ END:VEVENT
                 contact: d.contact_name,
                 reschedule_to_date: d.reschedule_to_date || null,
                 reschedule_to_time: d.reschedule_to_time || null,
+                // 0094: a move the store made that the brand has not answered yet (deadline, note).
+                pending_move: d.pending_move || null,
                 contact_email: d.contact_email || '',
                 contact_phone: d.contact_phone || '',
                 product_skus: Array.isArray(d.product_skus) ? d.product_skus : null,
@@ -4253,11 +4264,12 @@ END:VEVENT
             if (window.state.retailer) {
                 const auto = document.getElementById('settingAutoConfirm');
                 if (auto) auto.checked = window.state.retailer.auto_confirm_bookings !== false; // default ON for new retailers
-                const mode = window.state.retailer.cancellation_mode || '14_day_refund';
-                const cb14 = document.getElementById('cancel14Day');
+                const mode = cancellationModeOf(window.state.retailer.cancellation_mode);
+                const cb72 = document.getElementById('cancelRefund72');
                 const cbNR = document.getElementById('cancelNonRefundable');
-                if (cb14) cb14.checked = (mode === '14_day_refund');
+                if (cb72) cb72.checked = (mode === 'refundable');
                 if (cbNR) cbNR.checked = (mode === 'non_refundable');
+                renderCancellationSentence();
                 // Also sync the new radio pair
                 if (typeof loadApprovalMode === 'function') loadApprovalMode();
             }
@@ -4280,24 +4292,45 @@ END:VEVENT
             if (mirror) mirror.checked = isAuto;
         }
 
+        // The cancellation mode the server enforces (api/_refund-cutoff.js): anything but 'non_refundable' is the
+        // 72-hour rule. The legacy '14_day_refund' this page used to save reads as refundable.
+        function cancellationModeOf(raw) { return String(raw || '').trim().toLowerCase() === 'non_refundable' ? 'non_refundable' : 'refundable'; }
+        // The sentence brands sign for a mode. A stored text that is one of the known sentences (or empty) follows the
+        // radio; a custom text the store wrote itself is left alone and shown so the store can see it still agrees.
+        function cancellationSentenceFor(mode) { return mode === 'non_refundable' ? CANCEL_POLICY_NON_REFUNDABLE : CANCEL_POLICY_DEFAULT; }
+        function cancellationSentenceIsKnown(text) { const t = String(text || '').trim(); return !t || CANCEL_POLICY_LEGACY_RE.test(t) || [CANCEL_POLICY_DEFAULT, CANCEL_POLICY_NON_REFUNDABLE].some(k => k.trim() === t); }
+        function renderCancellationSentence() {
+            const el = document.getElementById('cancellationPolicySentence'); if (!el) return;
+            const r = window.state.retailer || {};
+            const mode = cancellationModeOf(r.cancellation_mode);
+            const stored = String(r.cancellation_policy || '').trim();
+            const shown = stored || cancellationSentenceFor(mode);
+            const custom = !cancellationSentenceIsKnown(stored);
+            el.innerHTML = '<strong>Brands sign this sentence when they book:</strong> ' + escapeHtml(shown)
+                + (custom ? '<div style="margin-top:6px; color:var(--clay-700);">This wording is your own. Make sure it says the same thing as the choice above; Demohub refunds by the choice above, not by the wording.</div>' : '');
+        }
         // Save booking preferences (auto-confirm + cancellation mode) to the retailers table
         async function saveBookingPrefs() {
             const status = document.getElementById('bookingPrefsStatus'); const status2 = document.getElementById('cancellationPolicyStatus');
             const auto = document.getElementById('settingAutoConfirm');
-            const cb14 = document.getElementById('cancel14Day');
             const cbNR = document.getElementById('cancelNonRefundable');
-            const mode = cbNR && cbNR.checked ? 'non_refundable' : '14_day_refund';
+            const mode = cbNR && cbNR.checked ? 'non_refundable' : 'refundable';
             const payload = {
                 auto_confirm_bookings: !!(auto && auto.checked),
                 cancellation_mode: mode,
             };
+            // Keep the signed sentence in step with the radio: swap it when it is empty or one of the known sentences.
+            const storedPolicy = String((window.state.retailer && window.state.retailer.cancellation_policy) || '').trim();
+            if (cancellationSentenceIsKnown(storedPolicy) && storedPolicy !== cancellationSentenceFor(mode)) payload.cancellation_policy = cancellationSentenceFor(mode);
             for (const st of [status, status2]) if (st) st.textContent = 'Saving…';
             try {
                 await adminUpdate('retailers', RETAILER_ID, payload);
                 if (window.state.retailer) {
                     window.state.retailer.auto_confirm_bookings = payload.auto_confirm_bookings;
                     window.state.retailer.cancellation_mode = payload.cancellation_mode;
+                    if ('cancellation_policy' in payload) window.state.retailer.cancellation_policy = payload.cancellation_policy;
                 }
+                renderCancellationSentence();
                 if (status) {
                     for (const st of [status, status2]) if (st) { st.textContent = 'Saved ✓'; setTimeout(() => { if (st.textContent === 'Saved ✓') st.textContent = ''; }, 2500); }
                 }
@@ -5203,10 +5236,47 @@ function escapeHtml(s) {
 
         // Phase G: cancel a demo, confirmation modal, fires POST /api/booking-action with action=cancel.
         // Response tells us the refund status; toast reflects what happened.
-        // ===== Reschedule: propose a new date to the brand (no money moves) =====
+        // ===== Move / reschedule dialog =====
+        // Default (0094): MOVE NOW. The demo moves the moment you save; the brand is emailed and has up to
+        // 72 hours to confirm the new time or say it cannot make it, otherwise the demo is cancelled and
+        // refunded in full. The older "ask the brand first" proposal is one toggle away in the same dialog.
+        function formatMoveDeadline(iso, short) {
+            if (!iso) return 'the deadline';
+            try {
+                const d = new Date(iso);
+                return short ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                    : d.toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+            } catch (_) { return String(iso); }
+        }
+        // Codex final review F2 (2026-10-19): an operational dialog outranks onboarding. While a dialog is open the tour is
+        // hidden (nothing is marked complete on its behalf) and it resumes at the same step when the dialog closes. The
+        // tour's own lifecycle (showTourStep) does the resuming; this never fights it with z-index.
+        function _suspendTourForDialog() {
+            const bd = document.getElementById('tourBackdrop');
+            if (!bd || !bd.classList.contains('active')) return false;
+            bd.classList.remove('active');
+            const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+            const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+            window._tourSuspendedForDialog = true;
+            return true;
+        }
+        function _resumeTourAfterDialog() {
+            if (!window._tourSuspendedForDialog) return;
+            if (document.getElementById('reschedModal') || document.querySelector('.dhm-backdrop')) return;   // another dialog is still open
+            window._tourSuspendedForDialog = false;
+            try { if (typeof showTourStep === 'function') showTourStep(); } catch (_) {}
+        }
+        function _reschedEsc(e) { if (e.key === 'Escape') { e.stopPropagation(); closeReschedModal(); } }
+        function closeReschedModal() {
+            const w = document.getElementById('reschedModal'); if (w) w.remove();
+            document.removeEventListener('keydown', _reschedEsc, true);
+            _resumeTourAfterDialog();
+        }
+        window.closeReschedModal = closeReschedModal;
         function openRescheduleModal(demoId, brandName, curDate, curTime, venueId) {
             const existing = document.getElementById('reschedModal');
             if (existing) existing.remove();
+            _suspendTourForDialog();
             const today = new Date().toISOString().slice(0, 10);
             // Release B: the new time is picked from the slots the location OFFERS on the chosen date
             // (configured slots, that weekday's hours, blackouts), never typed free-form.
@@ -5215,24 +5285,89 @@ function escapeHtml(s) {
             wrap.id = 'reschedModal';
             wrap.style.cssText = 'position:fixed;inset:0;background:rgba(15,44,23,0.45);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;';
             wrap.innerHTML =
-                '<div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">'
-                + '<div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#a14e2a;margin-bottom:8px;">Propose a new date</div>'
-                + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">Reschedule ' + escapeHtml(brandName) + '</h3>'
-                + '<p title="The brand accepts or declines from their dashboard. Nothing is charged or refunded. Only the date changes." style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. Pick a new date and we\'ll ask the brand to accept it. No money moves.</p>'
+                '<div style="background:#fff;border-radius:16px;max-width:440px;width:100%;padding:26px;box-shadow:0 20px 60px rgba(0,0,0,0.25);">'
+                + '<div id="reschedEyebrow" style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:#2a5b32;margin-bottom:8px;">Move this demo</div>'
+                + '<h3 style="margin:0 0 6px;font-size:1.25rem;color:var(--forest-900);">' + escapeHtml(brandName) + '</h3>'
+                + '<p id="reschedIntro" style="font-size:0.86rem;color:var(--ink-500);line-height:1.5;margin:0 0 18px;">Currently ' + escapeHtml(formatDemoDate(curDate)) + (curTime ? ' at ' + escapeHtml(curTime) : '') + '. The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo\'s fee is refunded in full. Nothing is charged.</p>'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New date</label>'
                 + '<input type="date" id="reschedDate" min="' + today + '" value="' + escapeHtml(curDate || today) + '" onchange="reschedRenderTimes()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:14px;">'
                 + '<label style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin-bottom:5px;">New time</label>'
-                + '<select id="reschedTime" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;background:#fff;"></select>'
+                + '<select id="reschedTime" onchange="reschedDeadlinePreview()" style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.95rem;margin-bottom:8px;background:#fff;"></select>'
                 + '<div id="reschedTimeNote" style="font-size:0.78rem;color:var(--ink-500);margin:-2px 0 6px;"></div>'
+                + '<div id="reschedDeadline" style="font-size:0.8rem;color:var(--forest-800);margin:4px 0 6px;"></div>'
+                + '<div id="reschedNoteWrap"><label for="reschedNote" style="display:block;font-size:0.8rem;font-weight:600;color:var(--forest-800);margin:10px 0 5px;">Note to the brand (optional)</label>'
+                + '<textarea id="reschedNote" maxlength="500" rows="2" placeholder="e.g. Agreed with Maria by phone on Tuesday; the Saturday crew is short-staffed." style="width:100%;padding:10px 12px;border:1.5px solid rgba(15,44,23,0.15);border-radius:8px;font-family:inherit;font-size:0.9rem;resize:vertical;"></textarea></div>'
                 + '<div id="reschedErr" style="display:none;font-size:0.82rem;color:var(--clay-700);margin:6px 0 0;"></div>'
                 + '<div style="display:flex;gap:10px;margin-top:20px;">'
-                + '<button onclick="document.getElementById(\'reschedModal\').remove()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
-                + '<button id="reschedSubmit" title="Send this proposed date to the brand for approval." onclick="submitReschedule(\'' + demoId + '\')" style="flex:1;background:var(--forest-900);color:#fff;border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;">Propose to brand</button>'
-                + '</div></div>';
-            wrap.addEventListener('click', function (e) { if (e.target === wrap) wrap.remove(); });
+                + '<button type="button" onclick="closeReschedModal()" style="flex:1;background:#fff;border:1.5px solid rgba(15,44,23,0.15);color:var(--ink-700);border-radius:9px;padding:11px;font-weight:600;cursor:pointer;">Cancel</button>'
+                + '<button id="reschedSubmit" title="Move the demo now and email the brand." onclick="submitReschedule(\'' + demoId + '\')" style="flex:1;background:var(--forest-900);color:#fff;border:none;border-radius:9px;padding:11px;font-weight:700;cursor:pointer;">Move demo</button>'
+                + '</div>'
+                + '<div style="margin-top:12px;text-align:center;"><button type="button" id="reschedModeToggle" onclick="reschedToggleMode()" style="background:none;border:none;color:var(--forest-700);font-size:0.8rem;text-decoration:underline;cursor:pointer;font-family:inherit;">Prefer to ask the brand first? Propose instead</button></div>'
+                + '</div>';
+            wrap.addEventListener('click', function (e) { if (e.target === wrap) closeReschedModal(); });
             document.body.appendChild(wrap);
-            wrap._venue = reschedVenue; wrap._curTime = curTime || '';
+            wrap._venue = reschedVenue; wrap._curTime = curTime || ''; wrap._mode = 'move';
             reschedRenderTimes();
+            // keyboard: Escape closes this dialog (captured, so the tour or another handler never sees it); focus starts on the date
+            document.addEventListener('keydown', _reschedEsc, true);
+            setTimeout(function () { const d = document.getElementById('reschedDate'); if (d) d.focus(); }, 40);
+            // Codex RM-7: when move creation is switched off, the dialog is the ask-first proposal only.
+            if (window.state.features && window.state.features.retailer_moves === false) {
+                reschedToggleMode();
+                const t = document.getElementById('reschedModeToggle'); if (t) t.style.display = 'none';
+            }
+        }
+        // The store's zone (from the admin data), used to resolve a slot to an instant for the deadline preview.
+        function reschedStoreZone() {
+            const tz = window.state.retailer && window.state.retailer.timezone;
+            try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return tz; } catch (_) { return 'America/Los_Angeles'; }
+        }
+        function reschedZoneOffsetMin(date, tz) {
+            const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(date).filter(x => x.type !== 'literal').map(x => [x.type, x.value]));
+            return Math.round((Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - date.getTime()) / 60000);
+        }
+        function reschedSlotInstant(ymd, minutes, tz) {
+            const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || '')); if (!m || minutes == null) return null;
+            const naive = Date.UTC(+m[1], +m[2] - 1, +m[3], Math.floor(minutes / 60), minutes % 60);
+            let off = reschedZoneOffsetMin(new Date(naive), tz); let inst = new Date(naive - off * 60000);
+            const off2 = reschedZoneOffsetMin(inst, tz); if (off2 !== off) inst = new Date(naive - off2 * 60000);
+            return inst;
+        }
+        // The SAME policy as the database (0095 move_reconfirm_deadline):
+        //   deadline = min(start, max(now + 12h, min(now + 72h, start - 24h)))
+        function reschedDeadlineFor(start, now) {
+            const H = 3600e3;
+            if (!(start instanceof Date) || Number.isNaN(start.getTime())) return null;
+            return new Date(Math.min(start.getTime(), Math.max(now.getTime() + 12 * H, Math.min(now.getTime() + 72 * H, start.getTime() - 24 * H))));
+        }
+        function reschedDeadlinePreview() {
+            const wrap = document.getElementById('reschedModal'), el = document.getElementById('reschedDeadline');
+            const dateEl = document.getElementById('reschedDate'), sel = document.getElementById('reschedTime');
+            if (!wrap || !el) return;
+            if (wrap._mode === 'propose' || !sel || sel.disabled || !sel.value) { el.textContent = ''; return; }
+            const tz = reschedStoreZone();
+            const start = reschedSlotInstant(dateEl ? dateEl.value : '', DhSlots.minutes(sel.value), tz);
+            const now = new Date();
+            if (!start || start.getTime() <= now.getTime()) { el.textContent = start ? 'That slot has already started.' : ''; return; }
+            const due = reschedDeadlineFor(start, now);
+            let label = '';
+            try { label = due.toLocaleString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }); } catch (_) { label = due.toISOString(); }
+            const hours = Math.round((due.getTime() - now.getTime()) / 3600e3);
+            el.innerHTML = 'The brand has until <strong>' + escapeHtml(label) + '</strong> (' + hours + ' hours) to confirm. After that the demo is cancelled and this demo\'s fee is refunded in full.';
+        }
+        function reschedToggleMode() {
+            const wrap = document.getElementById('reschedModal'); if (!wrap) return;
+            wrap._mode = wrap._mode === 'move' ? 'propose' : 'move';
+            const move = wrap._mode === 'move';
+            const eyebrow = document.getElementById('reschedEyebrow'), intro = document.getElementById('reschedIntro'), btn = document.getElementById('reschedSubmit'), toggle = document.getElementById('reschedModeToggle'), noteWrap = document.getElementById('reschedNoteWrap');
+            if (eyebrow) { eyebrow.textContent = move ? 'Move this demo' : 'Propose a new date'; eyebrow.style.color = move ? '#2a5b32' : '#a14e2a'; }
+            if (intro) intro.textContent = move
+                ? 'The demo moves as soon as you save. The brand is emailed and has up to 72 hours to confirm the new time; if they cannot make it, or do not answer, the demo is cancelled and this demo\'s fee is refunded in full. Nothing is charged.'
+                : 'Nothing changes until the brand accepts. They get an email and accept or decline from their dashboard. No money moves.';
+            if (btn) { btn.textContent = move ? 'Move demo' : 'Propose to brand'; btn.title = move ? 'Move the demo now and email the brand.' : 'Send this proposed date to the brand for approval.'; }
+            if (toggle) toggle.textContent = move ? 'Prefer to ask the brand first? Propose instead' : 'Move it now instead (no waiting on the brand)';
+            if (noteWrap) noteWrap.style.display = move ? '' : 'none';
+            reschedDeadlinePreview();
         }
 
         // Fill the reschedule modal's time <select> with the slots offered on the picked date.
@@ -5262,14 +5397,20 @@ function escapeHtml(s) {
             }
             sel.disabled = false; if (btn) btn.disabled = false;
             const curMin = DhSlots.minutes(wrap._curTime);
+            // Codex final review (2026-10-19): the current slot is preselected when that date still offers it; otherwise the
+            // store picks explicitly (a placeholder, never the first slot by accident). The server keeps the same-slot guard.
+            const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Choose a new time'; ph.disabled = true; sel.appendChild(ph);
+            let matched = false;
             res.slots.forEach(s => {
                 const o = document.createElement('option');
                 o.value = DhSlots.label(s.startMin);
                 o.textContent = DhSlots.rangeLabel(s) + ' · ' + s.hours + (s.hours === 1 ? ' hour' : ' hours');
-                if (curMin != null && curMin === s.startMin) o.selected = true;
+                if (curMin != null && curMin === s.startMin) { o.selected = true; matched = true; }
                 sel.appendChild(o);
             });
+            if (!matched) ph.selected = true;
             if (note) note.textContent = res.slots.length === 1 ? 'The only slot offered that day.' : '';
+            if (typeof reschedDeadlinePreview === 'function') reschedDeadlinePreview();
         }
 
         async function submitReschedule(demoId) {
@@ -5281,49 +5422,134 @@ function escapeHtml(s) {
             const newTime = timeEl ? String(timeEl.value || '').trim() : '';
             if (!newDate) { if (err) { err.textContent = 'Pick a new date.'; err.style.display = 'block'; } return; }
             if (!newTime) { if (err) { err.textContent = 'Pick a time slot the location offers on that date.'; err.style.display = 'block'; } return; }
-            if (btn) { btn.disabled = true; btn.textContent = 'Sending\u2026'; }
+            const wrap = document.getElementById('reschedModal');
+            const isMove = !wrap || wrap._mode !== 'propose';
+            const noteEl = document.getElementById('reschedNote');
+            const note = isMove && noteEl ? String(noteEl.value || '').trim() : '';
+            if (btn) { btn.disabled = true; btn.textContent = isMove ? 'Moving\u2026' : 'Sending\u2026'; }
             try {
                 const r = await fetch('/api/booking-action', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                    body: JSON.stringify({ action: 'reschedule', demo_id: demoId, new_date: newDate, new_time: newTime || undefined }),
+                    body: JSON.stringify(isMove
+                        ? { action: 'move', demo_id: demoId, new_date: newDate, new_time: newTime || undefined, note: note || null }
+                        : { action: 'reschedule', demo_id: demoId, new_date: newDate, new_time: newTime || undefined }),
                 });
                 const j = await r.json().catch(function () { return {}; });
-                if (!r.ok) throw new Error(j.message || j.error || 'Could not send the proposal.');
-                const m = document.getElementById('reschedModal'); if (m) m.remove();
-                if (window.DhModal && DhModal.toast) DhModal.toast('New date proposed. The brand has been emailed.', 'success');
+                if (!r.ok) throw new Error(j.message || j.error || (isMove ? 'Could not move the demo.' : 'Could not send the proposal.'));
+                closeReschedModal();   // also resumes a suspended tour
+                if (window.DhModal && DhModal.toast) DhModal.toast(isMove
+                    ? 'Demo moved. The brand has been emailed and has until ' + formatMoveDeadline(j.reconfirm_due_at) + ' to confirm.'
+                    : 'New date proposed. The brand has been emailed.', 'success');
                 if (typeof refreshAll === 'function') refreshAll(); else location.reload();
             } catch (e) {
-                if (err) { err.textContent = (e && e.message) || 'Could not send. Try again.'; err.style.display = 'block'; }
-                if (btn) { btn.disabled = false; btn.textContent = 'Propose to brand'; }
+                if (err) { err.textContent = (e && e.message) || 'Could not save. Try again.'; err.style.display = 'block'; }
+                if (btn) { btn.disabled = false; btn.textContent = isMove ? 'Move demo' : 'Propose to brand'; }
             }
         }
 
+        // The demo's start instant in the store's zone, in ms (a hint for the cancel dialog only; the server decides with
+        // api/_refund-cutoff.js from the recorded request time). null when the date or time cannot be read.
+        function demoStartMs(dateStr, timeStr) {
+            const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/); if (!m) return null;
+            const t = String(timeStr || '').trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?$/i);
+            let hour = 11, minute = 0;
+            if (String(timeStr || '').trim()) { if (!t) return null; hour = parseInt(t[1], 10); minute = t[2] ? parseInt(t[2], 10) : 0; const ap = (t[3] || '').toLowerCase().replace(/\./g, ''); if (ap === 'pm' && hour !== 12) hour += 12; if (ap === 'am' && hour === 12) hour = 0; }
+            const tz = (window.state.retailer && window.state.retailer.timezone) || 'America/Los_Angeles';
+            const wall = Date.UTC(+m[1], +m[2] - 1, +m[3], hour, minute, 0);
+            const offsetAt = (ms) => { try { const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(ms))) p[x.type] = x.value; return Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second) - ms; } catch (_) { return null; } };
+            const o1 = offsetAt(wall); if (o1 == null) return null;
+            const o2 = offsetAt(wall - o1); if (o2 == null) return null;
+            return wall - o2;
+        }
+        function demoHoursAway(dateStr, timeStr, fromMs) {
+            const start = demoStartMs(dateStr, timeStr); if (start == null) return null;
+            return (start - (fromMs == null ? Date.now() : fromMs)) / 36e5;
+        }
+        // "YYYY-MM-DDTHH:MM" for a datetime-local input, in the browser's local time.
+        function localDateTimeValue(d) { const p2 = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + 'T' + p2(d.getHours()) + ':' + p2(d.getMinutes()); }
+        // The cancel dialog's live state (DhModal closes before we can read its inputs, so the inputs write here).
+        window._cancelForm = null;
+        function _cancelFormSync() {
+            const fm = window._cancelForm; if (!fm) return;
+            const brandFields = document.getElementById('cancelBrandFields'); if (brandFields) brandFields.style.display = fm.category === 'brand_requested' ? '' : 'none';
+            const hint = document.getElementById('cancelHoursHint');
+            const backWrap = document.getElementById('cancelBackdateWrap');
+            const overrideWrap = document.getElementById('cancelOverrideWrap');
+            const reqMs = fm.requested_at ? new Date(fm.requested_at).getTime() : NaN;
+            const backdatedH = Number.isFinite(reqMs) ? (Date.now() - reqMs) / 36e5 : 0;
+            if (backWrap) backWrap.style.display = backdatedH > 24 ? '' : 'none';
+            if (overrideWrap) overrideWrap.style.display = fm.force_refund ? '' : 'none';
+            if (hint) {
+                const hrs = demoHoursAway(fm.dateStr, fm.timeStr, Number.isFinite(reqMs) ? reqMs : null);
+                hint.textContent = hrs == null ? 'The demo time could not be read here; the server will decide from the stored schedule.'
+                    : hrs >= 72 ? 'About ' + (Math.floor(hrs * 10) / 10).toFixed(1) + ' hours between when the brand asked and the demo start: outside the 72-hour window, so the brand is refunded automatically if they paid. (The server checks the exact time.)'
+                    : hrs >= 0 ? 'About ' + (Math.floor(hrs * 10) / 10).toFixed(1) + ' hours between when the brand asked and the demo start: inside the 72-hour window, so the fee stays with you unless you tick Refund the brand anyway. (The server checks the exact time.)'
+                    : 'The demo had already started when the brand asked.';
+            }
+        }
         async function cancelDemoConfirm(bookingId, brandName, dateStr, timeStr) {
             if (!bookingId) { DhModal.toast('This demo has no linked booking to cancel.', 'error'); return; }
+            const mode = cancellationModeOf(window.state.retailer && window.state.retailer.cancellation_mode);
+            const ruleLine = mode === 'non_refundable'
+                ? 'Your cancellation policy is non-refundable: when the brand asks to cancel, a paid demo fee stays with you unless you tick Refund the brand anyway. If you cannot host the demo, the brand is refunded in full.'
+                : 'When the brand asks to cancel, Stripe refunds them automatically if the demo starts at least 72 hours after they asked; inside 72 hours the fee stays with you unless you tick Refund the brand anyway. If you cannot host the demo, the brand is refunded in full.';
+            window._cancelForm = { category: null, requested_at: localDateTimeValue(new Date()), backdate_note: '', force_refund: false, override_reason: '', dateStr, timeStr };
             const ok = await DhModal.confirm({
                 title: 'Cancel this demo?',
                 message: '<div>Cancel the demo with <strong>' + escapeHtml(brandName) + '</strong> on ' + escapeHtml(dateStr) + ' at ' + escapeHtml(timeStr) + '?</div>' +
                     '<div style="margin-top:12px; padding:12px 14px; background:var(--forest-50); border-radius:8px; font-size:0.85rem; color:var(--forest-900); line-height:1.5;">' +
-                        '<strong>What happens:</strong> the brand gets a cancellation email. If they already paid, the refund follows your cancellation policy: refundable mode fires an automatic Stripe refund; non-refundable mode leaves the payment as-is and you follow up manually.' +
+                        '<strong>What happens:</strong> the brand gets a cancellation email. ' + ruleLine +
                     '</div>',
+                extraHTML: '<div style="margin:14px 0 6px; font-weight:600; color:var(--forest-900);">Why is this demo being cancelled?</div>' +
+                    '<label style="display:flex; gap:10px; align-items:flex-start; margin:0 0 8px; cursor:pointer;"><input type="radio" name="cancelCategory" value="brand_requested" onchange="window._cancelForm.category = this.value; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>The brand asked to cancel</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Your cancellation policy applies, counted from when they asked.</span></span></label>' +
+                    '<div id="cancelBrandFields" style="display:none; margin:0 0 10px 26px; padding:10px 12px; background:#f9f7f2; border-radius:8px;">' +
+                        '<label style="display:block; font-size:0.85rem; margin-bottom:6px;">When did the brand ask? <span style="color:var(--ink-500);">(your local time)</span><br><input type="datetime-local" id="cancelRequestedAt" value="' + escapeHtml(window._cancelForm.requested_at) + '" onchange="window._cancelForm.requested_at = this.value; _cancelFormSync()" style="margin-top:4px; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                        '<div id="cancelHoursHint" style="font-size:0.8rem; color:var(--forest-900); line-height:1.45; margin-bottom:8px;"></div>' +
+                        '<label id="cancelBackdateWrap" style="display:none; font-size:0.85rem; margin-bottom:8px;">That is more than a day ago. How do you know when they asked (an email, a call)?<br><input type="text" id="cancelBackdateNote" maxlength="200" placeholder="e.g. email from the brand on Tuesday 4pm" oninput="window._cancelForm.backdate_note = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                        '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;"><input type="checkbox" id="cancelRefundAnyway" onchange="window._cancelForm.force_refund = this.checked; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Refund the brand anyway</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Sends the full demo fee back to the brand even inside the 72-hour window or under a non-refundable policy. Recorded with your name and reason.</span></span></label>' +
+                        '<label id="cancelOverrideWrap" style="display:none; font-size:0.85rem; margin:8px 0 0 26px;">Why?<br><input type="text" id="cancelOverrideReason" maxlength="200" placeholder="e.g. first-time brand, goodwill" oninput="window._cancelForm.override_reason = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                    '</div>' +
+                    '<label style="display:flex; gap:10px; align-items:flex-start; margin:0 0 4px; cursor:pointer;"><input type="radio" name="cancelCategory" value="store_caused" onchange="window._cancelForm.category = this.value; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>We can\'t host it</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">The brand is refunded in full if they paid, whatever the timing or your policy.</span></span></label>',
                 ok: 'Yes, cancel demo',
                 cancel: 'Keep demo',
                 kind: 'confirm',
             });
-            if (!ok) return;
+            if (!ok) { window._cancelForm = null; return; }
+            const fm = window._cancelForm || {}; window._cancelForm = null;
+            if (fm.category !== 'brand_requested' && fm.category !== 'store_caused') { DhModal.toast('Not cancelled. Pick why the demo is being cancelled (the brand asked, or you cannot host it) and try again.', 'error'); return; }
+            const body = { booking_id: bookingId, action: 'cancel', category: fm.category };
+            if (fm.category === 'brand_requested') {
+                const reqDate = fm.requested_at ? new Date(fm.requested_at) : null;
+                if (!reqDate || Number.isNaN(reqDate.getTime())) { DhModal.toast('Not cancelled. Enter when the brand asked to cancel and try again.', 'error'); return; }
+                if (reqDate.getTime() - Date.now() > 10 * 60 * 1000) { DhModal.toast('Not cancelled. The time the brand asked cannot be in the future.', 'error'); return; }
+                body.requested_at = reqDate.toISOString();
+                if ((Date.now() - reqDate.getTime()) / 36e5 > 24) {
+                    if (String(fm.backdate_note || '').trim().length < 5) { DhModal.toast('Not cancelled. The brand asked more than a day ago, so say how you know when they asked, then try again.', 'error'); return; }
+                    body.backdate_note = String(fm.backdate_note).trim();
+                }
+                body.force_refund = fm.force_refund === true;
+                if (body.force_refund) {
+                    if (String(fm.override_reason || '').trim().length < 3) { DhModal.toast('Not cancelled. Give a short reason for refunding the brand anyway, then try again.', 'error'); return; }
+                    body.override_reason = String(fm.override_reason).trim();
+                }
+            }
             try {
                 const r = await fetch('/api/booking-action', {
                     method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ booking_id: bookingId, action: 'cancel' }),
+                    body: JSON.stringify(body),
                     credentials: 'same-origin',
                 });
                 const j = await r.json();
-                if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+                if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status));
                 // Refund copy tracks the BACKEND's exact vocabulary. A merely SUBMITTED refund is not
                 // "issued"/"completed", the charge.refunded webhook confirms it later.
                 let refundMsg = '';
-                if (j.refund_status === 'submitted') refundMsg = ' Refund submitted to the brand. Stripe will confirm it shortly.';
-                else if (j.refund_status === 'pending_manual') refundMsg = ' Refund is at your discretion per your policy.';
+                if (j.refund_status === 'submitted') refundMsg = j.refund_reason === 'store_caused' ? ' Refund submitted to the brand (the store cancelled). Stripe will confirm it shortly.' : ' Refund submitted to the brand. Stripe will confirm it shortly.';
+                else if (j.refund_status === 'pending_manual') refundMsg = j.refund_reason === 'inside_cutoff'
+                    ? ' The brand asked inside the 72-hour window, so the fee was not refunded.'
+                    : j.refund_reason === 'non_refundable' ? ' Your policy is non-refundable, so the fee was not refunded.'
+                    : ' The fee was not refunded automatically.';
+                else if (j.refund_status === 'under_review') refundMsg = ' The demo\'s scheduled time could not be confirmed, so the refund is under review by Demohub' + (j.refund_review_case_id ? ' (case ' + String(j.refund_review_case_id).slice(0, 8) + ').' : '.');
                 else if (j.refund_status === 'refund_failed') refundMsg = ' The refund did NOT go through. Check Stripe.';
                 else if (j.refund_status === 'not_paid') refundMsg = ' No charge was captured, so no refund is needed.';
                 // A partial completion, booking cancelled and any refund maybe submitted, but the calendar
@@ -5398,18 +5624,25 @@ function escapeHtml(s) {
             tbody.innerHTML = list.map(d => {
                 const status = (d.status || '').toLowerCase();
                 const cancelled = status === 'cancelled' || status === 'declined';
-                const cancelBtn = cancelled
-                    ? '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>'
+                // 0106/0107: a cancellation was recorded on this booking but did not finish; the retry replays it
+                const bkLive = (!cancelled && d.booking_id) ? ((window.state.bookings || []).find(function(b){ return b && b.id === d.booking_id; }) || null) : null;
+                const pendingCancelPill = (bkLive && bkLive.cancellation_pending_at) ? _coiPill('Cancellation pending', 'amber', 'A cancellation of this booking was recorded but did not finish. Click Cancel again to complete it; the recorded decision is replayed, nothing is judged twice.') : '';
+                const cancelBtn = (pendingCancelPill) + (cancelled
+                    ? _cancellationResolutionHtml(d)
                     : (d.booking_id
                         // Cancel/refund is a BOOKING operation, send booking_id, never the demo id.
                         ? '<button class="js-cancel-demo" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" style="background:transparent; border:1px solid var(--clay-100, #f7e4d4); color:var(--clay-700); font-size:0.78rem; font-weight:600; padding:5px 12px; border-radius:6px; cursor:pointer;">Cancel</button>'
                         // A demo with no linked booking (historical/manual) has no paid booking to refund/cancel here.
-                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">n/a</span>');
-                // Reschedule: propose a new date instead of cancelling (keeps the booking + payment).
+                        : '<span title="This demo isn\'t linked to a paid booking, so it can\'t be cancelled or refunded here." style="font-size:0.72rem; color:var(--ink-500); cursor:default;">n/a</span>'));
+                // Move (0094): the store moves the demo now; the brand reconfirms or it cancels with a refund.
+                // "Reschedule proposed" is the older ask-first flow, still available from the same dialog.
                 const canResched = status === 'confirmed' && d.id;
-                const rescheduleBtn = d.reschedule_to_date
+                const pendingMovePill = d.pending_move
+                    ? '<span title="You moved this demo. The brand has until ' + escapeHtml(formatMoveDeadline(d.pending_move.reconfirm_due_at)) + ' to confirm the new time, or the demo is cancelled and refunded in full." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Moved, awaiting brand by ' + escapeHtml(formatMoveDeadline(d.pending_move.reconfirm_due_at, true)) + '</span>'
+                    : '';
+                const rescheduleBtn = pendingMovePill + (d.reschedule_to_date
                     ? '<span title="You proposed a new date. Waiting on the brand to accept or decline." style="display:inline-block;font-size:0.72rem;font-weight:700;color:#8a6114;background:#fff8ed;border:1px solid #e0b56a55;border-radius:6px;padding:4px 9px;margin-right:6px;">Reschedule proposed</span>'
-                    : (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-venue="' + escapeHtml(String(d.venue_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Ask the brand to move this demo to a different date. No money moves. The brand accepts or declines from their dashboard, and their booking + payment stay the same." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Reschedule</button>' : '');
+                    : '') + (canResched ? '<button class="js-reschedule-demo" data-id="' + escapeHtml(String(d.id)) + '" data-venue="' + escapeHtml(String(d.venue_id || '')) + '" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" data-time="' + escapeHtml(String(d.time || '')) + '" title="Move this demo to another slot. It moves right away; the brand is emailed and has up to 72 hours to confirm the new time, or the demo is cancelled and refunded in full. You can also ask the brand first instead." style="background:transparent;border:1px solid rgba(15,44,23,0.15);color:var(--forest-700);font-size:0.78rem;font-weight:600;padding:5px 12px;border-radius:6px;cursor:pointer;margin-right:6px;">Move</button>' : '');
                 return '<tr>'
                 + '<td>' + escapeHtml(formatDemoDate(d.date)) + ' • ' + escapeHtml(d.time) + '</td>'
                 + '<td>' + escapeHtml(d.company) + '</td>'
@@ -5420,8 +5653,79 @@ function escapeHtml(s) {
                 + '</tr>';
             }).join('');
             tbody.querySelectorAll('.js-cancel-demo').forEach(function(b){ b.addEventListener('click', function(){ cancelDemoConfirm(b.dataset.bookingId, b.dataset.company, b.dataset.date, b.dataset.time); }); });
+            tbody.querySelectorAll('.js-resolve-cancel').forEach(function(b){ b.addEventListener('click', function(){ resolveCancellationConfirm(b.dataset.bookingId, b.dataset.decision, b.dataset.company, b.dataset.date); }); });
             tbody.querySelectorAll('.js-reschedule-demo').forEach(function(b){ b.addEventListener('click', function(){ openRescheduleModal(b.dataset.id, b.dataset.company, b.dataset.date, b.dataset.time, b.dataset.venue); }); });
         }
+        // Codex refund-cutoff R2-2 (2026-10-19): what a cancelled row shows in its action cell. A cancelled paid booking
+        // whose refund the 72-hour rule left to the store (pending_manual) or to review (under_review) owes an answer:
+        // "Grant refund" issues ONE refund of that booking's own fee through the ledger; "No refund" records the
+        // store's final no. Both ask for a reason, which is recorded with the decision and the operator. Once answered
+        // the row shows the answer. Rows whose refund was automatic, or that were never charged, show that instead.
+        function _cancellationResolutionHtml(d) {
+            if (!d.booking_id) return '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>';
+            const dec = (window.state.cancellations || {})[d.booking_id] || null;
+            const res = (window.state.cancellationResolutions || {})[d.booking_id] || null;
+            if (!dec) return '<span style="font-size:0.72rem; color:var(--ink-500);">n/a</span>';
+            const bkRow = (window.state.bookings || []).find(function(b){ return b && b.id === d.booking_id; }) || null;
+            const pay = String((bkRow && bkRow.payment_status) || '').toLowerCase();
+            // Codex R4-4: the money word comes from the ledger result on the booking (Refunded only when Stripe confirmed it)
+            // and from the resolution's execution state; a decision to refund is never shown as completed money.
+            const who = function(r){ return (r.operator || 'the store') + (r.reason ? ': ' + r.reason : ''); };
+            if (res) {
+                if (res.decision !== 'refund_granted') return _coiPill('No refund', 'warn', 'Decided by ' + who(res));
+                if (pay === 'refunded') return _coiPill('Refunded', 'ok', 'Granted by ' + who(res) + '. Stripe confirmed the refund.');
+                // R5-2: the warning follows an ACTIVE escalation or a failed execution state; escalated_at alone is audit history
+                const activeEsc = !!(res.escalated_at && !res.escalation_cleared_at && res.state !== 'completed');
+                if (activeEsc || res.state === 'failed') return _coiPill('Needs review', 'warn', 'Granted by ' + who(res) + ', but the refund did not go through automatically. Demohub is reviewing it.');
+                if (res.refund_submitted_at) return _coiPill('Refund submitted', 'ok', 'Granted by ' + who(res) + '. The refund was submitted to Stripe and is awaiting confirmation.');
+                return _coiPill('Refund pending', 'amber', 'Granted by ' + who(res) + '. The refund is being retried by the refund worker.');
+            }
+            if (dec.refund === true) {
+                const why0 = dec.reason === 'store_caused' ? 'The store cancelled, so the fee is refunded in full.' : dec.reason === 'forced' ? 'Refunded on your instruction.' : 'Cancelled outside the 72-hour window, so the fee is refunded.';
+                if (pay === 'refunded') return _coiPill('Refunded', 'ok', why0 + ' Stripe confirmed the refund.');
+                if (pay === 'refund_pending') return _coiPill('Refund pending', 'amber', why0 + ' The refund did not reach Stripe on the first try and is being retried.');
+                return _coiPill('Refund submitted', 'ok', why0 + ' The refund was submitted to Stripe and is awaiting confirmation.');
+            }
+            if (dec.status === 'not_paid' && pay !== 'paid') return _coiPill('No charge', 'ok', 'No fee was captured for this booking, so there is nothing to refund.');
+            const why = dec.status === 'not_paid'
+                ? 'The fee was captured after this cancellation was recorded. Decide the refund here.'
+                : dec.status === 'under_review'
+                ? 'The demo\'s scheduled time could not be confirmed, so the 72-hour rule could not be applied automatically. Decide the refund here.'
+                : (dec.reason === 'non_refundable' ? 'Your policy is non-refundable, so the fee was kept. You can still refund it here.' : 'The brand cancelled inside the 72-hour window, so the fee was kept. You can still refund it here.');
+            const btn = 'font-size:0.72rem; font-weight:700; padding:5px 9px; border-radius:7px; cursor:pointer; font-family:inherit; margin-left:6px;';
+            return _coiPill('Refund undecided', 'amber', why)
+                + '<button class="js-resolve-cancel" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-decision="grant" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" title="Refund this demo\'s fee to the brand (one refund, recorded with your reason)." style="' + btn + ' background:var(--forest-900); color:#fff; border:none;">Grant refund</button>'
+                + '<button class="js-resolve-cancel" data-booking-id="' + escapeHtml(String(d.booking_id)) + '" data-decision="deny" data-company="' + escapeHtml(String(d.company || '')) + '" data-date="' + escapeHtml(String(d.date || '')) + '" title="Record that the fee is kept (final, recorded with your reason)." style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">No refund</button>';
+        }
+        async function resolveCancellationConfirm(bookingId, decision, company, date) {
+            const grant = decision === 'grant';
+            const when = date ? formatDemoDate(date) : 'this demo';
+            const reason = await DhModal.prompt({
+                title: grant ? 'Refund the demo fee?' : 'Keep the demo fee?',
+                message: grant
+                    ? 'This refunds <strong>' + escapeHtml(company || 'the brand') + '</strong>\'s fee for ' + escapeHtml(when) + ' (this booking only, in full). The brand is emailed. Why are you refunding it? Your reason is recorded.'
+                    : 'This records that <strong>' + escapeHtml(company || 'the brand') + '</strong>\'s fee for ' + escapeHtml(when) + ' is not refunded. The brand is emailed that this is final. Why? Your reason is recorded.',
+                defaultValue: '', placeholder: grant ? 'e.g. first-time brand, goodwill' : 'e.g. product was ordered and delivered for this demo', ok: grant ? 'Refund the fee' : 'Keep the fee',
+            });
+            if (reason === null || reason === undefined || reason === false) return;
+            if (!String(reason).trim()) { DhModal.toast('A reason is required; it is recorded with your decision.', 'error'); return; }
+            try {
+                const r = await fetch('/api/refund-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ action: decision, booking_id: bookingId, reason: String(reason).trim().slice(0, 500) }) });
+                const j = await r.json().catch(function(){ return {}; });
+                if (!r.ok) {
+                    const msg = j.error === 'reason_required' ? 'A reason is required.' : j.error === 'resolved' ? 'This cancellation was already decided.' : j.error === 'refund_not_possible' ? 'The refund could not be issued (' + (j.detail || 'ledger refused') + '). Nothing was recorded.' : (j.message || j.error || ('HTTP ' + r.status));
+                    DhModal.toast('Could not record the decision: ' + msg, 'error'); return;
+                }
+                if (j.existing) DhModal.toast('Already decided: ' + (j.resolution && j.resolution.decision === 'refund_granted' ? 'refund granted' : 'no refund') + '.', 'success');
+                else if (grant) DhModal.toast(j.refund_status === 'submitted' ? 'Refund submitted to the brand. Stripe will confirm it shortly.' : 'Refund recorded; it is being retried by the refund worker.', 'success');
+                else DhModal.toast('Recorded: no refund. The brand has been told.', 'success');
+                if (typeof refreshAll === 'function') await refreshAll();
+            } catch (e) {
+                DhModal.toast('Could not record the decision: ' + (e.message || e), 'error');
+            }
+        }
+        window.resolveCancellationConfirm = resolveCancellationConfirm;
         // Renders the "COI pending" badge + waive link for a demo, or '' when covered/unknown.
         // COI badge on a demo row (2026-10-16). One plain statement from the approval and the expiry, shown on every
         // upcoming demo. No automatic-reader stamp: the store does not need to know HOW the certificate was checked,
@@ -5775,6 +6079,11 @@ function escapeHtml(s) {
         // ===== Cancellation policy =====
         let policyEditing = false;
         const CANCEL_POLICY_DEFAULT = 'Cancel at least 72 hours before your demo for a refund. Inside 72 hours the fee is not refunded, because the store has usually already ordered product for you. Please cancel as early as you can, ideally a week ahead. Reschedules are welcome anytime.';
+        // The sentence a non-refundable store's brands sign (identical to NON_REFUNDABLE_CANCELLATION_POLICY in api/_refund-cutoff.js).
+        const CANCEL_POLICY_NON_REFUNDABLE = 'Demo fees are not refunded when a demo is cancelled, because the store orders product for you as soon as you book. Please cancel as early as you can so the slot can go to another brand. Reschedules are welcome anytime.';
+        // The sentence stores signed up with before 2026-10-17 ("Cancellations accepted up to N hours before the demo. After
+        // that, fees are non-refundable. ..."), recognised by shape so the radio may replace it like the other defaults.
+        const CANCEL_POLICY_LEGACY_RE = /^Cancellations accepted up to \d+ hours before the demo\. After that, fees are non-refundable\./;
         async function loadCancellationPolicy() {
             try {
                 const persisted = window.state.retailer && window.state.retailer.cancellation_policy;
@@ -6918,11 +7227,17 @@ function escapeHtml(s) {
             const canResched = status === 'confirmed' && !!d.id;
             if (!canCancel && !canResched) return '';
             const btn = 'font-size:0.85rem; font-weight:600; padding:8px 14px; border-radius:8px; cursor:pointer; font-family:inherit;';
+            // 0094 (2026-10-19 visual pass): with moves switched on, the button opens the Move dialog, so the hint says so
+            const feats = (typeof window !== "undefined" && window.state && window.state.features) || null;   // the suite evaluates this function outside a browser
+            const movesOn = !(feats && feats.retailer_moves === false);
+            const reschedHint = movesOn
+                ? 'Move or reschedule moves the demo right away (the brand has up to 72 hours to confirm, or it is cancelled and this demo\'s fee is refunded in full), or lets you propose a date for the brand to accept first; a confirmed move charges nothing. '
+                : 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ';
             return '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">'
-                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">Reschedule</button>' : '')
+                + (canResched ? '<button type="button" class="js-cal-reschedule" style="' + btn + ' background:#fff; border:1.5px solid rgba(15,44,23,0.18); color:var(--forest-700);">' + (movesOn ? 'Move or reschedule' : 'Reschedule') + '</button>' : '')
                 + (canCancel ? '<button type="button" class="js-cal-cancel" style="' + btn + ' background:#fff; border:1.5px solid #f0d6c6; color:#a14e2a;">Cancel demo</button>' : '')
                 + '</div>'
-                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? 'Reschedule asks the brand to accept a new time; nothing is charged or refunded. ' : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
+                + '<div style="margin-top:8px; font-size:0.8rem; color:var(--ink-500); line-height:1.45;">' + (canResched ? reschedHint : '') + (canCancel ? 'Cancelling emails the brand, and any refund follows your cancellation policy.' : '') + '</div>';
         }
         function openDemoEventDetail(id) {
             const d = (window.state.demos || []).find(x => String(x.id) === String(id));

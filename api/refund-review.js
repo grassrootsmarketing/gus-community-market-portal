@@ -9,12 +9,24 @@
 //   action=replace  -> Stripe conclusively does NOT: release the exact reservation, supersede the
 //                      old request, mint version N+1 with a fresh idempotency key.
 //
+// Codex refund-cutoff R2-2 (2026-10-19), keyed by booking_id instead of op_key: the operator's answer to a
+// cancelled paid booking whose refund was left undecided by the 72-hour rule (pending_manual) or by an
+// unresolvable start (under_review). There is no refund operation yet, so this is where the FIRST refund of
+// such a booking is authorized.
+//   action=cancellation   -> report the decision, the resolution (if any) and the review case; no mutation.
+//   action=grant          -> one allocation-scoped refund (the booking's own allocation, stable operation
+//                            identity, stored idempotency key on retry), a resolution row recorded once, the
+//                            review case closed, the brand told. Repeating it returns the recorded resolution.
+//   action=deny           -> a documented no-refund resolution, the case closed, the brand told.
+//   The initial decision row is never rewritten. See api/_cancellation-review.js.
+//
 // Authorization is a real retailer-admin session with owner/admin role, and the operation must
 // belong to that retailer (the RPCs re-check tenancy too). p_actor text is NEVER authorization.
 import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
+import { loadCancellation, resolutionState, resolveCancellation, refundStatusOf } from './_cancellation-review.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
@@ -68,6 +80,7 @@ export default async function handler(req, res) {
 
   const opKey = String(body.op_key || '');
   const action = String(body.action || 'inspect');
+  if (['cancellation', 'grant', 'deny'].includes(action)) return handleCancellationResolution(req, res, auth, body, action);
   if (!opKey) return res.status(400).json({ error: 'op_key required' });
 
   try {
@@ -109,12 +122,60 @@ export default async function handler(req, res) {
       if (!look.ok) return res.status(502).json({ error: 'stripe_lookup_failed', detail: look.error });
       if (look.match) return res.status(409).json({ error: 'stripe_refund_exists', stripe_refund_id: look.match.id, hint: 'use action=adopt' });
       const r = await sbRpc('resolve_refund_replace', { p_op_key: opKey, p_operator: auth.email, p_retailer_id: auth.retailer_id, p_evidence: evidence });
-      return res.status(r && r.outcome === 'replacement_created' ? 200 : 409).json(r);
+      // R5-1: a replaced request under a cancellation resolution's grant re-arms that resolution now (the worker also
+      // re-arms it on its own: the selector picks a superseded link even while the escalation is active)
+      let relink = null;
+      if (r && r.outcome === 'replacement_created' && /:review_grant$/.test(opKey)) {
+        try { const rl = await sbRpc('booking_cancellation_relink', { p_booking_id: op.booking_id, p_retailer_id: auth.retailer_id }); relink = rl && rl.outcome; } catch (_) { relink = 'deferred_to_worker'; }
+      }
+      return res.status(r && r.outcome === 'replacement_created' ? 200 : 409).json(relink ? { ...r, resolution_relink: relink } : r);
     }
 
     return res.status(400).json({ error: 'unknown action' });
   } catch (e) {
     console.error('refund-review error:', (e && e.message) || e);
+    return res.status(500).json({ error: 'refund_review_error' });
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Cancellation resolution (R2-2, reworked for R3-1 / R3-3): booking-keyed, retailer owner/admin, same-origin (checked
+// above). The decision is CLAIMED in the database before any provider effect; the answer is derived from the stored
+// decision and its execution state, never from this request's action. See api/_cancellation-review.js.
+// ---------------------------------------------------------------------------------------------
+const isUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v || ''));
+async function handleCancellationResolution(req, res, auth, body, action) {
+  const bookingId = String(body.booking_id || '');
+  if (!isUuid(bookingId)) return res.status(400).json({ error: 'booking_id required' });
+  try {
+    const rows = await sbGet(`bookings?id=eq.${encodeURIComponent(bookingId)}&select=*`);
+    const booking = Array.isArray(rows) ? rows[0] : null;
+    if (!booking) return res.status(404).json({ error: 'booking_not_found' });
+    if (booking.retailer_id !== auth.retailer_id) return res.status(403).json({ error: 'not_your_booking' });
+    if (action === 'cancellation') {
+      const cur = await loadCancellation(_b, bookingId);
+      const st = resolutionState({ booking, decision: cur.decision, resolution: cur.resolution });
+      return res.status(200).json({ ok: true, booking_id: bookingId, status: booking.status, payment_status: booking.payment_status, decision: cur.decision, resolution: cur.resolution, review_case: cur.reviewCase, resolvable: st.resolvable, why: st.why, refund_status: refundStatusOf(cur.resolution) });
+    }
+    if (process.env.CANCELLATION_RESOLUTION_QUIESCE === 'true') {
+      // R5-3: the rollback procedure stops every producer of resolution work before draining the outbox
+      return res.status(503).json({ error: 'resolution_quiesced', message: 'Refund decisions are paused for maintenance. Try again shortly.' });
+    }
+    if (process.env.CANCELLATION_MAINTENANCE === 'true') {
+      // R6-3 step 1: no NEW decision during maintenance; finishing an existing one (a replay) stays allowed
+      const prior = await sbGet(`booking_cancellation_resolutions?booking_id=eq.${encodeURIComponent(bookingId)}&select=booking_id`);
+      if (!Array.isArray(prior) || !prior.length) return res.status(503).json({ error: 'cancellations_paused', message: 'Refund decisions are paused for maintenance. Try again shortly.' });
+    }
+    const decision = action === 'grant' ? 'refund_granted' : 'no_refund';
+    const reason = String(body.reason || '').trim();
+    if (!reason) return res.status(400).json({ error: 'reason_required', message: 'Say why, in a sentence; it is recorded with your decision.' });
+    const r = await resolveCancellation(_b, { booking, retailerId: auth.retailer_id, operator: auth.email, decision, reason });
+    if (!r.ok) return res.status(r.status || 409).json({ ok: false, error: r.error, decision: r.decision || undefined });
+    return res.status(200).json({ ok: true, booking_id: bookingId, outcome: r.outcome, existing: r.existing, requested: r.requested, decision: r.decision_stored, state: r.state, resolution: r.resolution,
+      refund_status: r.refund_status, refund_id: (r.refund && r.refund.refund_id) || undefined, refund_request_id: (r.resolution && r.resolution.refund_request_id) || undefined,
+      case_id: r.case_id, case_closed: r.case_closed, brand_notified: r.brand_notified, pending_step: r.failed || undefined });
+  } catch (e) {
+    console.error('refund-review cancellation error:', (e && e.message) || e);
     return res.status(500).json({ error: 'refund_review_error' });
   }
 }

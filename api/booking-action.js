@@ -2,8 +2,13 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 // /api/booking-action, Admin confirms, declines, or cancels a booking.
 // On confirm: flips bookings.status to 'confirmed', creates a demos row, emails the brand.
 // On decline: flips bookings.status to 'declined', emails the brand.
-// On cancel: flips bookings.status to 'cancelled', refunds via Stripe if paid,
-//            respecting the retailer's cancellation_mode (refundable | non_refundable).
+// On cancel: flips bookings.status to 'cancelled' and, if paid, decides the refund with api/_refund-cutoff.js:
+//            the store says WHO asked (category: brand_requested | store_caused) and WHEN the brand's request was
+//            received (requested_at). A store-caused cancellation refunds in full. A brand-requested one refunds
+//            automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72) after the request, in the
+//            store's zone; inside that window, and always in non_refundable mode, the refund is left to the store
+//            (pending_manual) unless it ticked "Refund the brand anyway" (force_refund + override_reason). The
+//            decision is recorded (0105 booking_cancellation_record) BEFORE any refund effect and reused on retry.
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
 // build-bust: 2026-07-09-phase-b
@@ -14,53 +19,13 @@ import { randomUUID } from 'node:crypto';
 import { coiCovered } from './_coi-coverage.js';
 import { captureHeldBooking, releaseHeldBooking } from './_provisional.js';
 import { resolveRequestedSlot, SLOT_REFUSAL_MESSAGES } from './_slots.js';
+import { refundDecision, isCancellationCategory, validateRequestedAt } from './_refund-cutoff.js';
+import { sbRpc as sbRpcShared, reserveAndRefund as reserveAndRefundShared } from './_booking-refund.js';
+import { FLAGS } from './_flags.js';
 let _b = null;
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const FROM_ADDRESS = 'Demohub <bookings@demohubhq.com>';
 
-const REFUND_CUTOFF_DAYS = 14;
-
-async function refundPaymentIntent(paymentIntentId, opts = {}) {
-  if (!STRIPE_SECRET_KEY) return { ok: false, error: 'STRIPE_SECRET_KEY not configured' };
-  if (!paymentIntentId) return { ok: false, error: 'payment_intent_id required' };
-  const params = new URLSearchParams();
-  params.set('payment_intent', paymentIntentId);
-  // DH-04: when several bookings share one PaymentIntent (batch checkout), refund only this
-  // booking's share. Omitted -> Stripe does a full refund (correct for single-booking PIs).
-  if (opts.amountCents != null && Number.isFinite(opts.amountCents) && opts.amountCents > 0) {
-    params.set('amount', String(Math.round(opts.amountCents)));
-  }
-  // Keeps-all retailers (e.g. Gus) take a plain platform charge: no transfer, no application
-  // fee. Sending reverse_transfer / refund_application_fee on those charges makes Stripe reject
-  // the refund outright, so only send them for connected (destination-charge) retailers.
-  if (!opts.keepsAll) {
-    params.set('refund_application_fee', 'true');
-    params.set('reverse_transfer', 'true');
-  }
-  if (opts.reason) params.set('reason', opts.reason);
-  if (opts.metadata) {
-    for (const [k, v] of Object.entries(opts.metadata)) params.set('metadata[' + k + ']', String(v));
-  }
-  try {
-    const _headers = {
-      Authorization: 'Bearer ' + STRIPE_SECRET_KEY,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    };
-    // R2-03: idempotency key so two concurrent decline/cancel requests can't double-refund the
-    // same booking. Keyed on the booking + operation, stable across Stripe/our own retries.
-    if (opts.idempotencyKey) _headers['Idempotency-Key'] = String(opts.idempotencyKey).slice(0, 255);
-    const r = await fetch('https://api.stripe.com/v1/refunds', {
-      method: 'POST',
-      headers: _headers,
-      body: params.toString(),
-    });
-    const json = await r.json();
-    if (!r.ok) return { ok: false, error: (json && json.error && json.error.message) || ('HTTP ' + r.status), detail: json };
-    return { ok: true, refund_id: json.id, amount: json.amount, refund: json };
-  } catch (e) {
-    return { ok: false, error: String((e && e.message) || e) };
-  }
-}
+// Stripe refund submission lives in api/_booking-refund.js (shared with the demo-move settlement, 2026-10-16).
 
 // DH-01: viewer-role staff accounts are read-only. Fail-open on lookup error so a transient DB
 // blip never locks out the primary owner (who has no retailer_admins row).
@@ -70,12 +35,8 @@ async function refundPaymentIntent(paymentIntentId, opts = {}) {
 // amounts now come exclusively from the immutable allocation via refund_reserve_cas, so no code
 // path can ever fall back to an unscoped full-PaymentIntent refund.
 
-function daysUntilDemo(demo_date) {
-  if (!demo_date) return 0;
-  const demo = new Date(demo_date + 'T00:00:00Z').getTime();
-  const now = Date.now();
-  return Math.floor((demo - now) / (24 * 60 * 60 * 1000));
-}
+// (2026-10-18) daysUntilDemo() and REFUND_CUTOFF_DAYS are gone: the cancel decision lives in api/_refund-cutoff.js
+// (refundDecision), measured in elapsed hours to the demo's start instant, so the policy sentence and the money agree.
 
 function html(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -147,13 +108,25 @@ ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-
 }
 
 
-function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus }) {
+function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dateLabel, demo_time, reason, refundStatus, refundReason, category }) {
+  // Codex RC-1 / RC-3 (2026-10-18): the outcome is stated as what it IS. A policy denial is definite (no "they will
+  // follow up" promise without a tracked workflow); a submitted refund is tracked by the refund ledger and
+  // confirmed by email; an unresolved eligibility is a tracked review item, so a follow-up IS promised there.
+  const manualLine = refundReason === 'inside_cutoff'
+    ? 'Because the cancellation came inside the 72-hour window in ' + html(retailerName) + '\'s cancellation policy, the demo fee is not refunded.'
+    : refundReason === 'non_refundable'
+    ? html(retailerName) + '\'s cancellation policy is non-refundable, so the demo fee is not refunded.'
+    : 'Per ' + html(retailerName) + '\'s cancellation policy, the demo fee is not refunded automatically.';
   const refundLine = (refundStatus === 'issued' || refundStatus === 'submitted')
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund request was submitted. We\'ll email you to confirm once it\'s completed, typically within 5&ndash;10 business days.</p>'
     : refundStatus === 'auth_released'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your card was never charged. The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>'
+    : refundStatus === 'under_review'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">We could not confirm this demo\'s scheduled time, so whether the 72-hour rule applies is being reviewed by Demohub. You will hear from us by email; nothing more is needed from you.</p>'
+    : refundStatus === 'refund_failed'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">Your refund is in progress and will be confirmed by email once it completes.</p>'
     : refundStatus === 'pending_manual'
-    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' will follow up with you about the refund directly, per their cancellation policy.</p>'
+    ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + manualLine + '</p>'
     : refundStatus === 'not_paid'
     ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">No charge was captured for this booking, so nothing needs to be refunded.</p>'
     : '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">If your card was charged, ' + html(retailerName) + ' will follow up about the refund per their cancellation policy.</p>';
@@ -163,7 +136,7 @@ function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dat
 '<tr><td style="padding:36px 36px 28px;">' +
 '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.14em;color:#a14e2a;margin-bottom:14px;">Demo cancelled</div>' +
 '<h1 style="font-family:Georgia,serif;font-size:28px;font-weight:500;line-height:1.2;color:#0f2c17;margin:0 0 18px;">Your demo has been cancelled' + (contact_name ? ', ' + html(contact_name) : '') + '.</h1>' +
-'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + html(retailerName) + ' cancelled your demo for <strong>' + html(brand_name || 'your brand') + '</strong> on ' + html(dateLabel) + ' at ' + html(demo_time) + ' (' + html(venueName) + ').</p>' +
+'<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;">' + (category === 'brand_requested' ? 'As you asked, ' + html(retailerName) + ' cancelled' : category === 'store_caused' ? html(retailerName) + ' had to cancel' : html(retailerName) + ' cancelled') + ' your demo for <strong>' + html(brand_name || 'your brand') + '</strong> on ' + html(dateLabel) + ' at ' + html(demo_time) + ' (' + html(venueName) + ').</p>' +
 (reason ? '<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18px;"><strong>Note from the store:</strong> ' + html(reason) + '</p>' : '') +
 refundLine +
 '<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">To pick a different date, head back to <a href="' + link(_b, '/brand/dashboard') + '" style="color:#2a5b32;">your Demohub dashboard</a>.</p>' +
@@ -261,6 +234,7 @@ async function handleReschedulePropose(req, res, body) {
     if (reason === 'not_found') return res.status(404).json({ error: 'Demo not found' });
     if (reason === 'date_in_past') return res.status(400).json({ error: 'The new date must be in the future.' });
     if (reason === 'no_booking') return res.status(409).json({ error: 'no_booking', message: 'This demo has no linked booking, so it cannot be rescheduled from here. Cancel and rebook instead.' });
+    if (reason === 'cancellation_pending') return res.status(409).json({ error: reason, message: MOVE_REFUSALS.cancellation_pending[1] });
     return res.status(409).json({ error: reason, message: 'Only a confirmed demo with an active booking can be rescheduled.' });
   }
   const proposalVersion = proposal.proposal_version;
@@ -315,6 +289,85 @@ async function sendBrandNotice(msg, binding, deliveryKey, startedAt) {
   return again;
 }
 
+// Retailer-initiated move (0094, 2026-10-16). The store owns its calendar: the demo moves at once, on the
+// store's authority, with no lead-time rule. The database does the whole move in ONE transaction
+// (move_booking_by_retailer: lock, active check, COI on the new date, the slot/capacity triggers,
+// projection, the store-contact "rescheduled" event, the brand's "please confirm" event, the old
+// reminders retired, the move row with its deadline). Nothing is emailed from here; the outbox does it.
+export const MOVE_REFUSALS = {
+  not_found: [404, 'Demo not found'],
+  no_booking: [409, 'This demo has no linked booking, so it cannot be moved from here. Cancel and rebook instead.'],
+  not_active: [409, 'Only a confirmed or paid pending demo can be moved.'],
+  date_in_past: [400, 'The new date must be today or later.'],
+  time_in_past: [400, 'That time has already passed today. Pick a later slot.'],
+  same_slot: [400, 'That is the slot the demo is already in.'],
+  note_too_long: [400, 'Keep the note under 500 characters.'],
+  coi_not_covered: [409, "The brand's certificate of insurance does not cover the new date. Ask them for a renewal, or pick a date inside their coverage."],
+  slot_full: [409, 'That slot is full at this location. Pick another time.'],
+  slot_not_offered: [400, 'That time is not a slot this location offers on that date.'],
+  slot_outside_hours: [400, 'That time is outside this location\'s hours on that date.'],
+  date_blackout: [400, 'That date is blocked at this location.'],
+  venue_closed: [400, 'This location is closed that day.'],
+  slot_config_invalid: [503, 'This location\'s demo slots are misconfigured. Fix them under Location availability.'],
+  venue_hours_not_set: [409, 'This location has no hours set, so no slot can be resolved.'],
+  invalid_local_time: [400, 'That local time does not exist on that date (daylight saving change). Pick another slot.'],
+  unresolvable_start: [400, 'That slot could not be resolved to a start time at this location. Pick another slot.'],
+  cancellation_pending: [409, 'This demo is being cancelled (the store recorded a cancellation, or the brand could not make the last new time), so nothing can be moved until that completes. Book a new slot instead.'],   // 0106: the same reason now also covers a recorded cancellation
+};
+async function handleMove(req, res, body) {
+  // Codex RM-7: creation only. Existing moves settle, lapse and notify whatever this says.
+  if (!FLAGS.retailerMoves) return res.status(503).json({ error: 'retailer_moves_disabled', message: 'Moving a demo directly is switched off right now. You can still propose a new date and let the brand accept it.' });
+  const { demo_id, new_date, new_time, note } = body || {};
+  if (!demo_id || !isUuid(demo_id)) return res.status(400).json({ error: 'Invalid demo_id' });
+  if (!new_date || !/^\d{4}-\d{2}-\d{2}$/.test(new_date)) return res.status(400).json({ error: 'new_date (YYYY-MM-DD) required' });
+  const noteText = note == null ? null : String(note);
+  if (noteText != null && noteText.length > 500) return res.status(400).json({ error: 'note_too_long', message: MOVE_REFUSALS.note_too_long[1] });
+  if (noteText != null && /[^\P{Cc}\n\r\t]/u.test(noteText)) return res.status(400).json({ error: 'note_invalid', message: 'The note contains characters that cannot be sent.' });
+
+  const _auth = await requireRetailerMembership(req, body, null, ['owner', 'admin', 'manager']);
+  if (!_auth.ok) return res.status(_auth.status).json({ error: _auth.error });
+  const sess = { retailer_id: _auth.retailer_id, email: _auth.email };
+
+  let demo;
+  try { const rows = await sb(`demos?id=eq.${encodeURIComponent(demo_id)}&select=id,retailer_id,venue_id,booking_id,status,demo_date,demo_time,retailers(timezone)`); demo = Array.isArray(rows) ? rows[0] : null; }
+  catch (_) { return res.status(404).json({ error: 'Demo not found' }); }
+  if (!demo) return res.status(404).json({ error: 'Demo not found' });
+  if (demo.retailer_id !== sess.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+  if (!demo.booking_id) return res.status(409).json({ error: 'no_booking', message: MOVE_REFUSALS.no_booking[1] });
+
+  // The destination must be a slot the venue OFFERS on that date (canonical spelling). The database
+  // re-checks under the venue lock inside the move; this is the friendly early refusal.
+  let moveTime = null;
+  {
+    let venueRow = null;
+    try { const vr = await sb(`venues?id=eq.${encodeURIComponent(demo.venue_id)}&retailer_id=eq.${encodeURIComponent(sess.retailer_id)}&select=id,availability`); venueRow = Array.isArray(vr) ? vr[0] : null; }
+    catch (_) { venueRow = null; }
+    if (!venueRow) return res.status(409).json({ error: 'no_venue', message: 'This demo has no location on file, so it cannot be moved from here.' });
+    const requested = (typeof new_time === 'string' && new_time.trim()) ? new_time.trim() : (demo.demo_time || '');
+    const slotRes = resolveRequestedSlot(venueRow.availability, new_date, requested, demo.retailers && demo.retailers.timezone);
+    if (!slotRes.ok) {
+      const code = slotRes.reason === 'invalid_time' ? 'invalid_new_time' : slotRes.reason;
+      return res.status(slotRes.reason === 'slot_config_invalid' ? 503 : 400).json({ error: code, message: SLOT_REFUSAL_MESSAGES[slotRes.reason] || 'That time is not available at this location.' });
+    }
+    moveTime = slotRes.time;
+  }
+
+  let verdict;
+  try {
+    const rows = await sbRpc('move_booking_by_retailer', { p_demo_id: demo_id, p_retailer_id: sess.retailer_id, p_new_date: new_date, p_new_time: moveTime, p_note: noteText, p_actor: sess.email || null, p_reconfirm_hours: 72 });
+    verdict = Array.isArray(rows) ? rows[0] : rows;
+  } catch (e) {
+    console.error('move_booking_by_retailer failed:', (e && e.message) || e);
+    return res.status(503).json({ error: 'move_unavailable', message: 'The move could not be saved. Nothing was changed. Try again in a moment.' });
+  }
+  if (!verdict || verdict.ok !== true) {
+    const reason = (verdict && verdict.reason) || 'move_failed';
+    const [status, message] = MOVE_REFUSALS[reason] || [409, 'The demo could not be moved.'];
+    return res.status(status).json({ error: reason, message });
+  }
+  return res.status(200).json({ ok: true, demo_id, booking_id: verdict.booking_id, new_date, new_time: moveTime, schedule_revision: verdict.schedule_revision, move_id: verdict.move_id, reconfirm_due_at: verdict.reconfirm_due_at });
+}
+
 function dateLabelOf(d) {
   if (!d) return '';
   try { return new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); }
@@ -341,56 +394,11 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 </table></body></html>`;
 }
 
-async function sbRpc(fn, args) {
-  const r = await fetch(`${_b.supabaseUrl}/rest/v1/rpc/${fn}`, {
-    method: 'POST', headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(args),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error('rpc ' + fn + ' ' + r.status + ' ' + text.slice(0, 200));
-  try { return text ? JSON.parse(text) : null; } catch (_) { return null; }
-}
-
-// Ledger-backed refund: refund_reserve_cas reserves the exact amount against the booking's immutable
-// allocation and returns a canonical request; we submit the Stripe refund with the durable
-// idempotency key and converge via apply_refund_event(). Booking payment_status is flipped only by
-// verified success (webhook/worker), never optimistically here. No allocation -> requires_review.
-async function reserveAndRefund(booking, retailer, actor, reason, opName) {
-  // R10-P1-2/P0-4: one idempotent CAS command. refund_reserve_cas creates-or-RETURNS the operation
-  // for this (booking, opName), reserves the exact allocation amount, and hands back everything
-  // needed to submit a canonical Stripe request. A retry returns the existing request (never
-  // "nothing_refundable"). Missing allocation / uncharged group -> requires_review, ZERO Stripe calls.
-  const opKey = booking.id + ':' + opName;
-  let rr;
-  try { rr = await sbRpc('refund_reserve_cas', { p_booking_id: booking.id, p_op_key: opKey, p_actor: actor || null, p_reason: reason || null }); }
-  catch (e) { return { ok: false, error: 'reserve_failed', requires_review: true }; }
-  const row = Array.isArray(rr) ? rr[0] : rr;
-  const outcome = row && row.outcome;
-  if (outcome === 'no_allocation' || outcome === 'not_charged') return { ok: false, error: outcome, requires_review: true };
-  if (outcome === 'nothing_refundable') return { ok: false, error: 'nothing_refundable' };
-  if (outcome === 'no_booking' || outcome === 'booking_state_conflict') return { ok: false, error: outcome };
-
-  const r = await refundPaymentIntent(row.payment_intent, {
-    keepsAll: !!row.keeps_all, amountCents: row.amount, idempotencyKey: row.idempotency_key,
-    reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
-  });
-  if (r.ok) {
-    // Converge the ledger now via the VERIFIED apply RPC (idempotent with the later charge.refunded
-    // webhook + the worker). Never flips the booking to 'refunded' here, only a verified success does.
-    try {
-      await sbRpc('apply_refund_event', {
-        p_refund_id: r.refund_id, p_status: (r.refund && r.refund.status) || 'pending',
-        p_amount: row.amount, p_currency: (r.refund && r.refund.currency) || 'usd',
-        p_pi: row.payment_intent, p_charge: (r.refund && r.refund.charge) || row.charge_id || null,
-        p_meta_request_id: row.refund_request_id, p_event_id: null,
-      });
-    } catch (_) { /* webhook/worker will still converge */ }
-    return { ok: true, ledger: true, submitted: true };
-  }
-  // Submit failed: leave the reservation for the LEASED worker to retry with the same key.
-  await sb(`refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
-  return { ok: false, error: 'refund_failed', requires_review: true, retrying: true };
-}
+const sbRpc = (fn, args) => sbRpcShared(_b, fn, args);
+// Ledger-backed refund, shared implementation (api/_booking-refund.js); same semantics as before: reserve
+// against the immutable allocation under a per-(booking, operation) key, submit with the durable
+// idempotency key, converge through apply_refund_event, never flip payment_status here.
+const reserveAndRefund = (booking, retailer, actor, reason, opName) => reserveAndRefundShared(_b, booking, actor, reason, opName);
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -423,7 +431,11 @@ export default async function handler(req, res) {
     if (body && body.action === 'reschedule') {
       return await handleReschedulePropose(req, res, body);
     }
-    const { booking_id, action, reason, demo_fee, force_refund } = body || {};
+    // ===== Move (retailer moves the demo NOW; the brand reconfirms or the demo cancels with a refund) =====
+    if (body && body.action === 'move') {
+      return await handleMove(req, res, body);
+    }
+    const { booking_id, action, reason, demo_fee, force_refund, category, requested_at, backdate_note, override_reason } = body || {};
     if (!booking_id || !['confirm', 'decline', 'cancel'].includes(action)) {
       return res.status(400).json({ error: 'booking_id and action=confirm|decline|cancel required' });
     }
@@ -450,6 +462,11 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'awaiting_confirmation', message: 'This free booking is still being confirmed (usually under a minute). Try again shortly.' });
     }
     if (action === 'cancel') {
+      if (process.env.CANCELLATION_MAINTENANCE === 'true' && !booking.cancellation_pending_at) {
+        // R6-3 step 1: during maintenance no NEW cancellation decision is recorded; a cancellation already recorded
+        // (the barrier is set) may be retried so its work can finish
+        return res.status(503).json({ error: 'cancellations_paused', message: 'Cancellations are paused for maintenance. Try again shortly.' });
+      }
       if (!['pending', 'confirmed', 'held'].includes(booking.status)) {
         return res.status(409).json({ error: 'Booking already ' + booking.status });
       }
@@ -457,6 +474,24 @@ export default async function handler(req, res) {
       return res.status(409).json({ error: 'Booking already ' + booking.status });
     }
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
+    // Codex RC-1 / RC-3 (2026-10-18): a cancel says WHO asked and WHEN, validated here before anything moves. A
+    // missing or unknown category is refused (never read as the brand's fault); a backdated request needs a note;
+    // "Refund the brand anyway" needs a reason. The shipped admin dialog sends all of these.
+    let cancelCategory = null, cancelRequestedAt = null, cancelBackdateNote = null, cancelOverrideReason = null;
+    if (action === 'cancel') {
+      if (!isCancellationCategory(category)) {
+        return res.status(400).json({ error: 'cancellation_category_required', message: "Say why the demo is being cancelled: category must be 'brand_requested' (the brand asked to cancel) or 'store_caused' (the store cannot host it). Nothing was changed." });
+      }
+      cancelCategory = category;
+      cancelBackdateNote = backdate_note == null ? null : (String(backdate_note).trim().slice(0, 500) || null);
+      const ra = validateRequestedAt(requested_at, { backdateNote: cancelBackdateNote || '' });
+      if (!ra.ok) return res.status(400).json({ error: ra.error, message: ra.message + ' Nothing was changed.' });
+      cancelRequestedAt = ra.requested_at;
+      if (force_refund === true && cancelCategory === 'brand_requested') {
+        cancelOverrideReason = override_reason == null ? '' : String(override_reason).trim().slice(0, 500);
+        if (cancelOverrideReason.length < 3) return res.status(400).json({ error: 'override_reason_required', message: 'Refunding the brand anyway needs a short reason, recorded with the cancellation. Nothing was changed.' });
+      }
+    }
 
     // Codex R4-02 (1): everything this action NEEDS beyond the booking row, the venue (name, fee),
     // the retailer (cancellation mode, ...) and a valid demo fee for a confirm, is read and validated
@@ -466,7 +501,7 @@ export default async function handler(req, res) {
     try {
       const venues = await sb(`venues?id=eq.${encodeURIComponent(booking.venue_id)}&select=name,demo_fee`);
       venue = Array.isArray(venues) ? venues[0] : null;
-      const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all`);
+      const retailers = await sb(`retailers?id=eq.${encodeURIComponent(booking.retailer_id)}&select=name,slug,cancellation_mode,platform_keeps_all,timezone`);
       retailer = Array.isArray(retailers) ? retailers[0] : null;
     } catch (e) {
       return res.status(503).json({ error: 'booking_context_unavailable', message: 'The venue or retailer details could not be loaded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was charged. Retry in a moment.' });
@@ -565,9 +600,14 @@ export default async function handler(req, res) {
 
     let refundStatus = 'not_paid';
     let refundInfo = null;
+    let refundReason = null;        // cancel path only: why the refund was or was not automatic (api/_refund-cutoff.js)
+    let refundHoursOut = null;      // cancel path only: elapsed hours from the brand's request to the demo's start
+    let cancelDecisionReplayed = false;   // cancel path only: a retry reused the recorded decision (0105)
+    let cancelDecisionRecomputed = false; // cancel path only: the first record was stale and the decision was judged once more on the current row (0106)
+    let refundReviewCaseId = null;        // cancel path only: the durable review item for an unresolved start
     let demoCancelConverged = null;   // cancel path only: did the calendar demo actually get cancelled?
     let demoCancelCaseId = null;      // reconciliation case id if the demo cancel did NOT converge
-    const wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+    let wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;   // let: re-judged if the cancellation record finds the row moved on (0106)
     // Provisional holds: declining/cancelling a held booking with a live authorization RELEASES the
     // hold (cancel the PI, $0 charged, $0 Stripe fee), never refunds. The RPC inside flips the
     // booking to declined/cancelled; the email below carries the "never charged" copy.
@@ -604,20 +644,87 @@ export default async function handler(req, res) {
         if (!r.ok) console.warn('Decline refund failed for booking', booking_id, '-', r.error);
       }
     } else if (action === 'cancel') {
-      const mode = (retailer && retailer.cancellation_mode) || 'refundable';
-      const daysOut = daysUntilDemo(booking.demo_date);
-      const shouldRefund = wasPaid && (
-        force_refund === true
-        || mode === 'refundable'
-        || (mode !== 'non_refundable' && daysOut >= REFUND_CUTOFF_DAYS)
-      );
-      if (!wasPaid) {
+      // The 72-hour rule (api/_refund-cutoff.js): a store-caused cancellation refunds in full; a brand-requested
+      // one refunds automatically only when the demo starts at least 72 elapsed hours after the brand's request
+      // was received, in the store's zone; inside the window, or in non_refundable mode, the refund is the store's
+      // call (pending_manual) unless it ticked "Refund the brand anyway"; an unresolvable start goes to review.
+      // Unpaid and fee-waived bookings never refund.
+      let fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
+      // Codex RC-3: the decision is RECORDED before any refund effect, under the booking's row lock (0105). A retry
+      // (a provider timeout, a failed transition) gets the first decision back and resumes it; it never judges the
+      // clock again, so a later store policy change or the passing of the boundary cannot change the outcome.
+      // Codex R2-3 (0106): the decision is bound to the row it was computed from. The record carries the schedule
+      // revision, date, time, payment state, fee waiver and the store's mode and zone it used; under the booking's
+      // lock the database records it only if those are still current, else answers 'stale' with the current values.
+      // The route then reloads the authoritative row, recomputes ONCE and records against that; a second 'stale' is
+      // a 409 (the booking is changing under the operator). A recorded decision also sets the cancellation barrier:
+      // no confirmation, capture promotion or schedule change lands until booking_transition('cancel') clears it.
+      const expectOf = (bk, rt) => ({ schedule_revision: bk.schedule_revision == null ? null : Number(bk.schedule_revision), demo_date: bk.demo_date || null, demo_time: bk.demo_time || null,
+        payment_status: bk.payment_status || null, fee_waived: bk.fee_waived === true, cancellation_mode: rt.cancellation_mode || null, timezone: rt.timezone || null });
+      const decisionPayload = (d) => ({ ...d, cancellation_mode: d.mode, actor: (session && session.email) || null, force_refund: force_refund === true,
+        override_reason: cancelOverrideReason, backdate_note: cancelBackdateNote, note: reason ? String(reason).trim().slice(0, 500) : null });
+      let recRow = null, recomputed = false;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        let rec;
+        try {
+          rec = await sbRpc('booking_cancellation_record', { p_booking_id: booking.id, p_retailer_id: session.retailer_id, p_decision: decisionPayload(fresh), p_expect: expectOf(booking, retailer) });
+        } catch (e) {
+          return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + String((e && e.message) || e).slice(0, 120) + '). Nothing was changed and nothing was refunded. Retry in a moment.' });
+        }
+        recRow = Array.isArray(rec) ? rec[0] : rec;
+        if (recRow && recRow.outcome === 'stale' && attempt === 0) {
+          // the row moved on since it was read (a payment landed, a move, a policy change): judge the current row once
+          let bNow = null, rNow = null;
+          try {
+            const bs = await sb('bookings?id=eq.' + encodeURIComponent(booking.id) + '&select=*'); bNow = Array.isArray(bs) ? bs[0] : null;
+            const rs = await sb('retailers?id=eq.' + encodeURIComponent(booking.retailer_id) + '&select=name,slug,cancellation_mode,platform_keeps_all,timezone'); rNow = Array.isArray(rs) ? rs[0] : null;
+          } catch (_) { bNow = null; }
+          if (!bNow || !rNow) return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The booking changed while you were working and could not be re-read. Nothing was changed and nothing was refunded. Retry in a moment.' });
+          if (!['pending', 'confirmed', 'held'].includes(bNow.status)) return res.status(409).json({ error: 'state_changed', status: bNow.status, message: 'This booking changed while you were working (now ' + bNow.status + '). Reload and try again.' });
+          Object.assign(booking, bNow); Object.assign(retailer, rNow);
+          wasPaid = booking.payment_status === 'paid' && booking.payment_intent_id;
+          fresh = refundDecision({ booking, retailer, category: cancelCategory, requestedAt: cancelRequestedAt, forceRefund: force_refund === true });
+          recomputed = true;
+          continue;
+        }
+        break;
+      }
+      if (!recRow || !['recorded', 'existing'].includes(recRow.outcome)) {
+        if (recRow && recRow.outcome === 'state_conflict') return res.status(409).json({ error: 'state_changed', status: recRow.status, message: 'This booking changed while you were working (now ' + recRow.status + '). Reload and try again.' });
+        if (recRow && recRow.outcome === 'stale') return res.status(409).json({ error: 'state_changed', stale: true, current: recRow.current || null, message: 'This booking is changing while you were working (a payment, a move or a policy change landed twice). Reload and try again; nothing was changed and nothing was refunded.' });
+        return res.status(503).json({ error: 'cancellation_record_unavailable', message: 'The cancellation could not be recorded (' + ((recRow && recRow.outcome) || 'no result') + '). Nothing was changed and nothing was refunded.' });
+      }
+      cancelDecisionRecomputed = recomputed;
+      cancelDecisionReplayed = recRow.existing === true;
+      const saved = recRow.decision || {};
+      const decision = cancelDecisionReplayed
+        ? { refund: saved.refund === true, status: saved.status, reason: saved.reason, category: saved.category, requested_at: saved.requested_at, hours_before_demo: saved.hours_before_demo == null ? null : Number(saved.hours_before_demo) }
+        : fresh;
+      refundReason = decision.reason;
+      refundHoursOut = decision.hours_before_demo;
+      cancelCategory = decision.category || cancelCategory;
+      cancelRequestedAt = decision.requested_at ? new Date(decision.requested_at) : cancelRequestedAt;
+      if (!wasPaid || decision.status === 'not_paid') {
         refundStatus = 'not_paid';
-      } else if (shouldRefund) {
+      } else if (decision.refund) {
         const r = await reserveAndRefund(booking, retailer, (session && session.email) || null, reason || 'cancelled', 'cancel');
         refundInfo = r;
         refundStatus = r.ok ? 'submitted' : 'refund_failed';
         if (!r.ok) console.warn('Refund failed for booking', booking_id, '-', r.error);
+      } else if (decision.status === 'under_review') {
+        // Codex RC-4: no invented deadline. The cancellation proceeds; the refund eligibility is a durable,
+        // visible review item (reconciliation case, deduplicated per booking) that an operator resolves.
+        refundStatus = 'under_review';
+        try {
+          const _c = await sbRpc('_open_case', {
+            p_kind: 'refund_requires_review', p_dedupe: 'refund-eligibility:' + booking.id, p_reason: 'refund_eligibility_unresolved',
+            p_group: null, p_request: null, p_operation: null, p_session: null, p_pi: booking.payment_intent_id || null, p_charge: null, p_refund: null, p_amount: null, p_currency: null,
+            p_details: { booking_id: booking.id, category: cancelCategory, requested_at: decision.requested_at || null, start_source: fresh.start_source, demo_date: booking.demo_date, demo_time: booking.demo_time, timezone: booking.timezone || (retailer && retailer.timezone) || null },
+          });
+          refundReviewCaseId = Array.isArray(_c) ? _c[0] : _c;
+        } catch (caseErr) {
+          console.error('refund review case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
+        }
       } else {
         refundStatus = 'pending_manual';
       }
@@ -710,6 +817,12 @@ export default async function handler(req, res) {
           console.error('reconciliation case NOT recorded for booking', booking_id, '-', (caseErr && caseErr.message) || caseErr);
         }
       }
+      if (!moneyMoved && tr && tr.reason === 'cancellation_pending') {
+        // 0106: a cancellation decision is recorded on this booking and its cancellation has not landed yet (the
+        // first attempt failed after the record). Only a cancel may proceed; say so instead of a generic stale-tab message.
+        return res.status(409).json({ ok: false, error: 'cancellation_pending', action, booking_id, status: tr.status_before,
+          message: 'A cancellation of this booking is recorded and still landing. Finish or retry the cancellation; it cannot be confirmed or moved until then.' });
+      }
       return res.status(409).json({
         ok: false, error: capturedHeldNow ? 'capture_succeeded_confirmation_unverified' : 'state_changed', action, booking_id, captured: capturedHeldNow || undefined,
         status: tr && tr.status_before, payment_status: booking.payment_status,
@@ -722,6 +835,10 @@ export default async function handler(req, res) {
             ? (capturedHeldNow ? 'The brand\'s card WAS captured, so do not decline it or ask the brand to rebook; ' : refundStatus === 'submitted' ? 'A refund was already submitted for it; ' : 'Its payment hold was already released; ') + (caseId ? 'a reconciliation case was opened for an operator to settle the booking.' : 'the reconciliation case could NOT be recorded, so contact support with this booking id.')
             : 'Reload and try again.'),
       });
+    }
+    if (action === 'cancel') {
+      // Codex R3-4: if the worker had flagged this cancellation as abandoned, the landed retry closes that case.
+      try { await sb(`reconciliation_cases?dedupe_key=eq.${encodeURIComponent('cancel-abandoned:' + booking_id)}&status=neq.resolved`, { method: 'PATCH', body: JSON.stringify({ status: 'resolved', resolved_by: (session && session.email) || 'booking-action', resolved_at: new Date().toISOString() }) }); } catch (_) { /* the worker also closes it once the barrier is clear */ }
     }
     // Codex C2-A: reason 'already_applied' = this action's terminal state was ALREADY in place when
     // the transition ran, the authorization release above did it (held cancel/decline), the
@@ -782,7 +899,7 @@ export default async function handler(req, res) {
         htmlBody = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
       } else {
         subject = `Your demo at ${retailer?.name || 'the store'} was cancelled`;
-        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus });
+        htmlBody = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus, refundReason, category: cancelCategory });
       }
       emailOk = true;
       const noticeKey = randomUUID(); const noticeStart = Date.now();
@@ -805,7 +922,7 @@ export default async function handler(req, res) {
             let ownerHtml;
             if (action === 'confirm') ownerHtml = htmlBody;
             else if (action === 'decline') ownerHtml = declinedEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
-            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null });
+            else ownerHtml = cancelledEmail({ contact_name: booking.contact_name, brand_name: booking.brand_name, retailerName: retailer?.name || '', venueName: venue?.name || '', dateLabel, demo_time: booking.demo_time, reason, refundStatus: null, category: cancelCategory });
             ownerHtml = ownerHtml.includes('</body>') ? ownerHtml.replace('</body>', note + '</body>') : ownerHtml + note;
             const ro = await sendBrandNotice({ from: FROM_ADDRESS, to: ownerEmail, replyTo: 'bookings@demohubhq.com', subject: subject + ' (booked by ' + String(who).slice(0, 60) + ')', html: ownerHtml }, _b, `notice:${booking.id}:${action}:${String(ownerEmail).toLowerCase()}:${noticeKey}`, noticeStart);
             noticeStatus.owner = ro && ro.ok ? 'sent' : 'failed';
@@ -840,6 +957,16 @@ export default async function handler(req, res) {
       email_sent: emailOk,
       notice_status: noticeStatus || undefined,   // per recipient: sent | failed | withheld | none (finding 3)
       refund_status: action === 'cancel' ? refundStatus : undefined,
+      // Why the refund was or was not automatic (api/_refund-cutoff.js), and how far away the demo was. The admin
+      // cancel toast reads these so the store is told "inside the 72-hour window" rather than a bare status.
+      refund_reason: action === 'cancel' ? refundReason : undefined,
+      hours_before_demo: action === 'cancel' ? refundHoursOut : undefined,
+      cancellation_category: action === 'cancel' ? cancelCategory : undefined,
+      requested_at: action === 'cancel' && cancelRequestedAt ? cancelRequestedAt.toISOString() : undefined,
+      decision_replayed: action === 'cancel' ? cancelDecisionReplayed : undefined,
+      refund_review_case_id: refundReviewCaseId || undefined,
+      refund_review_recorded: refundStatus === 'under_review' ? !!refundReviewCaseId : undefined,
+      decision_recomputed: action === 'cancel' ? cancelDecisionRecomputed : undefined,
       refund_id: (refundInfo && refundInfo.refund_id) || undefined,
       // false ⇒ the demo did not cancel; a durable reconciliation case (reconciliation_case_id) was
       // opened. The caller must NOT treat the cancellation as fully complete.

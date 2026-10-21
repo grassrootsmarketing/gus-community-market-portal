@@ -218,9 +218,9 @@ export default async function handler(req, res) {
       name: retailer_name,
       billing_email: normalizedEmail,
       branding: { contact_name: contact_name || '' },
-      // Default to automatic approvals + 14-day refund per David
+      // Default to automatic approvals + the 72-hour refund rule (api/_refund-cutoff.js) per David
       auto_confirm_bookings: true,
-      cancellation_mode: '14_day_refund',
+      cancellation_mode: 'refundable',
       cal_feed_key: _calFeedKey,
     };
     try {

@@ -405,7 +405,22 @@ body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(
 .dh-empty-title{ font-weight:700; font-size:1rem; color:var(--forest-900); margin-bottom:5px; }
 .dh-empty-sub{ font-size:0.88rem; color:var(--ink-500); line-height:1.55; max-width:340px; margin:0 auto; }
 
-.resched-banner{background:#fff8ed;border:1px solid #e0b56a55;border-radius:10px;padding:12px 14px;margin:8px 0 0;}
+.resched-banner{background:#fff8ed;border:1px solid #e0b56a55;border-radius:10px;padding:12px 14px;margin:8px 0 0;scroll-margin-top:96px;}
+.move-facts{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:0.9rem;color:#2a2a26;margin:8px 0 10px;}
+.move-facts .k{color:#7a5a12;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;align-self:center;}
+.move-facts .v strong{font-size:1rem;}
+.move-title{font-size:0.98rem;font-weight:700;color:#1f3a24;margin-bottom:2px;}
+.move-note{font-size:0.84rem;color:#5c4400;margin:0 0 10px;}
+.action-card{background:#fff;border:1.5px solid #e0b56a;border-radius:16px;padding:18px 20px;margin:0 0 18px;box-shadow:0 8px 24px rgba(224,181,106,.18);}
+.action-card h2{margin:0 0 2px;font-size:1.15rem;}
+.action-card .sub{font-size:0.86rem;color:var(--ink-500);margin-bottom:10px;}
+.action-card .action-item{border-top:1px solid rgba(15,44,23,0.08);padding-top:12px;margin-top:12px;}
+.action-card .action-item:first-of-type{border-top:0;padding-top:0;margin-top:0;}
+.action-card .action-where{font-weight:700;color:var(--forest-900);font-size:0.95rem;}
+.action-card .resched-banner{margin-top:8px;}
+.nav-tab .nav-badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 5px;margin-left:6px;border-radius:99px;background:#d9472b;color:#fff;font-size:0.72rem;font-weight:800;line-height:1;vertical-align:middle;}
+.nav-tab.active .nav-badge{background:#ff6a3d;}
+.resched-banner.move-banner{border-left:4px solid #2a5b32;}
 .resched-banner .resched-msg{font-size:0.86rem;line-height:1.5;color:#7a5a12;margin-bottom:10px;}
 .resched-banner .resched-actions{display:flex;gap:8px;flex-wrap:wrap;}
 .resched-accept{background:var(--forest-900);color:#fff;border:none;border-radius:8px;padding:8px 15px;font-weight:700;font-size:0.85rem;cursor:pointer;transition:transform .12s ease,filter .15s ease;}
@@ -786,7 +801,8 @@ function render() {
   if (typeof updateAgreementBand === 'function') updateAgreementBand();
   if (window._brandRole === 'booker' && _currentTab === 'overview') return renderBookerOverview();
   if (window._brandRole === 'booker' && _currentTab === 'account') return renderBookerAccount();
-  if (_currentTab === 'overview') renderOverview();
+  updateBrandBadges();
+  if (_currentTab === 'overview') { renderOverview(); _deferTourForPendingMove(); }
   else if (_currentTab === 'calendar') renderCalendar();
   else if (_currentTab === 'retailers') renderRetailers();
   else if (_currentTab === 'profile') renderProfile();
@@ -841,6 +857,97 @@ function heldBannerHtml(d) {
     : `Your card has a temporary hold, and <strong>you have not been charged</strong>. Upload your Certificate of Insurance${deadline ? ' by <strong>' + deadline + '</strong>' : ' within 24 hours'} to lock in this demo, or the hold is released automatically.`;
   return `<div class="held-banner"><div style="font-weight:800;">&#9203;</div><div>${msg}${d._heldUnpaid ? '' : ' <a href="#compliance">Upload COI &rarr;</a>'}</div></div>`;
 }
+
+// 0094: the store moved this demo; the brand confirms or says it cannot make it. Silence by the
+// deadline cancels the demo with a full refund, and the banner says so in plain words.
+// 2026-10-19 (David): anything the brand must answer (a store's move, a store's proposed date) sits in ONE card at the
+// top of Overview, never buried in the demo list, and the Overview tab carries a red count like the store's Demos tab.
+function _needsAnswer(d) {
+  if (!d) return false;
+  const st = String(d.status || '').toLowerCase();
+  const active = !st || ['confirmed', 'pending', 'scheduled'].includes(st);   // a row without a status is treated as live
+  return active && !!(d.pending_move || d.reschedule_to_date);
+}
+function actionNeededHtml(demos) {
+  if (window._brandRole === 'booker') return '';
+  const list = (demos || []).filter(_needsAnswer);
+  if (!list.length) return '';
+  const where = (d) => escapeHtml((d.retailers && d.retailers.name) || 'Store') + (d.venues && d.venues.name ? ' <span style="color:var(--ink-500);font-weight:500;">' + escapeHtml(d.venues.name) + '</span>' : '');
+  return '<div class="action-card" id="actionNeeded">'
+    + '<h2>Needs your answer' + (list.length > 1 ? ' (' + list.length + ')' : '') + '</h2>'
+    + '<div class="sub">Review the updated or proposed time below. A move applies immediately; a proposal applies only if you accept.</div>'
+    + list.map(d => '<div class="action-item"><div class="action-where">' + where(d) + '</div>' + (d.pending_move ? moveBannerHtml(d) : rescheduleBannerHtml(d)) + '</div>').join('')
+    + '</div>';
+}
+function updateBrandBadges() {
+  const n = window._brandRole === 'booker' ? 0 : ((_data && _data.demos) || []).filter(_needsAnswer).length;
+  document.querySelectorAll('[data-tab="overview"]').forEach(el => {
+    let badge = el.querySelector('.nav-badge');
+    if (n > 0) {
+      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; badge.setAttribute('aria-label', 'needs your answer'); el.appendChild(badge); }
+      badge.textContent = String(n);
+    } else if (badge) badge.remove();
+  });
+}
+function moveBannerHtml(d) {
+  const m = d.pending_move || {};
+  const _fmt = function (dt, tm) {
+    if (!dt) return '';
+    try { return new Date(dt + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (tm ? ' at ' + tm : ''); }
+    catch (_) { return dt + (tm ? ' at ' + tm : ''); }
+  };
+  const store = escapeHtml(d.retailers && d.retailers.name || 'The store');
+  const toLabel = escapeHtml(_fmt(m.to_date || d.demo_date, m.to_time || d.demo_time));
+  const fromLabel = escapeHtml(_fmt(m.from_date, m.from_time));
+  let due = '';
+  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : ''; } catch (_) { due = ''; }
+  const note = m.note ? '<div style="margin-top:6px;font-size:0.84rem;color:#5c4400;"><strong>Note from ' + store + ':</strong> ' + escapeHtml(m.note) + '</div>' : '';
+  // 0097: a designated booker sees the move but cannot answer it (the server refuses move-respond for a booker; a
+  // decline would cancel and refund). The banner says who answers instead of showing buttons that would fail.
+  if (window._brandRole === 'booker') {
+    return '<div class="resched-banner move-banner" title="The store moved this demo. The brand account owner confirms the new time or cancels for a full refund.">'
+      + '<div class="resched-msg"><strong>' + store + ' moved this demo.</strong> ' + (fromLabel ? 'It was <span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span>, now ' : 'Now ') + '<strong>' + toLabel + '</strong>.'
+      + (due ? ' The brand account owner has been asked to confirm the new time by <strong>' + escapeHtml(due) + '</strong>; if they cannot make it, the demo is cancelled and this demo\'s fee is refunded in full.' : ' The brand account owner has been asked to confirm the new time.')
+      + ' Only the owner can answer; talk to them if the new time does not work for you.' + note + '</div></div>';
+  }
+  // 2026-10-19 (David): facts, not a paragraph. Was / Now / Answer by, the store's note, two buttons.
+  return '<div class="resched-banner move-banner" title="The store moved this demo. Your booking and payment stay the same. Confirm the new time, or tell us you cannot make it and this demo\'s fee is refunded in full.">'
+    + '<div class="move-title">' + store + ' moved this demo</div>'
+    + '<div class="move-facts">'
+    + (fromLabel ? '<div class="k">Was</div><div class="v"><span style="text-decoration:line-through;opacity:.7;">' + fromLabel + '</span></div>' : '')
+    + '<div class="k">Now</div><div class="v"><strong>' + toLabel + '</strong></div>'
+    + (due ? '<div class="k">Answer by</div><div class="v">' + escapeHtml(due) + '</div>' : '')
+    + '</div>'
+    + (m.note ? '<div class="move-note"><strong>Note from ' + store + ':</strong> ' + escapeHtml(m.note) + '</div>' : '')
+    + '<div class="move-note" style="color:var(--ink-500);">No answer by the deadline cancels the demo and refunds this demo\'s fee in full.</div>'
+    + '<div class="resched-actions">'
+    + '<button class="resched-accept" title="Confirm you will be there at the new time. Nothing else changes." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'confirm\',this)">Confirm new time</button>'
+    + '<button class="resched-decline" title="Cancel this demo and get this demo\'s fee refunded in full." onclick="respondMove(\'' + escapeHtml(String(m.id)) + '\',\'decline\',this)">We can\'t make it</button>'
+    + '</div></div>';
+}
+window.respondMove = async function (moveId, decision, btn) {
+  const wrap = btn && btn.closest('.resched-banner');
+  if (decision === 'decline' && !window.confirm('Cancel this demo? This demo\'s fee is refunded in full. This cannot be undone.')) return;
+  if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+  if (btn) btn.textContent = decision === 'confirm' ? 'Confirming…' : 'Cancelling…';
+  try {
+    const r = await fetch('/api/brand-account?action=move-respond', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ move_id: moveId, decision: decision }),
+    });
+    const j = await r.json().catch(function () { return {}; });
+    if (!r.ok) {
+      if (r.status === 409 || r.status === 404) { try { await loadData(); render(); } catch (_) {} }
+      throw new Error(j.message || j.error || 'Could not update.');
+    }
+    if (decision === 'confirm') { try { dhConfettiBurst(30); } catch (_) {} }
+    else if (j.message) { try { alert(j.message); } catch (_) {} }
+    await loadData(); render();
+  } catch (e) {
+    if (wrap) wrap.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+    alert((e && e.message) || 'Could not update. Please try again.');
+  }
+};
 
 function rescheduleBannerHtml(d) {
   const _fmt = function (dt, tm) {
@@ -1248,7 +1355,7 @@ function renderOverview() {
         <div class="dh-empty-icon"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700)" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
         <div class="dh-empty-title">Your demos will show up here</div>
         <div class="dh-empty-sub">Book at any Demohub retailer using their link and it lands on your calendar automatically.</div>
-      </div>` : demos.slice(0, 10).map(d => {
+      </div>` : [...demos.filter(d => d.pending_move || d.reschedule_to_date), ...demos.filter(d => !(d.pending_move || d.reschedule_to_date))].slice(0, 10).map(d => {   // 2026-10-19 (Codex final review F2): a demo waiting for the brand's answer is never pushed below the cut-off by newer bookings
         const f = fmtDate(d.demo_date) || {};
         return `<div class="demos-row">
           <div class="demos-date"><div class="day">${f.day || '·'}</div><div class="mon">${f.mon || ''}</div></div>
@@ -1258,7 +1365,7 @@ function renderOverview() {
             ${d.product ? `<div class="demos-product">${escapeHtml(d.product)}</div>` : ''}
           </div>
           <div class="demos-status ${d.status}">${d._held ? 'Awaiting COI review' : (d._awaitingConfirmation ? "Awaiting store confirmation" : d.status)}</div>
-        </div>${d._held ? heldBannerHtml(d) : ''}${d.reschedule_to_date ? rescheduleBannerHtml(d) : ''}`;
+        </div>${d._held ? heldBannerHtml(d) : ''}${d.pending_move ? moveBannerHtml(d) : (d.reschedule_to_date ? rescheduleBannerHtml(d) : '')}`;
       }).join('')}
     </div>`;
 
@@ -1310,6 +1417,7 @@ function renderOverview() {
       <h1>Welcome back${profile.contact_name ? ', ' + escapeHtml(profile.contact_name.split(' ')[0]) : ''}.</h1>
       <div class="sub">One profile, every Demohub retailer.</div>
     </div></div>
+    ${actionNeededHtml(demos)}
     ${welcomeHtml}
     ${coiWarnHtml}
     ${verifiedPanelHtml}
@@ -1595,10 +1703,15 @@ window.openDemoDetail = function(demoId) {
       <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || 'n/a')}</span></span></div>
       <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
     </div>
+    ${demo.pending_move ? '<div class="resched-banner move-banner" style="margin-top:14px;"><div class="move-title">' + escapeHtml(ret.name || 'The store') + ' moved this demo</div><div class="move-facts">' + (demo.pending_move.from_date ? '<div class="k">Was</div><div class="v"><span style="text-decoration:line-through;opacity:.7;">' + escapeHtml(_calMoveLabel(demo.pending_move.from_date, demo.pending_move.from_time)) + '</span></div>' : '') + '<div class="k">Now</div><div class="v"><strong>' + escapeHtml(_calMoveLabel(demo.pending_move.to_date || demo.demo_date, demo.pending_move.to_time || demo.demo_time)) + '</strong></div></div><div class="move-note">' + (window._brandRole === 'booker' ? 'The brand account owner has been asked to confirm the new time.' : 'Waiting for your answer: <a href="#overview" onclick="closeDemoDetail()">answer on the Overview tab</a>.') + '</div></div>' : ''}
   `;
   document.getElementById('demoDetailContent').innerHTML = content;
   document.getElementById('demoDetailModal').classList.add('open');
 };
+function _calMoveLabel(dt, tm) {
+  if (!dt) return '';
+  try { return new Date(dt + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) + (tm ? ' at ' + tm : ''); } catch (_) { return dt + (tm ? ' at ' + tm : ''); }
+}
 window.closeDemoDetail = function() {
   document.getElementById('demoDetailModal').classList.remove('open');
 };
@@ -1626,7 +1739,9 @@ window.copyCalsyncUrl = function(btn) {
 // "renderCoiWidget is not defined" earlier.
 // Codex product-list (2026-10-07): each item carries what a grocery buyer orders from. Fields are optional except
 // the name; the server validates (api/_products.js) and returns the normalised list, which is what we re-render.
-const SKU_DISTRIBUTORS = [['', 'Distributor (optional)'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
+// 2026-10-19 (David): the distributor is required on every item (choose Other if none of these); the Size box is gone
+// (a saved size rides along hidden so older items keep theirs).
+const SKU_DISTRIBUTORS = [['', 'Distributor *'], ['unfi', 'UNFI'], ['kehe', 'KeHE'], ['direct', 'Direct from us'], ['other', 'Other']];
 function skuRowHtml(p) {
   const v = (x) => escapeHtml(x == null ? '' : x);
   const sel = SKU_DISTRIBUTORS.map(o => '<option value="' + o[0] + '"' + ((p.distributor || '') === o[0] ? ' selected' : '') + '>' + o[1] + '</option>').join('');
@@ -1635,7 +1750,7 @@ function skuRowHtml(p) {
     // Name (2026-10-16): brands kept typing their company here. The field asks for the product, with its flavor or variety.
     + '<div style="grid-column:1 / -1; display:flex; gap:8px; align-items:center;">' + inp('sku-name', 'Product name, with flavor or variety (e.g. Smoked Serrano Hot Sauce) *', p.name, 'style="flex:1;" title="One product as it appears on the shelf, with its flavor or variety. Not your brand name."')
     + '<button type="button" class="sku-del" title="Remove item" style="flex-shrink:0;background:none;border:none;cursor:pointer;color:var(--ink-500);font-size:1.3rem;line-height:1;padding:4px 8px;">&times;</button></div>'
-    + inp('sku-size', 'Size of one unit (12 oz jar)', p.size)
+    + inp('sku-size', '', p.size, 'type="hidden"')
     + inp('sku-code', 'Your item code (optional)', p.sku, 'title="Your own code for this item, if you keep one. Not the barcode."')
     + inp('sku-upc', 'UPC / product barcode (strongly recommended)', p.upc, 'inputmode="numeric" title="The barcode number on the product label, usually 12 digits."')
     + '<select class="input sku-distributor">' + sel + '</select>'
@@ -2101,6 +2216,7 @@ async function saveProfile() {
     put('default_categories', 'f_default_categories', el => el.value);
     put('needs_electricity', 'f_needs_electricity', el => !!el.checked);
     const _skus = collectSkus();
+    if (_skus !== null) { const noDist = _skus.filter(p => p && p.name && !p.distributor); if (noDist.length) throw new Error('Pick a distributor for ' + noDist.map(p => p.name).join(', ') + ' (choose Other if it is none of these).'); }
     if (_skus !== null) { payload.products = _skus; payload.expected_products_version = Number.isInteger(_data.profile.products_version) ? _data.profile.products_version : null; }
     const _resp = await _brandApi('profile-update', payload);
     if (_resp && _resp.degraded) {
@@ -2446,10 +2562,11 @@ function renderBookerOverview() {
   const today = new Date().toISOString().slice(0, 10);
   const upcoming = demos.filter(d => d.demo_date >= today && d.status !== 'cancelled' && d.status !== 'declined');
   const mine = upcoming.filter(d => d.booked_by_me);
-  const row = (d) => '<div style="display:flex; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
-    + '<div><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
-    + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(d.demo_date || '') + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
-    + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div></div>';
+  const row = (d) => '<div style="display:flex; flex-wrap:wrap; justify-content:space-between; gap:6px 12px; padding:10px 0; border-bottom:1px solid rgba(15,44,23,0.08); font-size:0.92rem;">'
+    + '<div style="flex:1 1 auto; min-width:0;"><strong>' + escapeHtml(d.retailers ? d.retailers.name : 'Store') + '</strong>' + (d.venues ? ' <span style="color:var(--ink-500);">' + escapeHtml(d.venues.name) + '</span>' : '')
+    + '<div style="color:var(--ink-500); font-size:0.84rem;">' + escapeHtml(_bookerDay(d.demo_date)) + (d.demo_time ? ' at ' + escapeHtml(d.demo_time) : '') + (d.booked_by_me ? ' · booked by you' : (d.booked_by_name ? ' · booked by ' + escapeHtml(d.booked_by_name) : '')) + '</div></div>'
+    + '<div style="color:var(--ink-500); font-size:0.84rem; white-space:nowrap;">' + escapeHtml(d.status || '') + '</div>'
+    + (d.pending_move ? _bookerMoveLine(d) : '') + '</div>';
   main.innerHTML = `
     <div class="page-head"><div><h1>${escapeHtml(profile.company_name || 'Your brand')}</h1><div class="sub">You book demos for this brand. The brand account owner manages everything else.</div></div></div>
     <div class="card" style="margin-bottom:18px;">
@@ -2462,6 +2579,20 @@ function renderBookerOverview() {
       ${upcoming.length ? upcoming.map(row).join('') : '<div style="color:var(--ink-500); font-size:0.92rem;">No upcoming demos yet.</div>'}
       ${mine.length !== upcoming.length && mine.length ? '<div style="font-size:0.82rem; color:var(--ink-500); margin-top:10px;">' + mine.length + ' of these were booked by you.</div>' : ''}
     </div>`;
+}
+// 0094 x 0097 (2026-10-18): the booker's row already shows the NEW time (the move changes the demo); this line says the
+// store moved it and that the owner answers (the booker cannot: move-respond is owner-only on the server).
+function _bookerDay(ymd) {   // 2026-10-19 visual pass: the booker's rows printed the raw ISO date
+  if (!ymd) return '';
+  try { return new Date(ymd + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }); } catch (_) { return ymd; }
+}
+function _bookerMoveLine(d) {
+  const m = d.pending_move || {};
+  let from = '';
+  try { from = m.from_date ? new Date(m.from_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (m.from_time ? ' at ' + m.from_time : '') : ''; } catch (_) { from = m.from_date || ''; }
+  let due = '';
+  try { due = m.reconfirm_due_at ? new Date(m.reconfirm_due_at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : ''; } catch (_) { due = ''; }
+  return '<div style="flex-basis:100%; color:#8a5a00; font-size:0.84rem; margin-top:2px; line-height:1.45;">Moved by the store' + (from ? ' (was ' + escapeHtml(from) + ')' : '') + '. The brand account owner has been asked to confirm the new time' + (due ? ' by ' + escapeHtml(due) : '') + '; only the owner can answer, and if they cannot make it the demo is cancelled and this demo\'s fee is refunded in full.</div>';
 }
 function renderBookerAccount() {
   const p = _data.profile || {};
@@ -2621,8 +2752,21 @@ const TOUR_STEPS = [
 const BRAND_TOUR_KEY = 'demohub_brand_tour_complete';
 let _tourIndex = 0;
 let _activeTourSteps = [];
+// Codex final review F2 (2026-10-19): a pending-move banner that renders AFTER the tour has already started (slow data on
+// a first load) sends the tour away the same way: hidden, not marked complete, the Take-the-tour button offered instead.
+function _deferTourForPendingMove() {
+  if (!document.querySelector('.move-banner')) return;
+  const bd = document.getElementById('tourBackdrop'); if (!bd || !bd.classList.contains('active')) return;
+  bd.classList.remove('active');
+  const sp = document.getElementById('tourSpotlight'); if (sp) sp.style.display = 'none';
+  const tp = document.getElementById('tourTooltip'); if (tp) { tp.style.display = 'none'; tp.classList.remove('active'); }
+  const fab = document.getElementById('tourFab'); if (fab) fab.style.display = 'flex';
+}
 function startTour(force) {
   if (!force && localStorage.getItem(BRAND_TOUR_KEY) === '1') return;
+  // Codex final review F2 (2026-10-19): a demo the store moved needs an answer; the onboarding tour never auto-starts on top
+  // of it. The tour stays one click away (the "Take the tour" button) and starts by itself on a later visit.
+  if (!force && document.querySelector('.move-banner')) { const f = document.getElementById('tourFab'); if (f) f.style.display = 'flex'; return; }
   const welcome = document.getElementById('welcomeBanner');
   if (welcome && (welcome.style.display === 'none' || !welcome.classList.contains('active'))) {
     welcome.style.display = 'block';

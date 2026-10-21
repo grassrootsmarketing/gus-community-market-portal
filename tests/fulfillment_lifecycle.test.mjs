@@ -284,12 +284,12 @@ try {
     const A = await authorize('c2a');
     spy.fixtures.paymentIntents[A.pi] = canceledPi(A.pi);
     spy.calls.stripe.length = 0; spy.calls.resend.length = 0;
-    const r1 = await route({ booking_id: A.b.id, action: 'cancel', reason: 'store closed that day' });
+    const r1 = await route({ booking_id: A.b.id, action: 'cancel', category: 'brand_requested', reason: 'store closed that day' });
     const bA = await booking(A.b.id);
     ok('C2-A: cancelling an authorized hold is a SUCCESS (200), not 409 state_changed', r1.statusCode === 200 && r1.body && r1.body.ok === true && r1.body.refund_status === 'auth_released' && !r1.body.idempotent, `${r1.statusCode} ${JSON.stringify(r1.body).slice(0, 200)}`);
     ok('C2-A: the booking is cancelled with its metadata (cancelled_at, reason), never refunded', bA.status === 'cancelled' && !!bA.cancelled_at && bA.cancel_reason === 'store closed that day' && bA.refund_id === null, JSON.stringify(bA));
     ok('C2-A: exactly one PaymentIntent cancel, zero refunds, one cancellation email', stripeCalls(/\/cancel$/) === 1 && stripeCalls(/\/refunds/) === 0 && spy.calls.resend.length === 1, JSON.stringify({ stripe: spy.calls.stripe.map(c => c.url.split('/v1/')[1]), mails: spy.calls.resend.length }));
-    const r2 = await route({ booking_id: A.b.id, action: 'cancel' });
+    const r2 = await route({ booking_id: A.b.id, action: 'cancel', category: 'brand_requested' });
     ok('C2-A: a replay is refused truthfully (already cancelled) with no further provider call', r2.statusCode === 409 && /already cancelled/.test(String(r2.body && r2.body.error)) && stripeCalls(/\/cancel$/) === 1, `${r2.statusCode} ${JSON.stringify(r2.body).slice(0, 120)}`);
     ok('C2-A: no reconciliation case was opened for the clean release', (await q(`SELECT id FROM reconciliation_cases WHERE dedupe_key = $1`, ['transition:' + A.b.id])).length === 0);
 
@@ -724,7 +724,7 @@ try {
     ok('C3: the retry reports already_advanced: done, recorded, NO downgrade (still confirmed), one demo, no extra mail', second.done === true && second.recorded === true && /already_advanced/.test(second.error || '') && b2.status === 'confirmed' && d2.length === 1 && d2[0].status === 'confirmed' && o2.status === 'done' && spy.calls.resend.length === mailsBefore, JSON.stringify({ second, b2: b2.status, d2, o2, mails: spy.calls.resend.length - mailsBefore }));
     ok('C3: no retry-cap case was opened', (await q(`SELECT id FROM reconciliation_cases WHERE dedupe_key LIKE $1`, ['%' + P.b.id + '%'])).length === 0);
     // a later cancellation, then a replayed job: superseded, the retired demo stays retired
-    const can = await route({ booking_id: P.b.id, action: 'cancel', force_refund: true });
+    const can = await route({ booking_id: P.b.id, action: 'cancel', category: 'brand_requested', force_refund: true, override_reason: 'test override' });
     created.caseKeys.push('transition:' + P.b.id);
     const third = await ful.runFulfillment({ ...row2, demo_created: false, emails_sent: false }, 'w3');
     const b3 = await booking(P.b.id), d3 = await demos(P.b.id);
