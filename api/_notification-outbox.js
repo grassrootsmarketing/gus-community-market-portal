@@ -39,6 +39,7 @@
 
 import { ownerBookedEmail, OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 import { randomUUID } from 'node:crypto';
+import { FLAGS } from './_flags.js';
 import { sendMail } from './_mail.js';
 import { normalizePrefs, contactInScope, lifecyclePrefKey } from './_notification-prefs.js';
 import { safeZone, demoStartUtc, reminderWindow } from './_local-time.js';
@@ -48,7 +49,7 @@ import {
 } from './_notification-mail.js';
 import {
   COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS, OWNER_TZ, coiExpiryWindow, coiExpiryOffsetKey,
-  coiExpiryOccurrenceKey, coiExpiryDedupeKey, parseCoiExpiryOccurrence, expiringCoiBrands, loadUpcomingDemos,
+  coiExpiryOccurrenceKey, coiExpiryDedupeKey, parseCoiExpiryOccurrence, expiringCoiBrandsReport, loadUpcomingDemos,
 } from './_coi-expiry.js';
 
 // Owner COI expiry pings (2026-10-16): 30 / 14 / 3 days before an approved certificate lapses, while the
@@ -561,11 +562,25 @@ export async function scheduleReminders(b, { now = new Date(), batch = DEFAULTS.
 // scheduled ahead of its due time rather than discovered on the day. Brands without an upcoming paid
 // demo get no rows (eligibility is re-judged at dispatch, so a demo booked later still earns the pings
 // whose due times have not passed).
+// Codex C2: COI_EXPIRY_PINGS_ENABLED gates this sweep AND the dispatch of the kind (claimFilter, processClaimed). Off
+// reports enabled:false plus how many rows are being held, so the heartbeat explains itself.
+// Codex C5: the schedule looks ahead 31 days (the 30-day row is prepared a day early); the panel shows 30. A brand
+// first qualifying after a moment has passed gets that offset recorded 'due_before_scheduling', even on the same
+// day; a brand first qualifying under three days out therefore gets no email from this three-offset schedule.
 export async function scheduleCoiExpiryPings(b, { now = new Date(), tz = OWNER_TZ, horizonDays = COI_EXPIRY_HORIZON_DAYS + 1 } = {}) {
-  const out = { brands: 0, eligible: 0, rows_pending: 0, rows_skipped: 0, errors: [] };
+  const out = { enabled: FLAGS.coiExpiryPings, brands: 0, eligible: 0, rows_pending: 0, rows_skipped: 0, truncated: false, errors: [] };
+  if (!out.enabled) {
+    try { out.held = (rowsOf(await sb(b, `notification_deliveries?kind=eq.${COI_EXPIRY_KIND}&status=in.(pending,claimed,failed,unknown)&select=id&limit=200`)) || []).length; }
+    catch (e) { out.errors.push(`coi_expiry:${errCode(e)}`); }
+    return out;
+  }
   const query = (path) => sb(b, path).then(rows => rowsOf(rows, path));
   let list;
-  try { list = await expiringCoiBrands(query, { now, horizonDays, tz }); }
+  try {
+    const rep = await expiringCoiBrandsReport(query, { now, horizonDays, tz });
+    list = rep.items;
+    if (rep.truncated.brands || rep.truncated.bookings) { out.truncated = true; out.errors.push('coi_expiry:truncated'); }
+  }
   catch (e) { out.errors.push(`coi_expiry:${errCode(e)}`); return out; }
   for (const item of list) {
     out.brands++;
@@ -659,7 +674,10 @@ export async function scheduleMoveReminders(b, { now = new Date(), limit = 200 }
 // retry time reached, or claimed with an EXPIRED lease (the previous worker died mid-flight; we take
 // it over with a NEW token, so its late completion can no longer match).
 export function claimFilter(nowIso) {
-  return `due_at=lte.${enc(nowIso)}&or=(and(status.eq.pending,claim_token.is.null),and(status.eq.failed,next_attempt_at.lte.${nowIso}),and(status.eq.unknown,next_attempt_at.lte.${nowIso}),and(status.eq.claimed,lease_until.lt.${nowIso}))`;
+  // Codex C2: with the COI expiry feature off, its rows are not claimable at all (pending, failed, unknown or frozen
+  // retries alike): they are held, not consumed, and cannot occupy a slot of the batch that other kinds need.
+  const held = FLAGS.coiExpiryPings ? '' : `&kind=neq.${COI_EXPIRY_KIND}`;
+  return `due_at=lte.${enc(nowIso)}${held}&or=(and(status.eq.pending,claim_token.is.null),and(status.eq.failed,next_attempt_at.lte.${nowIso}),and(status.eq.unknown,next_attempt_at.lte.${nowIso}),and(status.eq.claimed,lease_until.lt.${nowIso}))`;
 }
 // CLAIM PROTOCOL (PostgREST cannot do UPDATE ... LIMIT, verified against the test project: a
 // `limit` on PATCH is ignored, so the batch bound is a SELECT and atomicity is the filtered UPDATE):
@@ -978,6 +996,13 @@ export function uncertaintyOf(frozen) {
 export async function processClaimed(b, row, { now = new Date(), clock = null, token, mailer = sendMail, sendTimeoutMs = DEFAULTS.sendTimeoutMs, cache = makeCache() } = {}) {
   const nowIso = now.toISOString();
   try {
+    // Codex C2: a COI expiry row that reaches a worker while the feature is off (claimed just before the switch, or
+    // handed in directly) is put back to pending untouched: no recheck, no build, no provider call, frozen payload
+    // and provider identity kept for the legitimate retry once the feature is on again.
+    if (COI_EXPIRY_KINDS.includes(row.kind) && !FLAGS.coiExpiryPings) {
+      await cas(b, row, token, release({ status: 'pending', updated_at: nowIso }));
+      return { outcome: 'deferred', reason: 'coi_expiry_disabled' };
+    }
     // Codex receipts PR-5: a row with a frozen payload is a REPLAY. The recheck keeps every identity,
     // membership, tenant and settlement decision fresh but builds nothing and makes no enrichment call.
     const check = await recheckAndBuild(b, cache, row, now, { replay: !!(row.frozen_payload && typeof row.frozen_payload === 'object') });
@@ -1102,6 +1127,7 @@ export async function dispatchDue(b, { now = new Date(), clock = null, batch = D
       else if (r.outcome === 'failed') { out.failed++; out.errors.push('send_failed'); }
       else if (r.outcome === 'unknown') { out.unknown++; out.errors.push('send_unknown'); }
       else if (r.outcome === 'lost') { out.lost++; out.errors.push('completion_mismatch'); }
+      else if (r.outcome === 'deferred') { out.deferred = (out.deferred || 0) + 1; }
       else { out.errors.push(`dispatch:${r.code || 'error'}`); }
     }
     if (rows.length < n) break;

@@ -74,6 +74,14 @@ export const FLAGS = {
   // proposal, while every move that already exists keeps working: brand confirm/decline, the deadline lapse, the
   // cancellation + refund settlement, reminders and notices. Read at request time.
   get retailerMoves() { return exactTrue(process.env.RETAILER_MOVES_ENABLED); },
+  // Owner COI expiry pings (0093, Codex C2 2026-10-21): the whole feature. Exactly "true" = the notification worker
+  // schedules the 30 / 14 / 3 day owner reminders AND dispatches the ones that are due. Anything else = off: no new
+  // rows, and rows already queued (pending, failed, unknown, frozen retries) are NEITHER claimed NOR sent; they wait
+  // untouched, so re-enabling resumes them under the normal catch-up window (a row whose window passed meanwhile is
+  // recorded skipped 'expired', never sent late). Every other notification kind is unaffected. Read at request time:
+  // set in Vercel (Production; Preview only for a deliberate contained test) and redeploy; a send already handed to
+  // the provider cannot be recalled.
+  get coiExpiryPings() { return exactTrue(process.env.COI_EXPIRY_PINGS_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -115,6 +123,7 @@ export function flagSnapshot() {
     slotEditing: FLAGS.slotEditing,
     signinMaintenance: FLAGS.signinMaintenance,
     retailerMoves: FLAGS.retailerMoves,
+    coiExpiryPings: FLAGS.coiExpiryPings,
     notificationWorker: FLAGS.notificationWorker,
     // COI automation: both the raw mode and the EFFECTIVE result after the launch gate
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,

@@ -713,9 +713,9 @@ function renderDashboard(d) {
       <div id="coiExpiring" style="margin:0 0 16px; padding:12px 14px; border:1px solid rgba(15,44,23,0.15); border-radius:8px; background:#fbf7f0;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
           <strong style="font-size:14px;">Expiring in the next 30 days</strong>
-          <span style="font-size:12px; color:var(--forest-700);">You get one email per brand at 30, 14 and 3 days before an approved certificate expires, while that brand has paid demos ahead.</span>
+          <span id="coiExpiringNote" style="font-size:12px; color:var(--forest-700);">Emails go to the owner at 9:00 AM Pacific, 30, 14 and 3 days before an approved certificate's recorded expiry, for brands with paid demos dated today or later. A reminder whose day had already passed when the brand first qualified is not sent, so a brand approved under three days out gets no email; it still appears here while it is within 30 days.</span>
         </div>
-        <div id="coiExpiringBody" style="margin-top:8px;">Loading&hellip;</div>
+        <div id="coiExpiringBody" style="margin-top:8px; overflow-x:auto;">Loading&hellip;</div>
       </div>
       <div id="coiLastDecision" aria-live="polite" style="margin:0 0 8px; font-size:13px; font-weight:600;"></div>
       <div id="coiPaymentWarnings" role="alert" aria-live="polite" hidden style="margin:0 0 12px; padding:12px 14px; border:1px solid #c25a1c; border-left:5px solid #c25a1c; border-radius:8px; background:#fff3ed; color:#1c1c1a; font-size:13px;"></div>
@@ -1507,29 +1507,44 @@ async function loadCoiExpiring() {
     });
     const j = await r.json();
     if (!r.ok) { el.textContent = 'Could not load the expiry list: ' + (j.error || r.status); return; }
-    renderCoiExpiring(Array.isArray(j.expiring) ? j.expiring : []);
+    renderCoiExpiring(Array.isArray(j.expiring) ? j.expiring : [], { enabled: j.enabled !== false, incomplete: !!j.incomplete });
   } catch (e) {
     el.textContent = 'Could not load the expiry list.';
   }
 }
-function coiPingWords(p) {
-  if (!p) return 'not scheduled';
-  if (p.status === 'accepted') return 'sent ' + fmtD(String(p.updated_at || '').slice(0, 10));
-  if (p.status === 'pending' || p.status === 'claimed') return 'scheduled ' + fmtD(String(p.due_at || '').slice(0, 10));
-  if (p.status === 'skipped') return p.skip_reason === 'due_before_scheduling' ? 'date already passed when scheduled' : p.skip_reason === 'coi_renewed' ? 'stopped, certificate renewed' : p.skip_reason === 'no_upcoming_demos' ? 'skipped, no paid demos' : 'skipped (' + (p.skip_reason || 'no reason recorded') + ')';
-  if (p.status === 'failed' || p.status === 'unknown') return 'send ' + p.status + ', see Notifications';
-  return p.status === 'not_scheduled' ? 'not scheduled' : String(p.status);
+function coiPingWords(p, enabled) {
+  if (!p || p.status === 'not_scheduled') return 'not scheduled';
+  const day = (v) => fmtD(String(v || '').slice(0, 10));
+  if (p.status === 'accepted') return 'handed to the mail provider ' + day(p.updated_at);
+  if (p.status === 'pending') return (enabled === false ? 'held (emails are off), was due ' : 'scheduled ') + day(p.due_at);
+  if (p.status === 'claimed') return 'sending now';
+  if (p.status === 'skipped') {
+    const r = p.skip_reason || '';
+    if (r === 'due_before_scheduling') return 'day had already passed when first scheduled, not sent';
+    if (r === 'coi_renewed') return 'stopped, certificate renewed';
+    if (r === 'coi_expiry_changed') return 'stopped, expiry date changed';
+    if (r === 'coi_not_approved') return 'stopped, certificate no longer approved';
+    if (r === 'no_upcoming_demos') return 'skipped, no paid demos ahead';
+    if (r === 'expired') return 'missed, the catch-up window passed';
+    return 'skipped (' + (r || 'no reason recorded') + ')';
+  }
+  if (p.status === 'failed') return 'send failed, retrying; see Notifications';
+  if (p.status === 'unknown') return 'send outcome unknown; see Notifications';
+  return String(p.status);
 }
-function renderCoiExpiring(list) {
+function renderCoiExpiring(list, meta) {
   const el = document.getElementById('coiExpiringBody');
   if (!el) return;
-  if (!list.length) { el.innerHTML = '<p style="margin:0; color:var(--forest-700); font-size:13px;">No approved certificate expires in the next 30 days.</p>'; return; }
-  el.innerHTML = '<table class="simple" style="margin:0;"><thead><tr><th>Brand</th><th>Expires</th><th>Days left</th><th>Upcoming paid demos</th><th>Emails</th></tr></thead><tbody>'
+  const m = meta || {};
+  const notices = (m.enabled === false ? '<p id="coiExpiringOff" style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--clay-700);">Expiry emails are switched off (COI_EXPIRY_PINGS_ENABLED is not true). This list still shows who is expiring; scheduled reminders are held, not sent.</p>' : '')
+    + (m.incomplete ? '<p id="coiExpiringIncomplete" style="margin:0 0 8px; font-size:13px; font-weight:600; color:var(--clay-700);">This list may be incomplete: a read came back at its cap. Treat it as a sample, not the whole.</p>' : '');
+  if (!list.length) { el.innerHTML = notices + '<p style="margin:0; color:var(--forest-700); font-size:13px;">No approved certificate expires in the next 30 days.</p>'; return; }
+  el.innerHTML = notices + '<table class="simple" style="margin:0;"><thead><tr><th>Brand</th><th>Expires</th><th>Days left</th><th>Upcoming paid demos</th><th>Emails</th></tr></thead><tbody>'
     + list.map(x => {
       const n = Number(x.demo_count) || 0;
-      const demos = n ? (x.demos || []).map(d => _esc(fmtD(d.demo_date)) + (d.demo_time ? ' ' + _esc(d.demo_time) : '') + ' at ' + _esc([d.retailer_name, d.venue_name].filter(Boolean).join(', ') || 'store not recorded') + (d.demo_date && String(d.demo_date).slice(0, 10) > String(x.expiry || '') ? ' <span style="color:var(--clay-700); font-weight:700;">(after the expiry date)</span>' : '')).join('<br>') + (n > (x.demos || []).length ? '<br>and ' + (n - (x.demos || []).length) + ' more' : '') : '';
+      const demos = n ? (x.demos || []).map(d => _esc(fmtD(d.demo_date)) + (d.demo_time ? ' ' + _esc(d.demo_time) : '') + ' at ' + _esc([d.retailer_name, d.venue_name].filter(Boolean).join(', ') || 'store not recorded') + (d.demo_date && String(d.demo_date).slice(0, 10) > String(x.expiry || '') ? ' <span style="color:var(--clay-700); font-weight:700;">(after the recorded expiry)</span>' : '')).join('<br>') + (n > (x.demos || []).length ? '<br>and ' + (n - (x.demos || []).length) + ' more' : '') : '';
       const pill = n ? '<span class="pill ' + (x.days_left <= 3 ? 'bad' : x.days_left <= 14 ? 'warn' : 'ok') + '">' + n + ' demo' + (n === 1 ? '' : 's') + '</span>' : '<span class="pill">none, no emails</span>';
-      const pings = (x.pings || []).map(p => p.days + ' days: ' + _esc(coiPingWords(p))).join('<br>');
+      const pings = (x.pings || []).map(p => p.days + ' days: ' + _esc(coiPingWords(p, m.enabled))).join('<br>');
       return '<tr><td><strong>' + _esc(x.company_name || 'Unnamed brand') + '</strong><div class="brand-email" style="font-size:0.78rem; color:var(--ink-500);">' + _esc(x.email || '') + '</div></td>'
         + '<td>' + _esc(fmtD(x.expiry)) + '</td><td class="num">' + _esc(String(x.days_left == null ? 'n/a' : x.days_left)) + '</td>'
         + '<td>' + pill + (demos ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:4px;">' + demos + '</div>' : '') + '</td>'

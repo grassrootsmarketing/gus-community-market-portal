@@ -25,7 +25,7 @@ import { normalizePrefs, offsetLabel } from './_notification-prefs.js';
 import { parseSlotsConfig, slotLabel } from './_slots.js';
 import { signedCoiUrl } from './_coi-storage.js';
 import { listAction as ownerNotificationsList, summaryAction as ownerNotificationsSummary, bookingAction as ownerBookingNotifications } from './_owner-notifications.js';
-import { expiringCoiBrands, coiExpiryOccurrenceKey, COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS } from './_coi-expiry.js';
+import { expiringCoiBrandsReport, coiExpiryOccurrenceKey, COI_EXPIRY_KIND, COI_EXPIRY_OFFSET_DAYS, COI_EXPIRY_HORIZON_DAYS } from './_coi-expiry.js';
 
 // admin-auth is both a route AND a helper module imported by other routes (api/booking.js), so the
 // binding is resolved lazily by bind(), the exported guards work even when this file's own handler
@@ -860,14 +860,18 @@ export default async function handler(req, res) {
       if (!owner) return res.status(401).json({ error: 'Owner authentication required' });
       try {
         const now = new Date();
-        const list = await expiringCoiBrands(sb, { now, horizonDays: COI_EXPIRY_HORIZON_DAYS });
+        // Codex C2 / C5: the panel says whether the emails are on, and whether any read came back cut at its cap.
+        const rep = await expiringCoiBrandsReport(sb, { now, horizonDays: COI_EXPIRY_HORIZON_DAYS });
+        const list = rep.items;
         const occ = list.map(x => coiExpiryOccurrenceKey(x.brand.id, x.expiry));
+        const PING_CAP = 1000;
         const pingRows = occ.length
-          ? (await sb(`notification_deliveries?kind=eq.${COI_EXPIRY_KIND}&occurrence_key=in.(${occ.map(encodeURIComponent).join(',')})&select=occurrence_key,offset_key,status,skip_reason,due_at,updated_at&order=due_at.asc&limit=1000`)) || []
+          ? (await sb(`notification_deliveries?kind=eq.${COI_EXPIRY_KIND}&occurrence_key=in.(${occ.map(encodeURIComponent).join(',')})&select=occurrence_key,offset_key,status,skip_reason,due_at,updated_at&order=due_at.asc&limit=${PING_CAP}`)) || []
           : [];
         const byOcc = {};
         for (const r of (Array.isArray(pingRows) ? pingRows : [])) { (byOcc[r.occurrence_key] = byOcc[r.occurrence_key] || {})[r.offset_key] = r; }
-        return res.status(200).json({ ok: true, horizon_days: COI_EXPIRY_HORIZON_DAYS, offsets: COI_EXPIRY_OFFSET_DAYS, expiring: list.map(x => {
+        const truncated = { brands: rep.truncated.brands, bookings: rep.truncated.bookings, pings: Array.isArray(pingRows) && pingRows.length >= PING_CAP };
+        return res.status(200).json({ ok: true, enabled: FLAGS.coiExpiryPings, horizon_days: COI_EXPIRY_HORIZON_DAYS, offsets: COI_EXPIRY_OFFSET_DAYS, truncated, incomplete: !!(truncated.brands || truncated.bookings || truncated.pings), expiring: list.map(x => {
           const pings = byOcc[coiExpiryOccurrenceKey(x.brand.id, x.expiry)] || {};
           return {
             brand_id: x.brand.id, company_name: x.brand.company_name, email: x.brand.email,

@@ -35,6 +35,11 @@ export const COI_EXPIRY_CATCHUP_MS = 24 * 60 * 60 * 1000;
 export const OWNER_TZ = 'America/Los_Angeles';
 // Bookings that make a lapse matter: live, paid, not yet happened.
 export const UPCOMING_STATUSES = ['confirmed', 'pending'];
+// Read caps (Codex C5). A read that comes back full is reported as truncated by expiringCoiBrandsReport, so the
+// sweep and the panel can say "incomplete" instead of presenting a cut list as the whole. Pagination is a
+// follow-up before the pilot grows anywhere near these numbers.
+export const COI_BRAND_CAP = 500;
+export const COI_BOOKING_CAP = 1000;
 const enc = encodeURIComponent;
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -73,8 +78,10 @@ export const BOOKING_SELECT = 'id,brand_id,retailer_id,venue_id,status,payment_s
 export async function loadExpiringBrands(query, { now = new Date(), horizonDays = COI_EXPIRY_HORIZON_DAYS, tz = OWNER_TZ } = {}) {
   const today = ownerToday(now, tz);
   const last = ymdString(shiftYmd(parseYmd(today), horizonDays));
-  const rows = rowsOf(await query(`brands?coi_verification_status=eq.approved&default_coi_expires=gte.${today}&default_coi_expires=lte.${last}&select=${BRAND_SELECT}&order=default_coi_expires.asc,id.asc&limit=500`));
-  return rows.filter(b => b && b.id && parseYmd(b.default_coi_expires));
+  const rows = rowsOf(await query(`brands?coi_verification_status=eq.approved&default_coi_expires=gte.${today}&default_coi_expires=lte.${last}&select=${BRAND_SELECT}&order=default_coi_expires.asc,id.asc&limit=${COI_BRAND_CAP}`));
+  const list = rows.filter(b => b && b.id && parseYmd(b.default_coi_expires));
+  list.truncated = rows.length >= COI_BRAND_CAP;
+  return list;
 }
 
 // The upcoming paid demos of the given brands, with store and location names resolved. Returns a Map
@@ -85,7 +92,8 @@ export async function loadUpcomingDemos(query, brandIds, { now = new Date(), tz 
   for (const id of ids) out.set(id, []);
   if (!ids.length) return out;
   const today = ownerToday(now, tz);
-  const bookings = rowsOf(await query(`bookings?brand_id=in.(${inList(ids)})&status=in.(${UPCOMING_STATUSES.join(',')})&payment_status=eq.paid&demo_date=gte.${today}&select=${BOOKING_SELECT}&order=demo_date.asc,demo_time.asc,id.asc&limit=1000`));
+  const bookings = rowsOf(await query(`bookings?brand_id=in.(${inList(ids)})&status=in.(${UPCOMING_STATUSES.join(',')})&payment_status=eq.paid&demo_date=gte.${today}&select=${BOOKING_SELECT}&order=demo_date.asc,demo_time.asc,id.asc&limit=${COI_BOOKING_CAP}`));
+  out.truncated = bookings.length >= COI_BOOKING_CAP;
   const retailerIds = [...new Set(bookings.map(x => x.retailer_id).filter(Boolean))];
   const venueIds = [...new Set(bookings.map(x => x.venue_id).filter(Boolean))];
   const retailers = new Map(retailerIds.length ? rowsOf(await query(`retailers?id=in.(${inList(retailerIds)})&select=id,name,slug,timezone`)).map(r => [r.id, r]) : []);
@@ -104,13 +112,16 @@ export async function loadUpcomingDemos(query, brandIds, { now = new Date(), tz 
 
 // The panel list and the sweep input in one shape: every approved brand expiring in the window, with its
 // upcoming demos and the days left. Brands with no upcoming demo are included (demos: []).
-export async function expiringCoiBrands(query, { now = new Date(), horizonDays = COI_EXPIRY_HORIZON_DAYS, tz = OWNER_TZ } = {}) {
+// "Upcoming" is date-based on the owner's calendar: a demo dated today counts even if its start time has passed.
+export async function expiringCoiBrandsReport(query, { now = new Date(), horizonDays = COI_EXPIRY_HORIZON_DAYS, tz = OWNER_TZ } = {}) {
   const brands = await loadExpiringBrands(query, { now, horizonDays, tz });
   const demos = await loadUpcomingDemos(query, brands.map(b => b.id), { now, tz });
-  return brands.map(b => ({
+  const items = brands.map(b => ({
     brand: { id: b.id, company_name: b.company_name || null, email: b.email || null, coi_verification_status: b.coi_verification_status || null },
     expiry: String(b.default_coi_expires).slice(0, 10),
     days_left: daysUntil(b.default_coi_expires, now, tz),
     demos: demos.get(b.id) || [],
   }));
+  return { items, truncated: { brands: !!brands.truncated, bookings: !!demos.truncated } };
 }
+export async function expiringCoiBrands(query, opts = {}) { return (await expiringCoiBrandsReport(query, opts)).items; }
