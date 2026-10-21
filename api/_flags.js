@@ -31,28 +31,30 @@ function exactTrue(v) { return v === 'true'; }
 
 export const FLAGS = {
   // --- outside the launch envelope: OFF unless exactly "true" ---
-  publicRetailerSignup: exactTrue(process.env.PUBLIC_RETAILER_SIGNUP_ENABLED),
-  coiAiVerification: exactTrue(process.env.COI_AI_VERIFICATION_ENABLED),
-  coiAutoEnforcement: exactTrue(process.env.COI_AUTO_ENFORCEMENT_ENABLED),
+  get publicRetailerSignup() { return exactTrue(process.env.PUBLIC_RETAILER_SIGNUP_ENABLED); },
+  get coiAiVerification() { return exactTrue(process.env.COI_AI_VERIFICATION_ENABLED); },
+  get coiAutoEnforcement() { return exactTrue(process.env.COI_AUTO_ENFORCEMENT_ENABLED); },
 
   // --- operational kill switches: also require exactly "true" (G0-C3) ---
-  checkoutEnabled: exactTrue(process.env.CHECKOUT_ENABLED),
-  coiUploadEnabled: exactTrue(process.env.COI_UPLOAD_ENABLED),
+  get checkoutEnabled() { return exactTrue(process.env.CHECKOUT_ENABLED); },
+  get coiUploadEnabled() { return exactTrue(process.env.COI_UPLOAD_ENABLED); },
   // Provisional holds / 24h escrow: book without a verified COI, funds are AUTHORIZED (held, not
   // charged) and captured on confirm/verify within 24h, else the hold is cancelled. See
   // docs/provisional-holds.md. Off = current hard-gate + immediate-charge behavior.
-  provisionalHolds: exactTrue(process.env.PROVISIONAL_HOLDS_ENABLED),
-  brandInviteEnabled: exactTrue(process.env.BRAND_INVITE_ENABLED),
+  get provisionalHolds() { return exactTrue(process.env.PROVISIONAL_HOLDS_ENABLED); },
+  get brandInviteEnabled() { return exactTrue(process.env.BRAND_INVITE_ENABLED); },
   // Release A: the store-contact / COI notification outbox worker (api/notification-worker.js).
   // Off = the route answers 200 {disabled:true}, writes no heartbeat, and the status probe does not
   // require the job. Turn on only after 0074 is applied and RESEND_API_KEY is bound.
-  notificationWorker: exactTrue(process.env.NOTIFICATION_WORKER_ENABLED),
+  get notificationWorker() { return exactTrue(process.env.NOTIFICATION_WORKER_ENABLED); },
   // Release B: per-location demo-slot and blackout EDITING (api/admin.js availability actions that
   // carry a slot list, the blackout action, and the admin editors). Off = existing configurations
   // keep being enforced and read, hours/capacity autosave still works, but no new slot/blackout
   // intake, the documented forward-fix/disable path (Codex B-07). Reverting to pre-B code is NOT a
   // compatible rollback once custom slots exist.
-  // Read at request time (getter) rather than at module load: the kill switch is still the literal
+  // Read at request time (getter) rather than at module load (every flag, since 2026-10-21: a module that imports this
+  // file before the environment is complete, as the test harness does when a suite imports the outbox directly, must
+  // still see the live value; in Vercel the environment is fixed for the life of the process, so this changes nothing there): the kill switch is still the literal
   // "true" rule, but the consuming routes see the CURRENT value, which also lets the OFF matrix be
   // proven in-process (tests/release_b_corrections.test.mjs R4) without re-importing the module graph.
   get slotEditing() { return exactTrue(process.env.SLOT_EDITING_ENABLED); },
