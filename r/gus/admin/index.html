@@ -7201,17 +7201,27 @@ function escapeHtml(s) {
             grid.innerHTML = html;
         }
 
+        // Copy a contact value from the detail modal and say so on the button itself (no toast needed).
+        function copyDetailValue(btn) {
+            const val = btn && btn.dataset ? btn.dataset.copy : '';
+            if (!val) return;
+            const done = () => { const t = btn.textContent; btn.textContent = (btn.dataset.what || 'Value') + ' copied'; setTimeout(() => { btn.textContent = t; }, 1400); };
+            try { navigator.clipboard.writeText(val).then(done, () => { window.prompt('Copy this value', val); }); }
+            catch (_) { window.prompt('Copy this value', val); }
+        }
         // Calendar event detail (2026-10-16): what the row on the Demos tab shows, in a modal, from the calendar.
         function _demoEventDetailHtml(d) {
             const venue = getDemoVenue(d);
             const items = Array.isArray(d.product_skus) ? d.product_skus.filter(p => p && p.name) : [];
             const line = (label, val) => val ? '<div style="margin-top:4px;"><span style="color:var(--ink-500);">' + label + '</span> ' + val + '</div>' : '';
             const dateLabel = d.date ? new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) : '';
-            return '<div style="font-size:0.92rem; line-height:1.5;">'
+            // Copy on click (2026-10-22): the email and phone are buttons that put the value on the clipboard and say so.
+            const copyable = (val, what) => val ? '<button type="button" class="detail-copy" data-copy="' + escapeHtml(val) + '" data-what="' + what + '" title="Click to copy" onclick="copyDetailValue(this)" style="background:none; border:none; padding:0; font:inherit; color:var(--forest-700); text-decoration:underline; cursor:pointer; user-select:text;">' + escapeHtml(val) + '</button>' : '';
+            return '<div class="demo-detail" style="font-size:0.92rem; line-height:1.5; user-select:text;">'
                 + line('When', escapeHtml(dateLabel) + (d.time ? ' &middot; ' + escapeHtml(d.time) : ''))
                 + line('Store', escapeHtml(venue || 'Unknown location'))
                 + line('Status', escapeHtml(d.status || ''))
-                + line('Contact', [d.contact, d.contact_email, d.contact_phone].filter(Boolean).map(escapeHtml).join(' &middot; '))
+                + line('Contact', [d.contact ? escapeHtml(d.contact) : '', copyable(d.contact_email, 'Email'), copyable(d.contact_phone, 'Phone')].filter(Boolean).join(' &middot; '))
                 + line('Category', d.product ? escapeHtml(d.product) : '')
                 + '<div style="margin-top:12px; font-weight:600; color:var(--forest-900);">Items being sampled' + (items.length ? ' (' + items.length + ')' : '') + '</div>'
                 + (items.length ? '<div style="margin-top:6px; line-height:1.45;">' + items.map(p => '<div style="margin-bottom:6px;">' + _productLineHtml(p) + '</div>').join('') + '</div>' : '<div style="color:var(--ink-500); margin-top:4px;">No items listed on this booking. Ask the brand which products they are bringing.</div>')
