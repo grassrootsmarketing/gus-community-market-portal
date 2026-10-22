@@ -10,7 +10,7 @@
 //   * mobile width (375px) renders without horizontal overflow.
 // Local static server (scratchpad local-server-wt.mjs with DOM_ROOT = this checkout, or any static host of the
 // repo) on :4178, Playwright in PLAYWRIGHT_ROOT or the cwd's node_modules. Every /api call is intercepted.
-/* global document, window */
+/* global document, window, getComputedStyle */
 import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4178';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');
