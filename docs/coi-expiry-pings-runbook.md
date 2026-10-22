@@ -20,13 +20,17 @@ What it is: the notification worker emails the Demohub owner at 30, 14 and 3 day
 
 ## Rollback
 
-Prefer the switch: unset COI_EXPIRY_PINGS_ENABLED on Production and redeploy. The kind-aware code stays deployed, queued rows are held, nothing is deleted or marked sent by hand.
+The ordinary stop procedure is to disable COI expiry pings (unset COI_EXPIRY_PINGS_ENABLED on Production, redeploy) and retain the kind-aware build. Queued rows remain held; they do not drain while disabled, because off deliberately excludes them from claims, and a row's expiry time passing does not change its stored status while it is excluded. Do not roll back to a kind-unaware build while pending, claimed, failed or unknown COI deliveries remain unless David explicitly accepts a documented retirement of the affected reminders. Include in-flight workers and leases in that decision. Prefer retaining the current kind-aware code; never assume an older dispatcher will safely preserve the rows (its dispatcher may claim a due COI row and record it skipped `unknown_kind` for good). Do not delete rows or mark them sent to satisfy a rollback check. Keep migration 0093 in place in every case; it is a widening of a CHECK constraint and harms no other kind.
 
-Rolling back to a build that does not know the kind is not the ordinary stop button: such a build's dispatcher may claim a due COI row and record it skipped `unknown_kind` for good. Before any such rollback: switch the feature off first (so nothing new is queued), then either wait until no COI row is pending, failed or unknown (query below) or accept that those rows are retired. Migration 0093 stays in place in every case; it is a widening of a CHECK constraint and harms no other kind.
+If a genuine drain is ever required, it needs a designed stop-scheduling, continue-dispatch procedure or a retained compatibility build. For this pilot, holding the queue on the current build is the accepted safe default; no second switch is built.
+
+The query that shows what is held (read-only):
 
 ```sql
 select status, count(*) from notification_deliveries where kind = 'coi_expiry_owner' group by status order by status;
 ```
+
+Observability note: the disabled sweep's `held` figure in the worker heartbeat is read with `limit=200`, so it is a capped lower bound. A value of 200 means "at least 200"; use the query above for the exact count. At pilot volumes this does not arise; the preflight records volumes against the documented caps.
 
 ## Cutover order
 
