@@ -41,6 +41,13 @@ const items = [
   ok('retailer: store, when, status and contact', /Noriega Market/.test(h) && /Nov 8, 2026/.test(h) && /Confirmed/.test(h) && /helen@example\.test/.test(h));
   ok('retailer: items via the Demos-tab renderer, UPC and "UPC not provided"', /UPC 850000000011/.test(h) && /UPC not provided/.test(h) && /Items being sampled \(3\)/.test(h));
   ok('retailer: hostile item name escaped', !/<img/.test(h));
+  // copy on click (2026-10-22): email and phone are copy buttons carrying the value, the detail is selectable text
+  const hp = detail({ id: 'd3', date: '2026-11-10', time: '11:00 AM', status: 'Confirmed', company: 'MILKish', contact: 'Maia Silva', contact_email: 'maia@example.test', contact_phone: '3148252619', product: 'Beverages', product_skus: [] });
+  ok('retailer: the email is a copy button with the address as its value', /class="detail-copy" data-copy="maia@example\.test" data-what="Email"[^>]*onclick="copyDetailValue\(this\)"/.test(hp));
+  ok('retailer: the phone is a copy button too', /data-copy="3148252619" data-what="Phone"/.test(hp));
+  ok('retailer: the detail body is selectable text', /class="demo-detail"[^>]*user-select:text/.test(hp));
+  ok('retailer: a hostile email value is escaped inside the button', !/<img/.test(detail({ id: 'd4', date: '2026-11-10', company: 'X', contact_email: '<img src=x onerror=alert(1)>' })));
+  ok('retailer: copyDetailValue exists and falls back to a prompt when the clipboard is unavailable', /function copyDetailValue\(btn\)/.test(src) && /window\.prompt\('Copy this value', val\)/.test(src));
   ok('retailer: no items asks the store to check with the brand', /Ask the brand which products/.test(detail({ id: 'd2', date: '2026-11-08', time: '11:00 AM', company: 'X' })));
   ok('retailer: calendar events are clickable buttons with the demo id', /data-demo-id=/.test(src) && /onclick="openDemoEventDetail\(this\.dataset\.demoId\)"/.test(src) && /role="button" tabindex="0"/.test(src));
   ok('retailer: the detail opens through the shared modal with a Close button and the action buttons', /DhModal\.alert\(\{ title: d\.company \|\| 'Demo', extraHTML: _demoEventDetailHtml\(d\) \+ _demoEventActionsHtml\(d\), ok: 'Close' \}\)/.test(src));
