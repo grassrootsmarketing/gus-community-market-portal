@@ -12,7 +12,7 @@
 //     from the first day to the last day inclusive of both;
 //   * the SHAPE checks for what the database and the functions answer (SC-5): a malformed success is an error, never
 //     an empty calendar and never a usable link.
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import { safeZone, demoStartUtc } from './_local-time.js';
 
 export const TOKEN_BYTES = 32;                 // 256 bits of entropy, base64url, 43 characters
@@ -24,6 +24,32 @@ export function mintToken() { return randomBytes(TOKEN_BYTES).toString('base64ur
 // A presented token is accepted only in its own alphabet and length; anything else is "not a token" before any lookup.
 export function tokenShapeOk(t) { return typeof t === 'string' && /^[A-Za-z0-9_-]{43}$/.test(t); }
 export function hashToken(t) { return createHash('sha256').update(String(t), 'utf8').digest('hex'); }
+// Persistent links (0113): the token is kept SEALED beside its hash so an admin can copy the current link from Settings
+// at any time (David's product decision of 2026-10-23, replacing reveal-once). AES-256-GCM under a key derived with
+// HKDF from the server's own Supabase secret (the one secret every route already holds), with a fixed purpose label,
+// so a copy of the table reveals nothing without the server. The hash stays the lookup key; the sealed value is only
+// ever opened on the admin's own list. A value that does not open (another deployment's secret, a damaged row) is
+// reported as unrecoverable, never guessed, and Rotate issues a fresh link.
+const SEAL_INFO = 'demohub store-calendar link v1';
+function sealKey(secret) { return Buffer.from(hkdfSync('sha256', String(secret || ''), 'demohub', SEAL_INFO, 32)); }
+export function sealToken(token, secret) {
+  if (!tokenShapeOk(token)) throw new Error('seal: not a token');
+  if (!secret || String(secret).length < 16) throw new Error('seal: no server secret');
+  const iv = randomBytes(12), c = createCipheriv('aes-256-gcm', sealKey(secret), iv);
+  const ct = Buffer.concat([c.update(token, 'utf8'), c.final()]);
+  return 'v1.' + iv.toString('base64url') + '.' + ct.toString('base64url') + '.' + c.getAuthTag().toString('base64url');
+}
+// Returns the token, or null when the value is not a v1 seal, was sealed under another secret, or was altered.
+export function openToken(sealed, secret) {
+  try {
+    const m = /^v1.([A-Za-z0-9_-]+).([A-Za-z0-9_-]+).([A-Za-z0-9_-]+)$/.exec(String(sealed || ''));
+    if (!m || !secret) return null;
+    const d = createDecipheriv('aes-256-gcm', sealKey(secret), Buffer.from(m[1], 'base64url'));
+    d.setAuthTag(Buffer.from(m[3], 'base64url'));
+    const t = Buffer.concat([d.update(Buffer.from(m[2], 'base64url')), d.final()]).toString('utf8');
+    return tokenShapeOk(t) ? t : null;
+  } catch (_) { return null; }
+}
 // The bearer header is the only place the page presents its token (never a query string, so it stays out of
 // request logs and copied URLs).
 export function tokenFromRequest(req) {

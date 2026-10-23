@@ -12,7 +12,8 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
-import { mintToken, hashToken, validIssuedRow } from './_store-calendar.js';
+import { mintToken, hashToken, sealToken, openToken, validIssuedRow } from './_store-calendar.js';
+import { randomBytes as _randomBytes } from 'node:crypto';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -648,9 +649,12 @@ export default async function handler(req, res) {
     }
 
     // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
-    // ---- STORE CALENDAR LINKS (0111, Codex design review 2026-10-23): the shareable, view-only staff calendar ----
-    // Three actions, owners and admins only (viewers can look at the admin but cannot mint a bearer link). The
-    // route's same-origin gate already ran. Links are shown ONCE at issue; the server keeps only a hash.
+    // ---- STAFF CALENDAR (0111, 0113): the shareable, view-only staff calendar page and the iCal feed, one section ----
+    // Three actions, owners and admins only (viewers can look at the admin but cannot mint a bearer link). The route's
+    // same-origin gate already ran. Since 0113 the links are PERSISTENT (David, 2026-10-23): the list answers every
+    // scope's current link (opened from its sealed copy), issues a link for any scope that has none, and carries the
+    // iCal feed URL for the same scope, so Settings shows everything in one place at any time. Rotate (issue) retires
+    // the old link and records the new one with its seal in one statement; revoke stops a scope without a new link.
     if (action === 'store-calendar-links' || action === 'store-calendar-link-issue' || action === 'store-calendar-link-revoke') {
       const session_id = getSessionIdFromReq(req, body);
       const v = await requireRetailerMembership(session_id, null, ['owner', 'admin']);
@@ -661,46 +665,68 @@ export default async function handler(req, res) {
       const scopeNull = '00000000-0000-0000-0000-000000000000';
       try {
         const [retailerRows, venues] = await Promise.all([
-          sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug`),
+          sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,cal_feed_key`),
           sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=id,name&order=display_order`),
         ]);
         const retailer = Array.isArray(retailerRows) ? retailerRows[0] : null;
         if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
         const venueList = Array.isArray(venues) ? venues : [];
         if (venueIdRaw !== null && !venueList.some(x => x.id === venueIdRaw)) return res.status(400).json({ error: 'venue_not_in_retailer' });
+        const secret = _b.serviceKey;
+        const linkUrl = (token) => siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
 
-        if (action === 'store-calendar-link-issue') {
+        // Issue (rotate) one scope: mint, hash, seal, record in one statement; the link is answered and stays copyable.
+        const issueScope = async (venueId) => {
           const token = mintToken();
-          const row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_token_hash: hashToken(token), p_email: v.email }) });
+          const row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueId, p_token_hash: hashToken(token), p_token_enc: sealToken(token, secret), p_email: v.email }) });
           const issued = Array.isArray(row) ? row[0] : row;
           // SC-5: a link is reported only when the function answered with the row it recorded (id, scope, this hash,
           // an issue time, not revoked). Anything else is an unavailable answer, not a usable link.
-          if (!validIssuedRow(issued) || issued.retailer_id !== rid || (issued.venue_id || null) !== venueIdRaw || issued.token_hash !== hashToken(token)) {
-            console.error('store-calendar-link-issue: malformed issuance response');
-            return res.status(503).json({ error: 'store_calendar_unavailable' });
+          if (!validIssuedRow(issued) || issued.retailer_id !== rid || (issued.venue_id || null) !== venueId || issued.token_hash !== hashToken(token)) {
+            throw new Error('malformed issuance response');
           }
+          return { token, issued };
+        };
+
+        if (action === 'store-calendar-link-issue') {
+          const { token, issued } = await issueScope(venueIdRaw);
           // The fragment carries the secret: the browser never sends it to a server. The page keeps it in memory and
           // leaves it in the address during ordinary use (reload and copy keep working); it is removed only while
-          // printing and when the link is retired. Copy in the admin box copies the link shown; Rotate is a separate,
-          // confirmed action that retires the previous link.
-          const url = siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
-          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: url, issued_at: issued.issued_at,
-            note: 'Copy this link now. It is not shown again. If you need it later, use Rotate, which issues a new link and retires this one.' });
+          // printing and when the link is retired.
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: linkUrl(token), issued_at: issued.issued_at,
+            note: 'The previous link stopped working. This one stays in Settings; copy it whenever you need it.' });
         }
         if (action === 'store-calendar-link-revoke') {
           const n = await sb('rpc/store_calendar_link_revoke', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_email: v.email }) });
           return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, revoked: Number(n) || 0 });
         }
-        // list: one row per scope (store + each active location) with the active link's issue facts, never the hash
-        const active = await sb(`store_calendar_links?retailer_id=eq.${encodeURIComponent(rid)}&revoked_at=is.null&select=venue_id,issued_at,issued_by_email,last_used_at`);
+
+        // list: one row per scope (store + each active location). A scope without an active link gets one now, so
+        // the links simply exist; a link whose seal does not open is reported unrecoverable (Rotate issues a new one).
+        // The feed key is the store's one iCal secret (0007); a store that somehow has none gets one here as well.
+        let feedKey = typeof retailer.cal_feed_key === 'string' ? retailer.cal_feed_key : '';
+        if (!feedKey) {
+          feedKey = _randomBytes(16).toString('hex');
+          const patched = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&cal_feed_key=is.null`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: feedKey }) });
+          if (!Array.isArray(patched) || patched.length !== 1) { const again = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=cal_feed_key`); feedKey = (Array.isArray(again) && again[0] && again[0].cal_feed_key) || ''; }
+        }
+        const feedUrl = (venueId) => feedKey ? siteLink(_b, `/api/cal?slug=${encodeURIComponent(retailer.slug)}${venueId ? '&venue=' + encodeURIComponent(venueId) : ''}&key=${encodeURIComponent(feedKey)}`) : null;
+        const active = await sb(`store_calendar_links?retailer_id=eq.${encodeURIComponent(rid)}&revoked_at=is.null&select=venue_id,issued_at,issued_by_email,last_used_at,token_enc`);
         const byScope = new Map((Array.isArray(active) ? active : []).map(l => [l.venue_id || scopeNull, l]));
-        const scopes = [{ scope: 'store', venue_id: null, venue_name: 'All locations' }, ...venueList.map(x => ({ scope: 'venue', venue_id: x.id, venue_name: x.name }))].map(s => {
-          const l = byScope.get(s.venue_id || scopeNull) || null;
-          return { ...s, active: !!l, issued_at: l ? l.issued_at : null, issued_by: l ? l.issued_by_email : null, last_used_at: l ? l.last_used_at : null };
-        });
-        return res.status(200).json({ ok: true, scopes });
+        const scopes = [];
+        for (const sc of [{ scope: 'store', venue_id: null, venue_name: 'All locations' }, ...venueList.map(x => ({ scope: 'venue', venue_id: x.id, venue_name: x.name }))]) {
+          let l = byScope.get(sc.venue_id || scopeNull) || null;
+          let token = l ? openToken(l.token_enc, secret) : null;
+          if (!l) {
+            const made = await issueScope(sc.venue_id);
+            l = { issued_at: made.issued.issued_at, issued_by_email: v.email, last_used_at: null }; token = made.token;
+          }
+          scopes.push({ ...sc, active: true, issued_at: l.issued_at, issued_by: l.issued_by_email, last_used_at: l.last_used_at,
+            link_url: token ? linkUrl(token) : null, link_unrecoverable: !token, feed_url: feedUrl(sc.venue_id) });
+        }
+        return res.status(200).json({ ok: true, scopes, feed_key_set: !!feedKey });
       } catch (e) {
-        console.error('store-calendar-links failed:', e && e.message);
+        console.error(action + ' failed:', e && e.message);
         return res.status(503).json({ error: 'store_calendar_unavailable' });
       }
     }

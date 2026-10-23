@@ -1235,36 +1235,11 @@
                                 <div style="font-size:0.75rem; color:var(--ink-500); margin-top:4px;">Recap of the past month's activity, delivered on the 1st.</div>
                                 <div id="notificationStatus" style="font-size:0.72rem; color:var(--ink-500); margin-top:4px; min-height:1em;"></div>
                             </div>
-                                                        <div class="form-group" id="calendarFeedGroup">
-                                <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Calendar feeds<span data-tooltip="Owners see the umbrella feed with every location. Team members can subscribe to just their own store’s calendar." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
-                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:14px;">Subscribe to see confirmed demos appear inside your existing calendar app, updated automatically. Share a single-location feed with team members so they only see their store. These links are private. Anyone with the link can view the feed, so only share them with your team.</div>
-                                <!-- Umbrella (all locations) -->
-                                <div style="border:1px solid rgba(15,44,23,0.08); border-radius:10px; padding:14px; margin-bottom:10px; background:var(--cream-50);">
-                                    <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; margin-bottom:8px;">
-                                        <div style="font-weight:700; color:var(--forest-900); font-size:0.92rem;">All locations <span style="font-size:0.72rem; color:var(--ink-500); font-weight:500; margin-left:6px;">(owner / admin view)</span></div>
-                                    </div>
-                                    <div style="display:flex; gap:6px; margin-bottom:8px;">
-                                        <input type="text" id="icalUrlField" readonly value="" style="flex:1; padding:9px 12px; border:1px solid rgba(15,44,23,0.12); border-radius:8px; font-size:0.78rem; font-family:monospace; color:var(--ink-700); background:white;">
-                                        <button class="btn btn-primary" style="padding:9px 14px; font-size:0.8rem;" id="copyIcalBtn" onclick="copyIcalUrl(this)">Copy URL</button>
-                                    </div>
-                                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToAppleBtn" onclick="addToAppleCal()">Apple Calendar</button>
-                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToGoogleBtn" onclick="openGoogleAddByUrl(this)">Google Cal</button>
-                                        <button class="btn btn-secondary" style="flex:1; min-width:120px; padding:8px 12px; font-size:0.78rem;" id="addToOutlookBtn" onclick="openOutlookAddByUrl(this)">Outlook</button>
-                                    </div>
-                                </div>
-                                <!-- Per-location feeds -->
-                                <div style="font-size:0.76rem; color:var(--ink-500); font-weight:700; text-transform:uppercase; letter-spacing:0.06em; margin:14px 0 8px;">Single-location feeds</div>
-                                <div id="perLocationFeeds" style="display:flex; flex-direction:column; gap:8px;">
-                                    <div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>
-                                </div>
-                                <!-- Staff calendar links (0111): the view-only page staff open from a link, no accounts -->
-                                <div id="staffCalendarGroup" style="margin-top:22px; padding-top:18px; border-top:1px solid rgba(15,44,23,0.08);">
-                                    <div class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Staff calendar links</div>
-                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px; line-height:1.5;">A view-only web page of this store's confirmed demos that anyone with the link can open on a phone: date, time, location, brand and what is being sampled. No sign-in, no accounts, no contact details. One link for the whole store and one per location. <strong>Copy a link when you create it; it is not shown again.</strong> Rotate makes the old link stop working on its next refresh.</div>
-                                    <div id="staffCalendarLinks" style="display:flex; flex-direction:column; gap:8px;"><div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">Loading&hellip;</div></div>
-                                </div>
-                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can't subscribe with one click for security reasons. Copy the URL first, then click the shortcut, which opens the right settings page. Paste in the URL field there.</div>
+                                                        <div class="form-group" id="staffCalendarGroup">
+                                <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Staff calendar<span data-tooltip="One link per location and one for the whole store. Anyone with a link can see that calendar, so share them with your team only." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
+                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:12px; line-height:1.5;">Share a store's demo calendar with your team. <strong>Calendar page</strong> opens on any phone or computer with no sign-in and shows confirmed demos: date, time, location, brand and what is being sampled. <strong>Calendar app feed</strong> adds the same demos to Google, Apple or Outlook Calendar. The links are always here; Rotate makes a new one and the old one stops working.</div>
+                                <div id="staffCalendarLinks" style="display:flex; flex-direction:column; gap:8px;"><div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">Loading&hellip;</div></div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook cannot subscribe with one click. Copy the feed link first, then use the shortcut, which opens the right settings page; paste the link there.</div>
                             </div>
                         </div>
                     </div>
@@ -2758,8 +2733,7 @@ END:VEVENT
             if (document.getElementById('internalContactsTableBody')) renderContacts('internal');
             if (document.getElementById('complianceTableBody')) renderCompliance();
             applySettingsToInputs();
-            try { _renderPerLocationFeeds(); } catch(_){}
-            try { loadStaffCalendarLinks(); } catch(_){}   // the staff calendar links box loads with the rest of the data, not only from loadSettings()
+            try { loadStaffCalendarLinks(); } catch(_){}   // the staff calendar section loads with the rest of the data, not only from loadSettings()
             updateStats();
             renderMonthlyChart();
             renderBigCalendar();
@@ -4225,34 +4199,6 @@ END:VEVENT
         }
 
         // Phase F: Per-location calendar feeds
-        function _renderPerLocationFeeds() {
-            const box = document.getElementById('perLocationFeeds');
-            if (!box) return;
-            const venues = (window.state && window.state.venues) || [];
-            if (!venues.length) {
-                box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>';
-                return;
-            }
-            const origin = location.origin;
-            const slug = RETAILER_SLUG;
-            box.innerHTML = venues.map(v => {
-                const url = origin + '/api/cal?slug=' + encodeURIComponent(slug) + '&venue=' + encodeURIComponent(v.id) + (getCalFeedKey() ? '&key=' + encodeURIComponent(getCalFeedKey()) : '');
-                return '<div style="border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:10px 12px; background:white;">' +
-                    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">' +
-                        '<div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + (v.name || '').replace(/[<>&]/g,'') + '</div>' +
-                        '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="copyLocationCalUrl(\'' + v.id + '\', this)">Copy link</button>' +
-                    '</div>' +
-                    '<input type="text" readonly value="' + url + '" style="width:100%; padding:6px 10px; border:1px solid rgba(15,44,23,0.10); border-radius:6px; font-size:0.72rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">' +
-                '</div>';
-            }).join('');
-        }
-        async function copyLocationCalUrl(venueId, btn) {
-            try {
-                const url = location.origin + '/api/cal?slug=' + encodeURIComponent(RETAILER_SLUG) + '&venue=' + encodeURIComponent(venueId) + (getCalFeedKey() ? '&key=' + encodeURIComponent(getCalFeedKey()) : '');
-                await navigator.clipboard.writeText(url);
-                if (btn) { const t = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = t, 1600); }
-            } catch (e) { DhModal.toast('Could not copy: ' + e.message, 'error'); }
-        }
         function applySettingsToInputs() {
             if (!window.state.settings) return;
             const s = window.state.settings;
@@ -5907,8 +5853,14 @@ function escapeHtml(s) {
         }
         function copyBookingCode(code, btn) { navigator.clipboard.writeText(code).then(() => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); }).catch(() => {}); }
 
-        // ===== Staff calendar links (0111) =====
-        const STAFF_CAL_ADMIN_ROLES = ['owner', 'admin'];
+        // ===== Staff calendar (0111, 0113): one section, persistent links =====
+        // Owners and admins see, for the whole store and for each location, the staff calendar page link and the
+        // calendar app feed link, both always present (the server issues a page link for any scope that has none and
+        // opens the current one from its sealed copy). Copy copies what is shown; Rotate is the one way to retire a
+        // page link. The box is redrawn from the server's answer only when that answer changed, so a live refresh
+        // never disturbs a selection or a button mid-click.
+        let _staffCalLast = '';
+        let _staffCalFeeds = {};   // venue id (or 'store') -> feed URL, for the Apple/Google/Outlook shortcuts
         async function staffCalApi(action, extra) {
             const r = await fetch('/api/admin-auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ action }, extra || {})) });
             const j = await r.json().catch(() => ({}));
@@ -5918,81 +5870,85 @@ function escapeHtml(s) {
         async function loadStaffCalendarLinks() {
             const box = document.getElementById('staffCalendarLinks');
             if (!box) return;
-            // A link just created or rotated is shown once; a live refresh (every minute, and on focus) must not redraw the box
-            // over it. The box is redrawn only when no revealed link is on screen.
-            if (box.querySelector('.staff-cal-reveal[style*="block"]')) return;
             try {
                 const j = await staffCalApi('store-calendar-links');
+                const key = JSON.stringify(j.scopes || []);
+                if (key === _staffCalLast) return;
+                _staffCalLast = key;
                 renderStaffCalendarLinks(j.scopes || []);
             } catch (e) {
+                _staffCalLast = '';
                 box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">' + (e.message === 'insufficient_role' ? 'Only owners and admins manage staff calendar links.' : 'Could not load the staff calendar links: ' + _esc(e.message)) + '</div>';
             }
         }
         function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function _staffCalLinkRow(label, url, kind, scopeId, opts) {
+            const id = 'staffCal_' + kind + '_' + scopeId.replace(/[^a-zA-Z0-9]/g, '');
+            return '<div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;">' +
+                '<div style="font-size:0.72rem; font-weight:700; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; width:132px; flex-shrink:0;">' + label + '</div>' +
+                (url
+                    ? '<input type="text" readonly id="' + id + '" value="' + _esc(url) + '" style="flex:1; min-width:180px; padding:6px 10px; border:1px solid rgba(15,44,23,0.10); border-radius:6px; font-size:0.72rem; font-family:monospace; color:var(--ink-700); background:var(--cream-50);">' +
+                      '<button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:0.72rem;" data-act="copy" data-for="' + id + '">Copy</button>'
+                    : '<div style="flex:1; font-size:0.78rem; color:var(--clay-700);">' + _esc(opts && opts.missing || 'Not available') + '</div>') +
+                (opts && opts.extra || '') +
+                '</div>';
+        }
         function renderStaffCalendarLinks(scopes) {
             const box = document.getElementById('staffCalendarLinks');
             if (!box) return;
             if (!scopes.length) { box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">No locations yet.</div>'; return; }
+            _staffCalFeeds = {};
             box.innerHTML = scopes.map(s => {
-                const id = s.venue_id || 'store';
-                const state = s.active
-                    ? 'Link active since ' + _esc((s.issued_at || '').slice(0, 10)) + (s.issued_by ? ' (' + _esc(s.issued_by) + ')' : '') + (s.last_used_at ? ', last opened ' + _esc(String(s.last_used_at).slice(0, 10)) : ', not opened yet')
-                    : 'No link yet';
-                return '<div class="staff-cal-row" data-scope-id="' + _esc(id) + '" style="border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:10px 12px; background:white;">' +
-                    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">' +
-                        '<div><div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + _esc(s.venue_name) + '</div><div class="staff-cal-state" style="font-size:0.74rem; color:var(--ink-500);">' + state + '</div></div>' +
-                        '<div style="display:flex; gap:6px;">' +
-                            '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="issueStaffCalendarLink(' + (s.venue_id ? "'" + _esc(s.venue_id) + "'" : 'null') + ', this)">' + (s.active ? 'Rotate link' : 'Create link') + '</button>' +
-                            (s.active ? '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="revokeStaffCalendarLink(' + (s.venue_id ? "'" + _esc(s.venue_id) + "'" : 'null') + ', this)">Stop sharing</button>' : '') +
-                        '</div>' +
+                const scopeId = s.venue_id || 'store';
+                _staffCalFeeds[scopeId] = s.feed_url || '';
+                const opened = s.last_used_at ? 'Last opened ' + _esc(String(s.last_used_at).slice(0, 10)) : 'Not opened yet';
+                const rotate = '<button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:0.72rem;" data-act="rotate" data-venue="' + _esc(s.venue_id || '') + '" title="Make a new page link; the current one stops working">Rotate</button>';
+                const apps = s.feed_url ? '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; padding-left:138px;">' +
+                        '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="apple" data-scope="' + _esc(scopeId) + '">Apple Calendar</button>' +
+                        '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="google" data-scope="' + _esc(scopeId) + '">Google Calendar</button>' +
+                        '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="outlook" data-scope="' + _esc(scopeId) + '">Outlook</button>' +
+                    '</div>' : '';
+                return '<div class="staff-cal-row" data-scope-id="' + _esc(scopeId) + '" style="border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:10px 12px; background:white;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap;">' +
+                        '<div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + _esc(s.venue_name) + (s.scope === 'store' ? ' <span style="font-size:0.72rem; color:var(--ink-500); font-weight:500; margin-left:4px;">(every location)</span>' : '') + '</div>' +
+                        '<div class="staff-cal-state" style="font-size:0.72rem; color:var(--ink-500);">' + opened + '</div>' +
                     '</div>' +
-                    '<div class="staff-cal-reveal" style="display:none; margin-top:8px;"></div>' +
+                    _staffCalLinkRow('Calendar page', s.link_url, 'page', scopeId, { missing: 'This link cannot be shown. Rotate to make a new one.', extra: rotate }) +
+                    _staffCalLinkRow('Calendar app feed', s.feed_url, 'feed', scopeId, { missing: 'The feed link is not available right now.' }) +
+                    apps +
                 '</div>';
             }).join('');
+            if (!box.dataset.wired) {
+                box.dataset.wired = '1';
+                box.addEventListener('click', (e) => {
+                    const b = e.target.closest('button[data-act]'); if (!b) return;
+                    if (b.dataset.act === 'copy') copyStaffCalendarLink(b);
+                    else if (b.dataset.act === 'rotate') rotateStaffCalendarLink(b.dataset.venue || null, b);
+                    else if (b.dataset.act === 'apple') addToAppleCal(_staffCalFeeds[b.dataset.scope]);
+                    else if (b.dataset.act === 'google') openGoogleAddByUrl(b, _staffCalFeeds[b.dataset.scope]);
+                    else if (b.dataset.act === 'outlook') openOutlookAddByUrl(b, _staffCalFeeds[b.dataset.scope]);
+                });
+            }
         }
-        async function issueStaffCalendarLink(venueId, btn) {
-            const row = btn && btn.closest('.staff-cal-row');
-            const rotating = btn && /Rotate/.test(btn.textContent);
-            if (rotating && !window.confirm('Rotate this link? Everyone using the current link loses access on their next refresh.')) return;
-            if (btn) { btn.disabled = true; btn.textContent = rotating ? 'Rotating…' : 'Creating…'; }
+        async function rotateStaffCalendarLink(venueId, btn) {
+            if (!window.confirm('Make a new page link for this calendar? The current link stops working for everyone who has it.')) return;
+            if (btn) { btn.disabled = true; btn.textContent = 'Rotating…'; }
             try {
-                const j = await staffCalApi('store-calendar-link-issue', { venue_id: venueId });
-                const reveal = row && row.querySelector('.staff-cal-reveal');
-                if (reveal) {
-                    reveal.style.display = 'block';
-                    reveal.innerHTML = '<div style="font-size:0.74rem; color:var(--clay-700); font-weight:700; margin-bottom:4px;">Copy this link now. It is not shown again.</div>' +
-                        '<div style="display:flex; gap:6px;"><input type="text" readonly value="' + _esc(j.link_url) + '" style="flex:1; padding:6px 10px; border:1px solid rgba(15,44,23,0.10); border-radius:6px; font-size:0.72rem; font-family:monospace;">' +
-                        '<button class="btn btn-primary" style="padding:6px 12px; font-size:0.72rem;" onclick="copyStaffCalendarLink(this)">Copy link</button></div>';
-                }
-                const state = row && row.querySelector('.staff-cal-state');
-                if (state) state.textContent = 'Link active since ' + String(j.issued_at || '').slice(0, 10) + ', not opened yet';
-                if (btn) { btn.textContent = 'Rotate link'; }
-                if (row && !row.querySelector('button[onclick^="revokeStaffCalendarLink"]')) {
-                    const stop = document.createElement('button'); stop.className = 'btn btn-secondary'; stop.style.cssText = 'padding:5px 10px; font-size:0.72rem;';
-                    stop.textContent = 'Stop sharing'; stop.setAttribute('onclick', 'revokeStaffCalendarLink(' + (venueId ? "'" + venueId + "'" : 'null') + ', this)');
-                    btn.parentNode.appendChild(stop);
-                }
-            } catch (e) {
-                DhModal.toast('Could not create the link: ' + e.message, 'error');
-                if (btn) btn.textContent = rotating ? 'Rotate link' : 'Create link';
-            } finally { if (btn) btn.disabled = false; }
-        }
-        async function revokeStaffCalendarLink(venueId, btn) {
-            if (!window.confirm('Stop sharing this calendar? The current link stops working on its next refresh. You can create a new one at any time.')) return;
-            if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
-            try {
-                await staffCalApi('store-calendar-link-revoke', { venue_id: venueId });
+                await staffCalApi('store-calendar-link-issue', { venue_id: venueId });
+                _staffCalLast = '';
                 await loadStaffCalendarLinks();
-            } catch (e) { DhModal.toast('Could not stop sharing: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Stop sharing'; } }
+            } catch (e) {
+                DhModal.toast('Could not make a new link: ' + e.message, 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Rotate'; }
+            }
         }
         async function copyStaffCalendarLink(btn) {
-            const input = btn && btn.parentNode && btn.parentNode.querySelector('input');
+            const input = btn && btn.dataset.for ? document.getElementById(btn.dataset.for) : null;
             if (!input) return;
             try { await navigator.clipboard.writeText(input.value); const t = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = t, 1600); }
             catch (_) { input.select(); DhModal.toast('Press Ctrl+C to copy the selected link', 'info'); }
         }
-        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp(); try { loadStaffCalendarLinks(); } catch(_){}
-            try { _renderPerLocationFeeds(); } catch(_){} }
+        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp(); try { loadStaffCalendarLinks(); } catch(_){} }
 
 
         // ===== Demo policy PDF upload =====
@@ -6666,13 +6622,13 @@ function escapeHtml(s) {
             }
             if (!ok) DhModal.copyableUrl({message:'Copy the calendar-feed URL below:', url:getIcalFeedUrl()});
         }
-        function addToAppleCal() {
+        function addToAppleCal(feedUrl) {
             // Apple Calendar handles webcal://, Safari/macOS Calendar intercept it as Subscribe
-            const url = getIcalFeedUrl().replace(/^https?:\/\//, 'webcal://');
+            const url = (feedUrl || getIcalFeedUrl()).replace(/^https?:\/\//, 'webcal://');
             window.location.href = url;
         }
-        async function openGoogleAddByUrl(btn) {
-            const url = getIcalFeedUrl();
+        async function openGoogleAddByUrl(btn, feedUrl) {
+            const url = feedUrl || getIcalFeedUrl();
             let copied = false;
             try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
             // Show a clear 3-step guide before opening Google Calendar
@@ -6698,8 +6654,8 @@ function escapeHtml(s) {
             });
             window.open('https://calendar.google.com/calendar/u/0/r/settings/addbyurl', '_blank');
         }
-        async function openOutlookAddByUrl(btn) {
-            const url = getIcalFeedUrl();
+        async function openOutlookAddByUrl(btn, feedUrl) {
+            const url = feedUrl || getIcalFeedUrl();
             let copied = false;
             try { await navigator.clipboard.writeText(url); copied = true; } catch (_) {}
             const stepHtml = `
@@ -6724,16 +6680,6 @@ function escapeHtml(s) {
             });
             window.open('https://outlook.live.com/calendar/0/addfromweb', '_blank');
         }
-        // Populate the readonly URL field when the settings view renders
-        document.addEventListener('DOMContentLoaded', () => {
-            const fill = () => {
-                const f = document.getElementById('icalUrlField');
-                if (f && !f.value) f.value = getIcalFeedUrl();
-            };
-            fill();
-            // Also fill it when the URL becomes available (slug is set immediately)
-            setTimeout(fill, 100);
-        });
         // ===== Sample demo (illustrative when zero real demos) =====
         function getSampleDemoForCalendar() {
             const today = new Date();

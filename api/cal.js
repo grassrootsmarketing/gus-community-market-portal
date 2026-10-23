@@ -12,6 +12,23 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { demoStartUtc, safeZone } from './_local-time.js';
 let _b = null;   // per-invocation binding; server-side reads use the service key to bypass RLS
 
+// A feed URL opened in a browser (instead of a calendar app) used to answer a bare line of text with no logo and no
+// favicon (David, 2026-10-23). Every non-calendar answer is now a small Demohub page: the real logo (the dashboard
+// header's mark), the site's font and tokens, one plain sentence. Calendar apps only ever see the status code.
+const DEMOHUB_MARK = '<svg width="40" height="40" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="36" cy="36" r="36" fill="#0f2c17"/><defs><radialGradient id="dhOrange" cx="0.36" cy="0.30" r="0.78"><stop offset="0" stop-color="#ff9a5c"/><stop offset="0.45" stop-color="#ed682f"/><stop offset="0.85" stop-color="#b8471a"/><stop offset="1" stop-color="#9a3a13"/></radialGradient></defs><circle cx="36" cy="40" r="18" fill="url(#dhOrange)"/><rect x="34.5" y="14" width="3" height="10" rx="1.2" fill="#fbf3e0"/><path d="M37 17 Q45 14 48 20 Q44 22 38 21 Q35 19 37 17 Z" fill="#87b08e"/></svg>';
+const escHtml = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export function feedNoticeHtml(title, message) {
+  return '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>' + escHtml(title) + ' | Demohub</title>'
+    + '<link rel="icon" type="image/svg+xml" href="/favicon.svg"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">'
+    + '<style>body{margin:0;background:#faf8f5;color:#0d1f12;font-family:"Plus Jakarta Sans",-apple-system,"Segoe UI",sans-serif;line-height:1.5}main{max-width:560px;margin:12vh auto 0;padding:0 20px}.card{background:#fff;border:1px solid #e8e0d5;border-radius:12px;padding:28px 28px 24px}.brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}.brand b{font-size:1.05rem;font-weight:700;color:#0f2c17}h1{font-size:1.25rem;font-weight:600;margin:0 0 8px;color:#1a3a21}p{margin:0;font-size:0.95rem;color:#3a3a36}small{display:block;margin-top:18px;font-size:0.78rem;color:#7a6352}</style></head>'
+    + '<body><main><div class="card"><div class="brand">' + DEMOHUB_MARK + '<b>Demohub</b></div><h1>' + escHtml(title) + '</h1><p>' + escHtml(message) + '</p><small>This address is a calendar feed. It is meant to be added to a calendar app, not opened in a browser.</small></div></main></body></html>';
+}
+function sendFeedNotice(res, status, title, message) {
+  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.status(status).send(feedNoticeHtml(title, message));
+}
+
 function pad(n) { return String(n).padStart(2, '0'); }
 function toICSDate(d) {
   return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) + 'T' +
@@ -49,7 +66,7 @@ export default async function handler(req, res) {
   const venueParam = String((req.query && req.query.venue) || '').trim();
   const feedKey = String((req.query && req.query.key) || '').trim();
   if (!slug || !/^[a-z0-9-]+$/.test(slug)) {
-    res.status(400).send('Missing or invalid ?slug= parameter');
+    sendFeedNotice(res, 400, 'This feed address is incomplete', 'The link is missing the store it belongs to. Copy it again from Settings in the Demohub admin.');
     return;
   }
 
@@ -60,13 +77,13 @@ export default async function handler(req, res) {
     });
     const retailers = await rR.json();
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
-    if (!retailer) { res.status(404).send('Retailer not found'); return; }
+    if (!retailer) { sendFeedNotice(res, 404, 'No store at this address', 'The store in this link does not exist. Copy the feed link again from Settings in the Demohub admin.'); return; }
     // Secret feed key required. The slug is public (it's in booking links), so the key is
     // what keeps this calendar private. Deny if the retailer has no key or it doesn't match.
     const _expected = retailer.cal_feed_key || '';
     const _match = _expected.length > 0 && feedKey.length === _expected.length &&
       (function () { let d = 0; for (let i = 0; i < _expected.length; i++) d |= feedKey.charCodeAt(i) ^ _expected.charCodeAt(i); return d === 0; })();
-    if (!_match) { res.status(401).send('This calendar feed requires the private link from your Demohub admin (Settings -> Calendar feed).'); return; }
+    if (!_match) { sendFeedNotice(res, 401, 'This feed needs its private link', 'Only the full feed link from the Demohub admin works (Settings, then Staff calendar). Copy it from there; if it was rotated, the old link no longer opens.'); return; }
 
     // Get all confirmed/completed demos for this retailer + their venue names
     const [dR, vR] = await Promise.all([
@@ -162,6 +179,6 @@ export default async function handler(req, res) {
     res.setHeader('Cache-Control', 'public, max-age=900');
     res.status(200).send(body);
   } catch (e) {
-    res.status(500).send('Error: ' + (e && e.message ? e.message : e));
+    sendFeedNotice(res, 500, 'The feed could not be built', 'Something went wrong while building this calendar. Try again in a moment.');
   }
 }

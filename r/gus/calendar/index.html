@@ -7,8 +7,10 @@
     <meta name="referrer" content="no-referrer">
     <title>Store calendar</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        /* The shareable, view-only store calendar (Codex design review and first closure review, 2026-10-23). Served at
+        /* The shareable, view-only store calendar (Codex design review and closure reviews, 2026-10-23; David's direction
+           of 2026-10-23: it looks like the dashboard's Demo Calendar, same font, same tokens, same month grid). Served at
            /r/<slug>/calendar; the link's secret arrives in the URL fragment, which the browser never sends to a server,
            and is held in memory only (no web storage). It STAYS in the address bar during ordinary use, a deliberate
            tradeoff so a reload and a copied link keep working; it is taken out of the address only while printing and
@@ -16,104 +18,162 @@
            credential (a new fragment, or the fragment removed) resets every piece of private state before anything is
            read for the new one (SC-1). Nothing on this page can change a demo. */
         :root {
-            --forest-900: #0d1f12; --forest-800: #1a3a21; --forest-700: #234d2c; --forest-600: #2d6339; --forest-500: #3d8249;
-            --forest-300: #7bc285; --forest-100: #d4edda; --forest-50: #eef7f0;
+            --forest-900: #0d1f12; --forest-800: #1a3a21; --forest-700: #234d2c;
+            --forest-600: #2d6339; --forest-500: #3d8249; --forest-400: #52a35f;
+            --forest-300: #7bc285; --forest-200: #a8dab0; --forest-100: #d4edda; --forest-50: #eef7f0;
             --sand-100: #faf8f5; --sand-200: #f2ede6; --sand-300: #e8e0d5;
-            --bark-600: #5c483a; --bark-500: #7a6352; --clay-700: #a14e2a; --clay-100: #f7e4d4;
-            --radius-sm: 6px; --radius-md: 12px; --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
+            --bark-600: #5c483a; --bark-500: #7a6352; --bark-700: #4a3a2e;
+            --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64; --ink-300: #b9b6ae;
+            --clay-700: #a14e2a; --clay-600: #a63e26; --clay-500: #c14a2f; --clay-100: #f7e4d4;
+            --cream-50: #fbf7f0; --cream-100: #f6f0e4; --cream-200: #ede3d0;
+            --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
+            --radius-sm: 6px; --radius-md: 12px; --radius-lg: 20px;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.5; -webkit-text-size-adjust: 100%; }
+        body { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.6; -webkit-text-size-adjust: 100%; }
+        h1, h2, h3, h4 { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; line-height: 1.2; }
         a { color: var(--forest-700); }
-        header.top { background: white; border-bottom: 1px solid var(--sand-300); padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
-        header.top img { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: cover; }
-        header.top .name { font-weight: 800; font-size: 1.1rem; line-height: 1.2; }
-        header.top .sub { font-size: 0.8rem; color: var(--bark-500); }
-        .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 16px 40px; }
-        .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
-        .controls .spacer { flex: 1; }
         button, select { font: inherit; }
-        .btn { border: 1px solid var(--sand-300); background: white; color: var(--forest-900); border-radius: var(--radius-sm); padding: 8px 12px; font-weight: 600; cursor: pointer; font-size: 0.9rem; min-height: 40px; }
-        .btn:hover { border-color: var(--forest-300); }
-        .btn.primary { background: var(--forest-700); color: white; border-color: var(--forest-700); }
-        .btn.active { background: var(--forest-50); border-color: var(--forest-300); }
-        select.btn { padding-right: 28px; }
-        .range { font-weight: 700; font-size: 1rem; }
-        .meta { font-size: 0.78rem; color: var(--bark-500); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
+
+        /* header: the dashboard's white band with the store logo and name */
+        .header { background: white; border-bottom: 1px solid var(--sand-200); padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+        .brand-icon { width: 40px; height: 40px; border-radius: var(--radius-sm); overflow: hidden; flex-shrink: 0; background: var(--cream-100); }
+        .brand-icon img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .brand-text h1 { font-size: 1.15rem; font-weight: 700; color: var(--forest-900); letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .brand-text span { font-size: 0.8rem; color: var(--bark-500); display: block; }
+
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 32px 48px; }
+
+        /* month calendar: verbatim from the dashboard */
+        .big-cal-card { background: white; border-radius: var(--radius-md); border: 1px solid var(--sand-200); padding: 28px; margin-bottom: 32px; }
+        .big-cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+        .big-cal-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; color: var(--forest-800); font-weight: 500; }
+        .big-cal-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .big-cal-nav .month-label { font-family: 'Plus Jakarta Sans', sans-serif; color: var(--forest-800); font-size: 1.05rem; font-weight: 500; min-width: 150px; text-align: center; }
+        .big-cal-nav button { background: white; border: 1px solid var(--sand-300); width: 32px; height: 32px; border-radius: var(--radius-sm); cursor: pointer; font-family: inherit; font-size: 1.1rem; color: var(--forest-700); display: grid; place-items: center; transition: all 0.15s; }
+        .big-cal-nav button:hover { background: var(--sand-100); border-color: var(--forest-400); }
+        .big-cal-nav .today-btn { width: auto; padding: 0 14px; font-size: 0.85rem; font-weight: 600; }
+        .big-cal-nav button.active { background: var(--forest-50); border-color: var(--forest-300); }
+        .big-cal-nav select { height: 32px; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); background: white; color: var(--forest-700); padding: 0 8px; font-size: 0.85rem; max-width: 180px; }
+        .big-cal-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; padding-bottom: 18px; border-bottom: 1px solid var(--sand-200); }
+        .big-cal-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--bark-500); }
+        .big-cal-legend-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+        .big-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+        .big-cal-dow { font-size: 0.72rem; font-weight: 700; color: var(--bark-500); text-align: center; padding: 8px 4px; text-transform: uppercase; letter-spacing: 0.06em; }
+        .big-cal-cell { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: var(--radius-sm); padding: 8px; min-height: 100px; font-size: 0.85rem; position: relative; display: flex; flex-direction: column; }
+        .big-cal-cell.empty { background: transparent; }
+        .big-cal-cell.today { border: 2px solid var(--forest-500); background: var(--forest-50); }
+        .big-cal-cell.weekend { background: #faf6ee; }
+        .big-cal-day-num { font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 500; color: var(--forest-800); font-size: 0.9rem; margin-bottom: 4px; line-height: 1; }
+        .big-cal-cell.today .big-cal-day-num { color: var(--forest-700); font-weight: 600; }
+        .big-cal-event { background: white; border-left: 3px solid var(--forest-500); padding: 3px 6px 3px 6px; border-radius: 3px; font-size: 0.7rem; line-height: 1.3; margin-bottom: 3px; cursor: pointer; transition: transform 0.1s; }
+        .big-cal-event:hover { transform: translateX(2px); box-shadow: var(--shadow-sm); }
+        .big-cal-event-time { font-weight: 600; color: var(--forest-800); }
+        .big-cal-event-name { color: var(--bark-700); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .big-cal-event.venue-0 { border-left-color: #3a7142; }
+        .big-cal-event.venue-1 { border-left-color: #c46e3a; }
+        .big-cal-event.venue-2 { border-left-color: #6b4ea8; }
+        .big-cal-event.venue-3 { border-left-color: #2d6a8f; }
+        .big-cal-event.venue-4 { border-left-color: #b8860b; }
+        .big-cal-legend-dot.venue-0 { background: #3a7142; }
+        .big-cal-legend-dot.venue-1 { background: #c46e3a; }
+        .big-cal-legend-dot.venue-2 { background: #6b4ea8; }
+        .big-cal-legend-dot.venue-3 { background: #2d6a8f; }
+        .big-cal-legend-dot.venue-4 { background: #b8860b; }
+        /* this page: days of the neighbouring months are shown muted; a cell with demos can be tapped */
+        .big-cal-cell.other .big-cal-day-num { color: var(--ink-300); }
+        .big-cal-cell.has-demos { cursor: pointer; }
+        .big-cal-cell.selected { box-shadow: 0 0 0 2px var(--forest-300) inset; }
+
+        /* status line */
+        .meta { font-size: 0.78rem; color: var(--bark-500); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 0 0 14px; }
         .meta .warn { color: var(--clay-700); font-weight: 700; }
+        .meta button { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); padding: 3px 10px; font-size: 0.78rem; color: var(--forest-700); cursor: pointer; }
         .trunc { background: var(--clay-100); border: 1px solid var(--clay-700); color: var(--clay-700); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 0.82rem; font-weight: 700; margin: 0 0 10px; }
         .notice { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 20px; text-align: center; color: var(--bark-600); }
         .notice.bad { border-color: var(--clay-700); color: var(--clay-700); background: var(--clay-100); }
+        .notice button { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); padding: 6px 12px; color: var(--forest-700); cursor: pointer; margin-left: 8px; }
+        .empty-month { text-align: center; color: var(--bark-500); font-size: 0.85rem; margin-top: 12px; }
 
-        /* week grid */
-        .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-        .day { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); min-height: 120px; padding: 8px; }
-        .day.today { border-color: var(--forest-500); box-shadow: 0 0 0 2px var(--forest-100) inset; }
-        .day.past { opacity: 0.75; }
-        .day h3 { font-size: 0.78rem; font-weight: 700; color: var(--bark-500); text-transform: uppercase; letter-spacing: 0.04em; display: flex; justify-content: space-between; }
-        .day h3 .n { color: var(--forest-900); font-size: 1rem; }
-        .day.today h3 .n { color: var(--forest-700); }
-        .ev { margin-top: 8px; background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 0.8rem; }
+        /* a tapped demo or day: the dashboard's detail, inline under the grid */
+        .ev-detail { margin-top: 14px; background: var(--cream-50); border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 14px 16px; }
+        .ev-detail h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+        .ev-detail h3 button { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-sm); padding: 2px 10px; font-size: 0.78rem; color: var(--forest-700); cursor: pointer; }
+        .ev { margin-top: 8px; background: white; border-left: 3px solid var(--forest-500); border-radius: var(--radius-sm); padding: 6px 10px; font-size: 0.85rem; }
+        .ev.venue-0 { border-left-color: #3a7142; } .ev.venue-1 { border-left-color: #c46e3a; } .ev.venue-2 { border-left-color: #6b4ea8; } .ev.venue-3 { border-left-color: #2d6a8f; } .ev.venue-4 { border-left-color: #b8860b; }
         .ev .t { font-weight: 700; color: var(--forest-800); }
         .ev .b { font-weight: 700; }
-        .ev .i, .ev .l { color: var(--bark-600); font-size: 0.76rem; }
-        .ev .fb { color: var(--clay-700); font-size: 0.72rem; }
-        .day .none { color: var(--sand-300); font-size: 0.78rem; margin-top: 10px; text-align: center; }
+        .ev .i, .ev .l { color: var(--bark-600); font-size: 0.8rem; }
+        .ev .fb { color: var(--clay-700); font-size: 0.75rem; }
 
-        /* list view */
+        /* list view (next 4 weeks), the phone-friendly reading of the same data */
         .list .dayrow { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 8px; }
         .list .dayrow.today { border-color: var(--forest-500); }
-        .list .dayrow h3 { font-size: 0.9rem; margin-bottom: 4px; }
-        .list .ev { margin-top: 6px; }
+        .list .dayrow h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 2px; }
 
         @media (max-width: 760px) {
-            .week { grid-template-columns: 1fr; }
-            .day { min-height: 0; }
-            .day.empty-mobile { display: none; }
-            .controls .range { width: 100%; order: -1; }
+            .header { padding: 12px 16px; }
+            .wrap { padding: 12px 10px 32px; }
+            .big-cal-card { padding: 16px 12px; }
+            .big-cal-head { gap: 8px; }
+            .big-cal-title { font-size: 1.1rem; }
+            .big-cal-nav .month-label { font-size: 0.92rem; min-width: 110px; }
+            .big-cal-nav button { width: 28px; height: 28px; font-size: 1rem; }
+            .big-cal-nav .today-btn { width: auto; padding: 0 10px; font-size: 0.78rem; }
+            .big-cal-grid { gap: 2px; }
+            .big-cal-cell { min-height: 56px; padding: 4px; font-size: 0.7rem; }
+            .big-cal-day-num { font-size: 0.78rem; }
+            /* a phone cell shows one colored bar per demo; tap the day for the details */
+            .big-cal-event { height: 6px; padding: 0; margin-bottom: 2px; border-left: 0; border-radius: 3px; background: var(--forest-500); }
+            .big-cal-event .big-cal-event-time, .big-cal-event .big-cal-event-name { display: none; }
+            .big-cal-event.venue-0 { background: #3a7142; } .big-cal-event.venue-1 { background: #c46e3a; } .big-cal-event.venue-2 { background: #6b4ea8; } .big-cal-event.venue-3 { background: #2d6a8f; } .big-cal-event.venue-4 { background: #b8860b; }
         }
         @media print {
-            header.top, .controls, .meta .live, .btn, .noprint { display: none !important; }
+            .header, .big-cal-nav, .meta .live, .noprint, .ev-detail h3 button { display: none !important; }
             .trunc { display: block !important; }
             body { background: white; }
             .wrap { max-width: none; padding: 0; }
-            .week { grid-template-columns: repeat(7, 1fr); gap: 4px; }
-            .day { break-inside: avoid; min-height: 0; }
+            .big-cal-card { border: 0; padding: 0; }
+            .big-cal-cell { break-inside: avoid; min-height: 70px; }
             .print-title { display: block !important; font-weight: 800; font-size: 1.1rem; margin-bottom: 8px; }
         }
         .print-title { display: none; }
-        .sr { position: absolute; left: -9999px; }
     </style>
 </head>
 <body>
-    <header class="top">
-        <img id="storeLogo" alt="" style="display:none">
-        <div>
-            <div class="name" id="storeName">Store calendar</div>
-            <div class="sub" id="storeSub">Confirmed demos. View only.</div>
+    <header class="header">
+        <div class="brand">
+            <div class="brand-icon" id="storeLogoWrap" style="display:none"><img id="storeLogo" alt=""></div>
+            <div class="brand-text"><h1 id="storeName">Store calendar</h1><span id="storeSub">Confirmed demos. View only.</span></div>
         </div>
     </header>
     <main class="wrap">
         <div class="print-title" id="printTitle"></div>
-        <div class="controls" id="controls" style="display:none">
-            <button class="btn" id="prevBtn" type="button" aria-label="Previous week">&#8592;</button>
-            <button class="btn" id="todayBtn" type="button">This week</button>
-            <button class="btn" id="nextBtn" type="button" aria-label="Next week">&#8594;</button>
-            <div class="range" id="rangeLabel"></div>
-            <div class="spacer"></div>
-            <select class="btn" id="venueSelect" aria-label="Location" style="display:none"></select>
-            <button class="btn" id="viewWeekBtn" type="button">Week</button>
-            <button class="btn" id="viewListBtn" type="button">List</button>
-            <button class="btn" id="printBtn" type="button">Print</button>
+        <div class="big-cal-card">
+            <div class="big-cal-head">
+                <div class="big-cal-title">Demo Calendar</div>
+                <div class="big-cal-nav" id="controls" style="display:none">
+                    <select id="venueSelect" aria-label="Location" style="display:none"></select>
+                    <button type="button" id="viewMonthBtn" class="today-btn">Month</button>
+                    <button type="button" id="viewListBtn" class="today-btn">List</button>
+                    <button type="button" id="prevBtn" aria-label="Previous month">&#8249;</button>
+                    <span class="month-label" id="rangeLabel"></span>
+                    <button type="button" id="nextBtn" aria-label="Next month">&#8250;</button>
+                    <button type="button" id="todayBtn" class="today-btn">Today</button>
+                    <button type="button" id="printBtn" class="today-btn">Print</button>
+                </div>
+            </div>
+            <div class="big-cal-legend" id="legend" style="display:none"></div>
+            <div class="meta" id="meta" style="display:none">
+                <span id="refreshedAt">Loading&hellip;</span>
+                <span id="refreshWarn" class="warn" style="display:none"></span>
+                <button class="live" id="refreshBtn" type="button">Refresh</button>
+                <span class="live" id="tzNote"></span>
+            </div>
+            <div id="body"><div class="notice" id="loadingNotice">Loading the calendar&hellip;</div></div>
         </div>
-        <div class="meta" id="meta" style="display:none">
-            <span id="refreshedAt">Loading&hellip;</span>
-            <span id="refreshWarn" class="warn" style="display:none"></span>
-            <button class="btn live" id="refreshBtn" type="button" style="min-height:32px; padding:4px 10px; font-size:0.78rem;">Refresh</button>
-            <span class="live" id="tzNote"></span>
-        </div>
-        <div id="body"><div class="notice" id="loadingNotice">Loading the calendar&hellip;</div></div>
-        <p class="meta noprint" style="margin-top:18px;">This page shows confirmed demos only and cannot change anything. If it stops working, ask the store admin for a new link. Times are in the store's time zone.</p>
+        <p class="meta noprint">This page shows confirmed demos only and cannot change anything. If it stops working, ask the store admin for a new link. Times are in the store's time zone.</p>
     </main>
     <script>
     (function () {
@@ -133,20 +193,21 @@
         window.addEventListener('hashchange', () => {
             const t = readFragment();
             if (t === token) return;
-            resetPrivateState(t ? 'Loading the calendar\u2026' : 'This link is missing its key. Ask the store admin for the calendar link.');
+            resetPrivateState(t ? 'Loading the calendar…' : 'This link is missing its key. Ask the store admin for the calendar link.');
             token = t; dead = false;
             if (t) load('newlink');
         });
 
         // ---- state ----
-        const DAY = 86400000;
+        const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
         let tz = 'America/Los_Angeles';
-        let view = 'week';
-        let anchor = null;            // YMD (store calendar) of the Sunday the week view starts on
-        let today = null;
+        let view = 'month';
+        let anchor = null;            // YMD of the first day of the month on show
+        let today = null;             // the store's today, from the server answer, never the browser clock
         let venueFilter = '';          // '' = all venues the link allows
+        let selected = null;           // { kind: 'event', id } or { kind: 'day', ymd }: the inline detail under the grid
         let scope = null, store = null, events = [], lastGood = null, lastGoodAt = null;
-        let requestSeq = 0, backoffMs = 180000, timer = null, dead = false, truncated = false, weekReady = false;
+        let requestSeq = 0, backoffMs = 180000, timer = null, dead = false, truncated = false, monthReady = false;
 
         // SC-1: a credential change is a security-context reset. Every piece of the previous scope's private state
         // goes, outstanding answers are invalidated, timers stop, and the page shows a neutral state until the new
@@ -154,13 +215,14 @@
         function resetPrivateState(message) {
             requestSeq++;                       // any answer still in flight is now superseded
             if (timer) { clearTimeout(timer); timer = null; }
-            events = []; store = null; scope = null; lastGood = null; lastGoodAt = null; venueFilter = ''; anchor = null; today = null; truncated = false; weekReady = false;
+            events = []; store = null; scope = null; lastGood = null; lastGoodAt = null; venueFilter = ''; anchor = null; today = null; truncated = false; monthReady = false; selected = null;
             backoffMs = 180000;
             $('storeName').textContent = 'Store calendar'; $('storeSub').textContent = 'Confirmed demos. View only.';
-            $('storeLogo').style.display = 'none'; $('storeLogo').removeAttribute('src');
+            $('storeLogoWrap').style.display = 'none'; $('storeLogo').removeAttribute('src');
             $('printTitle').textContent = ''; $('rangeLabel').textContent = ''; $('tzNote').textContent = '';
             $('refreshedAt').textContent = ''; $('refreshWarn').style.display = 'none'; $('refreshWarn').textContent = '';
             $('venueSelect').innerHTML = ''; $('venueSelect').style.display = 'none';
+            $('legend').innerHTML = ''; $('legend').style.display = 'none';
             $('controls').style.display = 'none'; $('meta').style.display = 'none';
             document.title = 'Store calendar';
             $('body').innerHTML = '<div class="notice">' + esc(message) + '</div>';
@@ -171,12 +233,19 @@
         const addDays = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
         const dowOf = (ymd) => new Date(ymd + 'T12:00:00Z').getUTCDay();   // weekday of a plain date
         const startOfWeek = (ymd) => addDays(ymd, -dowOf(ymd));
+        const monthStart = (ymd) => ymd.slice(0, 8) + '01';
+        const addMonths = (ymd, n) => { const [y, m] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1 + n, 1)).toISOString().slice(0, 10); };
+        const monthEnd = (ymd) => addDays(addMonths(ymd, 1), -1);
         const fmtDay = (ymd, opts) => new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-US', Object.assign({ timeZone: 'UTC' }, opts));
         const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch (_) { return ''; } };
         const fmtClock = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+        const monthLabel = (ymd) => { const [y, m] = ymd.split('-').map(Number); return MONTHS[m - 1] + ' ' + y; };
 
+        // The month grid runs from the Sunday on or before the 1st to the Saturday on or after the last day: at most 42
+        // days, inside the route's 90-day cap.
+        function gridRange(first) { const start = startOfWeek(first); const last = monthEnd(first); return { from: start, to: addDays(last, 6 - dowOf(last)) }; }
         function rangeFor() {
-            if (view === 'week') return { from: anchor, to: addDays(anchor, 6) };
+            if (view === 'month') return gridRange(anchor);
             return { from: today, to: addDays(today, 27) };
         }
 
@@ -185,7 +254,7 @@
             if (dead) return;
             if (!token) { showDead('This link is missing its key. Ask the store admin for the calendar link.'); return; }
             const seq = ++requestSeq;
-            // The first load has no anchor yet: ask for the default window and let the answer's today set the week.
+            // The first load has no anchor yet: ask for the default window and let the answer's today set the month.
             const r = anchor ? rangeFor() : null;
             const qs = r ? '?from=' + r.from + '&to=' + r.to : '';
             let res, j;
@@ -199,12 +268,12 @@
             store = j.store; scope = j.scope; events = Array.isArray(j.events) ? j.events : [];
             tz = (store && store.timezone) || tz; today = j.range.today; truncated = !!j.truncated;
             if (!anchor) {
-                // SC-2: the first answer only told us the store's today. If the week containing it starts earlier,
-                // fetch that whole week before presenting anything as the week.
-                anchor = startOfWeek(today);
-                if (view === 'week' && anchor < today) { weekReady = false; return load('fullweek'); }
+                // SC-2: the first answer only told us the store's today. Fetch the whole displayed month before
+                // presenting anything as the month.
+                anchor = monthStart(today);
+                if (view === 'month') { monthReady = false; return load('fullmonth'); }
             }
-            weekReady = true;
+            monthReady = true;
             lastGood = { events, at: new Date(), from: j.range.from, to: j.range.to }; lastGoodAt = new Date();
             backoffMs = 180000;
             $('refreshWarn').style.display = 'none';
@@ -217,7 +286,7 @@
             const w = $('refreshWarn');
             w.style.display = '';
             w.textContent = lastGoodAt ? ('Could not refresh at ' + fmtClock(new Date()) + ' (' + why + '). Showing the calendar from ' + fmtClock(lastGoodAt) + '.') : ('Could not load the calendar (' + why + '). Try again in a moment.');
-            if (!lastGoodAt) { $('body').innerHTML = '<div class="notice">The calendar could not be loaded. <button class="btn" type="button" id="retryBtn">Try again</button></div>'; const b = $('retryBtn'); if (b) b.onclick = () => load('retry'); }
+            if (!lastGoodAt) { $('body').innerHTML = '<div class="notice">The calendar could not be loaded. <button type="button" id="retryBtn">Try again</button></div>'; const b = $('retryBtn'); if (b) b.onclick = () => load('retry'); }
             $('meta').style.display = '';
             schedule();
         }
@@ -234,13 +303,16 @@
         document.addEventListener('visibilitychange', () => { if (document.hidden) { if (timer) { clearTimeout(timer); timer = null; } } else if (!dead) load('visible'); });
 
         // ---- rendering ----
+        function venueList() { return (scope && Array.isArray(scope.venues)) ? scope.venues : []; }
+        // Color index = the location's position among the link's locations, modulo the five swatches (the dashboard's rule).
+        function venueIndex(venueId) { const i = venueList().findIndex(v => v.id === venueId); return (i >= 0 ? i : 0) % 5; }
         function renderHeader() {
             if (!store) return;
             $('storeName').textContent = store.name || 'Store calendar';
             const where = scope && scope.kind === 'venue' && scope.venues && scope.venues[0] ? scope.venues[0].name : 'All locations';
             $('storeSub').textContent = where + '. Confirmed demos. View only.';
             document.title = (store.name || 'Store') + ' calendar';
-            if (store.logo_url) { $('storeLogo').src = store.logo_url; $('storeLogo').style.display = ''; }
+            if (store.logo_url) { $('storeLogo').src = store.logo_url; $('storeLogoWrap').style.display = ''; }
             $('tzNote').textContent = 'Times in ' + tz.replace(/_/g, ' ');
         }
         function renderControls() {
@@ -254,17 +326,38 @@
                 venueFilter = sel.value;
                 sel.style.display = '';
             } else { sel.style.display = 'none'; venueFilter = ''; }
-            $('viewWeekBtn').className = 'btn' + (view === 'week' ? ' active' : '');
-            $('viewListBtn').className = 'btn' + (view === 'list' ? ' active' : '');
+            const lg = $('legend'); const vs = venueList();
+            lg.innerHTML = vs.map((v, i) => '<div class="big-cal-legend-item"><span class="big-cal-legend-dot venue-' + (i % 5) + '"></span>' + esc(v.name) + '</div>').join('');
+            lg.style.display = vs.length ? '' : 'none';
+            $('viewMonthBtn').className = 'today-btn' + (view === 'month' ? ' active' : '');
+            $('viewListBtn').className = 'today-btn' + (view === 'list' ? ' active' : '');
+            // the month arrows step aside in list view (display, not visibility: the dashboard button CSS transitions 'all')
+            $('prevBtn').style.display = view === 'month' ? '' : 'none';
+            $('nextBtn').style.display = view === 'month' ? '' : 'none';
         }
-        function visibleEvents() { return events.filter(e => !venueFilter || e.venue_id === venueFilter); }
+        function visibleEvents() { return events.filter(e => !venueFilter || e.venue_id === venueFilter).sort((a, b) => String(a.start_at).localeCompare(String(b.start_at))); }
         function dayKey(e) { return ymdOf(new Date(e.start_at), tz); }
         function evHtml(e) {
-            return '<div class="ev"><div class="t">' + esc(fmtTime(e.start_at)) + (e.end_at ? ' to ' + esc(fmtTime(e.end_at)) : '') + '</div>' +
+            return '<div class="ev venue-' + venueIndex(e.venue_id) + '"><div class="t">' + esc(fmtTime(e.start_at)) + (e.end_at ? ' to ' + esc(fmtTime(e.end_at)) : '') + '</div>' +
                 '<div class="b">' + esc(e.brand) + '</div>' +
                 (e.items && e.items.length ? '<div class="i">' + esc(e.items.join(', ')) + '</div>' : '') +
-                (!venueFilter && scope && scope.kind === 'store' && e.venue_name ? '<div class="l">' + esc(e.venue_name) + '</div>' : '') +
+                (e.venue_name ? '<div class="l">' + esc(e.venue_name) + '</div>' : '') +
                 (e.all_day_fallback ? '<div class="fb">Time from the booking date; confirm with the admin</div>' : '') + '</div>';
+        }
+        function tileHtml(e) {
+            return '<div class="big-cal-event venue-' + venueIndex(e.venue_id) + '" role="button" tabindex="0" data-ev="' + esc(e.id) + '" title="' + esc(e.brand + ' at ' + (e.venue_name || 'the store') + ', ' + fmtTime(e.start_at)) + '">' +
+                '<span class="big-cal-event-time">' + esc(fmtTime(e.start_at)) + '</span> <span class="big-cal-event-name">' + esc(e.brand) + '</span></div>';
+        }
+        function detailHtml(evs, byDay) {
+            if (!selected) return '';
+            if (selected.kind === 'event') {
+                const e = evs.find(x => x.id === selected.id);
+                if (!e) return '';
+                return '<div class="ev-detail" id="evDetail"><h3><span>' + esc(fmtDay(dayKey(e), { weekday: 'long', month: 'long', day: 'numeric' })) + '</span><button type="button" id="detailClose">Close</button></h3>' + evHtml(e) + '</div>';
+            }
+            const list = byDay.get(selected.ymd) || [];
+            if (!list.length) return '';
+            return '<div class="ev-detail" id="evDetail"><h3><span>' + esc(fmtDay(selected.ymd, { weekday: 'long', month: 'long', day: 'numeric' })) + (selected.ymd === today ? ' (today)' : '') + '</span><button type="button" id="detailClose">Close</button></h3>' + list.map(evHtml).join('') + '</div>';
         }
         function render() {
             const body = $('body');
@@ -272,16 +365,28 @@
             const byDay = new Map();
             for (const e of evs) { const k = dayKey(e); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); }
             const truncNote = truncated ? '<div class="trunc" id="truncNote">Incomplete: the store has more demos in this period than this page can show at once. Do not treat this as the whole schedule; narrow the dates or ask the admin.</div>' : '';
-            if (view === 'week') {
-                const days = []; for (let i = 0; i < 7; i++) days.push(addDays(anchor, i));
-                $('rangeLabel').textContent = fmtDay(days[0], { month: 'short', day: 'numeric' }) + ' to ' + fmtDay(days[6], { month: 'short', day: 'numeric', year: 'numeric' });
-                $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos ' + $('rangeLabel').textContent;
-                body.innerHTML = truncNote + '<div class="week">' + days.map(d => {
+            if (view === 'month') {
+                const label = monthLabel(anchor);
+                $('rangeLabel').textContent = label;
+                $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos ' + label;
+                const g = gridRange(anchor);
+                let html = '<div class="big-cal-grid" id="monthGrid">';
+                ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => { html += '<div class="big-cal-dow">' + d + '</div>'; });
+                let inMonth = 0;
+                for (let d = g.from; d <= g.to; d = addDays(d, 1)) {
                     const list = byDay.get(d) || [];
-                    const cls = 'day' + (d === today ? ' today' : '') + (d < today ? ' past' : '') + (!list.length ? ' empty-mobile' : '');
-                    return '<div class="' + cls + '"><h3><span>' + esc(fmtDay(d, { weekday: 'short' })) + '</span><span class="n">' + esc(fmtDay(d, { day: 'numeric' })) + '</span></h3>' +
-                        (list.length ? list.map(evHtml).join('') : '<div class="none">No demos</div>') + '</div>';
-                }).join('') + '</div>' + (evs.length ? '' : '<p class="meta" style="justify-content:center; margin-top:10px;">No confirmed demos this week' + (venueFilter ? ' at this location' : '') + '.</p>');
+                    const dow = dowOf(d);
+                    const other = d.slice(0, 7) !== anchor.slice(0, 7);
+                    let cls = 'big-cal-cell';
+                    if (d === today) cls += ' today'; else if (dow === 0 || dow === 6) cls += ' weekend';
+                    if (other) cls += ' other';
+                    if (list.length) cls += ' has-demos';
+                    if (selected && selected.kind === 'day' && selected.ymd === d) cls += ' selected';
+                    if (!other) inMonth += list.length;
+                    html += '<div class="' + cls + '" data-ymd="' + d + '"><div class="big-cal-day-num">' + Number(d.slice(8)) + '</div>' + list.map(tileHtml).join('') + '</div>';
+                }
+                html += '</div>';
+                body.innerHTML = truncNote + html + detailHtml(evs, byDay) + (inMonth ? '' : '<p class="empty-month">No confirmed demos in ' + esc(label) + (venueFilter ? ' at this location' : '') + '.</p>');
             } else {
                 $('rangeLabel').textContent = 'Next 4 weeks';
                 $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos, next 4 weeks';
@@ -292,13 +397,25 @@
             if (lastGoodAt) $('refreshedAt').textContent = 'Updated ' + fmtClock(lastGoodAt) + (truncated ? ' (incomplete)' : '');
         }
 
-        // ---- controls ----
-        $('prevBtn').onclick = () => { anchor = addDays(anchor, -7); view = 'week'; renderControls(); load('nav'); };
-        $('nextBtn').onclick = () => { anchor = addDays(anchor, 7); view = 'week'; renderControls(); load('nav'); };
-        $('todayBtn').onclick = () => { anchor = startOfWeek(today); view = 'week'; renderControls(); load('nav'); };
-        $('viewWeekBtn').onclick = () => { view = 'week'; renderControls(); load('view'); };
-        $('viewListBtn').onclick = () => { view = 'list'; renderControls(); load('view'); };
-        $('venueSelect').onchange = (e) => { venueFilter = e.target.value; render(); };
+        // ---- controls (delegated; no server string ever lands in a handler attribute) ----
+        $('body').addEventListener('click', (e) => {
+            if (e.target.closest('#detailClose')) { selected = null; render(); return; }
+            const tile = e.target.closest('.big-cal-event');
+            if (tile) { selected = { kind: 'event', id: tile.dataset.ev }; render(); return; }
+            const cell = e.target.closest('.big-cal-cell.has-demos');
+            if (cell) { selected = (selected && selected.kind === 'day' && selected.ymd === cell.dataset.ymd) ? null : { kind: 'day', ymd: cell.dataset.ymd }; render(); }
+        });
+        $('body').addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const tile = e.target.closest('.big-cal-event');
+            if (tile) { e.preventDefault(); selected = { kind: 'event', id: tile.dataset.ev }; render(); }
+        });
+        $('prevBtn').onclick = () => { anchor = addMonths(anchor, -1); view = 'month'; selected = null; renderControls(); load('nav'); };
+        $('nextBtn').onclick = () => { anchor = addMonths(anchor, 1); view = 'month'; selected = null; renderControls(); load('nav'); };
+        $('todayBtn').onclick = () => { anchor = monthStart(today); view = 'month'; selected = null; renderControls(); load('nav'); };
+        $('viewMonthBtn').onclick = () => { view = 'month'; selected = null; renderControls(); load('view'); };
+        $('viewListBtn').onclick = () => { view = 'list'; selected = null; renderControls(); load('view'); };
+        $('venueSelect').onchange = (e) => { venueFilter = e.target.value; selected = null; render(); };
         $('refreshBtn').onclick = () => load('manual');
         $('printBtn').onclick = () => { hideFragment(); window.print(); showFragment(); };
 

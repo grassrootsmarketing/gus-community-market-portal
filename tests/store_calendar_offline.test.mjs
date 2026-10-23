@@ -13,7 +13,8 @@
 //
 // Run from the repository root:  node tests/store_calendar_offline.test.mjs   (no credentials needed)
 import { TARGETS } from '../api/_env.js';
-import { brandDisplayName } from '../api/_store-calendar.js';
+import { brandDisplayName, sealToken, openToken, mintToken, tokenShapeOk } from '../api/_store-calendar.js';
+import { feedNoticeHtml } from '../api/cal.js';
 import { resolveRange, parseYmdStrict, eventInRange, validIssuedRow, validLinkRow, validVenueRows, validDemoRows, hashToken, RANGE_CAP_DAYS } from '../api/_store-calendar.js';
 
 let _pass = 0, _fail = 0;
@@ -221,5 +222,24 @@ console.log('\n:: completeness against the backend\'s exact count (step 2) ::');
   const o = await run({}, { authorization: 'Bearer ' + 'A'.repeat(43) });
   ok('a well-shaped unknown token still gets the neutral 401 and no 503 text leaks a hash', (answers.resolve = () => [], (await run()).statusCode === 401) && !JSON.stringify(o.body).includes(hashToken(TOKEN)));
 }
+console.log('\n:: 0113: sealed, persistent links ::');
+{
+  const secret = 'a-server-secret-of-reasonable-length-for-the-test';
+  const t = mintToken(), sealed = sealToken(t, secret);
+  ok('a seal is v1.iv.ciphertext.tag in the url-safe alphabet, carries no part of the token, and opens to the token under the same secret', /^v1\.[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{22}$/.test(sealed) && !sealed.includes(t) && !sealed.includes(t.slice(0, 12)) && openToken(sealed, secret) === t, sealed);
+  ok('sealing the same token twice gives different seals (fresh iv), both opening to the token', sealToken(t, secret) !== sealed && openToken(sealToken(t, secret), secret) === t);
+  ok('another secret, a flipped ciphertext character, a flipped tag character, a v0 prefix, garbage and empty all open to null, never to a wrong token', openToken(sealed, secret + 'x') === null && openToken(sealed.replace(/^(v1\.[^.]+\.)(.)/, (m, a, c) => a + (c === 'A' ? 'B' : 'A')), secret) === null && openToken(sealed.slice(0, -1) + (sealed.endsWith('A') ? 'B' : 'A'), secret) === null && openToken('v0' + sealed.slice(2), secret) === null && openToken('garbage', secret) === null && openToken('', secret) === null && openToken(null, secret) === null);
+  let thrown = null; try { sealToken('short', secret); } catch (e) { thrown = e.message; }
+  let thrown2 = null; try { sealToken(t, ''); } catch (e) { thrown2 = e.message; }
+  ok('seal refuses a non-token and an absent secret rather than producing something', /not a token/.test(String(thrown)) && /no server secret/.test(String(thrown2)));
+  ok('a seal whose plaintext is not a token opens to null (shape is re-checked after decryption)', openToken(sealToken(t, secret).replace(/^v1/, 'v1'), secret) === t && tokenShapeOk(openToken(sealed, secret)));
+}
+
+console.log('\n:: the feed\'s browser-facing notice ::');
+{
+  const h = feedNoticeHtml('Needs <its> link', 'A "quoted" sentence & more');
+  ok('the feed notice is a Demohub page: the real mark, favicon, noindex, the site font, and escaped text', /dhOrange/.test(h) && /href="\/favicon\.svg"/.test(h) && /noindex, nofollow/.test(h) && /Plus\+Jakarta\+Sans/.test(h) && /Needs &lt;its&gt; link/.test(h) && /A &quot;quoted&quot; sentence &amp; more/.test(h) && !/<its>/.test(h) && !/\u2014/.test(h));
+}
+
 console.log(`\nstore calendar (offline): ${_pass} passed, ${_fail} failed`);
 process.exit(_fail ? 1 : 0);

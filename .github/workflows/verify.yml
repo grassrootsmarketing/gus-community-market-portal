@@ -106,7 +106,7 @@ env:
   # 2026-09-20 (Codex storage-backup work order BAK-4): 0084_backup_reader_storage_select.sql -> 85.
   # 2026-09-22 (booking codes): 0085_booking_codes.sql -> 86.
   # 2026-10-17: 0097, 0098 and 0099 (designated booker) bring the count to 95 (the earlier value had not followed 0086 to 0096)
-  EXPECTED_MIGRATIONS: '111'
+  EXPECTED_MIGRATIONS: '112'
 
 jobs:
   # --------------------------------------------------------------------------

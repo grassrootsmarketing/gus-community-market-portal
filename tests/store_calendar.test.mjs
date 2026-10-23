@@ -2,9 +2,11 @@
 // test database (demohub-rebuild-check through tests/_route.mjs). Real routes, real link functions, no provider.
 //
 // What this proves:
-//   ISSUE     owners/admins mint a link for the store or one location and see it ONCE; viewers (403), anonymous (401)
-//             and another store's admin (own tenant only) cannot; the list never carries a hash; a venue outside the
-//             store is refused.
+//   ISSUE     the list gives every scope its link (0113: persistent; a scope without one is issued one on the spot,
+//             and the current link is opened from its sealed copy); owners/admins can rotate; viewers (403), anonymous
+//             (401) and another store's admin (own tenant only) cannot; the list never carries a hash or a seal; a
+//             venue outside the store is refused; the feed URL for each scope rides along and the store gets a feed
+//             key if it had none.
 //   READ      the bearer token answers the store's confirmed demos only, with the allowlisted projection (asserted on
 //             the whole JSON), the accepted snapshot times, item display names, and private-data headers.
 //   DENY      missing, malformed, unknown and rotated tokens get one neutral 401 with no data; bad or over-wide ranges
@@ -16,7 +18,7 @@
 // Run from the repository root with test-database creds:  node tests/store_calendar.test.mjs
 import { callRoute, req, ok, summary, uniq, ENV, installSpy } from './_route.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
-import { EVENT_FIELDS, projectEvent, hashToken } from '../api/_store-calendar.js';
+import { EVENT_FIELDS, projectEvent, hashToken, sealToken } from '../api/_store-calendar.js';
 import pg from 'pg';
 // Two real connections for the SC-4 races (the pooler URL the suite runner exports). Never production: the URL must name the test project.
 const DB_URL = process.env.SB_DB_URL || '';
@@ -77,14 +79,22 @@ const tokenOf = (res) => { const m = /#k=([A-Za-z0-9_-]+)$/.exec((res.body && re
 // every key in the JSON must be an allowed key: event keys from the projection, plus the envelope's own
 const ENVELOPE = new Set(['ok', 'store', 'slug', 'name', 'timezone', 'logo_url', 'scope', 'kind', 'venue_id', 'venues', 'id', 'range', 'from', 'to', 'today', 'events', 'truncated', 'generated_at', ...EVENT_FIELDS]);
 const keysOf = (v, acc = new Set()) => { if (Array.isArray(v)) v.forEach(x => keysOf(x, acc)); else if (v && typeof v === 'object') for (const k of Object.keys(v)) { acc.add(k); keysOf(v[k], acc); } return acc; };
-const FORBIDDEN = /Rep Private|555-0100|fixture\.test|INTERNAL NOTE|SKU-SECRET|012345678905|0001234|unfi|demo_fee|amount_paid|token_hash|cal_feed_key/;
+const FORBIDDEN = /Rep Private|555-0100|fixture\.test|INTERNAL NOTE|SKU-SECRET|012345678905|0001234|unfi|demo_fee|amount_paid|token_hash|token_enc|cal_feed_key/;
+const linkTok = (url) => { const m = /#k=([A-Za-z0-9_-]{43})$/.exec(String(url || '')); return m ? m[1] : null; };
 
 try {
   ok('fixtures exist', !!A && !!B && !!VA1 && !!VA2 && !!brandId && !!adminA && !!viewerA && !!adminB && !!D1.demo && !!D2.demo);
 
-  console.log('\n,  issue: owners and admins only, shown once, no hash in the list , ');
+  console.log('\n,  list and issue: links simply exist (0113); owners and admins only; no hash or seal in the list , ');
+  await db(`retailers?id=eq.${A}`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: null }) });   // a store created without a feed key (the pilot store's state on 2026-10-23)
   const list0 = await act('store-calendar-links', {}, adminA);
-  ok('list: one row per scope (store + two active locations), none active yet, no hash anywhere', list0.statusCode === 200 && list0.body.scopes.length === 3 && list0.body.scopes.every(s => s.active === false) && !/token_hash|[0-9a-f]{64}/.test(JSON.stringify(list0.body)), JSON.stringify(list0.body).slice(0, 300));
+  const sc0 = list0.body.scopes || [];
+  ok('first list: one row per scope (store + two active locations), EVERY scope already carries a page link (issued on the spot) and a feed link; no hash, no seal, nothing 64-hex anywhere', list0.statusCode === 200 && sc0.length === 3 && sc0.every(s => s.active === true && linkTok(s.link_url) && s.link_unrecoverable === false && /\/api\/cal\?slug=/.test(s.feed_url) && /&key=[0-9a-f]{32}$/.test(s.feed_url)) && sc0.filter(s => s.venue_id).every(s => s.feed_url.includes('&venue=' + s.venue_id)) && !/token_hash|token_enc|v1\.|[0-9a-f]{64}/.test(JSON.stringify(list0.body)), JSON.stringify(list0.body).slice(0, 400));
+  const keyRow = (await db(`retailers?id=eq.${A}&select=cal_feed_key`)).body;
+  ok('the store that had no feed key now has one (32 hex), and it is the key in the feed links', Array.isArray(keyRow) && /^[0-9a-f]{32}$/.test(keyRow[0].cal_feed_key) && sc0.every(s => s.feed_url.endsWith('&key=' + keyRow[0].cal_feed_key)));
+  const listAgain = await act('store-calendar-links', {}, adminA);
+  ok('listing again shows the SAME page links (persistent: opened from the sealed copy, not re-issued) and the same feed links', listAgain.statusCode === 200 && JSON.stringify(listAgain.body.scopes.map(s => [s.venue_id, s.link_url, s.feed_url])) === JSON.stringify(sc0.map(s => [s.venue_id, s.link_url, s.feed_url])));
+  const firstStoreToken = linkTok(sc0.find(s => s.scope === 'store').link_url);
   const anonList = await act('store-calendar-links', {}, null);
   const viewerIssue = await act('store-calendar-link-issue', { venue_id: null }, viewerA);
   ok('anonymous list 401; viewer issue 403 insufficient_role', anonList.statusCode === 401 && viewerIssue.statusCode === 403 && viewerIssue.body.error === 'insufficient_role', `${anonList.statusCode} ${viewerIssue.statusCode}`);
@@ -94,15 +104,20 @@ try {
   ok('a malformed venue id is refused (400)', badVenue.statusCode === 400, String(badVenue.statusCode));
   const storeIssue = await act('store-calendar-link-issue', { venue_id: null }, adminA);
   const storeToken = tokenOf(storeIssue);
-  ok('admin issues the store link: 200, the URL carries the secret in the FRAGMENT (#k=), 43 url-safe characters, shown with a copy-now note', storeIssue.statusCode === 200 && storeIssue.body.scope === 'store' && new RegExp(`/r/${slugA}/calendar#k=[A-Za-z0-9_-]{43}$`).test(storeIssue.body.link_url) && /not shown again/.test(storeIssue.body.note), JSON.stringify(storeIssue.body).slice(0, 200));
+  const firstStoreDead = await get(firstStoreToken, { from: dayP(0), to: dayP(27) });
+  ok('admin rotates the store link: 200, the URL carries the secret in the FRAGMENT (#k=), 43 url-safe characters, the note says it stays in Settings, and the first link is 401 at once', storeIssue.statusCode === 200 && storeIssue.body.scope === 'store' && new RegExp(`/r/${slugA}/calendar#k=[A-Za-z0-9_-]{43}$`).test(storeIssue.body.link_url) && /stays in Settings/.test(storeIssue.body.note) && storeToken !== firstStoreToken && firstStoreDead.statusCode === 401, JSON.stringify(storeIssue.body).slice(0, 200) + ' ' + firstStoreDead.statusCode);
   const venueIssue = await act('store-calendar-link-issue', { venue_id: VA1 }, adminA);
   const venueToken = tokenOf(venueIssue);
   ok('admin issues the Main Street location link', venueIssue.statusCode === 200 && venueIssue.body.scope === 'venue' && venueIssue.body.venue_id === VA1 && !!venueToken, JSON.stringify(venueIssue.body).slice(0, 200));
   const list1 = await act('store-calendar-links', {}, adminA);
   const rows1 = list1.body.scopes;
-  ok('list after issue: store and Main Street active with issue facts, Harbor not; still no hash', rows1.find(s => s.scope === 'store').active === true && rows1.find(s => s.venue_id === VA1).active === true && rows1.find(s => s.venue_id === VA2).active === false && !!rows1.find(s => s.scope === 'store').issued_by && !/[0-9a-f]{64}/.test(JSON.stringify(list1.body)), JSON.stringify(rows1).slice(0, 300));
-  const stored = (await db(`store_calendar_links?retailer_id=eq.${A}&select=token_hash,venue_id,revoked_at`)).body;
-  ok('the database holds 64-hex hashes only, never the token', Array.isArray(stored) && stored.length === 2 && stored.every(r => /^[0-9a-f]{64}$/.test(r.token_hash) && r.token_hash !== storeToken && r.token_hash !== venueToken));
+  ok('list after the rotations: the store and Main Street rows show exactly the links just issued, Harbor keeps its first link; issue facts present; still no hash or seal', rows1.find(s => s.scope === 'store').link_url === storeIssue.body.link_url && rows1.find(s => s.venue_id === VA1).link_url === venueIssue.body.link_url && rows1.find(s => s.venue_id === VA2).link_url === sc0.find(s => s.venue_id === VA2).link_url && !!rows1.find(s => s.scope === 'store').issued_by && !/token_hash|token_enc|v1\.|[0-9a-f]{64}/.test(JSON.stringify(list1.body)), JSON.stringify(rows1).slice(0, 300));
+  const stored = (await db(`store_calendar_links?retailer_id=eq.${A}&select=token_hash,token_enc,venue_id,revoked_at`)).body;
+  const storedActive = (stored || []).filter(r => r.revoked_at == null);
+  ok('the database holds 64-hex hashes and v1 seals, never the token: 3 active rows (one per scope) plus the 2 rotated ones; no seal or hash equals a token', Array.isArray(stored) && stored.length === 5 && storedActive.length === 3 && stored.every(r => /^[0-9a-f]{64}$/.test(r.token_hash) && /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(r.token_enc) && ![storeToken, venueToken, firstStoreToken].includes(r.token_hash) && !r.token_enc.includes(storeToken) && !r.token_enc.includes(venueToken)), JSON.stringify({ n: stored && stored.length, active: storedActive.length }));
+  const feedOpen = await callRoute('cal.js', req({ method: 'GET', query: { slug: slugA, key: keyRow[0].cal_feed_key } }));
+  const feedNoKey = await callRoute('cal.js', req({ method: 'GET', query: { slug: slugA } }));
+  ok('the feed link from the list opens the iCal feed (200, text/calendar); without the key the feed answers a 401 Demohub page (html, the real mark, noindex), not a bare line', feedOpen.statusCode === 200 && /text\/calendar/.test(String(feedOpen.headers['content-type'] || feedOpen.headers['Content-Type'])) && feedNoKey.statusCode === 401 && /text\/html/.test(String(feedNoKey.headers['content-type'] || feedNoKey.headers['Content-Type'])) && /dhOrange/.test(String(feedNoKey.body)) && /noindex/.test(String(feedNoKey.body)) && /favicon\.svg/.test(String(feedNoKey.body)), JSON.stringify({ open: feedOpen.statusCode, ct: feedOpen.headers && feedOpen.headers['content-type'], nokey: feedNoKey.statusCode }));
   const listB = await act('store-calendar-links', {}, adminB);
   ok("store B's admin sees only store B's scopes", listB.statusCode === 200 && listB.body.scopes.every(s => s.venue_id === null || s.venue_id === VB1) && listB.body.scopes.length === 2, JSON.stringify(listB.body).slice(0, 200));
 
@@ -148,12 +163,22 @@ try {
   const oldAfter = await get(storeToken, { from: dayP(0), to: dayP(27) }), newAfter = await get(storeToken2, { from: dayP(0), to: dayP(27) }), venueAfter = await get(venueToken, { from: dayP(0), to: dayP(27) });
   ok('rotating the store link: the old token is 401 at once, the new one works, the location link is untouched', storeToken2 && storeToken2 !== storeToken && oldAfter.statusCode === 401 && newAfter.statusCode === 200 && venueAfter.statusCode === 200, [oldAfter.statusCode, newAfter.statusCode, venueAfter.statusCode].join(','));
   const active = (await db(`store_calendar_links?retailer_id=eq.${A}&revoked_at=is.null&select=venue_id`)).body;
-  ok('exactly one active link per scope after the rotation', Array.isArray(active) && active.length === 2 && active.filter(r => r.venue_id === null).length === 1 && active.filter(r => r.venue_id === VA1).length === 1);
+  ok('exactly one active link per scope after the rotation (store, Main Street, and Harbor from the first list)', Array.isArray(active) && active.length === 3 && active.filter(r => r.venue_id === null).length === 1 && active.filter(r => r.venue_id === VA1).length === 1 && active.filter(r => r.venue_id === VA2).length === 1, JSON.stringify(active));
   const rev = await act('store-calendar-link-revoke', { venue_id: VA1 }, adminA);
   const venueRevoked = await get(venueToken, { from: dayP(0), to: dayP(27) }), storeStill = await get(storeToken2, { from: dayP(0), to: dayP(27) });
   ok('revoking the location link: 1 revoked, its token 401, the store link still 200', rev.statusCode === 200 && rev.body.revoked === 1 && venueRevoked.statusCode === 401 && storeStill.statusCode === 200, [rev.statusCode, rev.body && rev.body.revoked, venueRevoked.statusCode, storeStill.statusCode].join(','));
   const viewerRevoke = await act('store-calendar-link-revoke', { venue_id: null }, viewerA);
   ok('a viewer cannot revoke either (403)', viewerRevoke.statusCode === 403, String(viewerRevoke.statusCode));
+  const list2 = await act('store-calendar-links', {}, adminA);
+  const va1After = list2.body.scopes.find(s => s.venue_id === VA1);
+  ok('after a revoke the next list gives the location a NEW link (the links always exist); the store row still shows the rotated link', va1After.active === true && linkTok(va1After.link_url) && linkTok(va1After.link_url) !== venueToken && list2.body.scopes.find(s => s.scope === 'store').link_url === rot.body.link_url, JSON.stringify(va1After));
+  const sealBroken = (await db(`store_calendar_links?retailer_id=eq.${A}&venue_id=eq.${VA2}&revoked_at=is.null`, { method: 'PATCH', body: JSON.stringify({ token_enc: sealToken('x'.repeat(43), 'some-other-deployment-secret-value') }) })).body;
+  const list3 = await act('store-calendar-links', {}, adminA);
+  const va2Broken = list3.body.scopes.find(s => s.venue_id === VA2);
+  ok('a seal that does not open (another secret) is reported unrecoverable with no link, never guessed; the row stays active for Rotate', Array.isArray(sealBroken) && sealBroken.length === 1 && va2Broken.active === true && va2Broken.link_url === null && va2Broken.link_unrecoverable === true, JSON.stringify(va2Broken));
+  const rot2 = await act('store-calendar-link-issue', { venue_id: VA2 }, adminA);
+  const list4 = await act('store-calendar-links', {}, adminA);
+  ok('Rotate on that row issues a fresh, recoverable link', rot2.statusCode === 200 && list4.body.scopes.find(s => s.venue_id === VA2).link_url === rot2.body.link_url && list4.body.scopes.find(s => s.venue_id === VA2).link_unrecoverable === false);
 
   console.log('\n,  SC-3: the budget counter is atomic and the route answers 429 at the ceiling , ');
   {
@@ -183,11 +208,14 @@ try {
     const c1 = await pgc(), c2 = await pgc();
     try {
       const hA = 'd'.repeat(64), hB = 'e'.repeat(64), hC = 'f'.repeat(64);
+      const sealed = sealToken('A'.repeat(43), 'race-fixture-secret-value-0113');
+      let fourArg = null; try { await c2.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hA, 'c2@fixture.test']); } catch (e) { fourArg = e.message; }
+      ok('0113: the four-argument issue is gone (one function, one shape); a malformed seal is refused', /does not exist/.test(String(fourArg)) && await c2.query('select * from public.store_calendar_link_issue($1, $2, $3, $4, $5)', [A, VA2, hA, 'not-a-seal', 'c2@fixture.test']).then(() => false, e => /token_enc_shape/.test(e.message)), String(fourArg));
       // issue vs issue on one scope: c1 holds the scope lock inside an open transaction; c2's issue must wait, then land as the winner
       await c1.query('BEGIN');
-      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hA, 'c1@fixture.test']);
+      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4, $5)', [A, VA2, hA, sealed, 'c1@fixture.test']);
       let c2Done = false;
-      const p2 = c2.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hB, 'c2@fixture.test']).then(r => { c2Done = true; return r; });
+      const p2 = c2.query('select * from public.store_calendar_link_issue($1, $2, $3, $4, $5)', [A, VA2, hB, sealed, 'c2@fixture.test']).then(r => { c2Done = true; return r; });
       await new Promise(r => setTimeout(r, 700));
       const waited = !c2Done;
       await c1.query('COMMIT');
@@ -207,7 +235,7 @@ try {
       ok('resolve vs revoke: resolve waited on the row the revoke held and then returned NO scope (the revoke won); the decision and the row are one statement', resolveWaited && Array.isArray(resolved) && resolved.length === 0, JSON.stringify({ resolveWaited, resolved }));
       // issue vs revoke: the revoke waits for the issue's lock, then retires what the issue just created (deterministic: the later statement wins)
       await c1.query('BEGIN');
-      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hC, 'c1@fixture.test']);
+      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4, $5)', [A, VA2, hC, sealed, 'c1@fixture.test']);
       let revokeN = null, revokeDone = false;
       const p4 = c2.query('select public.store_calendar_link_revoke($1, $2, $3) as n', [A, VA2, 'c2@fixture.test']).then(r => { revokeDone = true; revokeN = r.rows[0].n; });
       await new Promise(r => setTimeout(r, 700));
