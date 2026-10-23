@@ -58,7 +58,8 @@ const calls = [];
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url); calls.push({ url: u, body: opts.body || null });
   const path = u.split('/rest/v1/')[1] || '';
-  const respond = (v) => { if (v && v.__status) return new Response(v.body == null ? '' : v.body, { status: v.__status }); if (v && v.__raw != null) return new Response(v.__raw, { status: 200 }); return new Response(JSON.stringify(v), { status: 200 }); };
+  const respond = (v) => { if (v && v.__status) return new Response(v.body == null ? '' : v.body, { status: v.__status }); if (v && v.__raw != null) return new Response(v.__raw, { status: 200 }); if (v && v.__rows) return new Response(JSON.stringify(v.__rows), { status: 200, headers: { 'content-range': v.__range } }); return new Response(JSON.stringify(v), { status: 200, headers: Array.isArray(v) ? { 'content-range': `${v.length ? '0-' + (v.length - 1) : '*'}/${v.length}` } : {} }); };
+  if (path.startsWith('store_calendar_rate?') && opts.method === 'DELETE') return respond({ __raw: '' });
   if (path.startsWith('rpc/get_deployment_identity')) return respond([{ environment: TARGETS.preview.dbEnvironment, project_ref: TARGETS.preview.projectRef, updated_at: '2026-10-01T00:00:00Z' }]);
   if (path.startsWith('rpc/store_calendar_rate_hit')) return respond(answers.rate(JSON.parse(opts.body)));
   if (path.startsWith('rpc/store_calendar_link_resolve')) return respond(answers.resolve());
@@ -67,7 +68,7 @@ globalThis.fetch = async (url, opts = {}) => {
   if (path.startsWith('bookings?')) return respond(answers.bookings(path));
   throw new Error('unexpected ' + path);
 };
-const mockRes = () => ({ statusCode: null, body: null, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, end() { return this; } });
+const mockRes = () => ({ statusCode: null, body: null, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, send(b) { this.body = b; return this; }, end() { return this; } });
 const run = async (q = {}, headers = {}) => { const res = mockRes(); await handler({ method: 'GET', query: q, headers: { 'sec-fetch-site': 'same-origin', authorization: 'Bearer ' + TOKEN, 'x-real-ip': '203.0.113.9', ...headers }, socket: { remoteAddress: '127.0.0.1' } }, res); return res; };
 // bookings-first: the route asks for confirmed bookings by snapshot instant, then the legacy ones (start_at is null), then the demos rows by booking id
 const reset = () => { calls.length = 0; answers.rate = () => [{ allowed: true, hits: 1, window_start: 'x' }]; answers.resolve = () => linkRow(); answers.venues = () => [{ id: V1, name: 'Main' }, { id: V2, name: 'Harbor' }]; answers.demos = () => []; answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : []); };
@@ -174,6 +175,30 @@ console.log('\n:: SC-5 malformed successes are 503, never an empty calendar or a
   reset(); answers.bookings = () => ({});
   const n4 = await run({ from: '2026-10-25', to: '2026-10-31' });
   ok('the accepted schedule failing (HTTP 500), a partial snapshot, a backwards snapshot, or a non-array answer: 503 each, never a reconstructed or empty calendar', [n, n2, n3, n4].every(r => r.statusCode === 503), [n, n2, n3, n4].map(r => r.statusCode).join(','));
+  ok('the malformed-snapshot cases answer through the feed-unavailable path directly (a text body, not a JSON error object)', typeof n2.body === 'string' && /unavailable|calendar/i.test(n2.body) && typeof n3.body === 'string', JSON.stringify([n2.body, n3.body]).slice(0, 200));
+
+  console.log('\n:: completeness against the backend\'s exact count (step 2) ::');
+  const { pruneRateWindows, parseContentRange, DEMO_FETCH_LIMIT } = await import('../api/store-calendar.js');
+  ok('parseContentRange reads the exact total and returns null when the backend declined to count', parseContentRange('0-24/25') === 25 && parseContentRange('*/0') === 0 && parseContentRange('0-999/*') === null && parseContentRange('') === null && parseContentRange('garbage') === null);
+  reset(); withBookings([B('d1111111-1111-4111-8111-111111111111', '2026-10-26T18:00:00Z')]); answers.demos = () => [D('d1111111-1111-4111-8111-111111111111', V1, '2026-10-26')];
+  const c1 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  const countedCalls = calls.filter(c => c.url.includes('/bookings?'));
+  ok('both candidate queries ask for an exact count, order deterministically and request the backend\'s documented cap, not more', countedCalls.length === 2 && countedCalls.every(c => /limit=1000(&|$)/.test(c.url) && /order=(start_at|demo_date)\.asc,id\.asc/.test(c.url)) && c1.statusCode === 200 && c1.body.truncated === false && DEMO_FETCH_LIMIT === 1000, JSON.stringify(countedCalls.map(c => c.url.slice(-80))));
+  // the backend reports a total larger than the rows it returned (a lower server cap): incomplete, with the rows it did give
+  reset(); answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : { __rows: [B('d1111111-1111-4111-8111-111111111111', '2026-10-26T18:00:00Z')], __range: '0-0/7' }); answers.demos = () => [D('d1111111-1111-4111-8111-111111111111', V1, '2026-10-26')];
+  const c2 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('a backend total larger than the rows received (a lower configured cap) is reported as truncated, with the rows it did return', c2.statusCode === 200 && c2.body.truncated === true && c2.body.events.length === 1, JSON.stringify([c2.statusCode, c2.body && c2.body.truncated]));
+  reset(); answers.bookings = (p) => (/start_at=is\.null/.test(p) ? { __rows: [], __range: '*/*' } : []);
+  const c3 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('a backend that declines to state a total reads as incomplete too', c3.statusCode === 200 && c3.body.truncated === true);
+  reset(); answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : { __rows: [], __range: '*/0' });
+  const c4 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('an exact total of zero with zero rows is complete', c4.statusCode === 200 && c4.body.truncated === false);
+  // the rate-window prune: deletes only windows older than the retention, never the current hour
+  reset();
+  await pruneRateWindows(new Date('2026-10-23T12:30:00Z'));
+  const del = calls.find(c => c.url.includes('store_calendar_rate?'));
+  ok('pruneRateWindows deletes windows older than 48 hours only (cutoff 2026-10-21T12:30Z), never the current window', !!del && /window_start=lt\.2026-10-21T12%3A30%3A00/.test(del.url), del && del.url);
   reset();
   const o = await run({}, { authorization: 'Bearer ' + 'A'.repeat(43) });
   ok('a well-shaped unknown token still gets the neutral 401 and no 503 text leaks a hash', (answers.resolve = () => [], (await run()).statusCode === 401) && !JSON.stringify(o.body).includes(hashToken(TOKEN)));

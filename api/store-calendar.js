@@ -34,18 +34,42 @@ import { tokenFromRequest, tokenShapeOk, hashToken, resolveRange, projectEvent, 
 // eighty. Both are abuse ceilings, not quotas: raise them if the pilot shows real use near them.
 export const IP_BUDGET_PER_HOUR = 3000;
 export const LINK_BUDGET_PER_HOUR = 2400;
-export const DEMO_FETCH_LIMIT = 2000;
+// The backend (PostgREST on Supabase) caps any answer at its own configured maximum (1,000 rows by default) whatever
+// limit is requested, so "did I get everything" is never judged by the requested limit. Each candidate query asks
+// for an exact count (Prefer: count=exact) and compares the rows received with the total the backend reports; any
+// shortfall is reported as truncated. The requested limit is set at the backend's documented cap so the two agree.
+export const DEMO_FETCH_LIMIT = 1000;
+// Expired rate windows are pruned opportunistically: about one request in a hundred deletes windows older than
+// RATE_WINDOW_RETENTION_HOURS (never the current hour, never a window that could still be counted).
+export const RATE_WINDOW_RETENTION_HOURS = 48;
 
 let _b = null;
 const H = () => ({ apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}`, 'Content-Type': 'application/json' });
 // Every database read returns the parsed body; an HTTP failure or an unparseable body throws. The caller decides
 // what a malformed SUCCESS means (SC-5: never an empty calendar).
-async function sb(path, opts = {}) {
+async function sbRaw(path, opts = {}) {
   const r = await fetch(`${_b.supabaseUrl}/rest/v1/${path}`, { ...opts, headers: { ...H(), ...(opts.headers || {}) } });
   const t = await r.text(); let j = null; let parsed = true; try { j = t ? JSON.parse(t) : null; } catch (_) { parsed = false; }
   if (!r.ok) { const e = new Error('db_' + (opts.method || 'GET').toLowerCase() + '_failed'); e.status = r.status; e.detail = String((j && j.message) || t || '').slice(0, 200); throw e; }
   if (!parsed) { const e = new Error('db_malformed'); e.detail = 'unparseable body'; throw e; }
-  return j;
+  return { json: j, contentRange: String((r.headers && typeof r.headers.get === 'function' && r.headers.get('content-range')) || '') };
+}
+async function sb(path, opts = {}) { return (await sbRaw(path, opts)).json; }
+// A counted read: rows plus the backend's exact total for the filter. total = null when the backend did not say.
+export function parseContentRange(h) {
+  const m = /^(?:\*|\d+-\d+)\/(\d+|\*)$/.exec(String(h || '').trim());
+  if (!m) return null;
+  return m[1] === '*' ? null : Number(m[1]);
+}
+async function sbCounted(path) {
+  const { json, contentRange } = await sbRaw(path, { headers: { Prefer: 'count=exact' } });
+  return { rows: json, total: parseContentRange(contentRange) };
+}
+// Delete rate windows older than the retention; fire-and-forget, errors logged and ignored. Exported for the test.
+export async function pruneRateWindows(now = new Date()) {
+  const cutoff = new Date(now.getTime() - RATE_WINDOW_RETENTION_HOURS * 3600000).toISOString();
+  try { await sb(`store_calendar_rate?window_start=lt.${encodeURIComponent(cutoff)}`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } }); }
+  catch (e) { console.error('store-calendar rate prune skipped:', e && e.message); }
 }
 function privateHeaders(res) {
   res.setHeader('Cache-Control', 'no-store, max-age=0');
@@ -110,6 +134,7 @@ export default async function handler(req, res) {
   const linkHit = await rateHit('store-calendar:link:' + tokenHash, LINK_BUDGET_PER_HOUR);
   if (linkHit === 'unavailable') return unavailable(res);
   if (linkHit === 'limited') return res.status(429).json({ error: 'rate_limited' });
+  if (Math.random() < 0.01) pruneRateWindows();   // bounded cleanup of expired windows, off the request's path
 
   const range = resolveRange(req.query || {}, link.timezone);
   if (!range.ok) return res.status(400).json({ error: range.error, ...(range.cap_days ? { cap_days: range.cap_days } : {}) });
@@ -128,13 +153,17 @@ export default async function handler(req, res) {
     const scopeQ = link.venue_id ? `&venue_id=eq.${encodeURIComponent(link.venue_id)}` : '';
     const inst = windowInstants(range);
     const bSel = 'select=id,venue_id,demo_date,start_at,end_at,timezone,status';
-    const [bySnapshot, legacy] = await Promise.all([
-      sb(`bookings?retailer_id=eq.${encodeURIComponent(link.retailer_id)}${scopeQ}&status=eq.confirmed&start_at=gte.${encodeURIComponent(inst.lo)}&start_at=lte.${encodeURIComponent(inst.hi)}&${bSel}&order=start_at.asc&limit=${DEMO_FETCH_LIMIT}`),
-      sb(`bookings?retailer_id=eq.${encodeURIComponent(link.retailer_id)}${scopeQ}&status=eq.confirmed&start_at=is.null&demo_date=gte.${addDays(range.from, -1)}&demo_date=lte.${addDays(range.to, 1)}&${bSel}&order=demo_date.asc&limit=${DEMO_FETCH_LIMIT}`),
+    const [snapQ, legacyQ] = await Promise.all([
+      sbCounted(`bookings?retailer_id=eq.${encodeURIComponent(link.retailer_id)}${scopeQ}&status=eq.confirmed&start_at=gte.${encodeURIComponent(inst.lo)}&start_at=lte.${encodeURIComponent(inst.hi)}&${bSel}&order=start_at.asc,id.asc&limit=${DEMO_FETCH_LIMIT}`),
+      sbCounted(`bookings?retailer_id=eq.${encodeURIComponent(link.retailer_id)}${scopeQ}&status=eq.confirmed&start_at=is.null&demo_date=gte.${addDays(range.from, -1)}&demo_date=lte.${addDays(range.to, 1)}&${bSel}&order=demo_date.asc,id.asc&limit=${DEMO_FETCH_LIMIT}`),
     ]);
+    const bySnapshot = snapQ.rows, legacy = legacyQ.rows;
     if (!validBookingRows(bySnapshot) || !validBookingRows(legacy)) return unavailable(res);   // SC-5
     const bookingRows = [...bySnapshot, ...legacy].filter(b => !link.venue_id || b.venue_id === link.venue_id);
-    const truncated = bySnapshot.length >= DEMO_FETCH_LIMIT || legacy.length >= DEMO_FETCH_LIMIT;
+    // Completeness is judged against the backend's exact total for each query, never the requested limit: a lower
+    // configured server maximum, or a total the backend declined to state, both read as incomplete.
+    const short = (q) => q.total == null || q.total > q.rows.length || q.rows.length >= DEMO_FETCH_LIMIT;
+    const truncated = short(snapQ) || short(legacyQ);
     let snapById;
     try { snapById = snapshotsFromBookings(bookingRows); }
     catch (e) {

@@ -679,11 +679,13 @@ export default async function handler(req, res) {
             console.error('store-calendar-link-issue: malformed issuance response');
             return res.status(503).json({ error: 'store_calendar_unavailable' });
           }
-          // The fragment carries the secret: it never reaches the server in a request for the page, and the page
-          // moves it out of the address bar on first load.
+          // The fragment carries the secret: the browser never sends it to a server. The page keeps it in memory and
+          // leaves it in the address during ordinary use (reload and copy keep working); it is removed only while
+          // printing and when the link is retired. Copy in the admin box copies the link shown; Rotate is a separate,
+          // confirmed action that retires the previous link.
           const url = siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
           return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: url, issued_at: issued.issued_at,
-            note: 'Copy this link now. It is not shown again; a later Copy is a rotation that retires this one.' });
+            note: 'Copy this link now. It is not shown again. If you need it later, use Rotate, which issues a new link and retires this one.' });
         }
         if (action === 'store-calendar-link-revoke') {
           const n = await sb('rpc/store_calendar_link_revoke', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_email: v.email }) });
