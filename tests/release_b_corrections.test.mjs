@@ -283,14 +283,18 @@ try {
     ok('B-04: a DST-gap local time (2027-03-14 02:30 LA) is refused by /api/book (400 invalid_local_time)', gap.statusCode === 400 && gap.body.error === 'invalid_local_time', `${gap.statusCode} ${gap.body && gap.body.error}`);
     const gapDb = await pgErr(INSERT, [R, VE, brand.id, brandEmail, '2027-03-14', '2:30 AM', 'pending']);
     ok('B-04: the database refuses it too', gapDb && /invalid_local_time/.test(gapDb.message), gapDb ? gapDb.message.slice(0, 90) : 'inserted');
-    const fold = await book(VE, '2026-11-01', '1:30 AM');
-    ok('B-04: a DST-fold local time (2026-11-01 01:30 LA) is refused (ambiguous)', fold.statusCode === 400 && fold.body.error === 'invalid_local_time', `${fold.statusCode} ${fold.body && fold.body.error}`);
-    const okDay = await book(VD, '2026-11-01', '11:00 AM');
+    // The DST fall-back day under test must stay bookable: the first Sunday of November at least 15 days ahead
+    // (the fixture store's lead time is the 14-day default). A literal 2026-11-01 failed this suite on 2026-10-23.
+    const FALL_BACK = (() => { const today = new Date(); for (const y of [2026, 2027, 2028, 2029]) { const d = new Date(Date.UTC(y, 10, 1)); while (d.getUTCDay() !== 0) d.setUTCDate(d.getUTCDate() + 1); if ((d - today) / 864e5 >= 15) return d.toISOString().slice(0, 10); } throw new Error('no fall-back day ahead'); })();
+    console.log('  (DST fall-back day under test: ' + FALL_BACK + ')');
+    const fold = await book(VE, FALL_BACK, '1:30 AM');
+    ok('B-04: a DST-fold local time (' + FALL_BACK + ' 01:30 LA) is refused (ambiguous)', fold.statusCode === 400 && fold.body.error === 'invalid_local_time', `${fold.statusCode} ${fold.body && fold.body.error}`);
+    const okDay = await book(VD, FALL_BACK, '11:00 AM');
     const okRow = okDay.body.booking_id ? await booking(okDay.body.booking_id) : null;
     ok('B-04: a normal daytime slot on the transition day books with a 3h elapsed duration', okDay.statusCode === 200 && okRow && hoursBetween(okRow.start_at, okRow.end_at) === 3, `${okDay.statusCode} ${JSON.stringify(okRow)}`);
-    const span = await book(VD, '2026-11-01', '12:30 AM');
+    const span = await book(VD, FALL_BACK, '12:30 AM');
     ok('R6: a slot spanning the fall-back hour (00:30 + 3h) is REFUSED by /api/book (invalid_local_time)', span.statusCode === 400 && span.body.error === 'invalid_local_time', `${span.statusCode} ${span.body && span.body.error}`);
-    const spanDb = await pgErr(INSERT, [R, VD, brand.id, brandEmail, '2026-11-01', '12:30 AM', 'pending']);
+    const spanDb = await pgErr(INSERT, [R, VD, brand.id, brandEmail, FALL_BACK, '12:30 AM', 'pending']);
     ok('R6: the database refuses the fall-back span too', spanDb && /spans a daylight-saving change/.test(spanDb.message), spanDb ? spanDb.message.slice(0, 100) : 'inserted');
     const spring = await book(VD, '2027-03-14', '12:30 AM');
     const springDb = await pgErr(INSERT, [R, VD, brand.id, brandEmail, '2027-03-14', '12:30 AM', 'pending']);
@@ -442,12 +446,14 @@ try {
       for (let i = 0; i < 100 && hit === 0; i++) await sleep(50);
       ok('R2 (c): the cancel is parked at its transition with a stale "pending" read', hit === 1);
       const c = await confirmRoute(b.id);
-      ok('R2 (c): meanwhile the confirm applies and materialises the demo', c.statusCode === 200 && c.body.demo_id, `${c.statusCode}`);
+      // Refund cutoff (0106, 2026-10-20): the recorded-but-unlanded cancel raises a barrier, so the concurrent
+      // confirm is refused by name instead of materialising a demo the cancel would then have to retire.
+      ok('R2 (c): meanwhile the confirm is refused 409 cancellation_pending (the recorded cancel holds the booking), no demo', c.statusCode === 409 && c.body && c.body.error === 'cancellation_pending' && !c.body.demo_id, `${c.statusCode} ${JSON.stringify(c.body).slice(0, 160)}`);
       gateResolve(); gate = null;
       const x = await cancelling;
       globalThis.fetch = realFetch;
       const st = await booking(b.id); const dm = (await q(`SELECT status FROM demos WHERE booking_id = $1`, [b.id]))[0];
-      ok('R2 (c): the resumed cancel still wins on current state and retires the demo the confirm created', x.statusCode === 200 && x.body.demo_cancelled === true && st.status === 'cancelled' && dm.status === 'cancelled', `${x.statusCode} ${JSON.stringify({ st: st.status, dm })}`);
+      ok('R2 (c): the resumed cancel lands (200), the booking is cancelled and no demo was ever materialised', x.statusCode === 200 && st.status === 'cancelled' && (!dm || dm.status === 'cancelled'), `${x.statusCode} ${JSON.stringify({ st: st.status, dm: dm || null, body: x.body })}`);
     }
     // (d) fulfilment: a temporary lookup failure is RETRYABLE, never "done"; a cancelled booking is
     //     deliberately superseded (no demo, no mail); an unequal-duration booking gets its own length.
