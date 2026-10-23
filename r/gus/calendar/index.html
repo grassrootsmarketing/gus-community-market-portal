@@ -7,12 +7,14 @@
     <meta name="referrer" content="no-referrer">
     <title>Store calendar</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        /* The shareable, view-only store calendar (Codex design review 2026-10-23). Served at /r/<slug>/calendar; the link's
-           secret arrives in the URL fragment, which the browser never sends to a server, is held in memory only (no web
-           storage) and is sent to /api/store-calendar as a bearer header. The fragment is taken out of the address while
-           printing and when the link is retired. Nothing on this page can change a demo. */
+        /* The shareable, view-only store calendar (Codex design review and first closure review, 2026-10-23). Served at
+           /r/<slug>/calendar; the link's secret arrives in the URL fragment, which the browser never sends to a server,
+           and is held in memory only (no web storage). It STAYS in the address bar during ordinary use, a deliberate
+           tradeoff so a reload and a copied link keep working; it is taken out of the address only while printing and
+           when the link is retired. It is sent to /api/store-calendar as a bearer header and nowhere else. A change of
+           credential (a new fragment, or the fragment removed) resets every piece of private state before anything is
+           read for the new one (SC-1). Nothing on this page can change a demo. */
         :root {
             --forest-900: #0d1f12; --forest-800: #1a3a21; --forest-700: #234d2c; --forest-600: #2d6339; --forest-500: #3d8249;
             --forest-300: #7bc285; --forest-100: #d4edda; --forest-50: #eef7f0;
@@ -21,7 +23,7 @@
             --radius-sm: 6px; --radius-md: 12px; --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.5; -webkit-text-size-adjust: 100%; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.5; -webkit-text-size-adjust: 100%; }
         a { color: var(--forest-700); }
         header.top { background: white; border-bottom: 1px solid var(--sand-300); padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
         header.top img { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: cover; }
@@ -39,6 +41,7 @@
         .range { font-weight: 700; font-size: 1rem; }
         .meta { font-size: 0.78rem; color: var(--bark-500); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
         .meta .warn { color: var(--clay-700); font-weight: 700; }
+        .trunc { background: var(--clay-100); border: 1px solid var(--clay-700); color: var(--clay-700); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 0.82rem; font-weight: 700; margin: 0 0 10px; }
         .notice { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 20px; text-align: center; color: var(--bark-600); }
         .notice.bad { border-color: var(--clay-700); color: var(--clay-700); background: var(--clay-100); }
 
@@ -71,6 +74,7 @@
         }
         @media print {
             header.top, .controls, .meta .live, .btn, .noprint { display: none !important; }
+            .trunc { display: block !important; }
             body { background: white; }
             .wrap { max-width: none; padding: 0; }
             .week { grid-template-columns: repeat(7, 1fr); gap: 4px; }
@@ -126,7 +130,13 @@
         // The printed header must not carry the secret: drop the fragment for the print and put it back afterwards.
         window.addEventListener('beforeprint', hideFragment);
         window.addEventListener('afterprint', showFragment);
-        window.addEventListener('hashchange', () => { const t = readFragment(); if (t && t !== token) { token = t; dead = false; anchor = null; load('newlink'); } });
+        window.addEventListener('hashchange', () => {
+            const t = readFragment();
+            if (t === token) return;
+            resetPrivateState(t ? 'Loading the calendar\u2026' : 'This link is missing its key. Ask the store admin for the calendar link.');
+            token = t; dead = false;
+            if (t) load('newlink');
+        });
 
         // ---- state ----
         const DAY = 86400000;
@@ -136,7 +146,25 @@
         let today = null;
         let venueFilter = '';          // '' = all venues the link allows
         let scope = null, store = null, events = [], lastGood = null, lastGoodAt = null;
-        let requestSeq = 0, backoffMs = 180000, timer = null, dead = false;
+        let requestSeq = 0, backoffMs = 180000, timer = null, dead = false, truncated = false, weekReady = false;
+
+        // SC-1: a credential change is a security-context reset. Every piece of the previous scope's private state
+        // goes, outstanding answers are invalidated, timers stop, and the page shows a neutral state until the new
+        // credential has answered. Only an ordinary same-token refresh failure keeps stale data.
+        function resetPrivateState(message) {
+            requestSeq++;                       // any answer still in flight is now superseded
+            if (timer) { clearTimeout(timer); timer = null; }
+            events = []; store = null; scope = null; lastGood = null; lastGoodAt = null; venueFilter = ''; anchor = null; today = null; truncated = false; weekReady = false;
+            backoffMs = 180000;
+            $('storeName').textContent = 'Store calendar'; $('storeSub').textContent = 'Confirmed demos. View only.';
+            $('storeLogo').style.display = 'none'; $('storeLogo').removeAttribute('src');
+            $('printTitle').textContent = ''; $('rangeLabel').textContent = ''; $('tzNote').textContent = '';
+            $('refreshedAt').textContent = ''; $('refreshWarn').style.display = 'none'; $('refreshWarn').textContent = '';
+            $('venueSelect').innerHTML = ''; $('venueSelect').style.display = 'none';
+            $('controls').style.display = 'none'; $('meta').style.display = 'none';
+            document.title = 'Store calendar';
+            $('body').innerHTML = '<div class="notice">' + esc(message) + '</div>';
+        }
 
         const ymdParts = (d, zone) => { const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).formatToParts(d)) p[x.type] = x.value; return p; };
         const ymdOf = (d, zone) => { const p = ymdParts(d, zone); return p.year + '-' + p.month + '-' + p.day; };
@@ -169,8 +197,14 @@
             if (res.status === 401) { token = null; hideFragment(); return showDead('This calendar link is no longer active. Ask the store admin for a new link.'); }
             if (!res.ok || !j || !j.ok) return failed(seq, (j && j.error) || ('HTTP ' + res.status));
             store = j.store; scope = j.scope; events = Array.isArray(j.events) ? j.events : [];
-            tz = (store && store.timezone) || tz; today = j.range.today;
-            if (!anchor) anchor = startOfWeek(today);
+            tz = (store && store.timezone) || tz; today = j.range.today; truncated = !!j.truncated;
+            if (!anchor) {
+                // SC-2: the first answer only told us the store's today. If the week containing it starts earlier,
+                // fetch that whole week before presenting anything as the week.
+                anchor = startOfWeek(today);
+                if (view === 'week' && anchor < today) { weekReady = false; return load('fullweek'); }
+            }
+            weekReady = true;
             lastGood = { events, at: new Date(), from: j.range.from, to: j.range.to }; lastGoodAt = new Date();
             backoffMs = 180000;
             $('refreshWarn').style.display = 'none';
@@ -188,11 +222,9 @@
             schedule();
         }
         function showDead(msg) {
-            dead = true; events = []; lastGood = null;
-            if (timer) { clearTimeout(timer); timer = null; }
-            $('controls').style.display = 'none'; $('meta').style.display = 'none';
+            resetPrivateState(msg);
+            dead = true;
             $('body').innerHTML = '<div class="notice bad">' + esc(msg) + '</div>';
-            document.title = 'Store calendar';
         }
         function schedule() {
             if (timer) clearTimeout(timer);
@@ -239,11 +271,12 @@
             const evs = visibleEvents();
             const byDay = new Map();
             for (const e of evs) { const k = dayKey(e); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); }
+            const truncNote = truncated ? '<div class="trunc" id="truncNote">Incomplete: the store has more demos in this period than this page can show at once. Do not treat this as the whole schedule; narrow the dates or ask the admin.</div>' : '';
             if (view === 'week') {
                 const days = []; for (let i = 0; i < 7; i++) days.push(addDays(anchor, i));
                 $('rangeLabel').textContent = fmtDay(days[0], { month: 'short', day: 'numeric' }) + ' to ' + fmtDay(days[6], { month: 'short', day: 'numeric', year: 'numeric' });
                 $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos ' + $('rangeLabel').textContent;
-                body.innerHTML = '<div class="week">' + days.map(d => {
+                body.innerHTML = truncNote + '<div class="week">' + days.map(d => {
                     const list = byDay.get(d) || [];
                     const cls = 'day' + (d === today ? ' today' : '') + (d < today ? ' past' : '') + (!list.length ? ' empty-mobile' : '');
                     return '<div class="' + cls + '"><h3><span>' + esc(fmtDay(d, { weekday: 'short' })) + '</span><span class="n">' + esc(fmtDay(d, { day: 'numeric' })) + '</span></h3>' +
@@ -253,10 +286,10 @@
                 $('rangeLabel').textContent = 'Next 4 weeks';
                 $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos, next 4 weeks';
                 const keys = [...byDay.keys()].sort();
-                body.innerHTML = keys.length ? '<div class="list">' + keys.map(k => '<div class="dayrow' + (k === today ? ' today' : '') + '"><h3>' + esc(fmtDay(k, { weekday: 'long', month: 'long', day: 'numeric' })) + (k === today ? ' (today)' : '') + '</h3>' + byDay.get(k).map(evHtml).join('') + '</div>').join('') + '</div>'
-                    : '<div class="notice">No confirmed demos in the next 4 weeks' + (venueFilter ? ' at this location' : '') + '.</div>';
+                body.innerHTML = truncNote + (keys.length ? '<div class="list">' + keys.map(k => '<div class="dayrow' + (k === today ? ' today' : '') + '"><h3>' + esc(fmtDay(k, { weekday: 'long', month: 'long', day: 'numeric' })) + (k === today ? ' (today)' : '') + '</h3>' + byDay.get(k).map(evHtml).join('') + '</div>').join('') + '</div>'
+                    : '<div class="notice">No confirmed demos in the next 4 weeks' + (venueFilter ? ' at this location' : '') + '.</div>');
             }
-            if (lastGoodAt) $('refreshedAt').textContent = 'Updated ' + fmtClock(lastGoodAt);
+            if (lastGoodAt) $('refreshedAt').textContent = 'Updated ' + fmtClock(lastGoodAt) + (truncated ? ' (incomplete)' : '');
         }
 
         // ---- controls ----

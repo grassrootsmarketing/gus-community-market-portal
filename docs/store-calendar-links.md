@@ -16,13 +16,14 @@ Open it on a phone or a computer. The page opens on the current week with today 
 
 ## How the secret travels
 
-The link carries the secret after a `#`. The browser never sends that part to the server when loading the page; the page moves it out of the address bar on first load (so a copied address, a screenshot of the address bar, a printout header or a referrer does not carry it) and keeps it in that tab's session storage. It is sent to /api/store-calendar only as an Authorization header. The data answers with Cache-Control no-store, Referrer-Policy no-referrer and noindex headers; the page is marked noindex and no-referrer as well.
+The link carries the secret after a `#`. The browser never sends that part to any server, so it is absent from request logs and from the referrer of anything the page loads. The page holds it in memory only (no web storage) and sends it to /api/store-calendar as an Authorization header and nowhere else. By a deliberate tradeoff the fragment **stays in the address bar during ordinary use**, so a reload and a copied link keep working; it does therefore appear in the browser's history and in a screenshot of the address bar. It is taken out of the address only while printing (so a printed header does not carry it) and when the link is retired. The data answers with Cache-Control no-store, Referrer-Policy no-referrer and noindex headers; the page is marked noindex and no-referrer as well, uses the system font and loads nothing from a third party.
 
 ## Limits, stated plainly
 
 - The link is a bearer credential: anyone who has it can see what it allows. It is not proof that the visitor works at the store.
 - Retiring a link stops future access after the next refresh. It cannot take back screenshots, printouts or copies already made, and a page already open learns of it on its next refresh (within minutes while visible).
-- A request covers at most 90 days; the page asks for a week or four weeks at a time.
+- A request covers at most 90 days (first to last day); the page asks for a week or four weeks at a time, fetches the whole displayed week before presenting it, and shows an "Incomplete" banner (also when printed) if the server reports more demos than one answer carries.
+- Reads are budgeted per client address and per link (abuse ceilings, counted atomically); a store's normal polling sits far below them. When the budget counter itself cannot be reached the page gets a temporary error, never a free pass.
 - Only confirmed demos appear. Pending, held, cancelled and declined requests never do, so staff do not prepare for tentative demos.
 - Times come from the booking's accepted schedule snapshot. A change to the store's time zone setting does not move an existing appointment. A legacy demo without a snapshot is placed from its date and time and marked on the page.
 

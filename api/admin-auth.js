@@ -12,7 +12,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
-import { mintToken, hashToken } from './_store-calendar.js';
+import { mintToken, hashToken, validIssuedRow } from './_store-calendar.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -672,11 +672,17 @@ export default async function handler(req, res) {
         if (action === 'store-calendar-link-issue') {
           const token = mintToken();
           const row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_token_hash: hashToken(token), p_email: v.email }) });
-          const issued = row && (Array.isArray(row) ? row[0] : row);
+          const issued = Array.isArray(row) ? row[0] : row;
+          // SC-5: a link is reported only when the function answered with the row it recorded (id, scope, this hash,
+          // an issue time, not revoked). Anything else is an unavailable answer, not a usable link.
+          if (!validIssuedRow(issued) || issued.retailer_id !== rid || (issued.venue_id || null) !== venueIdRaw || issued.token_hash !== hashToken(token)) {
+            console.error('store-calendar-link-issue: malformed issuance response');
+            return res.status(503).json({ error: 'store_calendar_unavailable' });
+          }
           // The fragment carries the secret: it never reaches the server in a request for the page, and the page
           // moves it out of the address bar on first load.
           const url = siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
-          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: url, issued_at: (issued && issued.issued_at) || new Date().toISOString(),
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: url, issued_at: issued.issued_at,
             note: 'Copy this link now. It is not shown again; a later Copy is a rotation that retires this one.' });
         }
         if (action === 'store-calendar-link-revoke') {

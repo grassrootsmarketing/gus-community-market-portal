@@ -1,18 +1,22 @@
-// api/_store-calendar.js, the shareable store calendar's shared rules (Codex design review 2026-10-23).
+// api/_store-calendar.js, the shareable store calendar's shared rules (Codex design review and first closure review,
+// 2026-10-23).
 //
-// One place for the three things every consumer must agree on:
+// One place for the things every consumer must agree on:
 //   * the TOKEN: how a link's secret is minted and how a presented secret becomes the hash the database holds
 //     (the plaintext is never stored, never logged, never echoed);
 //   * the PROJECTION: the only fields a floor person sees. Date, start, end, zone, location, brand display
 //     name, the display names of the items being sampled, and the confirmed status. No contact names or details,
 //     no notes, no money, no codes or waivers, no COI facts, no admin identifiers, no action links. Both the
 //     page's JSON and any future export are built from projectEvent(), never from a raw row;
-//   * the RANGE: a bounded window (at most RANGE_CAP_DAYS per request) in the store's calendar.
+//   * the RANGE: real calendar dates, validated before any arithmetic (SC-2), a window of at most RANGE_CAP_DAYS
+//     from the first day to the last day inclusive of both;
+//   * the SHAPE checks for what the database and the functions answer (SC-5): a malformed success is an error, never
+//     an empty calendar and never a usable link.
 import { createHash, randomBytes } from 'node:crypto';
 import { safeZone, demoStartUtc } from './_local-time.js';
 
 export const TOKEN_BYTES = 32;                 // 256 bits of entropy, base64url, 43 characters
-export const RANGE_CAP_DAYS = 90;
+export const RANGE_CAP_DAYS = 90;              // to - from, in days, may be at most this (so 91 calendar days inclusive)
 export const DEFAULT_RANGE_DAYS = 28;
 export const EVENT_FIELDS = Object.freeze(['id', 'booking_id', 'venue_id', 'venue_name', 'brand', 'items', 'status', 'start_at', 'end_at', 'timezone', 'all_day_fallback']);
 
@@ -28,27 +32,39 @@ export function tokenFromRequest(req) {
   return m ? m[1] : null;
 }
 
-const YMD = /^\d{4}-\d{2}-\d{2}$/;
+// ---- dates: a real YYYY-MM-DD on the proleptic Gregorian calendar, nothing normalised (2026-02-30 is refused) ----
+const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
+export function parseYmdStrict(s) {
+  const m = YMD.exec(String(s || '').trim());
+  if (!m) return null;
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (y < 1970 || y > 2999 || mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;   // Feb 30, Apr 31, non-leap Feb 29
+  return { y, mo, d, ms: dt.getTime(), ymd: `${m[1]}-${m[2]}-${m[3]}` };
+}
 const DAY = 86400000;
-const ymdOf = (d, tz) => {
+export const ymdOf = (d, tz) => {
   const p = {};
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(d)) p[x.type] = x.value;
   return `${p.year}-${p.month}-${p.day}`;
 };
-const addDays = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
-// The requested window, clamped: both ends must be dates, from <= to, span at most RANGE_CAP_DAYS.
-// Defaults to today (store calendar) through today + DEFAULT_RANGE_DAYS.
+export const addDays = (ymd, n) => { const p = parseYmdStrict(ymd); return new Date(p.ms + n * DAY).toISOString().slice(0, 10); };
+// The requested window: both ends validated strictly BEFORE any default or arithmetic; from <= to; to - from at most
+// RANGE_CAP_DAYS days. Defaults: from = today in the store zone, to = from + DEFAULT_RANGE_DAYS.
 export function resolveRange(query, tz, now = new Date()) {
   const zone = safeZone(tz);
   const today = ymdOf(now, zone);
-  let from = String((query && query.from) || '').trim() || today;
-  let to = String((query && query.to) || '').trim() || addDays(from, DEFAULT_RANGE_DAYS);
-  if (!YMD.test(from) || !YMD.test(to)) return { ok: false, error: 'bad_range' };
-  if (Number.isNaN(Date.parse(from + 'T00:00:00Z')) || Number.isNaN(Date.parse(to + 'T00:00:00Z'))) return { ok: false, error: 'bad_range' };
-  if (to < from) return { ok: false, error: 'bad_range' };
-  const span = Math.round((Date.parse(to + 'T00:00:00Z') - Date.parse(from + 'T00:00:00Z')) / DAY);
+  const rawFrom = String((query && query.from) || '').trim();
+  const rawTo = String((query && query.to) || '').trim();
+  const from = rawFrom ? parseYmdStrict(rawFrom) : parseYmdStrict(today);
+  if (!from) return { ok: false, error: 'bad_range' };
+  const to = rawTo ? parseYmdStrict(rawTo) : parseYmdStrict(addDays(from.ymd, DEFAULT_RANGE_DAYS));
+  if (!to) return { ok: false, error: 'bad_range' };
+  if (to.ms < from.ms) return { ok: false, error: 'bad_range' };
+  const span = Math.round((to.ms - from.ms) / DAY);
   if (span > RANGE_CAP_DAYS) return { ok: false, error: 'range_too_wide', cap_days: RANGE_CAP_DAYS };
-  return { ok: true, from, to, today, tz: zone };
+  return { ok: true, from: from.ymd, to: to.ymd, today, tz: zone, span_days: span };
 }
 
 // Display names of the items being sampled: the booking's own snapshot of what the brand picked, names and
@@ -69,10 +85,12 @@ export function itemNames(productSkus, fallbackProduct) {
   return out;
 }
 
-// The one projection. `demo` is a demos row (status confirmed), `snap` the booking's accepted occurrence
-// snapshot from api/_occurrence.js (or null for a legacy demo with none), `venue` the venue row or null.
-// Returns null when no start can be established (never guessed). A legacy demo without a snapshot falls back
-// to the feed's long-standing reconstruction (date + time in the store zone, 11:00 default) and says so.
+// The one projection. `demo` is a demos row (status confirmed), `snap` the booking's accepted occurrence snapshot
+// from api/_occurrence.js (null = a SUCCESSFUL lookup established that the linked booking has no snapshot; the
+// caller never passes null for a failed lookup, that is a 503 upstream), `venue` the venue row or null.
+// Returns null when no start can be established (never guessed). A demo without a snapshot falls back to the
+// feed's long-standing reconstruction (date + time in the store zone, 11:00 default when the time is unreadable)
+// and is flagged all_day_fallback so the page shows "estimated time".
 export function projectEvent(demo, snap, venue, tz) {
   const zone = safeZone(tz);
   let start, end, fallback = false;
@@ -98,8 +116,64 @@ export function projectEvent(demo, snap, venue, tz) {
   };
 }
 
+// SC-2: the window is judged on the ACCEPTED start instant expressed as a calendar day in the display zone, not on
+// the stored demo_date (which can lag a move or differ across a zone edge).
+export function eventInRange(ev, range) {
+  const day = ymdOf(new Date(ev.start_at), range.tz);
+  return day >= range.from && day <= range.to;
+}
+
 // Containment check used by the route before answering and by the tests on the whole JSON: only the allowed
 // keys may appear on an event.
 export function eventIsContained(ev) {
   return !!ev && Object.keys(ev).every(k => EVENT_FIELDS.includes(k));
+}
+
+// ---- SC-5: shape checks on what the database answered. A malformed success is never an empty calendar. ----
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const isUuid = (v) => typeof v === 'string' && UUID.test(v);
+export function validLinkRow(row) {
+  return !!row && typeof row === 'object' && isUuid(row.retailer_id) && (row.venue_id == null || isUuid(row.venue_id)) && typeof row.slug === 'string' && row.slug.length > 0;
+}
+export function validVenueRows(rows) {
+  return Array.isArray(rows) && rows.every(v => v && typeof v === 'object' && isUuid(v.id) && (v.name == null || typeof v.name === 'string'));
+}
+export function validDemoRows(rows) {
+  return Array.isArray(rows) && rows.every(d => d && typeof d === 'object' && isUuid(d.id) && typeof d.demo_date === 'string');
+}
+// The admin issue path: a usable link needs the function's row back with the identity of what was recorded.
+export function validIssuedRow(row) {
+  return !!row && typeof row === 'object' && isUuid(row.id) && isUuid(row.retailer_id) && typeof row.token_hash === 'string' && /^[0-9a-f]{64}$/.test(row.token_hash) && typeof row.issued_at === 'string' && !Number.isNaN(Date.parse(row.issued_at)) && row.revoked_at == null;
+}
+export function validRateRow(row) {
+  return !!row && typeof row === 'object' && typeof row.allowed === 'boolean' && Number.isInteger(row.hits);
+}
+
+// ---- SC-2: the candidate set comes from the ACCEPTED schedule, not the stored date ----
+// Bookings are fetched by their snapshot instant (start_at inside the window with a one-day margin either side) plus
+// the legacy rows without a snapshot by demo_date; the demos rows are then joined by booking id. So a move that
+// landed a snapshot far from the stored date is still found by the snapshot, and a stale demo_date cannot hide an
+// accepted appointment. The snapshot map keeps api/_occurrence.js's rules: both ends present and forwards, or an
+// explicit null (legacy), or malformed (a 503 upstream).
+export function validBookingRows(rows) {
+  return Array.isArray(rows) && rows.every(b => b && typeof b === 'object' && isUuid(b.id));
+}
+export class SnapshotShapeError extends Error { constructor(detail) { super('snapshot_malformed'); this.name = 'SnapshotShapeError'; this.detail = detail; } }
+export function snapshotsFromBookings(rows) {
+  const out = new Map();
+  for (const b of rows) {
+    if (b.start_at == null && b.end_at == null) { out.set(b.id, null); continue; }
+    if (b.start_at == null || b.end_at == null) throw new SnapshotShapeError({ row: b.id, reason: 'partial_snapshot' });
+    const s = new Date(b.start_at), e = new Date(b.end_at);
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) throw new SnapshotShapeError({ row: b.id, reason: 'unparseable' });
+    if (e.getTime() <= s.getTime()) throw new SnapshotShapeError({ row: b.id, reason: 'end_not_after_start' });
+    out.set(b.id, { start_at: s, end_at: e, timezone: b.timezone || null });
+  }
+  return out;
+}
+// The instants that bound the window query: the window's first day at 00:00 and last day at 24:00 in the store zone,
+// widened by a day on each side (the zone arithmetic is done by comparing wall-clock days afterwards in eventInRange).
+export function windowInstants(range) {
+  const dayStartUtc = (ymd) => new Date(parseYmdStrict(ymd).ms);      // midnight UTC of the calendar day
+  return { lo: new Date(dayStartUtc(addDays(range.from, -1)).getTime() - DAY).toISOString(), hi: new Date(dayStartUtc(addDays(range.to, 1)).getTime() + 2 * DAY).toISOString() };
 }

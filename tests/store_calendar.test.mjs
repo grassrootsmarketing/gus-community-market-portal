@@ -16,7 +16,12 @@
 // Run from the repository root with test-database creds:  node tests/store_calendar.test.mjs
 import { callRoute, req, ok, summary, uniq, ENV, installSpy } from './_route.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
-import { EVENT_FIELDS, projectEvent } from '../api/_store-calendar.js';
+import { EVENT_FIELDS, projectEvent, hashToken } from '../api/_store-calendar.js';
+import pg from 'pg';
+// Two real connections for the SC-4 races (the pooler URL the suite runner exports). Never production: the URL must name the test project.
+const DB_URL = process.env.SB_DB_URL || '';
+if (!/tileejdviuvijumjeplv/.test(DB_URL)) { console.error('REFUSING: SB_DB_URL is not demohub-rebuild-check'); process.exit(2); }
+const pgc = async () => { const c = new pg.Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } }); await c.connect(); return c; };
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
 const H = { apikey: KEY, Authorization: 'Bearer ' + KEY, 'Content-Type': 'application/json', Prefer: 'return=representation' };
@@ -150,6 +155,86 @@ try {
   const viewerRevoke = await act('store-calendar-link-revoke', { venue_id: null }, viewerA);
   ok('a viewer cannot revoke either (403)', viewerRevoke.statusCode === 403, String(viewerRevoke.statusCode));
 
+  console.log('\n,  SC-3: the budget counter is atomic and the route answers 429 at the ceiling , ');
+  {
+    // 40 concurrent hits on a fresh bucket with a ceiling of 25: exactly 25 allowed, 15 refused, the final count 40.
+    const bucket = 'test:' + uniq('bucket');
+    const hits = await Promise.all(Array.from({ length: 40 }, () => db('rpc/store_calendar_rate_hit', { method: 'POST', body: JSON.stringify({ p_bucket_key: bucket, p_max: 25 }) }).then(r => one(r))));
+    const allowed = hits.filter(h => h && h.allowed === true).length, refused = hits.filter(h => h && h.allowed === false).length;
+    const stored = one(await db(`store_calendar_rate?bucket_key=eq.${encodeURIComponent(bucket)}&select=count`));
+    ok('40 concurrent hits, ceiling 25: exactly 25 allowed, 15 refused, no lost increment (stored count 40)', allowed === 25 && refused === 15 && stored && stored.count === 40, JSON.stringify({ allowed, refused, stored }));
+    await db(`store_calendar_rate?bucket_key=eq.${encodeURIComponent(bucket)}`, { method: 'DELETE' });
+    // the route: fill this link's bucket to the ceiling for the current hour, the next read is 429; the address bucket is separate
+    const windowStart = new Date(Math.floor(Date.now() / 3600000) * 3600000).toISOString();
+    const linkBucket = 'store-calendar:link:' + hashToken(storeToken2);
+    // earlier reads in this suite already created this hour's row: set it to the ceiling whether it exists or not
+    const patched = await db(`store_calendar_rate?bucket_key=eq.${encodeURIComponent(linkBucket)}&window_start=eq.${encodeURIComponent(windowStart)}`, { method: 'PATCH', body: JSON.stringify({ count: 2400 }) });
+    if (!Array.isArray(patched.body) || !patched.body.length) await db('store_calendar_rate', { method: 'POST', body: JSON.stringify({ bucket_key: linkBucket, window_start: windowStart, count: 2400 }) });
+    const limited = await get(storeToken2, { from: dayP(0), to: dayP(27) });
+    ok('at the per-link ceiling the route answers 429 rate_limited with no calendar data and no-store', limited.statusCode === 429 && limited.body.error === 'rate_limited' && !limited.body.events && /no-store/.test(limited.headers['Cache-Control']), String(limited.statusCode));
+    await db(`store_calendar_rate?bucket_key=eq.${encodeURIComponent(linkBucket)}`, { method: 'DELETE' });
+    const again = await get(storeToken2, { from: dayP(0), to: dayP(27) });
+    ok('with the bucket cleared the same link reads again (200); normal polling never saw a lockout', again.statusCode === 200, String(again.statusCode));
+    await db(`store_calendar_rate?bucket_key=like.${encodeURIComponent('store-calendar:%')}`, { method: 'DELETE' });
+  }
+
+  console.log('\n,  SC-4: lifecycle races are serialized (two real connections) , ');
+  {
+    const c1 = await pgc(), c2 = await pgc();
+    try {
+      const hA = 'd'.repeat(64), hB = 'e'.repeat(64), hC = 'f'.repeat(64);
+      // issue vs issue on one scope: c1 holds the scope lock inside an open transaction; c2's issue must wait, then land as the winner
+      await c1.query('BEGIN');
+      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hA, 'c1@fixture.test']);
+      let c2Done = false;
+      const p2 = c2.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hB, 'c2@fixture.test']).then(r => { c2Done = true; return r; });
+      await new Promise(r => setTimeout(r, 700));
+      const waited = !c2Done;
+      await c1.query('COMMIT');
+      await p2;
+      const active = (await c1.query('select token_hash from public.store_calendar_links where retailer_id = $1 and venue_id = $2 and revoked_at is null', [A, VA2])).rows;
+      const dead = (await c1.query('select token_hash from public.store_calendar_links where retailer_id = $1 and venue_id = $2 and revoked_at is not null and token_hash = $3', [A, VA2, hA])).rows;
+      ok('issue vs issue: the second waited for the first (no unique-index error), exactly one active link remains and it is the later one; the earlier is retired', waited && active.length === 1 && active[0].token_hash === hB && dead.length === 1, JSON.stringify({ waited, active, dead }));
+      // resolve vs revoke: c1 locks the active row (a revoke in progress), c2's resolve waits and then sees the retired row (no scope returned)
+      await c1.query('BEGIN');
+      await c1.query('select public.store_calendar_link_revoke($1, $2, $3)', [A, VA2, 'c1@fixture.test']);
+      let resolved = null, resolveDone = false;
+      const p3 = c2.query('select * from public.store_calendar_link_resolve($1)', [hB]).then(r => { resolveDone = true; resolved = r.rows; });
+      await new Promise(r => setTimeout(r, 700));
+      const resolveWaited = !resolveDone;
+      await c1.query('COMMIT');
+      await p3;
+      ok('resolve vs revoke: resolve waited on the row the revoke held and then returned NO scope (the revoke won); the decision and the row are one statement', resolveWaited && Array.isArray(resolved) && resolved.length === 0, JSON.stringify({ resolveWaited, resolved }));
+      // issue vs revoke: the revoke waits for the issue's lock, then retires what the issue just created (deterministic: the later statement wins)
+      await c1.query('BEGIN');
+      await c1.query('select * from public.store_calendar_link_issue($1, $2, $3, $4)', [A, VA2, hC, 'c1@fixture.test']);
+      let revokeN = null, revokeDone = false;
+      const p4 = c2.query('select public.store_calendar_link_revoke($1, $2, $3) as n', [A, VA2, 'c2@fixture.test']).then(r => { revokeDone = true; revokeN = r.rows[0].n; });
+      await new Promise(r => setTimeout(r, 700));
+      const revokeWaited = !revokeDone;
+      await c1.query('COMMIT');
+      await p4;
+      const afterIR = (await c1.query('select count(*)::int n from public.store_calendar_links where retailer_id = $1 and venue_id = $2 and revoked_at is null', [A, VA2])).rows[0].n;
+      ok('issue vs revoke: the revoke waited and then retired exactly the link the issue had just created; zero active links for the scope', revokeWaited && revokeN === 1 && afterIR === 0, JSON.stringify({ revokeWaited, revokeN, afterIR }));
+      // the other scope and the legacy feed are untouched by all of this
+      const storeActive = (await c1.query('select count(*)::int n from public.store_calendar_links where retailer_id = $1 and venue_id is null and revoked_at is null', [A])).rows[0].n;
+      const feedKey = (await c1.query('select cal_feed_key from public.retailers where id = $1', [A])).rows[0];
+      ok('the store-wide link and the legacy feed key are untouched by the races', storeActive === 1 && feedKey && 'cal_feed_key' in feedKey);
+    } finally { await c1.end(); await c2.end(); }
+    const storeAfterRaces = await get(storeToken2, { from: dayP(0), to: dayP(27) });
+    ok('the store link still reads after the races', storeAfterRaces.statusCode === 200, String(storeAfterRaces.statusCode));
+  }
+
+  console.log('\n,  SC-2: the window is the accepted start, not the stored date , ');
+  {
+    // move the snapshot of D1 to day+20 while the demos row still says day+3: a window around day+20 shows it, one around day+3 does not
+    const moved = new Date(D1.start.getTime() + 17 * 864e5), movedEnd = new Date(moved.getTime() + 3 * 3600000);
+    await db(`bookings?id=eq.${D1.booking.id}`, { method: 'PATCH', body: JSON.stringify({ start_at: moved.toISOString(), end_at: movedEnd.toISOString() }) });
+    const late = await get(storeToken2, { from: dayP(18), to: dayP(22) }), early = await get(storeToken2, { from: dayP(2), to: dayP(4) });
+    ok('a demo whose stored date lags its accepted snapshot is placed by the snapshot (in the later window, absent from the earlier one)', late.statusCode === 200 && late.body.events.some(e => e.id === D1.demo.id && e.start_at === moved.toISOString()) && early.statusCode === 200 && !early.body.events.some(e => e.id === D1.demo.id), JSON.stringify({ late: late.body && late.body.events && late.body.events.map(e => e.id), early: early.body && early.body.events && early.body.events.map(e => e.id) }));
+    await db(`bookings?id=eq.${D1.booking.id}`, { method: 'PATCH', body: JSON.stringify({ start_at: D1.start.toISOString(), end_at: D1.end.toISOString() }) });
+  }
+
   console.log('\n,  the calendar follows the store , ');
   await db(`demos?id=eq.${D2.demo.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'cancelled' }) });
   const afterCancel = await get(storeToken2, { from: dayP(0), to: dayP(27) });
@@ -175,6 +260,8 @@ try {
 } finally {
   console.log('\n,  teardown , ');
   await db(`store_calendar_links?retailer_id=in.(${A},${B})`, { method: 'DELETE' });
+  await db(`store_calendar_rate?bucket_key=like.${encodeURIComponent('store-calendar:%')}`, { method: 'DELETE' });
+  await db(`store_calendar_rate?bucket_key=like.${encodeURIComponent('test:%')}`, { method: 'DELETE' });
   for (const [t, id] of bin.reverse()) await db(`${t}?id=eq.${id}`, { method: 'DELETE' });
   spy.restore();
 }
