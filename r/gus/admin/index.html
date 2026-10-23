@@ -5840,13 +5840,24 @@ function escapeHtml(s) {
         const CODE_KIND_HELP = { fee: "Waives your demo fee for one demo. The brand pays nothing and skips the payment step. Their insurance certificate must already be approved.", lead_time: "Lets the brand book one demo inside your advance-notice minimum (from tomorrow). They still pay the normal fee.", both: "Both: one demo inside your notice window, with no fee." };
         function updateCodeKindHelp() { const k = document.getElementById("codeKind"), h = document.getElementById("codeKindHelp"); if (k && h) h.textContent = CODE_KIND_HELP[k.value] || ""; }
         function fmtCodeDate(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); }
+        // Only codes a brand can still use are listed under the generator. Used-up, expired and turned-off codes are the
+        // archive, folded behind one "Past codes (N)" button so the list never grows without bound. The open/closed state is
+        // kept across live refreshes.
+        let _pastCodesOpen = false;
+        function bookingCodeState(c) {
+            const used = c.use_count || 0;
+            const expired = c.expires_at && new Date(c.expires_at) <= new Date();
+            return !c.active ? 'Turned off' : expired ? 'Expired' : (c.max_uses != null && used >= c.max_uses) ? 'Used up' : 'Active';
+        }
+        function togglePastBookingCodes() { _pastCodesOpen = !_pastCodesOpen; renderBookingCodes(window._bookingCodesLast || []); }
         function renderBookingCodes(codes) {
             const el = document.getElementById('bookingCodesList'); if (!el) return;
+            window._bookingCodesLast = codes || [];
             if (!codes || !codes.length) { el.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500);">No codes yet.</div>'; return; }
-            el.innerHTML = codes.map(c => {
+            const current = codes.filter(c => bookingCodeState(c) === 'Active'), past = codes.filter(c => bookingCodeState(c) !== 'Active');
+            const row = c => {
                 const used = c.use_count || 0, limit = c.max_uses == null ? '∞' : c.max_uses;
-                const expired = c.expires_at && new Date(c.expires_at) <= new Date();
-                const state = !c.active ? 'Turned off' : expired ? 'Expired' : (c.max_uses != null && used >= c.max_uses) ? 'Used up' : 'Active';
+                const state = bookingCodeState(c);
                 const stateColor = state === 'Active' ? '#1f6b3a' : '#8a8a84';
                 const reds = (c.redemptions || []).map(r => '<div style="font-size:0.75rem; color:var(--ink-500);">' + escapeHtml(r.brand_name || 'Brand') + ' · ' + fmtCodeDate(r.redeemed_at) + (r.waived_fee ? ' · fee waived' : '') + (r.waived_lead_time ? ' · short notice' : '') + '</div>').join('');
                 return '<div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; padding:10px 12px; background:#f9f7f2; border-radius:10px; margin-bottom:8px;">'
@@ -5857,9 +5868,12 @@ function escapeHtml(s) {
                     + (c.note ? '<div style="font-size:0.78rem; color:var(--ink-500); margin-top:2px;">' + escapeHtml(c.note) + '</div>' : '') + reds + '</div>'
                     + (c.active ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; flex-shrink:0;" data-act="off" data-cid="' + escapeHtml(c.id) + '">Turn off</button>' : '')
                     + '</div>';
-            }).join('');
+            };
+            el.innerHTML = (current.length ? current.map(row).join('') : '<div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:8px;">No active codes.</div>')
+                + (past.length ? '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.75rem; margin-top:4px;" data-act="past">' + (_pastCodesOpen ? 'Hide past codes' : 'Past codes (' + past.length + ')') + '</button>'
+                    + (_pastCodesOpen ? '<div style="margin-top:8px;">' + past.map(row).join('') + '</div>' : '') : '');
             // Codex BC-1: delegated listener + data attributes (no string-built handlers)
-            if (!el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'copy') copyBookingCode(b.dataset.code, b); else if (b.dataset.act === 'off') deactivateBookingCode(b.dataset.cid); }); }
+            if (!el.dataset.wired) { el.dataset.wired = '1'; el.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'copy') copyBookingCode(b.dataset.code, b); else if (b.dataset.act === 'off') deactivateBookingCode(b.dataset.cid); else if (b.dataset.act === 'past') togglePastBookingCodes(); }); }
         }
         async function loadBookingCodes() {
             const st = document.getElementById('bookingCodesStatus'); if (!document.getElementById('bookingCodesList')) return;
