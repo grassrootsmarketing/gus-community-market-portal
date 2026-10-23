@@ -13,6 +13,7 @@
 //
 // Run from the repository root:  node tests/store_calendar_offline.test.mjs   (no credentials needed)
 import { TARGETS } from '../api/_env.js';
+import { brandDisplayName } from '../api/_store-calendar.js';
 import { resolveRange, parseYmdStrict, eventInRange, validIssuedRow, validLinkRow, validVenueRows, validDemoRows, hashToken, RANGE_CAP_DAYS } from '../api/_store-calendar.js';
 
 let _pass = 0, _fail = 0;
@@ -65,13 +66,14 @@ globalThis.fetch = async (url, opts = {}) => {
   if (path.startsWith('rpc/store_calendar_link_resolve')) return respond(answers.resolve());
   if (path.startsWith('venues?')) return respond(answers.venues());
   if (path.startsWith('demos?')) return respond(answers.demos(path));
+  if (path.startsWith('brands?')) return respond(answers.brands ? answers.brands(path) : []);
   if (path.startsWith('bookings?')) return respond(answers.bookings(path));
   throw new Error('unexpected ' + path);
 };
 const mockRes = () => ({ statusCode: null, body: null, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(c) { this.statusCode = c; return this; }, json(b) { this.body = b; return this; }, send(b) { this.body = b; return this; }, end() { return this; } });
 const run = async (q = {}, headers = {}) => { const res = mockRes(); await handler({ method: 'GET', query: q, headers: { 'sec-fetch-site': 'same-origin', authorization: 'Bearer ' + TOKEN, 'x-real-ip': '203.0.113.9', ...headers }, socket: { remoteAddress: '127.0.0.1' } }, res); return res; };
 // bookings-first: the route asks for confirmed bookings by snapshot instant, then the legacy ones (start_at is null), then the demos rows by booking id
-const reset = () => { calls.length = 0; answers.rate = () => [{ allowed: true, hits: 1, window_start: 'x' }]; answers.resolve = () => linkRow(); answers.venues = () => [{ id: V1, name: 'Main' }, { id: V2, name: 'Harbor' }]; answers.demos = () => []; answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : []); };
+const reset = () => { calls.length = 0; answers.brands = () => []; answers.rate = () => [{ allowed: true, hits: 1, window_start: 'x' }]; answers.resolve = () => linkRow(); answers.venues = () => [{ id: V1, name: 'Main' }, { id: V2, name: 'Harbor' }]; answers.demos = () => []; answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : []); };
 const withBookings = (list) => { answers.bookings = (p) => (/start_at=is\.null/.test(p) ? [] : list); };
 const D = (id, venue, date, time = '11:00 AM') => ({ id, booking_id: id.replace(/^./, 'b'), venue_id: venue, company_name: 'Brand', product: 'P', product_skus: [{ name: 'Thing', size: '1 oz' }], demo_date: date, demo_time: time, duration_hours: 3, status: 'confirmed' });
 const B = (demoId, startIso, hours = 3, venue = V1) => ({ id: demoId.replace(/^./, 'b'), venue_id: venue, demo_date: startIso.slice(0, 10), status: 'confirmed', start_at: startIso, end_at: new Date(Date.parse(startIso) + hours * 3600000).toISOString(), timezone: LA });
@@ -177,7 +179,23 @@ console.log('\n:: SC-5 malformed successes are 503, never an empty calendar or a
   ok('the accepted schedule failing (HTTP 500), a partial snapshot, a backwards snapshot, or a non-array answer: 503 each, never a reconstructed or empty calendar', [n, n2, n3, n4].every(r => r.statusCode === 503), [n, n2, n3, n4].map(r => r.statusCode).join(','));
   ok('the malformed-snapshot cases answer through the feed-unavailable path directly (a text body, not a JSON error object)', typeof n2.body === 'string' && /unavailable|calendar/i.test(n2.body) && typeof n3.body === 'string', JSON.stringify([n2.body, n3.body]).slice(0, 200));
 
-  console.log('\n:: completeness against the backend\'s exact count (step 2) ::');
+  console.log('\n:: the brand display name is never an email ::');
+{
+  ok('brandDisplayName: the first non-empty, non-email candidate wins; email-shaped or empty everywhere is "Brand"', brandDisplayName('maia@drinkmilkish.com', 'MILKish') === 'MILKish' && brandDisplayName('MILKish', 'x@y.z') === 'MILKish' && brandDisplayName('maia@drinkmilkish.com', 'maia@drinkmilkish.com') === 'Brand' && brandDisplayName('', null) === 'Brand' && brandDisplayName('Sample & Sons') === 'Sample & Sons');
+  reset(); withBookings([B('d1111111-1111-4111-8111-111111111111', '2026-10-26T18:00:00Z')]);
+  answers.demos = () => [{ ...D('d1111111-1111-4111-8111-111111111111', V1, '2026-10-26'), brand_id: '55555555-5555-4555-8555-555555555555', company_name: 'maia@drinkmilkish.com' }];
+  answers.brands = () => [{ id: '55555555-5555-4555-8555-555555555555', company_name: 'MILKish' }];
+  const e1 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('route: a demos row carrying an email as its company name shows the brand profile\'s company name instead', e1.statusCode === 200 && e1.body.events[0].brand === 'MILKish' && !JSON.stringify(e1.body).includes('@'), JSON.stringify(e1.body.events));
+  answers.brands = () => [{ id: '55555555-5555-4555-8555-555555555555', company_name: 'maia@drinkmilkish.com' }];
+  const e2 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('route: when the profile name is an email too, the page shows "Brand" and no address leaves the server', e2.statusCode === 200 && e2.body.events[0].brand === 'Brand' && !JSON.stringify(e2.body).includes('@'));
+  answers.brands = () => ({});
+  const e3 = await run({ from: '2026-10-25', to: '2026-10-31' });
+  ok('route: a malformed brands answer is a 503 like every other malformed read', e3.statusCode === 503);
+}
+
+console.log('\n:: completeness against the backend\'s exact count (step 2) ::');
   const { pruneRateWindows, parseContentRange, DEMO_FETCH_LIMIT } = await import('../api/store-calendar.js');
   ok('parseContentRange reads the exact total and returns null when the backend declined to count', parseContentRange('0-24/25') === 25 && parseContentRange('*/0') === 0 && parseContentRange('0-999/*') === null && parseContentRange('') === null && parseContentRange('garbage') === null);
   reset(); withBookings([B('d1111111-1111-4111-8111-111111111111', '2026-10-26T18:00:00Z')]); answers.demos = () => [D('d1111111-1111-4111-8111-111111111111', V1, '2026-10-26')];

@@ -174,11 +174,21 @@ export default async function handler(req, res) {
     const ids = bookingRows.map(b => b.id);
     const demos = [];
     for (let i = 0; i < ids.length; i += 100) {
-      const part = await sb(`demos?booking_id=in.(${ids.slice(i, i + 100).map(encodeURIComponent).join(',')})&status=eq.confirmed&select=id,booking_id,venue_id,company_name,product,product_skus,demo_date,demo_time,duration_hours,status`);
+      const part = await sb(`demos?booking_id=in.(${ids.slice(i, i + 100).map(encodeURIComponent).join(',')})&status=eq.confirmed&select=id,booking_id,venue_id,brand_id,company_name,product,product_skus,demo_date,demo_time,duration_hours,status`);
       if (!validDemoRows(part)) return unavailable(res);               // SC-5
       demos.push(...part);
     }
     const rows = demos.filter(d => d.booking_id && snapById.has(d.booking_id) && (!link.venue_id || d.venue_id === link.venue_id));
+    // The brand's own display name (brands.company_name) is preferred over the demos row's copy; an email-shaped value
+    // in either is never shown (brandDisplayName). Only id and company_name are read.
+    const brandIds = [...new Set(rows.map(d => d.brand_id).filter(Boolean))];
+    const brandNames = new Map();
+    for (let i = 0; i < brandIds.length; i += 100) {
+      const part = await sb(`brands?id=in.(${brandIds.slice(i, i + 100).map(encodeURIComponent).join(',')})&select=id,company_name`);
+      if (!Array.isArray(part)) return unavailable(res);
+      for (const b of part) if (b && typeof b === 'object' && b.id) brandNames.set(b.id, b.company_name);
+    }
+    for (const d of rows) d.brand_display_name = d.brand_id ? brandNames.get(d.brand_id) : null;
     const events = [];
     for (const d of rows) {
       // A store-wide link sees only ACTIVE locations; a demo at a retired location is left out.

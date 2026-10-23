@@ -85,6 +85,17 @@ export function itemNames(productSkus, fallbackProduct) {
   return out;
 }
 
+// The brand's display name: the first candidate that is a non-empty string and not email-shaped (a contact address is
+// never a display name, whatever field it was typed into); "Brand" when none qualifies.
+const EMAILISH = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export function brandDisplayName(...candidates) {
+  for (const c of candidates) {
+    const s = String(c == null ? '' : c).trim();
+    if (s && !EMAILISH.test(s) && !/@/.test(s)) return s.slice(0, 120);
+  }
+  return 'Brand';
+}
+
 // The one projection. `demo` is a demos row (status confirmed), `snap` the booking's accepted occurrence snapshot
 // from api/_occurrence.js (null = a SUCCESSFUL lookup established that the linked booking has no snapshot; the
 // caller never passes null for a failed lookup, that is a 503 upstream), `venue` the venue row or null.
@@ -106,7 +117,7 @@ export function projectEvent(demo, snap, venue, tz) {
     booking_id: demo.booking_id || null,
     venue_id: demo.venue_id || null,
     venue_name: venue && venue.name ? String(venue.name) : null,
-    brand: String(demo.company_name || 'Demo'),
+    brand: brandDisplayName(demo.brand_display_name, demo.company_name),
     items: itemNames(demo.product_skus, demo.product),
     status: 'confirmed',
     start_at: start.toISOString(),
