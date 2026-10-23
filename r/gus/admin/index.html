@@ -5904,6 +5904,9 @@ function escapeHtml(s) {
         async function loadStaffCalendarLinks() {
             const box = document.getElementById('staffCalendarLinks');
             if (!box) return;
+            // A link just created or rotated is shown once; a live refresh (every minute, and on focus) must not redraw the box
+            // over it. The box is redrawn only when no revealed link is on screen.
+            if (box.querySelector('.staff-cal-reveal[style*="block"]')) return;
             try {
                 const j = await staffCalApi('store-calendar-links');
                 renderStaffCalendarLinks(j.scopes || []);

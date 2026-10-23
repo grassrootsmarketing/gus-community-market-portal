@@ -20,6 +20,7 @@ ok('the box explains: view only, no sign-in, copy at creation, rotate retires', 
 ok('list, issue and revoke are the three actions the box calls, and nothing else of this kind', /staffCalApi\('store-calendar-links'\)/.test(admin) && /staffCalApi\('store-calendar-link-issue', \{ venue_id: venueId \}\)/.test(admin) && /staffCalApi\('store-calendar-link-revoke', \{ venue_id: venueId \}\)/.test(admin) && (admin.match(/store-calendar-link-[a-z]+/g) || []).every(a => ['store-calendar-link-issue', 'store-calendar-link-revoke'].includes(a)));
 ok('rotating and stopping ask for confirmation first; creating does not', /rotating && !window\.confirm\('Rotate this link\?/.test(admin) && /window\.confirm\('Stop sharing this calendar\?/.test(admin));
 ok('the revealed link is rendered escaped into a readonly input with a copy-now warning and a Copy button', /Copy this link now\. It is not shown again\./.test(admin) && /readonly value="' \+ _esc\(j\.link_url\)/.test(admin) && /copyStaffCalendarLink\(this\)/.test(admin));
+ok('a revealed link survives the live refresh: the loader does not redraw the box while a reveal is on screen', admin.includes('if (box.querySelector(\x27.staff-cal-reveal[style*="block"]\x27)) return;'));
 ok('names from the server are escaped before they reach the DOM', /_esc\(s\.venue_name\)/.test(admin) && /_esc\(s\.issued_by\)/.test(admin));
 ok('a viewer sees a plain sentence, not an error, when the route answers insufficient_role', /insufficient_role' \? 'Only owners and admins manage staff calendar links\.'/.test(admin));
 
