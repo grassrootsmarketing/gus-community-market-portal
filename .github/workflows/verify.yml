@@ -524,7 +524,13 @@ jobs:
           source ./.github/scripts/retry-transient.sh
           supabase migration list --linked > rehearsal/05-ledger-post.txt 2>&1 || true
           cat rehearsal/05-ledger-post.txt
-          _q() { supabase db query -f supabase/rehearsal/verify-ledger.sql --linked > rehearsal/06-verify-ledger.txt 2> rehearsal/06-verify-ledger.err; }
+          # The planned tail is every version >= 0074 present as a file (what the previous step applied); 0073 stays hidden.
+          EXPECTED_TAIL=$(ls supabase/migrations/*.sql | xargs -n1 basename | cut -c1-4 | awk '$1 >= "0074"' | sort | paste -sd, -)
+          echo "expected ledger tail: $EXPECTED_TAIL"
+          test -n "$EXPECTED_TAIL" || { echo "FAIL: could not derive the expected ledger tail"; exit 1; }
+          sed "s/__EXPECTED_TAIL__/$EXPECTED_TAIL/" supabase/rehearsal/verify-ledger.sql > rehearsal/verify-ledger.gen.sql
+          grep -q "__EXPECTED_TAIL__" rehearsal/verify-ledger.gen.sql && { echo "FAIL: placeholder not substituted"; exit 1; }
+          _q() { supabase db query -f rehearsal/verify-ledger.gen.sql --linked > rehearsal/06-verify-ledger.txt 2> rehearsal/06-verify-ledger.err; }
           retry_transient "verify-ledger" _q || { cat rehearsal/06-verify-ledger.err; exit 1; }
           cat rehearsal/06-verify-ledger.txt
 

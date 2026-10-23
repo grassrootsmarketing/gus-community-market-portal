@@ -810,20 +810,29 @@ try {
     const o3 = await outstanding();
     ok('step 3: quiesced (sweeps skipped, decisions refused) and the durable counts are unchanged', wq.body.cancellation_sweeps_quiesced === true && o3.barriers.length === o2.barriers.length && o3.unfinished.length === o2.unfinished.length, JSON.stringify({ q: wq.body && wq.body.cancellation_sweeps_quiesced, b: o3.barriers.length, u: o3.unfinished.length }));
     // step 4: the ACTUAL compatibility build's notification code (rollback/refund-cutoff-compat, 400d74a) against the queued work
-    const compat = await import('file:///C:/Users/David/demohub-rollback-compat/api/_notification-outbox.js');
-    const beforeKeys = spy.calls.resend.filter(m => m.idempotency_key).map(m => m.idempotency_key);
-    const fo = await compat.fanOutEvents(b, { now: new Date() });
-    const evZ4 = one(await db(`notification_events?booking_id=eq.${z4.id}&kind=eq.refund_resolution&select=id,fanned_out_at,payload`));
-    const dlZ4 = await deliveriesOf(z4.id);
-    ok('step 4 (compat build 400d74a): the un-fanned resolution event is fanned out as a known kind (no unknown_kind), one delivery to the brand owner', fo.errors.length === 0 && evZ4 && evZ4.fanned_out_at && !(evZ4.payload && evZ4.payload.fanout_note) && dlZ4.length === 1 && dlZ4[0].recipient_email === brandEmail && dlZ4[0].recipient_kind === 'brand', JSON.stringify({ fo, ev: evZ4 && { fanned: !!evZ4.fanned_out_at, note: evZ4.payload && evZ4.payload.fanout_note }, dl: dlZ4.map(d => ({ to: d.recipient_email, status: d.status })) }));
-    const dlZ2before = (await deliveriesOf(z2.id))[0];
-    const keyZ2 = beforeKeys.find(k => k === dlZ2before.id) || (spy.calls.resend.find(m => m.idempotency_key === dlZ2before.id) || {}).idempotency_key;
-    await compat.dispatchDue(b, { now: new Date(Date.now() + 6 * 60e3) });
-    const dlZ2 = (await deliveriesOf(z2.id))[0]; const dlZ4b = (await deliveriesOf(z4.id))[0];
-    const sendsZ2 = spy.calls.resend.filter(m => m.idempotency_key === dlZ2before.id);
-    ok('step 4 (compat build 400d74a): the retryable frozen delivery is re-sent under its unchanged identity (the delivery id) with the same html and accepted; the new delivery is accepted too', dlZ2 && ['sent', 'accepted'].includes(dlZ2.status) && sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html && !!keyZ2 && dlZ4b && ['sent', 'accepted'].includes(dlZ4b.status), JSON.stringify({ z2: dlZ2 && dlZ2.status, sends: sendsZ2.length, sameHtml: sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html, z4: dlZ4b && dlZ4b.status }));
-    const o4 = await outstanding();
-    ok('step 4: with the compatibility build the notice work is delivered (no un-fanned event, no undelivered delivery); the prerequisites for the rollback itself are the barrier and unfinished-resolution counts, reported as they stand (zero, or the fail-closed rows above)', o4.events === 0 && o4.deliveries.length === 0 && o4.barriers.length === 0 && o4.unfinished.length === unresolved.length, JSON.stringify({ events: o4.events, deliveries: o4.deliveries.length, barriers: o4.barriers.length, unfinished: o4.unfinished.length, rollback_allowed: o4.unfinished.length === 0 }));
+    // The compatibility checkout (rollback/refund-cutoff-compat, 400d74a) lives outside this tree. COMPAT_OUTBOX_PATH
+    // names its outbox module (default: the local checkout). Where it is absent (a CI runner), step 4 is reported as
+    // SKIPPED by name and nothing is counted as passed; the rest of the drill still runs.
+    const compatPath = process.env.COMPAT_OUTBOX_PATH || 'C:/Users/David/demohub-rollback-compat/api/_notification-outbox.js';
+    let compat = null;
+    try { if ((await import('node:fs')).existsSync(compatPath)) compat = await import((await import('node:url')).pathToFileURL(compatPath).href); } catch (e) { console.log('  note compat import failed: ' + String(e && e.message || e).slice(0, 160)); compat = null; }
+    if (!compat) {
+      console.log('  SKIPPED step 4 (compat build 400d74a): the compatibility checkout is not present at ' + compatPath + '; the three step-4 checks did not run here and are not counted as passed. Run the drill on a machine with the checkout (or set COMPAT_OUTBOX_PATH) for that evidence.');
+    } else {
+      const beforeKeys = spy.calls.resend.filter(m => m.idempotency_key).map(m => m.idempotency_key);
+      const fo = await compat.fanOutEvents(b, { now: new Date() });
+      const evZ4 = one(await db(`notification_events?booking_id=eq.${z4.id}&kind=eq.refund_resolution&select=id,fanned_out_at,payload`));
+      const dlZ4 = await deliveriesOf(z4.id);
+      ok('step 4 (compat build 400d74a): the un-fanned resolution event is fanned out as a known kind (no unknown_kind), one delivery to the brand owner', fo.errors.length === 0 && evZ4 && evZ4.fanned_out_at && !(evZ4.payload && evZ4.payload.fanout_note) && dlZ4.length === 1 && dlZ4[0].recipient_email === brandEmail && dlZ4[0].recipient_kind === 'brand', JSON.stringify({ fo, ev: evZ4 && { fanned: !!evZ4.fanned_out_at, note: evZ4.payload && evZ4.payload.fanout_note }, dl: dlZ4.map(d => ({ to: d.recipient_email, status: d.status })) }));
+      const dlZ2before = (await deliveriesOf(z2.id))[0];
+      const keyZ2 = beforeKeys.find(k => k === dlZ2before.id) || (spy.calls.resend.find(m => m.idempotency_key === dlZ2before.id) || {}).idempotency_key;
+      await compat.dispatchDue(b, { now: new Date(Date.now() + 6 * 60e3) });
+      const dlZ2 = (await deliveriesOf(z2.id))[0]; const dlZ4b = (await deliveriesOf(z4.id))[0];
+      const sendsZ2 = spy.calls.resend.filter(m => m.idempotency_key === dlZ2before.id);
+      ok('step 4 (compat build 400d74a): the retryable frozen delivery is re-sent under its unchanged identity (the delivery id) with the same html and accepted; the new delivery is accepted too', dlZ2 && ['sent', 'accepted'].includes(dlZ2.status) && sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html && !!keyZ2 && dlZ4b && ['sent', 'accepted'].includes(dlZ4b.status), JSON.stringify({ z2: dlZ2 && dlZ2.status, sends: sendsZ2.length, sameHtml: sendsZ2.length === 2 && sendsZ2[0].html === sendsZ2[1].html, z4: dlZ4b && dlZ4b.status }));
+      const o4 = await outstanding();
+      ok('step 4: with the compatibility build the notice work is delivered (no un-fanned event, no undelivered delivery); the prerequisites for the rollback itself are the barrier and unfinished-resolution counts, reported as they stand (zero, or the fail-closed rows above)', o4.events === 0 && o4.deliveries.length === 0 && o4.barriers.length === 0 && o4.unfinished.length === unresolved.length, JSON.stringify({ events: o4.events, deliveries: o4.deliveries.length, barriers: o4.barriers.length, unfinished: o4.unfinished.length, rollback_allowed: o4.unfinished.length === 0 }));
+    }
     ENV.CANCELLATION_RESOLUTION_QUIESCE = 'false'; ENV.CANCELLATION_MAINTENANCE = 'false';
     const after = await cancel(fresh.id, { category: 'store_caused' });
     ok('after maintenance: cancellations work again', after.statusCode === 200, `${after.statusCode}`);
