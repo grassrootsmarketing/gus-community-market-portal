@@ -2759,6 +2759,7 @@ END:VEVENT
             if (document.getElementById('complianceTableBody')) renderCompliance();
             applySettingsToInputs();
             try { _renderPerLocationFeeds(); } catch(_){}
+            try { loadStaffCalendarLinks(); } catch(_){}   // the staff calendar links box loads with the rest of the data, not only from loadSettings()
             updateStats();
             renderMonthlyChart();
             renderBigCalendar();
