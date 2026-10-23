@@ -64,7 +64,9 @@ try {
   const rv = await attempt(`select public.store_calendar_link_revoke($1, null, 'rehearsal@fixture.test') as n`, [r.id]);
   const res2b = await attempt(`select * from public.store_calendar_link_resolve($1)`, [h2]);
   ok('3c. issue resolves; a second issue rotates (old hash dead, new live); revoke kills the new one', i1.ok && res1.ok && res1.res.rows.length === 1 && res1.res.rows[0].retailer_id === r.id && i2.ok && res1b.ok && res1b.res.rows.length === 0 && res2.ok && res2.res.rows.length === 1 && rv.ok && rv.res.rows[0].n === 1 && res2b.ok && res2b.res.rows.length === 0, JSON.stringify({ i1: i1.err, res1: res1.res && res1.res.rows.length, i2: i2.err, res1b: res1b.res && res1b.res.rows.length, res2: res2.res && res2.res.rows.length, rv: rv.res && rv.res.rows[0], res2b: res2b.res && res2b.res.rows.length }));
+  await c.query('SAVEPOINT s3c');
   const badVenue = await attempt(`select * from public.store_calendar_link_issue($1, '00000000-0000-0000-0000-000000000001', $2, 'x')`, [r.id, 'c'.repeat(64)]);
+  await c.query('ROLLBACK TO SAVEPOINT s3c');
   await c.query('SAVEPOINT s3d');
   const badHash = await attempt(`select * from public.store_calendar_link_issue($1, null, 'nothex', 'x')`, [r.id]);
   await c.query('ROLLBACK TO SAVEPOINT s3d');
