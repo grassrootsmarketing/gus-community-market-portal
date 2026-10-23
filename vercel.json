@@ -28,6 +28,10 @@
       "destination": "/r/gus/admin"
     },
     {
+      "source": "/r/:slug/calendar",
+      "destination": "/r/gus/calendar"
+    },
+    {
       "source": "/r/:slug",
       "destination": "/r/gus"
     },

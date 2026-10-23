@@ -12,6 +12,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
+import { mintToken, hashToken } from './_store-calendar.js';
 import {
   setSessionCookie as setRoleCookie,
   clearSessionCookie as clearRoleCookie,
@@ -647,6 +648,55 @@ export default async function handler(req, res) {
     }
 
     // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
+    // ---- STORE CALENDAR LINKS (0111, Codex design review 2026-10-23): the shareable, view-only staff calendar ----
+    // Three actions, owners and admins only (viewers can look at the admin but cannot mint a bearer link). The
+    // route's same-origin gate already ran. Links are shown ONCE at issue; the server keeps only a hash.
+    if (action === 'store-calendar-links' || action === 'store-calendar-link-issue' || action === 'store-calendar-link-revoke') {
+      const session_id = getSessionIdFromReq(req, body);
+      const v = await requireRetailerMembership(session_id, null, ['owner', 'admin']);
+      if (!v.ok) return res.status(v.status).json({ error: v.error });
+      const rid = v.retailer_id;
+      const venueIdRaw = body && body.venue_id != null && body.venue_id !== '' ? String(body.venue_id) : null;
+      if (venueIdRaw !== null && !/^[0-9a-f-]{36}$/i.test(venueIdRaw)) return res.status(400).json({ error: 'bad_venue' });
+      const scopeNull = '00000000-0000-0000-0000-000000000000';
+      try {
+        const [retailerRows, venues] = await Promise.all([
+          sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug`),
+          sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=id,name&order=display_order`),
+        ]);
+        const retailer = Array.isArray(retailerRows) ? retailerRows[0] : null;
+        if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
+        const venueList = Array.isArray(venues) ? venues : [];
+        if (venueIdRaw !== null && !venueList.some(x => x.id === venueIdRaw)) return res.status(400).json({ error: 'venue_not_in_retailer' });
+
+        if (action === 'store-calendar-link-issue') {
+          const token = mintToken();
+          const row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_token_hash: hashToken(token), p_email: v.email }) });
+          const issued = row && (Array.isArray(row) ? row[0] : row);
+          // The fragment carries the secret: it never reaches the server in a request for the page, and the page
+          // moves it out of the address bar on first load.
+          const url = siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: url, issued_at: (issued && issued.issued_at) || new Date().toISOString(),
+            note: 'Copy this link now. It is not shown again; a later Copy is a rotation that retires this one.' });
+        }
+        if (action === 'store-calendar-link-revoke') {
+          const n = await sb('rpc/store_calendar_link_revoke', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_email: v.email }) });
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, revoked: Number(n) || 0 });
+        }
+        // list: one row per scope (store + each active location) with the active link's issue facts, never the hash
+        const active = await sb(`store_calendar_links?retailer_id=eq.${encodeURIComponent(rid)}&revoked_at=is.null&select=venue_id,issued_at,issued_by_email,last_used_at`);
+        const byScope = new Map((Array.isArray(active) ? active : []).map(l => [l.venue_id || scopeNull, l]));
+        const scopes = [{ scope: 'store', venue_id: null, venue_name: 'All locations' }, ...venueList.map(x => ({ scope: 'venue', venue_id: x.id, venue_name: x.name }))].map(s => {
+          const l = byScope.get(s.venue_id || scopeNull) || null;
+          return { ...s, active: !!l, issued_at: l ? l.issued_at : null, issued_by: l ? l.issued_by_email : null, last_used_at: l ? l.last_used_at : null };
+        });
+        return res.status(200).json({ ok: true, scopes });
+      } catch (e) {
+        console.error('store-calendar-links failed:', e && e.message);
+        return res.status(503).json({ error: 'store_calendar_unavailable' });
+      }
+    }
+
     if (action === 'team-remove') {
       const { admin_id } = body || {};
       const session_id = getSessionIdFromReq(req, body);

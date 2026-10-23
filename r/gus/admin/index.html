@@ -1258,6 +1258,12 @@
                                 <div id="perLocationFeeds" style="display:flex; flex-direction:column; gap:8px;">
                                     <div style="font-size:0.82rem; color:var(--ink-500); font-style:italic; padding:12px 14px; background:var(--cream-50); border-radius:8px;">Add a location to generate its own calendar feed.</div>
                                 </div>
+                                <!-- Staff calendar links (0111): the view-only page staff open from a link, no accounts -->
+                                <div id="staffCalendarGroup" style="margin-top:22px; padding-top:18px; border-top:1px solid rgba(15,44,23,0.08);">
+                                    <div class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Staff calendar links</div>
+                                    <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:10px; line-height:1.5;">A view-only web page of this store's confirmed demos that anyone with the link can open on a phone: date, time, location, brand and what is being sampled. No sign-in, no accounts, no contact details. One link for the whole store and one per location. <strong>Copy a link when you create it; it is not shown again.</strong> Rotate makes the old link stop working on its next refresh.</div>
+                                    <div id="staffCalendarLinks" style="display:flex; flex-direction:column; gap:8px;"><div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">Loading&hellip;</div></div>
+                                </div>
                                 <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook can't subscribe with one click for security reasons. Copy the URL first, then click the shortcut, which opens the right settings page. Paste in the URL field there.</div>
                             </div>
                         </div>
@@ -5886,7 +5892,88 @@ function escapeHtml(s) {
         }
         function copyBookingCode(code, btn) { navigator.clipboard.writeText(code).then(() => { const t = btn.textContent; btn.textContent = 'Copied'; setTimeout(() => { btn.textContent = t; }, 1200); }).catch(() => {}); }
 
-        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp();
+        // ===== Staff calendar links (0111) =====
+        const STAFF_CAL_ADMIN_ROLES = ['owner', 'admin'];
+        async function staffCalApi(action, extra) {
+            const r = await fetch('/api/admin-auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ action }, extra || {})) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+            return j;
+        }
+        async function loadStaffCalendarLinks() {
+            const box = document.getElementById('staffCalendarLinks');
+            if (!box) return;
+            try {
+                const j = await staffCalApi('store-calendar-links');
+                renderStaffCalendarLinks(j.scopes || []);
+            } catch (e) {
+                box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">' + (e.message === 'insufficient_role' ? 'Only owners and admins manage staff calendar links.' : 'Could not load the staff calendar links: ' + _esc(e.message)) + '</div>';
+            }
+        }
+        function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+        function renderStaffCalendarLinks(scopes) {
+            const box = document.getElementById('staffCalendarLinks');
+            if (!box) return;
+            if (!scopes.length) { box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">No locations yet.</div>'; return; }
+            box.innerHTML = scopes.map(s => {
+                const id = s.venue_id || 'store';
+                const state = s.active
+                    ? 'Link active since ' + _esc((s.issued_at || '').slice(0, 10)) + (s.issued_by ? ' (' + _esc(s.issued_by) + ')' : '') + (s.last_used_at ? ', last opened ' + _esc(String(s.last_used_at).slice(0, 10)) : ', not opened yet')
+                    : 'No link yet';
+                return '<div class="staff-cal-row" data-scope-id="' + _esc(id) + '" style="border:1px solid rgba(15,44,23,0.06); border-radius:8px; padding:10px 12px; background:white;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap;">' +
+                        '<div><div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + _esc(s.venue_name) + '</div><div class="staff-cal-state" style="font-size:0.74rem; color:var(--ink-500);">' + state + '</div></div>' +
+                        '<div style="display:flex; gap:6px;">' +
+                            '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="issueStaffCalendarLink(' + (s.venue_id ? "'" + _esc(s.venue_id) + "'" : 'null') + ', this)">' + (s.active ? 'Rotate link' : 'Create link') + '</button>' +
+                            (s.active ? '<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" onclick="revokeStaffCalendarLink(' + (s.venue_id ? "'" + _esc(s.venue_id) + "'" : 'null') + ', this)">Stop sharing</button>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="staff-cal-reveal" style="display:none; margin-top:8px;"></div>' +
+                '</div>';
+            }).join('');
+        }
+        async function issueStaffCalendarLink(venueId, btn) {
+            const row = btn && btn.closest('.staff-cal-row');
+            const rotating = btn && /Rotate/.test(btn.textContent);
+            if (rotating && !window.confirm('Rotate this link? Everyone using the current link loses access on their next refresh.')) return;
+            if (btn) { btn.disabled = true; btn.textContent = rotating ? 'Rotating…' : 'Creating…'; }
+            try {
+                const j = await staffCalApi('store-calendar-link-issue', { venue_id: venueId });
+                const reveal = row && row.querySelector('.staff-cal-reveal');
+                if (reveal) {
+                    reveal.style.display = 'block';
+                    reveal.innerHTML = '<div style="font-size:0.74rem; color:var(--clay-700); font-weight:700; margin-bottom:4px;">Copy this link now. It is not shown again.</div>' +
+                        '<div style="display:flex; gap:6px;"><input type="text" readonly value="' + _esc(j.link_url) + '" style="flex:1; padding:6px 10px; border:1px solid rgba(15,44,23,0.10); border-radius:6px; font-size:0.72rem; font-family:monospace;">' +
+                        '<button class="btn btn-primary" style="padding:6px 12px; font-size:0.72rem;" onclick="copyStaffCalendarLink(this)">Copy link</button></div>';
+                }
+                const state = row && row.querySelector('.staff-cal-state');
+                if (state) state.textContent = 'Link active since ' + String(j.issued_at || '').slice(0, 10) + ', not opened yet';
+                if (btn) { btn.textContent = 'Rotate link'; }
+                if (row && !row.querySelector('button[onclick^="revokeStaffCalendarLink"]')) {
+                    const stop = document.createElement('button'); stop.className = 'btn btn-secondary'; stop.style.cssText = 'padding:5px 10px; font-size:0.72rem;';
+                    stop.textContent = 'Stop sharing'; stop.setAttribute('onclick', 'revokeStaffCalendarLink(' + (venueId ? "'" + venueId + "'" : 'null') + ', this)');
+                    btn.parentNode.appendChild(stop);
+                }
+            } catch (e) {
+                DhModal.toast('Could not create the link: ' + e.message, 'error');
+                if (btn) btn.textContent = rotating ? 'Rotate link' : 'Create link';
+            } finally { if (btn) btn.disabled = false; }
+        }
+        async function revokeStaffCalendarLink(venueId, btn) {
+            if (!window.confirm('Stop sharing this calendar? The current link stops working on its next refresh. You can create a new one at any time.')) return;
+            if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+            try {
+                await staffCalApi('store-calendar-link-revoke', { venue_id: venueId });
+                await loadStaffCalendarLinks();
+            } catch (e) { DhModal.toast('Could not stop sharing: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Stop sharing'; } }
+        }
+        async function copyStaffCalendarLink(btn) {
+            const input = btn && btn.parentNode && btn.parentNode.querySelector('input');
+            if (!input) return;
+            try { await navigator.clipboard.writeText(input.value); const t = btn.textContent; btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = t, 1600); }
+            catch (_) { input.select(); DhModal.toast('Press Ctrl+C to copy the selected link', 'info'); }
+        }
+        function loadSettings() { applySettingsToInputs(); loadBookingCodes(); updateCodeKindHelp(); try { loadStaffCalendarLinks(); } catch(_){}
             try { _renderPerLocationFeeds(); } catch(_){} }
 
 

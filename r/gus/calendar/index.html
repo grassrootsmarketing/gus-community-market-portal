@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow, noarchive">
+    <meta name="referrer" content="no-referrer">
+    <title>Store calendar</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        /* The shareable, view-only store calendar (Codex design review 2026-10-23). Served at /r/<slug>/calendar; the link's
+           secret arrives in the URL fragment, which the browser never sends to a server, is held in memory only (no web
+           storage) and is sent to /api/store-calendar as a bearer header. The fragment is taken out of the address while
+           printing and when the link is retired. Nothing on this page can change a demo. */
+        :root {
+            --forest-900: #0d1f12; --forest-800: #1a3a21; --forest-700: #234d2c; --forest-600: #2d6339; --forest-500: #3d8249;
+            --forest-300: #7bc285; --forest-100: #d4edda; --forest-50: #eef7f0;
+            --sand-100: #faf8f5; --sand-200: #f2ede6; --sand-300: #e8e0d5;
+            --bark-600: #5c483a; --bark-500: #7a6352; --clay-700: #a14e2a; --clay-100: #f7e4d4;
+            --radius-sm: 6px; --radius-md: 12px; --shadow-sm: 0 1px 2px rgba(13,31,18,0.05); --shadow-md: 0 4px 12px rgba(13,31,18,0.08);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background: var(--sand-100); color: var(--forest-900); line-height: 1.5; -webkit-text-size-adjust: 100%; }
+        a { color: var(--forest-700); }
+        header.top { background: white; border-bottom: 1px solid var(--sand-300); padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+        header.top img { width: 44px; height: 44px; border-radius: var(--radius-sm); object-fit: cover; }
+        header.top .name { font-weight: 800; font-size: 1.1rem; line-height: 1.2; }
+        header.top .sub { font-size: 0.8rem; color: var(--bark-500); }
+        .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 16px 40px; }
+        .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+        .controls .spacer { flex: 1; }
+        button, select { font: inherit; }
+        .btn { border: 1px solid var(--sand-300); background: white; color: var(--forest-900); border-radius: var(--radius-sm); padding: 8px 12px; font-weight: 600; cursor: pointer; font-size: 0.9rem; min-height: 40px; }
+        .btn:hover { border-color: var(--forest-300); }
+        .btn.primary { background: var(--forest-700); color: white; border-color: var(--forest-700); }
+        .btn.active { background: var(--forest-50); border-color: var(--forest-300); }
+        select.btn { padding-right: 28px; }
+        .range { font-weight: 700; font-size: 1rem; }
+        .meta { font-size: 0.78rem; color: var(--bark-500); display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0 14px; }
+        .meta .warn { color: var(--clay-700); font-weight: 700; }
+        .notice { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 20px; text-align: center; color: var(--bark-600); }
+        .notice.bad { border-color: var(--clay-700); color: var(--clay-700); background: var(--clay-100); }
+
+        /* week grid */
+        .week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+        .day { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); min-height: 120px; padding: 8px; }
+        .day.today { border-color: var(--forest-500); box-shadow: 0 0 0 2px var(--forest-100) inset; }
+        .day.past { opacity: 0.75; }
+        .day h3 { font-size: 0.78rem; font-weight: 700; color: var(--bark-500); text-transform: uppercase; letter-spacing: 0.04em; display: flex; justify-content: space-between; }
+        .day h3 .n { color: var(--forest-900); font-size: 1rem; }
+        .day.today h3 .n { color: var(--forest-700); }
+        .ev { margin-top: 8px; background: var(--forest-50); border-left: 3px solid var(--forest-500); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 0.8rem; }
+        .ev .t { font-weight: 700; color: var(--forest-800); }
+        .ev .b { font-weight: 700; }
+        .ev .i, .ev .l { color: var(--bark-600); font-size: 0.76rem; }
+        .ev .fb { color: var(--clay-700); font-size: 0.72rem; }
+        .day .none { color: var(--sand-300); font-size: 0.78rem; margin-top: 10px; text-align: center; }
+
+        /* list view */
+        .list .dayrow { background: white; border: 1px solid var(--sand-300); border-radius: var(--radius-md); padding: 10px 12px; margin-bottom: 8px; }
+        .list .dayrow.today { border-color: var(--forest-500); }
+        .list .dayrow h3 { font-size: 0.9rem; margin-bottom: 4px; }
+        .list .ev { margin-top: 6px; }
+
+        @media (max-width: 760px) {
+            .week { grid-template-columns: 1fr; }
+            .day { min-height: 0; }
+            .day.empty-mobile { display: none; }
+            .controls .range { width: 100%; order: -1; }
+        }
+        @media print {
+            header.top, .controls, .meta .live, .btn, .noprint { display: none !important; }
+            body { background: white; }
+            .wrap { max-width: none; padding: 0; }
+            .week { grid-template-columns: repeat(7, 1fr); gap: 4px; }
+            .day { break-inside: avoid; min-height: 0; }
+            .print-title { display: block !important; font-weight: 800; font-size: 1.1rem; margin-bottom: 8px; }
+        }
+        .print-title { display: none; }
+        .sr { position: absolute; left: -9999px; }
+    </style>
+</head>
+<body>
+    <header class="top">
+        <img id="storeLogo" alt="" style="display:none">
+        <div>
+            <div class="name" id="storeName">Store calendar</div>
+            <div class="sub" id="storeSub">Confirmed demos. View only.</div>
+        </div>
+    </header>
+    <main class="wrap">
+        <div class="print-title" id="printTitle"></div>
+        <div class="controls" id="controls" style="display:none">
+            <button class="btn" id="prevBtn" type="button" aria-label="Previous week">&#8592;</button>
+            <button class="btn" id="todayBtn" type="button">This week</button>
+            <button class="btn" id="nextBtn" type="button" aria-label="Next week">&#8594;</button>
+            <div class="range" id="rangeLabel"></div>
+            <div class="spacer"></div>
+            <select class="btn" id="venueSelect" aria-label="Location" style="display:none"></select>
+            <button class="btn" id="viewWeekBtn" type="button">Week</button>
+            <button class="btn" id="viewListBtn" type="button">List</button>
+            <button class="btn" id="printBtn" type="button">Print</button>
+        </div>
+        <div class="meta" id="meta" style="display:none">
+            <span id="refreshedAt">Loading&hellip;</span>
+            <span id="refreshWarn" class="warn" style="display:none"></span>
+            <button class="btn live" id="refreshBtn" type="button" style="min-height:32px; padding:4px 10px; font-size:0.78rem;">Refresh</button>
+            <span class="live" id="tzNote"></span>
+        </div>
+        <div id="body"><div class="notice" id="loadingNotice">Loading the calendar&hellip;</div></div>
+        <p class="meta noprint" style="margin-top:18px;">This page shows confirmed demos only and cannot change anything. If it stops working, ask the store admin for a new link. Times are in the store's time zone.</p>
+    </main>
+    <script>
+    (function () {
+        'use strict';
+        const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const $ = (id) => document.getElementById(id);
+
+        // ---- the secret: read from the fragment, held in memory only (no web storage), re-read if the fragment changes ----
+        let token = null;
+        const readFragment = () => { const m = /(?:^#|[#&])k=([A-Za-z0-9_-]+)/.exec(location.hash || ''); return m ? m[1] : null; };
+        token = readFragment();
+        const hideFragment = () => { try { if (location.hash) history.replaceState(null, '', location.pathname); } catch (_) {} };
+        const showFragment = () => { try { if (token && !location.hash) history.replaceState(null, '', location.pathname + '#k=' + token); } catch (_) {} };
+        // The printed header must not carry the secret: drop the fragment for the print and put it back afterwards.
+        window.addEventListener('beforeprint', hideFragment);
+        window.addEventListener('afterprint', showFragment);
+        window.addEventListener('hashchange', () => { const t = readFragment(); if (t && t !== token) { token = t; dead = false; anchor = null; load('newlink'); } });
+
+        // ---- state ----
+        const DAY = 86400000;
+        let tz = 'America/Los_Angeles';
+        let view = 'week';
+        let anchor = null;            // YMD (store calendar) of the Sunday the week view starts on
+        let today = null;
+        let venueFilter = '';          // '' = all venues the link allows
+        let scope = null, store = null, events = [], lastGood = null, lastGoodAt = null;
+        let requestSeq = 0, backoffMs = 180000, timer = null, dead = false;
+
+        const ymdParts = (d, zone) => { const p = {}; for (const x of new Intl.DateTimeFormat('en-US', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' }).formatToParts(d)) p[x.type] = x.value; return p; };
+        const ymdOf = (d, zone) => { const p = ymdParts(d, zone); return p.year + '-' + p.month + '-' + p.day; };
+        const addDays = (ymd, n) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
+        const dowOf = (ymd) => new Date(ymd + 'T12:00:00Z').getUTCDay();   // weekday of a plain date
+        const startOfWeek = (ymd) => addDays(ymd, -dowOf(ymd));
+        const fmtDay = (ymd, opts) => new Date(ymd + 'T12:00:00Z').toLocaleDateString('en-US', Object.assign({ timeZone: 'UTC' }, opts));
+        const fmtTime = (iso) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch (_) { return ''; } };
+        const fmtClock = (d) => d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+
+        function rangeFor() {
+            if (view === 'week') return { from: anchor, to: addDays(anchor, 6) };
+            return { from: today, to: addDays(today, 27) };
+        }
+
+        // ---- fetch with versioning: an older answer never overwrites a newer selection ----
+        async function load(reason) {
+            if (dead) return;
+            if (!token) { showDead('This link is missing its key. Ask the store admin for the calendar link.'); return; }
+            const seq = ++requestSeq;
+            // The first load has no anchor yet: ask for the default window and let the answer's today set the week.
+            const r = anchor ? rangeFor() : null;
+            const qs = r ? '?from=' + r.from + '&to=' + r.to : '';
+            let res, j;
+            try {
+                res = await fetch('/api/store-calendar' + qs, { headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }, cache: 'no-store', credentials: 'omit' });
+                j = await res.json().catch(() => ({}));
+            } catch (e) { return failed(seq, 'network'); }
+            if (seq !== requestSeq) return;   // superseded
+            if (res.status === 401) { token = null; hideFragment(); return showDead('This calendar link is no longer active. Ask the store admin for a new link.'); }
+            if (!res.ok || !j || !j.ok) return failed(seq, (j && j.error) || ('HTTP ' + res.status));
+            store = j.store; scope = j.scope; events = Array.isArray(j.events) ? j.events : [];
+            tz = (store && store.timezone) || tz; today = j.range.today;
+            if (!anchor) anchor = startOfWeek(today);
+            lastGood = { events, at: new Date(), from: j.range.from, to: j.range.to }; lastGoodAt = new Date();
+            backoffMs = 180000;
+            $('refreshWarn').style.display = 'none';
+            renderHeader(); renderControls(); render();
+            schedule();
+        }
+        function failed(seq, why) {
+            if (seq !== requestSeq) return;
+            backoffMs = Math.min(backoffMs * 2, 15 * 60000);
+            const w = $('refreshWarn');
+            w.style.display = '';
+            w.textContent = lastGoodAt ? ('Could not refresh at ' + fmtClock(new Date()) + ' (' + why + '). Showing the calendar from ' + fmtClock(lastGoodAt) + '.') : ('Could not load the calendar (' + why + '). Try again in a moment.');
+            if (!lastGoodAt) { $('body').innerHTML = '<div class="notice">The calendar could not be loaded. <button class="btn" type="button" id="retryBtn">Try again</button></div>'; const b = $('retryBtn'); if (b) b.onclick = () => load('retry'); }
+            $('meta').style.display = '';
+            schedule();
+        }
+        function showDead(msg) {
+            dead = true; events = []; lastGood = null;
+            if (timer) { clearTimeout(timer); timer = null; }
+            $('controls').style.display = 'none'; $('meta').style.display = 'none';
+            $('body').innerHTML = '<div class="notice bad">' + esc(msg) + '</div>';
+            document.title = 'Store calendar';
+        }
+        function schedule() {
+            if (timer) clearTimeout(timer);
+            if (dead || document.hidden) return;
+            timer = setTimeout(() => load('timer'), backoffMs);
+        }
+        document.addEventListener('visibilitychange', () => { if (document.hidden) { if (timer) { clearTimeout(timer); timer = null; } } else if (!dead) load('visible'); });
+
+        // ---- rendering ----
+        function renderHeader() {
+            if (!store) return;
+            $('storeName').textContent = store.name || 'Store calendar';
+            const where = scope && scope.kind === 'venue' && scope.venues && scope.venues[0] ? scope.venues[0].name : 'All locations';
+            $('storeSub').textContent = where + '. Confirmed demos. View only.';
+            document.title = (store.name || 'Store') + ' calendar';
+            if (store.logo_url) { $('storeLogo').src = store.logo_url; $('storeLogo').style.display = ''; }
+            $('tzNote').textContent = 'Times in ' + tz.replace(/_/g, ' ');
+        }
+        function renderControls() {
+            $('controls').style.display = '';
+            $('meta').style.display = '';
+            const sel = $('venueSelect');
+            if (scope && scope.kind === 'store' && scope.venues && scope.venues.length > 1) {
+                const cur = sel.value;
+                sel.innerHTML = '<option value="">All locations</option>' + scope.venues.map(v => '<option value="' + esc(v.id) + '">' + esc(v.name) + '</option>').join('');
+                sel.value = scope.venues.some(v => v.id === cur) ? cur : '';
+                venueFilter = sel.value;
+                sel.style.display = '';
+            } else { sel.style.display = 'none'; venueFilter = ''; }
+            $('viewWeekBtn').className = 'btn' + (view === 'week' ? ' active' : '');
+            $('viewListBtn').className = 'btn' + (view === 'list' ? ' active' : '');
+        }
+        function visibleEvents() { return events.filter(e => !venueFilter || e.venue_id === venueFilter); }
+        function dayKey(e) { return ymdOf(new Date(e.start_at), tz); }
+        function evHtml(e) {
+            return '<div class="ev"><div class="t">' + esc(fmtTime(e.start_at)) + (e.end_at ? ' to ' + esc(fmtTime(e.end_at)) : '') + '</div>' +
+                '<div class="b">' + esc(e.brand) + '</div>' +
+                (e.items && e.items.length ? '<div class="i">' + esc(e.items.join(', ')) + '</div>' : '') +
+                (!venueFilter && scope && scope.kind === 'store' && e.venue_name ? '<div class="l">' + esc(e.venue_name) + '</div>' : '') +
+                (e.all_day_fallback ? '<div class="fb">Time from the booking date; confirm with the admin</div>' : '') + '</div>';
+        }
+        function render() {
+            const body = $('body');
+            const evs = visibleEvents();
+            const byDay = new Map();
+            for (const e of evs) { const k = dayKey(e); if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(e); }
+            if (view === 'week') {
+                const days = []; for (let i = 0; i < 7; i++) days.push(addDays(anchor, i));
+                $('rangeLabel').textContent = fmtDay(days[0], { month: 'short', day: 'numeric' }) + ' to ' + fmtDay(days[6], { month: 'short', day: 'numeric', year: 'numeric' });
+                $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos ' + $('rangeLabel').textContent;
+                body.innerHTML = '<div class="week">' + days.map(d => {
+                    const list = byDay.get(d) || [];
+                    const cls = 'day' + (d === today ? ' today' : '') + (d < today ? ' past' : '') + (!list.length ? ' empty-mobile' : '');
+                    return '<div class="' + cls + '"><h3><span>' + esc(fmtDay(d, { weekday: 'short' })) + '</span><span class="n">' + esc(fmtDay(d, { day: 'numeric' })) + '</span></h3>' +
+                        (list.length ? list.map(evHtml).join('') : '<div class="none">No demos</div>') + '</div>';
+                }).join('') + '</div>' + (evs.length ? '' : '<p class="meta" style="justify-content:center; margin-top:10px;">No confirmed demos this week' + (venueFilter ? ' at this location' : '') + '.</p>');
+            } else {
+                $('rangeLabel').textContent = 'Next 4 weeks';
+                $('printTitle').textContent = (store ? store.name + ': ' : '') + 'demos, next 4 weeks';
+                const keys = [...byDay.keys()].sort();
+                body.innerHTML = keys.length ? '<div class="list">' + keys.map(k => '<div class="dayrow' + (k === today ? ' today' : '') + '"><h3>' + esc(fmtDay(k, { weekday: 'long', month: 'long', day: 'numeric' })) + (k === today ? ' (today)' : '') + '</h3>' + byDay.get(k).map(evHtml).join('') + '</div>').join('') + '</div>'
+                    : '<div class="notice">No confirmed demos in the next 4 weeks' + (venueFilter ? ' at this location' : '') + '.</div>';
+            }
+            if (lastGoodAt) $('refreshedAt').textContent = 'Updated ' + fmtClock(lastGoodAt);
+        }
+
+        // ---- controls ----
+        $('prevBtn').onclick = () => { anchor = addDays(anchor, -7); view = 'week'; renderControls(); load('nav'); };
+        $('nextBtn').onclick = () => { anchor = addDays(anchor, 7); view = 'week'; renderControls(); load('nav'); };
+        $('todayBtn').onclick = () => { anchor = startOfWeek(today); view = 'week'; renderControls(); load('nav'); };
+        $('viewWeekBtn').onclick = () => { view = 'week'; renderControls(); load('view'); };
+        $('viewListBtn').onclick = () => { view = 'list'; renderControls(); load('view'); };
+        $('venueSelect').onchange = (e) => { venueFilter = e.target.value; render(); };
+        $('refreshBtn').onclick = () => load('manual');
+        $('printBtn').onclick = () => { hideFragment(); window.print(); showFragment(); };
+
+        load('open');
+    })();
+    </script>
+</body>
+</html>
