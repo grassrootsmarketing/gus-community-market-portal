@@ -18,6 +18,7 @@ import { isValidZone, parseYmd } from './_local-time.js';
 import { isCancellationMode, cancellationPolicyFor } from './_refund-cutoff.js';
 import { validateSlots } from './_slots.js';
 import { FLAGS } from './_flags.js';
+import { brandDisplayName } from './_store-calendar.js';
 let _b = null;
 
 // P0-3 (Codex 2026-08-20): the generic service-role proxy may ONLY touch tables it legitimately
@@ -316,6 +317,23 @@ export default async function handler(req, res) {
         const byBooking = new Map((Array.isArray(mv) ? mv : []).map(m => [m.booking_id, m]));
         if (byBooking.size) filteredDemos = (filteredDemos || []).map(d => (d && d.booking_id && byBooking.has(d.booking_id)) ? { ...d, pending_move: byBooking.get(d.booking_id) } : d);
       } catch (_) { /* non-fatal: the badge is simply absent */ }
+      // 2026-10-25: the brand name shown on the dashboard, the Demos tab and the detail comes from the brand's PROFILE
+      // (brands.company_name) when that is a real name, so a profile correction reaches every demo at once; the demos
+      // row keeps its own copy (the name at booking time) and is shown only when the profile has no usable name or
+      // the demo has no brand. The staff calendar page resolves names the same way. Non-fatal: the copy stands.
+      try {
+        const brandIds = [...new Set((filteredDemos || []).map(d => d && d.brand_id).filter(Boolean))];
+        const names = new Map();
+        for (let i = 0; i < brandIds.length; i += 100) {
+          const part = await sb(`brands?id=in.(${brandIds.slice(i, i + 100).map(encodeURIComponent).join(',')})&select=id,company_name`);
+          for (const b of (Array.isArray(part) ? part : [])) if (b && b.id) names.set(b.id, b.company_name);
+        }
+        if (names.size) filteredDemos = (filteredDemos || []).map(d => {
+          if (!d || !d.brand_id || !names.has(d.brand_id)) return d;
+          const shown = brandDisplayName(names.get(d.brand_id));
+          return shown === 'Brand' ? d : { ...d, company_name: shown };
+        });
+      } catch (_) { /* non-fatal: the demos row's own copy of the name stands */ }
       // Codex refund-cutoff R2-2 (2026-10-19): cancelled bookings carry their recorded cancellation decision and, when
       // the refund was left undecided, the operator's resolution (if any), so the admin can show "Grant refund /
       // No refund" on exactly the rows that still owe an answer. Non-fatal: the buttons are simply absent.
