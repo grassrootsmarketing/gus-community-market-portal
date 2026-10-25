@@ -1250,9 +1250,9 @@
                             </div>
                                                         <div class="form-group" id="staffCalendarGroup">
                                 <label class="form-label" style="display:inline-flex; align-items:center; gap:6px;">Staff calendar<span data-tooltip="One link per location and one for the whole store. Anyone with a link can see that calendar, so share them with your team only." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></label>
-                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:12px; line-height:1.5;">Share a store's demo calendar with your team. <strong>Calendar page</strong> opens on any phone or computer with no sign-in and shows confirmed demos: date, time, location, brand and what is being sampled. <strong>Calendar app feed</strong> adds the same demos to Google, Apple or Outlook Calendar. The links are always here; Rotate makes a new one and the old one stops working.</div>
+                                <div style="font-size:0.82rem; color:var(--ink-500); margin-bottom:12px; line-height:1.5;">Share a store's demo calendar with your team. Each location has its own <strong>Calendar page</strong> link: it opens on any phone or computer with no sign-in, shows that location's confirmed demos (date, time, brand, what is being sampled) and nothing else. The links are always here. <strong>Rotate</strong> makes a new link and the old one stops working; <strong>Stop sharing</strong> turns a location's page off until you resume it. The <strong>calendar app feed</strong> under All locations is different: it is one store-wide link for Google, Apple or Outlook Calendar, it shows every location and includes completed demos, and rotating a page link does not change it.</div>
                                 <div id="staffCalendarLinks" style="display:flex; flex-direction:column; gap:8px;"><div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">Loading&hellip;</div></div>
-                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook cannot subscribe with one click. Copy the feed link first, then use the shortcut, which opens the right settings page; paste the link there.</div>
+                                <div style="font-size:0.72rem; color:var(--ink-500); margin-top:12px; line-height:1.55;">Google and Outlook cannot subscribe with one click. Copy the feed link first, then use the shortcut, which opens the right settings page; paste the link there. Anyone with the feed link can see the whole store's demos in their calendar app, and what their app has already downloaded stays there even after the link changes.</div>
                             </div>
                         </div>
                     </div>
@@ -5914,9 +5914,17 @@ function escapeHtml(s) {
             box.innerHTML = scopes.map(s => {
                 const scopeId = s.venue_id || 'store';
                 _staffCalFeeds[scopeId] = s.feed_url || '';
-                const opened = s.last_used_at ? 'Last opened ' + _esc(String(s.last_used_at).slice(0, 10)) : 'Not opened yet';
-                const rotate = '<button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:0.72rem;" data-act="rotate" data-venue="' + _esc(s.venue_id || '') + '" title="Make a new page link; the current one stops working">Rotate</button>';
-                const apps = s.feed_url ? '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; padding-left:138px;">' +
+                const opened = s.disabled ? 'Sharing stopped' : s.last_used_at ? 'Last opened ' + _esc(String(s.last_used_at).slice(0, 10)) : 'Not opened yet';
+                const venueAttr = 'data-venue="' + _esc(s.venue_id || '') + '"';
+                const rotate = '<button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:0.72rem;" data-act="rotate" ' + venueAttr + ' title="Make a new page link; the current one stops working">Rotate</button>' +
+                    '<button type="button" class="btn btn-secondary" style="padding:6px 10px; font-size:0.72rem;" data-act="stop" ' + venueAttr + ' title="Turn this calendar page off until you resume it">Stop sharing</button>';
+                const resume = '<button type="button" class="btn btn-primary" style="padding:6px 12px; font-size:0.72rem;" data-act="resume" ' + venueAttr + '>Resume sharing</button>';
+                const pageRow = s.disabled
+                    ? '<div style="display:flex; align-items:center; gap:6px; margin-top:6px; flex-wrap:wrap;"><div style="font-size:0.72rem; font-weight:700; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.05em; width:132px; flex-shrink:0;">Calendar page</div><div style="flex:1; font-size:0.78rem; color:var(--ink-500);">Stopped. The old link no longer works and no new one exists until you resume.</div>' + resume + '</div>'
+                    : _staffCalLinkRow('Calendar page', s.link_url, 'page', scopeId, { missing: 'This link cannot be shown. Rotate to make a new one.', extra: rotate });
+                const feed = s.feed_url ? _staffCalLinkRow('Calendar app feed', s.feed_url, 'feed', scopeId, { missing: 'The feed link is not available right now.' }) +
+                    '<div style="font-size:0.72rem; color:var(--ink-500); margin-top:4px; padding-left:138px; line-height:1.45;">Store-wide access: this one link shows every location, including completed demos, and is not changed by Rotate or Stop sharing above. Share it with people who may see the whole store.</div>' +
+                    '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; padding-left:138px;">' +
                         '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="apple" data-scope="' + _esc(scopeId) + '">Apple Calendar</button>' +
                         '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="google" data-scope="' + _esc(scopeId) + '">Google Calendar</button>' +
                         '<button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.72rem;" data-act="outlook" data-scope="' + _esc(scopeId) + '">Outlook</button>' +
@@ -5926,9 +5934,7 @@ function escapeHtml(s) {
                         '<div style="font-weight:700; color:var(--forest-900); font-size:0.88rem;">' + _esc(s.venue_name) + (s.scope === 'store' ? ' <span style="font-size:0.72rem; color:var(--ink-500); font-weight:500; margin-left:4px;">(every location)</span>' : '') + '</div>' +
                         '<div class="staff-cal-state" style="font-size:0.72rem; color:var(--ink-500);">' + opened + '</div>' +
                     '</div>' +
-                    _staffCalLinkRow('Calendar page', s.link_url, 'page', scopeId, { missing: 'This link cannot be shown. Rotate to make a new one.', extra: rotate }) +
-                    _staffCalLinkRow('Calendar app feed', s.feed_url, 'feed', scopeId, { missing: 'The feed link is not available right now.' }) +
-                    apps +
+                    pageRow + feed +
                 '</div>';
             }).join('');
             if (!box.dataset.wired) {
@@ -5937,6 +5943,8 @@ function escapeHtml(s) {
                     const b = e.target.closest('button[data-act]'); if (!b) return;
                     if (b.dataset.act === 'copy') copyStaffCalendarLink(b);
                     else if (b.dataset.act === 'rotate') rotateStaffCalendarLink(b.dataset.venue || null, b);
+                    else if (b.dataset.act === 'stop') stopStaffCalendarLink(b.dataset.venue || null, b);
+                    else if (b.dataset.act === 'resume') resumeStaffCalendarLink(b.dataset.venue || null, b);
                     else if (b.dataset.act === 'apple') addToAppleCal(_staffCalFeeds[b.dataset.scope]);
                     else if (b.dataset.act === 'google') openGoogleAddByUrl(b, _staffCalFeeds[b.dataset.scope]);
                     else if (b.dataset.act === 'outlook') openOutlookAddByUrl(b, _staffCalFeeds[b.dataset.scope]);
@@ -5951,9 +5959,21 @@ function escapeHtml(s) {
                 _staffCalLast = '';
                 await loadStaffCalendarLinks();
             } catch (e) {
-                DhModal.toast('Could not make a new link: ' + e.message, 'error');
+                DhModal.toast(e.message === 'scope_disabled' ? 'This calendar page is stopped. Resume it first.' : 'Could not make a new link: ' + e.message, 'error');
                 if (btn) { btn.disabled = false; btn.textContent = 'Rotate'; }
             }
+        }
+        async function stopStaffCalendarLink(venueId, btn) {
+            if (!window.confirm('Stop sharing this calendar page? The current link stops working for everyone who has it, and no new link is made until you resume.')) return;
+            if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+            try { await staffCalApi('store-calendar-link-revoke', { venue_id: venueId }); _staffCalLast = ''; await loadStaffCalendarLinks(); }
+            catch (e) { DhModal.toast('Could not stop sharing: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Stop sharing'; } }
+        }
+        async function resumeStaffCalendarLink(venueId, btn) {
+            if (!window.confirm('Resume sharing this calendar page? A new link is made; the stopped one stays dead.')) return;
+            if (btn) { btn.disabled = true; btn.textContent = 'Resuming…'; }
+            try { await staffCalApi('store-calendar-link-enable', { venue_id: venueId }); _staffCalLast = ''; await loadStaffCalendarLinks(); }
+            catch (e) { DhModal.toast('Could not resume: ' + e.message, 'error'); if (btn) { btn.disabled = false; btn.textContent = 'Resume sharing'; } }
         }
         async function copyStaffCalendarLink(btn) {
             const input = btn && btn.dataset.for ? document.getElementById(btn.dataset.for) : null;

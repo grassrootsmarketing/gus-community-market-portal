@@ -1,11 +1,13 @@
-# Staff calendar (0111 and 0113, 2026-10-23)
+# Staff calendar (0111, 0113 and 0114, 2026-10-23 to 25)
 
 What it is: a view-only web page of a store's confirmed demos at /r/<slug>/calendar, opened from a link the store admin shares, the way the booking link is shared. No sign-in, no staff accounts, no profiles. It looks like the dashboard's Demo Calendar: a month grid with the store's locations colored in the legend, a List view for phones, Print, and a location filter on the whole-store link. Each entry shows the date, start and end time in the store's zone, the location, the brand's display name, the display names of the items being sampled, and the confirmed status. Nothing else: no contact names or details, no notes, no money, no codes, no insurance facts, no admin controls.
 
 ## For the admin: one Settings section, "Staff calendar"
 
-- One row for **All locations** and one per location. Each row shows two links that are **always there**: the **Calendar page** link (the web page above) and the **Calendar app feed** link (the iCal feed for Google, Apple or Outlook Calendar, with the Apple, Google and Outlook shortcuts next to it). Each has a Copy button. Nothing to create: a scope that has no page link yet gets one the moment an owner or admin opens Settings.
-- **Rotate** on a page link makes a new one and retires the old one at once (confirmed first). It is the one way to kick a holder of a link off; it touches no other row and never the feed link.
+- One row for **All locations** and one per location. Each row shows its **Calendar page** link, always there, with a Copy button. Nothing to create: a scope that has no page link yet gets one the moment an owner or admin opens Settings, through a get-or-create that takes the scope's lock and never replaces a link that exists (0114), so two people opening Settings at once end up with the same link.
+- **Rotate** on a page link makes a new one and retires the old one at once (confirmed first). It touches no other row and never the feed link. It is refused while the scope is stopped.
+- **Stop sharing** retires the page link and leaves the location **stopped**: opening Settings again does not make a new link, and the old one stays dead. **Resume sharing** (confirmed) clears the stop; the next list makes one new link. A stop that races a Settings load wins (0114).
+- The **calendar app feed** sits under All locations only. It is one store-wide link for Google, Apple or Outlook Calendar: anyone who has it can see every location's demos in their calendar app, including completed ones, and a location filter in its address is a filter, not a restriction. Rotating or stopping a page link does not change it. Settings says so next to it.
 - A location link shows only that location and cannot be widened by editing the address. The whole-store link shows every active location and has a location filter.
 - Only owners and admins see the links. Viewers see a sentence saying so.
 - A store that was created without a feed key (the pilot store was one) gets its key the first time Settings is opened after this release, and migration 0113 gives one to every such store as well, so the feed links work.
@@ -28,13 +30,13 @@ The link carries the secret after a `#`. The browser never sends that part to an
 - Rotating a link stops future access after the next refresh. It cannot take back screenshots, printouts or copies already made, and a page already open learns of it on its next refresh (within minutes while visible).
 - A request covers at most 90 days (first to last day); the page asks for one month grid (at most 42 days) or four weeks at a time, fetches the whole displayed grid before presenting it, and shows an "Incomplete" banner (also when printed) if the server reports more demos than one answer carries.
 - Reads are budgeted per client address and per link (abuse ceilings, counted atomically); a store's normal polling sits far below them. When the budget counter itself cannot be reached the page gets a temporary error, never a free pass.
-- Only confirmed demos appear on the page. Pending, held, cancelled and declined requests never do, so staff do not prepare for tentative demos. The iCal feed is the older mechanism and also includes completed demos and the brand contact's name, as it always has.
+- Only confirmed demos appear on the page. Pending, held, cancelled and declined requests never do, so staff do not prepare for tentative demos. The iCal feed also includes completed demos. Since 0114 it names the brand by the brand profile's name (never an email typed into the company field) and carries no contact field; a calendar app keeps what it has already downloaded, so a rotated feed key does not erase events already in someone's calendar.
 - Times come from the booking's accepted schedule snapshot. A change to the store's time zone setting does not move an existing appointment. A legacy demo without a snapshot is placed from its date and time and marked on the page.
 - A feed link opened in a browser (instead of added to a calendar app) shows a small Demohub page explaining that, with the real logo; a calendar app only sees the status code.
 
 ## Rollback and stopping
 
-To stop everyone at once: the revoke function for the store (service role), or Rotate every row. Migrations 0111 to 0113 add one table, one column and the link functions and change no existing row apart from giving key-less stores a feed key; they stay in place in any rollback. A build without the page and route simply leaves the links unanswerable (404 and 405), with every row kept. A build from before 0113 cannot issue links after 0113 (the four-argument function is gone) but still resolves them.
+To stop one location: Stop sharing on its row (it stays stopped until Resume). To stop everyone at once: Stop sharing on every row, or the revoke function for each scope (service role), which records the stop the same way. Migrations 0111 to 0114 add two tables, one column and the link functions and change no existing row apart from giving key-less stores a feed key; they stay in place in any rollback. A build without the page and route simply leaves the links unanswerable (404 and 405), with every row kept. A build from before 0113 cannot issue links after 0113 (the four-argument function is gone) but still resolves them.
 
 ## Not in this release
 

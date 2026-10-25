@@ -12,7 +12,7 @@ import { randomBytes, randomInt } from 'node:crypto';
 import { getBinding, sendBindingFailure, link } from './_env.js';
 import { FLAGS } from './_flags.js';
 import { sendMailQuietly, link as siteLink } from './_mail.js';
-import { mintToken, hashToken, sealToken, openToken, validIssuedRow } from './_store-calendar.js';
+import { mintToken, hashToken, sealToken, recoverToken, validIssuedRow, validEnsureRow, planStaffCalendarList, SCOPE_NULL } from './_store-calendar.js';
 import { randomBytes as _randomBytes } from 'node:crypto';
 import {
   setSessionCookie as setRoleCookie,
@@ -649,80 +649,104 @@ export default async function handler(req, res) {
     }
 
     // ---- TEAM-REMOVE: remove an admin (owner only; cannot remove owner) ----
-    // ---- STAFF CALENDAR (0111, 0113): the shareable, view-only staff calendar page and the iCal feed, one section ----
-    // Three actions, owners and admins only (viewers can look at the admin but cannot mint a bearer link). The route's
-    // same-origin gate already ran. Since 0113 the links are PERSISTENT (David, 2026-10-23): the list answers every
-    // scope's current link (opened from its sealed copy), issues a link for any scope that has none, and carries the
-    // iCal feed URL for the same scope, so Settings shows everything in one place at any time. Rotate (issue) retires
-    // the old link and records the new one with its seal in one statement; revoke stops a scope without a new link.
-    if (action === 'store-calendar-links' || action === 'store-calendar-link-issue' || action === 'store-calendar-link-revoke') {
+    // ---- STAFF CALENDAR (0111, 0113, 0114): the shareable, view-only staff calendar page and the iCal feed ----
+    // Four actions, owners and admins only (viewers can look at the admin but cannot mint a bearer link). The route's
+    // same-origin gate already ran. The links are PERSISTENT (0113): the list shows every scope's current link. Codex
+    // review of 2026-10-25: listing never rotates (a scope with no link is filled by the get-or-create function under
+    // the scope lock, so two simultaneous loads end with one link and both see it); every read is shape-checked
+    // before any provisioning call (a malformed read is 503 and issues nothing); Stop sharing leaves the scope
+    // stopped until Resume; the feed link is a STORE-WIDE credential and is offered once, on the store row, labelled
+    // as such; every answer of this branch, errors included, is no-store and no-referrer.
+    if (action === 'store-calendar-links' || action === 'store-calendar-link-issue' || action === 'store-calendar-link-revoke' || action === 'store-calendar-link-enable') {
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Referrer-Policy', 'no-referrer');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
       const session_id = getSessionIdFromReq(req, body);
       const v = await requireRetailerMembership(session_id, null, ['owner', 'admin']);
       if (!v.ok) return res.status(v.status).json({ error: v.error });
       const rid = v.retailer_id;
       const venueIdRaw = body && body.venue_id != null && body.venue_id !== '' ? String(body.venue_id) : null;
       if (venueIdRaw !== null && !/^[0-9a-f-]{36}$/i.test(venueIdRaw)) return res.status(400).json({ error: 'bad_venue' });
-      const scopeNull = '00000000-0000-0000-0000-000000000000';
       try {
-        const [retailerRows, venues] = await Promise.all([
+        const [retailerRows, venues, active, states] = await Promise.all([
           sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=id,slug,cal_feed_key`),
           sb(`venues?retailer_id=eq.${encodeURIComponent(rid)}&active=eq.true&select=id,name&order=display_order`),
+          // token_hash is read ONLY to check a recovered token against it; it never leaves the server
+          sb(`store_calendar_links?retailer_id=eq.${encodeURIComponent(rid)}&revoked_at=is.null&select=venue_id,issued_at,issued_by_email,last_used_at,token_hash,token_enc`),
+          sb(`store_calendar_scope_state?retailer_id=eq.${encodeURIComponent(rid)}&select=scope_key,disabled_at`),
         ]);
         const retailer = Array.isArray(retailerRows) ? retailerRows[0] : null;
-        if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
-        const venueList = Array.isArray(venues) ? venues : [];
-        if (venueIdRaw !== null && !venueList.some(x => x.id === venueIdRaw)) return res.status(400).json({ error: 'venue_not_in_retailer' });
+        if (Array.isArray(retailerRows) && retailerRows.length === 0) return res.status(404).json({ error: 'retailer_not_found' });
+        const plan = planStaffCalendarList({ retailer, venues, active, states });
+        if (!plan.ok) { console.error(action + ': malformed read, nothing issued'); return res.status(503).json({ error: 'store_calendar_unavailable' }); }
+        if (venueIdRaw !== null && !venues.some(x => x.id === venueIdRaw)) return res.status(400).json({ error: 'venue_not_in_retailer' });
         const secret = _b.serviceKey;
         const linkUrl = (token) => siteLink(_b, `/r/${retailer.slug}/calendar#k=${token}`);
+        const scopeKey = (venueId) => venueId || SCOPE_NULL;
+        const isDisabled = (venueId) => states.some(st => st.scope_key === scopeKey(venueId) && st.disabled_at);
 
-        // Issue (rotate) one scope: mint, hash, seal, record in one statement; the link is answered and stays copyable.
-        const issueScope = async (venueId) => {
+        // Rotate: mint, hash, seal, record in one statement (retires the previous link). Refused while the scope is stopped.
+        if (action === 'store-calendar-link-issue') {
+          if (isDisabled(venueIdRaw)) return res.status(409).json({ error: 'scope_disabled' });
           const token = mintToken();
-          const row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueId, p_token_hash: hashToken(token), p_token_enc: sealToken(token, secret), p_email: v.email }) });
+          let row;
+          try { row = await sb('rpc/store_calendar_link_issue', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_token_hash: hashToken(token), p_token_enc: sealToken(token, secret), p_email: v.email }) }); }
+          catch (e) { if (/scope_disabled/.test(String(e && e.message))) return res.status(409).json({ error: 'scope_disabled' }); throw e; }
           const issued = Array.isArray(row) ? row[0] : row;
           // SC-5: a link is reported only when the function answered with the row it recorded (id, scope, this hash,
           // an issue time, not revoked). Anything else is an unavailable answer, not a usable link.
-          if (!validIssuedRow(issued) || issued.retailer_id !== rid || (issued.venue_id || null) !== venueId || issued.token_hash !== hashToken(token)) {
-            throw new Error('malformed issuance response');
+          if (!validIssuedRow(issued) || issued.retailer_id !== rid || (issued.venue_id || null) !== venueIdRaw || issued.token_hash !== hashToken(token)) {
+            console.error('store-calendar-link-issue: malformed issuance response');
+            return res.status(503).json({ error: 'store_calendar_unavailable' });
           }
-          return { token, issued };
-        };
-
-        if (action === 'store-calendar-link-issue') {
-          const { token, issued } = await issueScope(venueIdRaw);
           // The fragment carries the secret: the browser never sends it to a server. The page keeps it in memory and
           // leaves it in the address during ordinary use (reload and copy keep working); it is removed only while
           // printing and when the link is retired.
           return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, link_url: linkUrl(token), issued_at: issued.issued_at,
             note: 'The previous link stopped working. This one stays in Settings; copy it whenever you need it.' });
         }
+        // Stop sharing: retires the link AND leaves the scope stopped (no list re-creates it) until Resume.
         if (action === 'store-calendar-link-revoke') {
           const n = await sb('rpc/store_calendar_link_revoke', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_email: v.email }) });
-          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, revoked: Number(n) || 0 });
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, revoked: Number(n) || 0, disabled: true });
+        }
+        // Resume: clears the stop; the list that follows creates one new link through ensure.
+        if (action === 'store-calendar-link-enable') {
+          const n = await sb('rpc/store_calendar_scope_enable', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: venueIdRaw, p_email: v.email }) });
+          return res.status(200).json({ ok: true, scope: venueIdRaw ? 'venue' : 'store', venue_id: venueIdRaw, enabled: Number(n) || 0 });
         }
 
-        // list: one row per scope (store + each active location). A scope without an active link gets one now, so
-        // the links simply exist; a link whose seal does not open is reported unrecoverable (Rotate issues a new one).
-        // The feed key is the store's one iCal secret (0007); a store that somehow has none gets one here as well.
+        // list: one row per scope (store + each active location), from the plan. 'disabled' shows the stopped state;
+        // 'recover' opens the active row's seal (checked against its hash); 'ensure' asks the database for the scope's
+        // row under the lock and uses whatever row the database kept (ours when we created it, the winner's otherwise).
+        // The feed key is the store's ONE iCal secret (0007); a store that has none gets one; the feed link is answered
+        // for the store scope only, because the key is store-wide whatever venue filter the URL carries.
         let feedKey = typeof retailer.cal_feed_key === 'string' ? retailer.cal_feed_key : '';
         if (!feedKey) {
           feedKey = _randomBytes(16).toString('hex');
           const patched = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&cal_feed_key=is.null`, { method: 'PATCH', body: JSON.stringify({ cal_feed_key: feedKey }) });
           if (!Array.isArray(patched) || patched.length !== 1) { const again = await sb(`retailers?id=eq.${encodeURIComponent(rid)}&select=cal_feed_key`); feedKey = (Array.isArray(again) && again[0] && again[0].cal_feed_key) || ''; }
         }
-        const feedUrl = (venueId) => feedKey ? siteLink(_b, `/api/cal?slug=${encodeURIComponent(retailer.slug)}${venueId ? '&venue=' + encodeURIComponent(venueId) : ''}&key=${encodeURIComponent(feedKey)}`) : null;
-        const active = await sb(`store_calendar_links?retailer_id=eq.${encodeURIComponent(rid)}&revoked_at=is.null&select=venue_id,issued_at,issued_by_email,last_used_at,token_enc`);
-        const byScope = new Map((Array.isArray(active) ? active : []).map(l => [l.venue_id || scopeNull, l]));
+        const feedUrl = feedKey ? siteLink(_b, `/api/cal?slug=${encodeURIComponent(retailer.slug)}&key=${encodeURIComponent(feedKey)}`) : null;
         const scopes = [];
-        for (const sc of [{ scope: 'store', venue_id: null, venue_name: 'All locations' }, ...venueList.map(x => ({ scope: 'venue', venue_id: x.id, venue_name: x.name }))]) {
-          let l = byScope.get(sc.venue_id || scopeNull) || null;
-          let token = l ? openToken(l.token_enc, secret) : null;
-          if (!l) {
-            const made = await issueScope(sc.venue_id);
-            l = { issued_at: made.issued.issued_at, issued_by_email: v.email, last_used_at: null }; token = made.token;
+        for (const sc of plan.scopes) {
+          const base = { scope: sc.scope, venue_id: sc.venue_id, venue_name: sc.venue_name, feed_url: sc.scope === 'store' ? feedUrl : null };
+          if (sc.action === 'disabled') { scopes.push({ ...base, active: false, disabled: true, link_url: null, link_unrecoverable: false, issued_at: null, issued_by: null, last_used_at: null }); continue; }
+          let row = sc.row, token = null;
+          if (sc.action === 'recover') token = recoverToken(row, secret);
+          else {
+            const proposed = mintToken();
+            const ans = await sb('rpc/store_calendar_link_ensure', { method: 'POST', body: JSON.stringify({ p_retailer_id: rid, p_venue_id: sc.venue_id, p_token_hash: hashToken(proposed), p_token_enc: sealToken(proposed, secret), p_email: v.email }) });
+            const er = Array.isArray(ans) ? ans[0] : ans;
+            if (!validEnsureRow(er, rid, sc.venue_id)) { console.error('store-calendar-links: malformed ensure response'); return res.status(503).json({ error: 'store_calendar_unavailable' }); }
+            if (er.outcome === 'disabled') { scopes.push({ ...base, active: false, disabled: true, link_url: null, link_unrecoverable: false, issued_at: null, issued_by: null, last_used_at: null }); continue; }
+            row = er;
+            // ours only when the database kept OUR hash; otherwise the row is the winner's and its seal is opened
+            token = er.outcome === 'created' && er.token_hash === hashToken(proposed) ? proposed : recoverToken(er, secret);
           }
-          scopes.push({ ...sc, active: true, issued_at: l.issued_at, issued_by: l.issued_by_email, last_used_at: l.last_used_at,
-            link_url: token ? linkUrl(token) : null, link_unrecoverable: !token, feed_url: feedUrl(sc.venue_id) });
+          scopes.push({ ...base, active: true, disabled: false, issued_at: row.issued_at, issued_by: row.issued_by_email || null, last_used_at: row.last_used_at || null,
+            link_url: token ? linkUrl(token) : null, link_unrecoverable: !token });
         }
         return res.status(200).json({ ok: true, scopes, feed_key_set: !!feedKey });
       } catch (e) {

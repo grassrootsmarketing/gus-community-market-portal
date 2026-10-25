@@ -10,6 +10,7 @@
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { demoStartUtc, safeZone } from './_local-time.js';
+import { brandDisplayName } from './_store-calendar.js';
 let _b = null;   // per-invocation binding; server-side reads use the service key to bypass RLS
 
 // A feed URL opened in a browser (instead of a calendar app) used to answer a bare line of text with no logo and no
@@ -24,7 +25,8 @@ export function feedNoticeHtml(title, message) {
     + '<body><main><div class="card"><div class="brand">' + DEMOHUB_MARK + '<b>Demohub</b></div><h1>' + escHtml(title) + '</h1><p>' + escHtml(message) + '</p><small>This address is a calendar feed. It is meant to be added to a calendar app, not opened in a browser.</small></div></main></body></html>';
 }
 function sendFeedNotice(res, status, title, message) {
-  res.setHeader('Cache-Control', 'no-store, max-age=0');
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+  res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.status(status).send(feedNoticeHtml(title, message));
 }
@@ -96,6 +98,19 @@ export default async function handler(req, res) {
     ]);
     let demos = await dR.json();
     const venues = await vR.json();
+    // Codex 2026-10-25 item 2: the brand shown is the brand PROFILE's name when that is a real name (the demos row's
+    // copy can be the contact's email, typed into the company field at sign-up); an email-shaped value is never
+    // exported, and no contact field is. The feed is a store team export, not a brand contact list.
+    const brandNames = new Map();
+    try {
+      const ids = [...new Set((Array.isArray(demos) ? demos : []).map(d => d && d.brand_id).filter(Boolean))];
+      for (let i = 0; i < ids.length; i += 100) {
+        const r = await fetch(`${_b.supabaseUrl}/rest/v1/brands?id=in.(${ids.slice(i, i + 100).map(encodeURIComponent).join(',')})&select=id,company_name`, { headers: { apikey: _b.serviceKey, Authorization: `Bearer ${_b.serviceKey}` } });
+        const part = await r.json();
+        for (const b of (Array.isArray(part) ? part : [])) if (b && b.id) brandNames.set(b.id, b.company_name);
+      }
+    } catch (_) { /* the row's copy, filtered by brandDisplayName below, stands */ }
+    const brandOf = (d) => brandDisplayName(d.brand_id ? brandNames.get(d.brand_id) : null, d.company_name);
     const venueById = {};
     (venues || []).forEach(v => { venueById[v.id] = v; });
 
@@ -152,11 +167,11 @@ export default async function handler(req, res) {
       const venue = venueById[d.venue_id] || null;
       const venueLabel = venue ? venue.name : '';
       const venueAddr = venue && venue.address ? venue.address : '';
-      const summary = `${d.company_name || 'Demo'}${venueLabel ? ' @ ' + venueLabel : ''}`;
+      const brand = brandOf(d);
+      const summary = `${brand}${venueLabel ? ' @ ' + venueLabel : ''}`;
       const descParts = [];
       if (d.product) descParts.push('Product: ' + d.product);
-      if (d.company_name) descParts.push('Brand: ' + d.company_name);
-      if (d.contact_name) descParts.push('Contact: ' + d.contact_name);
+      descParts.push('Brand: ' + brand);
       descParts.push('Booked via Demohub · demohubhq.com');
       lines.push('BEGIN:VEVENT');
       lines.push('UID:' + d.id + '@demohubhq.com');
@@ -175,8 +190,10 @@ export default async function handler(req, res) {
     const body = lines.join('\r\n') + '\r\n';
     res.setHeader('Content-Type', 'text/calendar; charset=utf-8');
     res.setHeader('Content-Disposition', `inline; filename="${slug}-demos.ics"`);
-    // Light caching, calendar apps poll every few hours
-    res.setHeader('Cache-Control', 'public, max-age=900');
+    // A private bearer feed: never shared caching (Codex 2026-10-25 item 4). Calendar apps poll on their own schedule
+    // and keep what they downloaded; rotating the key cannot erase events already in a subscriber's calendar.
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     res.status(200).send(body);
   } catch (e) {
     sendFeedNotice(res, 500, 'The feed could not be built', 'Something went wrong while building this calendar. Try again in a moment.');

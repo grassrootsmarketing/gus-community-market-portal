@@ -13,7 +13,7 @@
 //
 // Run from the repository root:  node tests/store_calendar_offline.test.mjs   (no credentials needed)
 import { TARGETS } from '../api/_env.js';
-import { brandDisplayName, sealToken, openToken, mintToken, tokenShapeOk } from '../api/_store-calendar.js';
+import { brandDisplayName, sealToken, openToken, mintToken, tokenShapeOk, recoverToken, planStaffCalendarList, validEnsureRow, hashToken as _hashToken } from '../api/_store-calendar.js';
 import { feedNoticeHtml } from '../api/cal.js';
 import { resolveRange, parseYmdStrict, eventInRange, validIssuedRow, validLinkRow, validVenueRows, validDemoRows, hashToken, RANGE_CAP_DAYS } from '../api/_store-calendar.js';
 
@@ -233,6 +233,40 @@ console.log('\n:: 0113: sealed, persistent links ::');
   let thrown2 = null; try { sealToken(t, ''); } catch (e) { thrown2 = e.message; }
   ok('seal refuses a non-token and an absent secret rather than producing something', /not a token/.test(String(thrown)) && /no server secret/.test(String(thrown2)));
   ok('a seal whose plaintext is not a token opens to null (shape is re-checked after decryption)', openToken(sealToken(t, secret).replace(/^v1/, 'v1'), secret) === t && tokenShapeOk(openToken(sealed, secret)));
+}
+
+console.log('\n:: 0114 item 1: the admin list is planned from shape-checked reads; a malformed read plans nothing ::');
+{
+  const RID = '11111111-1111-4111-8111-111111111111', V1 = '22222222-2222-4222-8222-222222222222', V2 = '33333333-3333-4333-8333-333333333333';
+  const retailer = { id: RID, slug: 'gus', cal_feed_key: 'abc' };
+  const venues = [{ id: V1, name: 'One' }, { id: V2, name: 'Two' }];
+  const row = { venue_id: V1, token_hash: 'a'.repeat(64), token_enc: null, issued_at: '2026-10-23T00:00:00Z', issued_by_email: 'x@y.z', last_used_at: null };
+  const good = planStaffCalendarList({ retailer, venues, active: [row], states: [{ scope_key: V2, disabled_at: '2026-10-25T00:00:00Z' }] });
+  ok('a well-formed set plans store=ensure (no row), One=recover (row kept), Two=disabled (state wins over absence)', good.ok && JSON.stringify(good.scopes.map(x => [x.venue_name, x.action])) === JSON.stringify([['All locations', 'ensure'], ['One', 'recover'], ['Two', 'disabled']]) && good.scopes[1].row === row, JSON.stringify(good));
+  const bad = [
+    ['retailer null', { retailer: null, venues, active: [], states: [] }],
+    ['retailer an array', { retailer: [retailer], venues, active: [], states: [] }],
+    ['retailer without a slug', { retailer: { id: RID }, venues, active: [], states: [] }],
+    ['venues an object', { retailer, venues: {}, active: [], states: [] }],
+    ['venues null', { retailer, venues: null, active: [], states: [] }],
+    ['a venue without an id', { retailer, venues: [{ name: 'x' }], active: [], states: [] }],
+    ['active null (the case that would have rotated every scope)', { retailer, venues, active: null, states: [] }],
+    ['active an object', { retailer, venues, active: {}, states: [] }],
+    ['an active row without a hash', { retailer, venues, active: [{ venue_id: null, issued_at: '2026-10-23T00:00:00Z' }], states: [] }],
+    ['an active row with a bad hash', { retailer, venues, active: [{ ...row, token_hash: 'zz' }], states: [] }],
+    ['an active row with a bad date', { retailer, venues, active: [{ ...row, issued_at: 'yesterday' }], states: [] }],
+    ['states null', { retailer, venues, active: [], states: null }],
+    ['a state row without a scope key', { retailer, venues, active: [], states: [{ disabled_at: null }] }],
+  ];
+  ok('every malformed read (' + bad.length + ' shapes) plans NOTHING (ok false, reason malformed), so the route answers 503 before any provisioning call', bad.every(([, inp]) => { const p = planStaffCalendarList(inp); return p.ok === false && p.reason === 'malformed' && !p.scopes; }), JSON.stringify(bad.map(([n, inp]) => [n, planStaffCalendarList(inp).ok])));
+  ok('an empty store (no venues, no links, no states) plans the store scope alone as ensure', (() => { const p = planStaffCalendarList({ retailer, venues: [], active: [], states: [] }); return p.ok && p.scopes.length === 1 && p.scopes[0].action === 'ensure'; })());
+  const okRow = { outcome: 'created', id: '44444444-4444-4444-8444-444444444444', retailer_id: RID, venue_id: V1, token_hash: 'b'.repeat(64), token_enc: 'v1.a.b.c', issued_at: '2026-10-25T00:00:00Z' };
+  ok('validEnsureRow: created/existing need a complete row for THIS scope; disabled needs nothing; anything else is refused', validEnsureRow(okRow, RID, V1) && validEnsureRow({ ...okRow, outcome: 'existing' }, RID, V1) && validEnsureRow({ outcome: 'disabled' }, RID, V1) && !validEnsureRow({ ...okRow, retailer_id: V2 }, RID, V1) && !validEnsureRow({ ...okRow, venue_id: null }, RID, V1) && !validEnsureRow({ ...okRow, outcome: 'rotated' }, RID, V1) && !validEnsureRow({ ...okRow, token_hash: 'x' }, RID, V1) && !validEnsureRow(null, RID, V1) && !validEnsureRow([okRow], RID, V1));
+  const secret = 'another-server-secret-of-reasonable-length';
+  const t = mintToken();
+  ok('recoverToken opens the seal and insists the result hashes to the row\'s own hash (a mismatched pair recovers nothing; the hash is never part of the answer)', recoverToken({ token_hash: _hashToken(t), token_enc: sealToken(t, secret) }, secret) === t && recoverToken({ token_hash: 'c'.repeat(64), token_enc: sealToken(t, secret) }, secret) === null && recoverToken({ token_hash: _hashToken(t), token_enc: null }, secret) === null && recoverToken(null, secret) === null);
+  const sealed = sealToken(t, secret), parts = sealed.split('.');
+  ok('openToken is strict about the format: literal dots, a 16-character iv and a 22-character tag; a dot replaced by any other character, a short iv or a long tag opens to null', openToken(sealed.replace('.', 'x'), secret) === null && openToken(['v1', parts[1].slice(1), parts[2], parts[3]].join('.'), secret) === null && openToken(['v1', parts[1], parts[2], parts[3] + 'A'].join('.'), secret) === null && openToken(sealed, secret) === t);
 }
 
 console.log('\n:: the feed\'s browser-facing notice ::');

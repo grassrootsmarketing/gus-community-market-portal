@@ -42,7 +42,7 @@ export function sealToken(token, secret) {
 // Returns the token, or null when the value is not a v1 seal, was sealed under another secret, or was altered.
 export function openToken(sealed, secret) {
   try {
-    const m = /^v1.([A-Za-z0-9_-]+).([A-Za-z0-9_-]+).([A-Za-z0-9_-]+)$/.exec(String(sealed || ''));
+    const m = /^v1\.([A-Za-z0-9_-]{16})\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]{22})$/.exec(String(sealed || ''));
     if (!m || !secret) return null;
     const d = createDecipheriv('aes-256-gcm', sealKey(secret), Buffer.from(m[1], 'base64url'));
     d.setAuthTag(Buffer.from(m[3], 'base64url'));
@@ -50,6 +50,15 @@ export function openToken(sealed, secret) {
     return tokenShapeOk(t) ? t : null;
   } catch (_) { return null; }
 }
+// The link an admin is shown is the token whose hash the database holds for that row: the seal is opened and the
+// result is hashed and compared with the row's own hash before anything is returned (a row and a seal that do not
+// belong together, however that happened, recover nothing). The hash itself never leaves the server.
+export function recoverToken(row, secret) {
+  if (!row || typeof row !== 'object' || typeof row.token_hash !== 'string') return null;
+  const t = openToken(row.token_enc, secret);
+  return t && hashToken(t) === row.token_hash ? t : null;
+}
+
 // The bearer header is the only place the page presents its token (never a query string, so it stays out of
 // request logs and copied URLs).
 export function tokenFromRequest(req) {
@@ -182,6 +191,40 @@ export function validDemoRows(rows) {
 export function validIssuedRow(row) {
   return !!row && typeof row === 'object' && isUuid(row.id) && isUuid(row.retailer_id) && typeof row.token_hash === 'string' && /^[0-9a-f]{64}$/.test(row.token_hash) && typeof row.issued_at === 'string' && !Number.isNaN(Date.parse(row.issued_at)) && row.revoked_at == null;
 }
+// Codex 2026-10-25 item 1: every read the admin list depends on is shape-checked BEFORE any provisioning call. A read
+// that is not an array of well-formed rows is an unavailable answer (503), never an empty list that would make the
+// route issue links for scopes that may well have them.
+export function validActiveLinkRows(rows) {
+  return Array.isArray(rows) && rows.every(r => r && typeof r === 'object' && (r.venue_id == null || isUuid(r.venue_id)) && typeof r.token_hash === 'string' && /^[0-9a-f]{64}$/.test(r.token_hash) && (r.token_enc == null || typeof r.token_enc === 'string') && typeof r.issued_at === 'string' && !Number.isNaN(Date.parse(r.issued_at)) && (r.issued_by_email == null || typeof r.issued_by_email === 'string') && (r.last_used_at == null || typeof r.last_used_at === 'string'));
+}
+export function validScopeStateRows(rows) {
+  return Array.isArray(rows) && rows.every(r => r && typeof r === 'object' && isUuid(r.scope_key) && (r.disabled_at == null || typeof r.disabled_at === 'string'));
+}
+export function validRetailerRow(row) {
+  return !!row && typeof row === 'object' && isUuid(row.id) && typeof row.slug === 'string' && /^[a-z0-9-]+$/.test(row.slug) && (row.cal_feed_key == null || typeof row.cal_feed_key === 'string');
+}
+// The ensure function's one answer row: 'disabled' carries no link; 'existing' and 'created' carry a complete one.
+export function validEnsureRow(row, retailerId, venueId) {
+  if (!row || typeof row !== 'object' || !['existing', 'created', 'disabled'].includes(row.outcome)) return false;
+  if (row.outcome === 'disabled') return true;
+  return isUuid(row.id) && row.retailer_id === retailerId && (row.venue_id || null) === (venueId || null) && typeof row.token_hash === 'string' && /^[0-9a-f]{64}$/.test(row.token_hash) && (row.token_enc == null || typeof row.token_enc === 'string') && typeof row.issued_at === 'string' && !Number.isNaN(Date.parse(row.issued_at));
+}
+// The admin list, planned as a pure step: given the four reads, either 'malformed' (the route answers 503 and
+// makes no provisioning call) or the scope table with, per scope, what the route must do: show the disabled
+// state, recover the active row's token, or call ensure. Unit-tested offline against every malformed shape.
+export const SCOPE_NULL = '00000000-0000-0000-0000-000000000000';
+export function planStaffCalendarList({ retailer, venues, active, states }) {
+  if (!validRetailerRow(retailer) || !validVenueRows(venues) || !validActiveLinkRows(active) || !validScopeStateRows(states)) return { ok: false, reason: 'malformed' };
+  const byScope = new Map(active.map(l => [l.venue_id || SCOPE_NULL, l]));
+  const disabled = new Set(states.filter(st => st.disabled_at).map(st => st.scope_key));
+  const scopes = [{ scope: 'store', venue_id: null, venue_name: 'All locations' }, ...venues.map(v => ({ scope: 'venue', venue_id: v.id, venue_name: v.name == null ? '' : String(v.name) }))].map(sc => {
+    const key = sc.venue_id || SCOPE_NULL;
+    const row = byScope.get(key) || null;
+    return { ...sc, action: disabled.has(key) ? 'disabled' : row ? 'recover' : 'ensure', row };
+  });
+  return { ok: true, scopes };
+}
+
 export function validRateRow(row) {
   return !!row && typeof row === 'object' && typeof row.allowed === 'boolean' && Number.isInteger(row.hits);
 }
