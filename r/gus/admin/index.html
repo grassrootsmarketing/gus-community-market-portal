@@ -5873,6 +5873,7 @@ function escapeHtml(s) {
         // page link. The box is redrawn from the server's answer only when that answer changed, so a live refresh
         // never disturbs a selection or a button mid-click.
         let _staffCalLast = '';
+        let _staffCalSeq = 0;      // a list answer older than the latest request is ignored (a slow refresh must never undo a Stop or Resume)
         let _staffCalFeeds = {};   // venue id (or 'store') -> feed URL, for the Apple/Google/Outlook shortcuts
         async function staffCalApi(action, extra) {
             const r = await fetch('/api/admin-auth', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ action }, extra || {})) });
@@ -5883,13 +5884,16 @@ function escapeHtml(s) {
         async function loadStaffCalendarLinks() {
             const box = document.getElementById('staffCalendarLinks');
             if (!box) return;
+            const seq = ++_staffCalSeq;
             try {
                 const j = await staffCalApi('store-calendar-links');
+                if (seq !== _staffCalSeq) return;   // superseded by a later request (an action's own reload, or a newer refresh)
                 const key = JSON.stringify(j.scopes || []);
                 if (key === _staffCalLast) return;
                 _staffCalLast = key;
                 renderStaffCalendarLinks(j.scopes || []);
             } catch (e) {
+                if (seq !== _staffCalSeq) return;
                 _staffCalLast = '';
                 box.innerHTML = '<div style="font-size:0.82rem; color:var(--ink-500); font-style:italic;">' + (e.message === 'insufficient_role' ? 'Only owners and admins manage staff calendar links.' : 'Could not load the staff calendar links: ' + _esc(e.message)) + '</div>';
             }

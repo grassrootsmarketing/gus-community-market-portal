@@ -38,6 +38,8 @@ The link carries the secret after a `#`. The browser never sends that part to an
 
 To stop one location: Stop sharing on its row (it stays stopped until Resume). To stop everyone at once: Stop sharing on every row, or the revoke function for each scope (service role), which records the stop the same way. Migrations 0111 to 0114 add two tables, one column and the link functions and change no existing row apart from giving key-less stores a feed key; they stay in place in any rollback. A build without the page and route simply leaves the links unanswerable (404 and 405), with every row kept. A build from before 0113 cannot issue links after 0113 (the four-argument function is gone) but still resolves them.
 
+**Rollback against 0114 is partial, not normal.** Every page token keeps resolving under any build. But an application build from before 0114 (6a862c8 or earlier) is only a degraded emergency fallback against the 0114 database: its Settings list treats a stopped scope as "no link" and calls issue to fill it, which the 0114 function refuses with scope_disabled, so that older list fails as a whole (503) for a store with any stopped scope; its UI has no Resume; and its Rotate cannot succeed on a stopped scope either. Prefer a forward fix, or a build that keeps the 0114-aware list, Stop and Resume code. Never clear disabled_at, and never rewrite or drop 0114, to make an older build work: the stopped states and the existing credentials are kept as they are.
+
 ## Not in this release
 
 A QR code in the admin section, a Download month button on the page, and anything brand-facing. Pagination beyond the 90-day window is a follow-up before scaling.
