@@ -11,7 +11,7 @@
 //   7. a slow list answer that overlaps a Stop (or a Resume) cannot leave the final view showing the wrong state, from
 //      either entry path.
 // Local static server on :4179 (scratchpad local-server-wt.mjs with DOM_ROOT = this checkout) or DOM_BASE.
-/* global document, window */
+/* global document, window, localStorage, setInterval, clearInterval, navigator */
 import { createRequire } from 'node:module';
 const BASE = process.env.DOM_BASE || 'http://localhost:4179';
 const require = createRequire((process.env.PLAYWRIGHT_ROOT || process.cwd()).replace(/\\/g, '/') + '/package.json');
