@@ -1427,7 +1427,7 @@ async function computeOwnerMetrics() {
     try { const r = await sbAll(q, { max: 100000 }); if (!r.complete) issues.push({ source: name, problem: 'partial', loaded: r.rows.length, total: r.total }); return r.rows; }
     catch (e) { console.error('owner metrics query failed:', name, e?.message); issues.push({ source: name, problem: 'unavailable' }); return []; }
   };
-  const [retailers, brands, demos, bookings, settings] = await Promise.all([
+  const [retailersAll, brands, demos, bookings, settings] = await Promise.all([
     safeQuery('retailers', `retailers?select=id,name,slug,created_at,logo_url,billing_email,billing_tier,billing_status,stripe_subscription_id,verification_status,is_demo&order=id.asc`),
     safeQuery('brands', `brands?select=id,company_name,created_at,default_coi_url,is_verified,coi_verification_status,contact_name,email&order=id.asc`),
     safeQuery('demos', `demos?select=id,retailer_id,brand_id,demo_date,demo_fee,status,created_at&order=id.asc`),
@@ -1437,6 +1437,9 @@ async function computeOwnerMetrics() {
     // owner metrics silently contributed nothing.
     safeQuery('settings', `settings?select=retailer_id,demo_fee&order=id.asc`),
   ]);
+  // The '__owner__' row is the owner panel's session anchor, not a store (2026-10-26). It never counts, signs up,
+  // pays or goes dormant; the Retailers tab already leaves it out, so the headline must too.
+  const retailers = retailersAll.filter(r => r.slug !== '__owner__');
   const now = new Date();
   const thisMonth = monthKey(now);
   const lastMonthDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
