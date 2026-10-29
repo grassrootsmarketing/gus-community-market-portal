@@ -198,43 +198,9 @@ async function callerMembership(retailerId, email) {
 }
 
 
-// ---------------------------------------------------------------------------
-// Venue plan limit, MIRRORS supabase/migrations/0021_ws1-venue-limit-trigger-migration.sql
-// ---------------------------------------------------------------------------
-// The database trigger enforce_venue_limit() is AUTHORITATIVE. These two helpers exist only so a
-// user hits a friendly 402 instead of a raw constraint error. Any change to the tier→limit table
-// or the precedence rule must be made in BOTH places.
-//
-// Precedence (from the trigger): settings.billing_tier first, then retailers.billing_tier,
-// defaulting to 'solo'. An inactive paid subscription drops entitlement back to the solo limit.
-const TIER_LIMITS = { pro: 999, enterprise: 1000 };        // everything else => 1
-// 999 = practical-unlimited, matching the advertised Pro contract ("Unlimited stores") and
-// the existing convention in admin-auth.js ADMIN_CAP and signup.js's venueCount clamp.
-// MUST equal the value in migration 0052's enforce_venue_limit(). Changing one alone
-// reintroduces a silent cliff, 0021 had pro=10 while pricing promised unlimited.
-const INACTIVE_BILLING = new Set(['canceled', 'cancelled', 'unpaid', 'past_due', 'incomplete_expired']);
-
-async function getVenueLimitForRetailer(retailerId) {
-  const rid = encodeURIComponent(retailerId);
-  // The settings lookup that used to sit here read settings.billing_tier, a column that does
-  // not exist. It 400'd on every call, so `settingsTier` was always null and the expression
-  // below always fell through to retailers.billing_tier. Removing the query changes no
-  // behaviour and stops the code from describing a precedence rule it never applied.
-  // Migration 0054 removed the same fiction from enforce_venue_limit().
-  const retailerRows = await sb(`retailers?id=eq.${rid}&select=billing_tier,billing_status&limit=1`);
-  const retailer = Array.isArray(retailerRows) && retailerRows[0] ? retailerRows[0] : {};
-  const tier = String(retailer.billing_tier || 'solo').toLowerCase().trim();
-  let limit = TIER_LIMITS[tier] || 1;
-  if (limit > 1 && INACTIVE_BILLING.has(String(retailer.billing_status || '').toLowerCase().trim())) {
-    limit = 1;
-  }
-  return { limit, tier };
-}
-
-async function countExistingVenues(retailerId) {
-  const rows = await sb(`venues?retailer_id=eq.${encodeURIComponent(retailerId)}&select=id`);
-  return Array.isArray(rows) ? rows.length : 0;
-}
+// Locations are not limited by plan. The venue plan limit (TIER_LIMITS, getVenueLimitForRetailer and the
+// enforce_venue_limit() trigger from 0021/0052/0054) was removed on 2026-10-28 with migration 0115: Demohub is
+// free for retailers at any number of locations.
 
 export default async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -660,7 +626,7 @@ export default async function handler(req, res) {
     }
     // Force the retailer_id to the session's, so callers can't omit/swap it
     body.retailer_id = session.retailer_id;
-    // ===== Tier enforcement: venues =====
+    // ===== Venues (no plan limit; see migration 0115) =====
     if (table === 'venues') {
       // Codex R4: a NEW venue may carry hours, but blackouts exist only through the blackout action
       // (server-generated identity) and a slot list only while slot editing is ON.
@@ -672,32 +638,6 @@ export default async function handler(req, res) {
         body.availability = { ...body.availability, blackouts: [] };
       }
       if (Object.prototype.hasOwnProperty.call(body, 'availability_version')) delete body.availability_version;
-      try {
-        const { limit, tier } = await getVenueLimitForRetailer(session.retailer_id);
-        if (limit > 0) {
-          const existing = await countExistingVenues(session.retailer_id);
-          if (existing >= limit) {
-            return send(res, 402, {
-              error: 'plan_limit_reached',
-              message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. Upgrade to add more.`,
-              tier,
-              limit,
-              existing,
-              upgrade_url: '/pricing',
-            });
-          }
-        }
-      } catch (e) {
-        // Deny-by-default: if the tier check fails we do NOT know whether the caller is
-        // Solo (limit=1) or Pro (limit=999). Silently allowing would create a bypass path
-        // (Solo user retries during a transient DB blip and lands 2+ locations).
-        // Return 503 with a clear message so client-side retries / support can diagnose.
-        console.error('venue tier check failed, denying create:', e?.message || e);
-        return send(res, 503, {
-          error: 'tier_check_unavailable',
-          message: 'Could not verify your plan just now. Try again in a moment.',
-        });
-      }
     }
     // (compliance_records: the COI warn-cursor reset happens in the strip block below, AFTER the
     // client-writable allowlist has run, so the server-set nulls are not discarded with the client's

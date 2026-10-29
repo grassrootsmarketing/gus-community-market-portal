@@ -352,7 +352,7 @@ export default async function handler(req, res) {
     // Best-effort. Failure never blocks signup response.
     if (_b.resendApiKey) {
       try {
-        const tierLabel = (store_count > 1) ? 'Pro (multi-store)' : 'Solo (single-store)';
+        const tierLabel = venueCount === 1 ? '1 location' : `${venueCount} locations`;
         const subj = `New Demohub signup: ${retailer_name}`;
         const bodyHtml = `<!DOCTYPE html><html><body style="margin:0;padding:24px;background:#fbf7f0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#1c1c1a;">
 <table align="center" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:white;border-radius:14px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">
@@ -365,7 +365,7 @@ export default async function handler(req, res) {
 <tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;">Contact</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;">${(contact_name||'').replace(/[<>]/g,'') || '(not provided)'}</td></tr>
 <tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Email</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${normalizedEmail.replace(/[<>]/g,'')}</td></tr>
 <tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Stores</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${store_count || 1}</td></tr>
-<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Tier</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${tierLabel}</td></tr>
+<tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Locations</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${tierLabel}</td></tr>
 <tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Demo fee</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${demo_fee ? '$' + demo_fee : '(default)'}</td></tr>
 <tr><td style="padding:6px 0;color:#6b6a64;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;font-weight:700;border-top:1px solid #ede3d0;">Signed up</td><td style="padding:6px 0;text-align:right;color:#0f2c17;font-weight:600;border-top:1px solid #ede3d0;">${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })} PT</td></tr>
 </table>
@@ -390,8 +390,7 @@ export default async function handler(req, res) {
     const adminUrlWithToken = signupToken
       ? `${adminUrl}?token=${encodeURIComponent(signupToken)}`
       : adminUrl;
-    // Multi-store signups: Pro tier required. Signal the UI to redirect to Stripe.
-    const needsBilling = venueCount > 1;
+    // Every location is free (2026-10-28): nothing to bill, whatever the store count.
     return res.status(200).json({
       ok: true,
       retailer_id: retailer.id,
@@ -401,8 +400,7 @@ export default async function handler(req, res) {
       session_token: signupToken,
       public_url: publicUrl,
       email_sent: emailOk,
-      needs_billing: needsBilling,
-      tier: needsBilling ? 'pro' : 'solo',
+      needs_billing: false,
       store_count: venueCount,
     });
   } catch (e) {

@@ -7,9 +7,7 @@
 //   * capacity column absent / cell blank -> 1; '1','2','7' -> stored exactly
 //   * '0','-1','2.7','1.0','1e2','+3','abc','2147483648' -> 400 invalid_rows naming the row, ZERO inserts
 //   * a multi-row file with ONE bad cell -> the whole request is refused, ZERO inserts
-//   * retailer / venue-count lookup fault -> 503 entitlement_unavailable, ZERO inserts
-//   * solo over-limit -> 402 plan_limit_reached before any write
-//   * enforce_venue_limit() refusal mid-import -> 409 venue_limit_reached, ok:false, imported count accurate
+//   * no plan limit (2026-10-28, migration 0115): a 'solo' or legacy-tier retailer imports several rows in one file
 //   * viewer / manager -> 403; owner / admin -> allowed
 //   * cross-origin -> 403 cross_origin_denied with NO Supabase call at all
 // Fixtures are torn down in FK-safe order.
@@ -69,9 +67,9 @@ async function importCsv(cookie, csv, { csrf = true, origin = ORIGIN, headers = 
 const csvWithCapacity = (rows) => 'name,address,capacity\n' + rows.map(([n, c]) => `${n},1 Import St,${c}`).join('\n') + '\n';
 
 const slugP = uniq('bulk-pro'), slugS = uniq('bulk-solo'), slugL = uniq('bulk-legacy');
-const P = await mkRetailer(slugP, 'Bulk Pro', 'pro');            // pro: precheck limit 0 (skipped), trigger 999
-const S = await mkRetailer(slugS, 'Bulk Solo', 'solo');          // solo: precheck limit 1, trigger 1
-const L = await mkRetailer(slugL, 'Bulk Legacy', 'starter');     // legacy starter: precheck SKIPPED (0), trigger treats as solo = 1
+const P = await mkRetailer(slugP, 'Bulk Pro', 'pro');            // billing_tier values are legacy; no route or trigger limits locations by tier any more
+const S = await mkRetailer(slugS, 'Bulk Solo', 'solo');
+const L = await mkRetailer(slugL, 'Bulk Legacy', 'starter');
 const ownerP = `owner-${slugP}@fixture.test`, adminP = `admin-${slugP}@fixture.test`, managerP = `manager-${slugP}@fixture.test`, viewerP = `viewer-${slugP}@fixture.test`;
 const ownerS = `owner-${slugS}@fixture.test`, ownerL = `owner-${slugL}@fixture.test`;
 await mkMember(P, ownerP, 'owner'); await mkMember(P, adminP, 'admin'); await mkMember(P, managerP, 'manager'); await mkMember(P, viewerP, 'viewer');
@@ -147,51 +145,27 @@ try {
   }
 
   // =========================================================================
-  console.log('\n-- 4: entitlement precheck cannot be read -> 503, ZERO inserts --');
+  console.log('\n-- 4: no plan limit -- solo and legacy tiers import several locations --');
   // =========================================================================
-  {
-    const before = await venueCount(P);
-    spy.faults.push({ url: `retailers?id=eq.${P}&select=billing_tier`, method: 'GET', once: true, status: 500, message: 'injected_retailer_fault' });
-    const r = await importCsv(ckOwnerP, csvWithCapacity([['Fault Row', '2']]));
-    ok('4a retailer tier lookup fault -> 503 entitlement_unavailable', r.statusCode === 503 && r.body && r.body.ok === false && r.body.error === 'entitlement_unavailable', `${r.statusCode} ${JSON.stringify(r.body)}`);
-    ok('4a ZERO inserts after the fault', (await venueCount(P)) === before, `${before} -> ${await venueCount(P)}`);
-    ok('4a the fault was consumed (route actually performed the lookup)', spy.faults.length === 0, JSON.stringify(spy.faults));
-    spy.faults.length = 0;
-  }
+  // Before 2026-10-28 a 'solo' retailer was refused at the second location (402 plan_limit_reached from the
+  // route's precheck, 409 venue_limit_reached from the enforce_venue_limit() trigger). Migration 0115 dropped the
+  // trigger and this release dropped the precheck: every retailer is free at any number of locations.
   {
     const before = await venueCount(S);
-    spy.faults.push({ url: `venues?retailer_id=eq.${S}&select=id`, method: 'GET', once: true, status: 500, message: 'injected_count_fault' });
-    const r = await importCsv(ckOwnerS, csvWithCapacity([['Solo Fault', '1']]));
-    ok('4b venue-count lookup fault (solo precheck) -> 503 entitlement_unavailable', r.statusCode === 503 && r.body && r.body.error === 'entitlement_unavailable', `${r.statusCode} ${JSON.stringify(r.body)}`);
-    ok('4b ZERO inserts after the count fault', (await venueCount(S)) === before);
-    spy.faults.length = 0;
-  }
-
-  // =========================================================================
-  console.log('\n-- 5: plan limits -- friendly 402 precheck, and the authoritative trigger --');
-  // =========================================================================
-  {
-    const before = await venueCount(S);
-    const r = await importCsv(ckOwnerS, csvWithCapacity([['Solo 1', '1'], ['Solo 2', '1']]));
-    ok('5a solo importing 2 rows -> 402 plan_limit_reached BEFORE any write', r.statusCode === 402 && r.body && r.body.ok === false && r.body.error === 'plan_limit_reached' && r.body.imported === 0, `${r.statusCode} ${JSON.stringify(r.body)}`);
-    ok('5a solo: ZERO inserts', (await venueCount(S)) === before);
-    const r1 = await importCsv(ckOwnerS, csvWithCapacity([['Solo Only', '4']]));
-    ok('5a solo importing exactly 1 row is allowed', r1.statusCode === 200 && r1.body.imported === 1, `${r1.statusCode} ${JSON.stringify(r1.body)}`);
-    ok('5a solo stored capacity 4 exactly', ((await venues(S))[0] || {}).max_demos_per_slot === 4);
+    ok('4a solo fixture starts with no venues', before === 0, String(before));
+    const r = await importCsv(ckOwnerS, csvWithCapacity([['Solo 1', '1'], ['Solo 2', '1'], ['Solo 3', '4']]));
+    ok('4a solo importing 3 rows -> 200 imported 3 (no plan limit)', r.statusCode === 200 && r.body && r.body.ok === true && r.body.imported === 3 && r.body.total === 3, `${r.statusCode} ${JSON.stringify(r.body)}`);
+    const got = Object.fromEntries((await venues(S)).map(v => [v.name, v.max_demos_per_slot]));
+    ok('4a all three solo locations stored with exact capacities', got['Solo 1'] === 1 && got['Solo 2'] === 1 && got['Solo 3'] === 4, JSON.stringify(got));
+    ok('4a no plan_limit_reached / venue_limit_reached / upgrade_url in the response', !/plan_limit_reached|venue_limit_reached|upgrade_url/.test(JSON.stringify(r.body)), JSON.stringify(r.body));
   }
   {
-    // Legacy 'starter' tier: TIER_LOCATION_LIMITS maps it to 0 so the JS precheck is skipped, but
-    // enforce_venue_limit() treats every non-pro/enterprise tier as Solo (limit 1). The trigger --
-    // not the precheck -- refuses the second insert; the route must surface that as non-2xx with an
-    // accurate imported count, never ok:true.
     const before = await venueCount(L);
-    ok('5b legacy fixture starts with no venues', before === 0, String(before));
+    ok('4b legacy fixture starts with no venues', before === 0, String(before));
     const r = await importCsv(ckOwnerL, csvWithCapacity([['Legacy 1', '2'], ['Legacy 2', '3'], ['Legacy 3', '1']]));
-    ok('5b trigger refusal -> 409 venue_limit_reached', r.statusCode === 409 && r.body && r.body.ok === false && r.body.error === 'venue_limit_reached', `${r.statusCode} ${JSON.stringify(r.body)}`);
-    ok('5b imported count is ACCURATE (1 of 3), failed 2', r.body && r.body.imported === 1 && r.body.total === 3 && r.body.failed === 2, JSON.stringify(r.body));
-    ok('5b the refused row is named (data row 2) with a non-sensitive message', r.body && Array.isArray(r.body.errors) && r.body.errors[0] && r.body.errors[0].row === 2 && /limit/i.test(r.body.errors[0].message) && !/exception|plpgsql|check_violation/i.test(JSON.stringify(r.body)), JSON.stringify(r.body && r.body.errors));
+    ok('4b legacy starter tier importing 3 rows -> 200 imported 3', r.statusCode === 200 && r.body && r.body.ok === true && r.body.imported === 3 && r.body.total === 3, `${r.statusCode} ${JSON.stringify(r.body)}`);
     const after = await venues(L);
-    ok('5b database holds exactly 1 venue for the legacy retailer (the first row)', after.length === 1 && after[0].name === 'Legacy 1' && after[0].max_demos_per_slot === 2, JSON.stringify(after));
+    ok('4b database holds all 3 venues for the legacy retailer', after.length === 3 && after[0].name === 'Legacy 1' && after[0].max_demos_per_slot === 2, JSON.stringify(after));
   }
 
   // =========================================================================

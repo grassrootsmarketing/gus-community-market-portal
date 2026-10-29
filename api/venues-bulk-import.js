@@ -1,7 +1,5 @@
 import { requireRetailerMembership } from './_retailer-auth.js';
 
-// Tier limit enforcement, mirrors /api/admin
-const TIER_LOCATION_LIMITS = { solo: 1, starter: 0, growth: 0, enterprise: 0 };
 // /api/venues-bulk-import, cookie-authenticated POST FormData with a CSV file.
 // Server parses CSV and inserts venues. Bypasses client-side file API hangs.
 
@@ -229,39 +227,11 @@ export default async function handler(req, res) {
     return jsonResp(res, 400, { ok: false, error: 'no_rows', message: 'No data rows to import.', errors: [], imported: 0, total: 0, filename });
   }
 
-  // ===== Tier precheck: cap total venues after this import (friendly 402 before any write). =====
-  // Codex FC-03: this used to log the lookup error and PROCEED. It now fails closed -- if the
-  // entitlement cannot be read, nothing is inserted. The DB trigger enforce_venue_limit() remains
-  // the authoritative guard (FOR UPDATE serialised); this is only the early, friendly refusal.
-  try {
-    const rArr = await sb(`retailers?id=eq.${encodeURIComponent(session.retailer_id)}&select=billing_tier`);
-    if (!Array.isArray(rArr) || !rArr[0]) throw new Error('retailer_not_found');
-    const tier = String(rArr[0].billing_tier || 'solo').toLowerCase();
-    const limit = TIER_LOCATION_LIMITS[tier] || 0;
-    if (limit > 0) {
-      const existingArr = await sb(`venues?retailer_id=eq.${encodeURIComponent(session.retailer_id)}&select=id`);
-      if (!Array.isArray(existingArr)) throw new Error('venue_count_unavailable');
-      const existingCount = existingArr.length;
-      const proposedTotal = existingCount + parsedRows.length;
-      if (proposedTotal > limit) {
-        return jsonResp(res, 402, {
-          ok: false,
-          error: 'plan_limit_reached',
-          message: `Your ${tier} plan is limited to ${limit} location${limit === 1 ? '' : 's'}. This import would create ${proposedTotal}. Upgrade to import more.`,
-          tier, limit, existing: existingCount, upgrade_url: '/pricing', imported: 0, total: parsedRows.length,
-        });
-      }
-    }
-  } catch (e) {
-    console.error('bulk-import entitlement precheck unavailable:', e?.message || e);
-    return jsonResp(res, 503, { ok: false, error: 'entitlement_unavailable', message: 'Could not verify your plan. Nothing was imported -- try again in a moment.', imported: 0, total: parsedRows.length });
-  }
+  // No plan precheck: locations are not limited by plan (migration 0115, 2026-10-28).
 
   // ===== Insert each venue. Stop at the FIRST database refusal. =====
-  // enforce_venue_limit() raises 'venue_limit_reached' (check_violation) on the insert that
-  // would exceed the plan; every later row would fail the same way, so continuing only burns
-  // requests. The response is non-2xx with the EXACT number of rows that were inserted before
-  // the failure -- never ok:true on a partial import.
+  // The response is non-2xx with the EXACT number of rows that were inserted before the failure,
+  // never ok:true on a partial import.
   let imported = 0;
   for (const { rec, row } of parsedRows) {
     try {
@@ -272,15 +242,12 @@ export default async function handler(req, res) {
       imported++;
     } catch (e) {
       const detail = String(e?.message || e || '');
-      const limitHit = /venue_limit_reached/i.test(detail);
-      console.error('bulk-import insert failed at row', row, limitHit ? 'venue_limit_reached' : detail.slice(0, 200));
-      const message = limitHit
-        ? "Your plan's location limit was reached at this row. Upgrade to import more locations."
-        : 'The database rejected this row.';
+      console.error('bulk-import insert failed at row', row, detail.slice(0, 200));
+      const message = 'The database rejected this row.';
       const failure = { row, line: row + 1, name: rec.name, message };
-      return jsonResp(res, limitHit ? 409 : 500, {
+      return jsonResp(res, 500, {
         ok: false,
-        error: limitHit ? 'venue_limit_reached' : 'insert_failed',
+        error: 'insert_failed',
         message: `Imported ${imported} of ${parsedRows.length} location${parsedRows.length === 1 ? '' : 's'} before row ${row} was refused.`,
         imported,
         failed: parsedRows.length - imported,
