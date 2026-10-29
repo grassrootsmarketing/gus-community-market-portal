@@ -236,6 +236,7 @@ function renderGate(msg) {
       <div class="eyebrow">Owner sign in</div>
       <h1>Open the owner panel</h1>
       <p>This panel is restricted to the Demohub owner email. Sign in with your magic link.</p>
+      ${msg ? "<p class=\"gate-msg\" style=\"margin:0 0 14px; padding:10px 12px; background:#fff3ed; border-left:3px solid #ed682f; color:#a14e2a; border-radius:6px;\">" + escapeHtml(msg) + "</p>" : ""}
       <form id="ownerLoginForm">
         <label for="ownerEmailInput">Email address</label>
         <input id="ownerEmailInput" type="email" required placeholder="you@demohubhq.com" autocomplete="email">
@@ -732,7 +733,9 @@ function renderDashboard(d) {
 }
 
 // ---- Directory tabs (2026-09-29): read-only mirrors of each retailer's and each brand's account ----
-const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
+// Every owner request goes through here. A 401 means the 12-hour sign-in has ended (the panel may still be showing
+// numbers from the last load), so the sign-in gate is rendered right away instead of a dead Retry (2026-10-29).
+const ownerPost = async (action, extra) => { const r = await fetch('/api/admin-auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ action, ...(extra || {}) }) }); const j = await r.json().catch(() => ({})); if (r.status === 401) { try { renderGate('Your sign-in has expired. Sign in again to keep going.'); } catch (_) {} throw new Error('Your sign-in has expired. Sign in again to keep going.'); } if (!r.ok) throw new Error(j.message || j.error || ('HTTP ' + r.status)); return j; };
 const fmtD = (iso) => { if (!iso) return 'n/a'; const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(String(iso)); const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso); return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };   // a bare Y-M-D is a calendar date, not UTC midnight
 const money = (n) => n == null ? 'n/a' : '$' + Number(n).toFixed(2);
 const yesno = (b) => b ? 'Yes' : 'No';
