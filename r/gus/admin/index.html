@@ -3727,14 +3727,14 @@ END:VEVENT
 
 
         // Sync slider and numeric input for Default Demo Fee, update split preview.
-        const _PLATFORM_FEE = 5;
-        // Model: the retailer sets THEIR fee (what they keep). Demohub adds a flat $5 on top.
-        // Brand pays retailerFee + $5. Retailer keeps their full fee. Platform gets the flat $5.
+        const _PLATFORM_FEE = 10;
+        // Model: the retailer sets THEIR fee (what they keep). Demohub adds a flat $10 on top.
+        // Brand pays retailerFee + $10. Retailer keeps their full fee. Platform gets the flat $10.
         // This matches exactly what the public booking page charges.
         function _updateDemoFeeSplit(retailerFee) {
             const rf = Math.max(0, Math.min(50, Math.round(Number(retailerFee) || 0)));
             // keeps-all retailers (special deal): Demohub takes the whole demo fee, retailer keeps $0,
-            // and there's no separate +$5 bundled on top. Standard retailers: brand pays fee + $5.
+            // and there's no separate +$10 bundled on top. Standard retailers: brand pays fee + $10.
             const pka = !!(window.state && window.state.retailer && window.state.retailer.platform_keeps_all);
             const platformFee = pka ? rf : _PLATFORM_FEE;      // what Demohub keeps
             const brandPays = pka ? rf : (rf + _PLATFORM_FEE);  // what the brand is charged
@@ -7130,17 +7130,17 @@ function escapeHtml(s) {
             }
             tbody.innerHTML = demos.map(d => {
                 const fee = parseFloat(d.demo_fee) || 0;
-                const brandPaid = fee + 5;   // brand paid demo fee + $5 booking fee
+                const brandPaid = fee + 10;   // brand paid demo fee + $10 booking fee
                 return '<tr>'
                     + '<td>' + dateCell(d) + '</td>'
                     + '<td>' + escapeHtml(_billingBrand(d)) + '</td>'
                     + '<td>' + escapeHtml(d.product || 'n/a') + '</td>'
                     + '<td>' + escapeHtml(_billingVenue(d)) + '</td>'
                     + '<td style="text-align:right;">$' + brandPaid.toFixed(2) + '</td>'
-                    + '<td style="text-align:right; color:var(--ink-500); font-size:0.9em;">$' + (5).toFixed(2) + '</td>'
+                    + '<td style="text-align:right; color:var(--ink-500); font-size:0.9em;">$' + (10).toFixed(2) + '</td>'
                     + '<td style="text-align:right; font-weight:700; color:var(--forest-800);">$' + fee.toFixed(2) + '</td>'
                     + '</tr>';
-            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + (total + (demos.length * 5)).toFixed(2) + '</td><td style="text-align:right;">$' + (demos.length * 5).toFixed(2) + '</td><td style="text-align:right; color:var(--forest-800);">$' + total.toFixed(2) + '</td></tr>';
+            }).join('') + '<tr style="background: var(--forest-50); font-weight: 700;"><td colspan="4" style="text-align:right;">Total</td><td style="text-align:right;">$' + (total + (demos.length * 10)).toFixed(2) + '</td><td style="text-align:right;">$' + (demos.length * 10).toFixed(2) + '</td><td style="text-align:right; color:var(--forest-800);">$' + total.toFixed(2) + '</td></tr>';
         }
 
         function openStatement() {
@@ -7156,7 +7156,7 @@ function escapeHtml(s) {
             // document is a record of demo activity for the month, with no payout columns. Standard retailers get
             // the monthly statement. Both cover only demos that have taken place.
             const ka = _isKeepsAll();
-            const PLATFORM_FEE = 5;
+            const PLATFORM_FEE = 10;
             let feeTotal = 0, paidTotal = 0;
             const rows = demos.map(d => {
                 const dl = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + (d.time ? ' ' + d.time : '');
