@@ -250,7 +250,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         </div>
         <div class="hint" id="storeCountHint">You can set your demo fee + per-store details after sign-up.</div>
         <div id="storeCountProNote" style="display:none; margin-top:8px; padding:10px 12px; background:#fff3ed; border-left:4px solid #ed682f; border-radius:8px; font-size:0.85rem; color:#a14e2a; line-height:1.5;">
-          2+ stores runs on Pro, $29.99/mo after a monthly plan. Your first store is free either way.
+          Every location is free. Add as many as you run.
         </div>
       </div>
       <button class="btn" type="submit" id="submitBtn">Create my Demohub</button>
@@ -324,13 +324,13 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     if (successCard) successCard.style.display = 'block';
   }
 
-  // ---- store stepper (kept from before; Solo=1 free, 2+ is a Pro upgrade after signup) ----
+  // ---- store stepper (every location is free; the note below is kept hidden) ----
   function setStores(n){
     n = Math.max(1, Math.min(999, parseInt(n, 10) || 1));
     if (storeCount) storeCount.value = n;
     if (storeUnit) storeUnit.textContent = n === 1 ? 'store' : 'stores';
     const proNote = document.getElementById('storeCountProNote');
-    if (proNote) proNote.style.display = n > 1 ? 'block' : 'none';
+    if (proNote) proNote.style.display = 'none';
   }
   if (storeMinus) storeMinus.addEventListener('click', () => setStores(parseInt(storeCount.value, 10) - 1));
   if (storePlus)  storePlus.addEventListener('click',  () => setStores(parseInt(storeCount.value, 10) + 1));
@@ -367,7 +367,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
     }
   });
 
-  // ---- Step 2: verify the code -> server provisions Solo store + sets session cookie ----
+  // ---- Step 2: verify the code -> server provisions the store + sets session cookie ----
   async function submitCode(){
     const code = (codeInput.value || '').trim();
     if (!/^\d{6}$/.test(code)) { showError(verifyError, 'Enter the 6-digit code from your email.'); return; }
