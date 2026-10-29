@@ -12,7 +12,7 @@ const STRIPE = process.env.STRIPE_SECRET_KEY;
 let _b = null;
 // SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
 // fallback here is what let a preview deployment send customers to production on checkout return.
-const PLATFORM_FEE_CENTS = 500;
+const PLATFORM_FEE_CENTS = 1000;
 
 function rest(path, opts = {}) {
   return fetch(`${_b.supabaseUrl}/rest/v1/${path}`, {

@@ -1472,8 +1472,8 @@ async function computeOwnerMetrics() {
     if (active && (TIER_PRICES[tier] || 0) > 0) { mrrSubs += TIER_PRICES[tier]; paidRetailers++; }
   });
   const conversionPct = totalRetailers > 0 ? Math.round((paidRetailers / totalRetailers) * 1000) / 10 : 0;
-  // GMV = demo fees processed on PAID bookings; platform revenue = flat $5/booking service fee.
-  const PLATFORM_FEE = 5;
+  // GMV = demo fees processed on PAID bookings; platform revenue = flat $10/booking service fee.
+  const PLATFORM_FEE = 10;
   const paidBookings = bookings.filter(b => b.payment_status === 'paid');
   const paidThisMonth = paidBookings.filter(b => (b.paid_at || '').slice(0, 7) === thisMonth);
   const gmvMonth = paidThisMonth.reduce((s, b) => s + (Number(b.amount_paid || 0) / 100), 0);
