@@ -200,7 +200,7 @@ function refundConfirmationEmail({ brandName, retailerName, venueName, demoDate,
 '</table>' +
 '<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:0;">If the refund does not show up in 10 business days, reply to this email and we will help chase it with Stripe.</p>' +
 '</td></tr>' +
-'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong></td></tr>' +
+'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong></td></tr>' +
 '</table></body></html>';
 }
 
@@ -225,7 +225,7 @@ function paymentFailedEmail({ brandName, retailerName, retailerSlug, venueName, 
 '</div>' +
 '<p style="font-size:13px;color:#6b6a64;line-height:1.55;margin:14px 0 0;">If the same card keeps failing, try a different one, or reply to this email and we will help.</p>' +
 '</td></tr>' +
-'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong></td></tr>' +
+'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong></td></tr>' +
 '</table></body></html>';
 }
 
@@ -332,7 +332,7 @@ ${coiDeadline ? `<div style="background:#fff3ed;border:1px solid #ed682f55;borde
 </div>
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Need to change something? Just reply to this email and it goes straight to the store team.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> · demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> · demohubhq.com</td></tr>
 </table></body></html>`;
 }
 

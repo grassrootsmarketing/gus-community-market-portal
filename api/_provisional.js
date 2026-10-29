@@ -313,7 +313,7 @@ function shell(inner) {
     '<table align="center" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;border:1px solid rgba(15,44,23,0.08);">' +
     '<tr><td style="padding:28px 32px;background:#0f2c17;">' + brandHeaderHTML() + '</td></tr>' +
     '<tr><td style="padding:36px 36px 28px;">' + inner + '</td></tr>' +
-    '<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>' +
+    '<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> &middot; demohubhq.com</td></tr>' +
     '</table></body></html>';
 }
 function detailsTable(rows) {

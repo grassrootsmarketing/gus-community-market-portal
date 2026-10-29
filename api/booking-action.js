@@ -87,7 +87,7 @@ ${product ? `<tr><td style="padding:14px 18px;font-size:11px;text-transform:uppe
 </table>
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">Reply to this email if anything changes.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
@@ -103,7 +103,7 @@ ${reason ? `<p style="font-size:15px;line-height:1.6;color:#3a3a36;margin:0 0 18
 ${(refundStatus === 'issued' || refundStatus === 'submitted') ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your refund request was submitted.</strong> We'll email you to confirm once it's completed, typically within 5&ndash;10 business days.</p>` : refundStatus === 'auth_released' ? `<p style="font-size:15px;line-height:1.6;color:#2a5b32;margin:0 0 18px;"><strong>Your card was never charged.</strong> The temporary hold has been released. Depending on your bank it can take a few business days to drop off your statement.</p>` : refundStatus === 'refund_failed' ? `<p style="font-size:15px;line-height:1.6;color:#a14e2a;margin:0 0 18px;">We hit a snag issuing your refund automatically. We're on it and will make sure your card is credited. Questions? Just reply.</p>` : ''}
 <p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">You're welcome to pick a different date: just head back to <a href="${link(_b, '/r/gus')}" style="color:#2a5b32;">demohubhq.com/r/gus</a>.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
@@ -141,7 +141,7 @@ function cancelledEmail({ contact_name, brand_name, retailerName, venueName, dat
 refundLine +
 '<p style="font-size:14px;line-height:1.5;color:#6b6a64;margin:0;">To pick a different date, head back to <a href="' + link(_b, '/brand/dashboard') + '" style="color:#2a5b32;">your Demohub dashboard</a>.</p>' +
 '</td></tr>' +
-'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>' +
+'<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> &middot; demohubhq.com</td></tr>' +
 '</table></body></html>';
 }
 
@@ -390,7 +390,7 @@ function rescheduleEmail({ contact_name, brand_name, retailerName, venueName, fr
 <a href="${link(_b, '/brand/dashboard')}" style="display:inline-block;background:#0f2c17;color:white;padding:13px 26px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">Review and respond &rarr;</a>
 <p style="font-size:13px;line-height:1.5;color:#6b6a64;margin:18px 0 0;">Accept or decline from your dashboard. Decline and the demo stays on its original date.</p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">Demohub</strong> &middot; demohubhq.com</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Powered by <strong style="color:#0f2c17;">demohub</strong> &middot; demohubhq.com</td></tr>
 </table></body></html>`;
 }
 
