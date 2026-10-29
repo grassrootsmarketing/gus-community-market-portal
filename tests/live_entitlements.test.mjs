@@ -1,17 +1,18 @@
-// tests/live_entitlements.test.mjs — Codex Step 4, groups 2 and 3.
+// tests/live_entitlements.test.mjs, locations are not limited by plan (2026-10-28, migration 0115).
 //
-// Solo location boundary + parallel-insert enforcement, and the Pro ceiling at locations 10/11.
-//
-// This is the finding-D repair under a real database. The JS helper was repaired earlier so the
-// route stopped returning 503, but the DB trigger still carried pro=10 — which moved the failure
-// from "always" to "at the 11th location", a worse defect because it looks like it works.
+// History: this file used to prove the Solo boundary (one location, the second refused by the
+// enforce_venue_limit() trigger, under concurrency too) and the Pro ceiling at locations 10 and 11.
+// Demohub is now free for retailers at any number of locations and the Pro tier is gone, so 0115
+// dropped the trigger. The assertions are inverted: whatever billing_tier or billing_status a row
+// still carries, every insert is accepted, serially and in parallel, and no response mentions a
+// venue limit any more.
 import { rest, ok, summary, uniq } from './_live.mjs';
-import { HOURLY, STANDARD, HOURLY_JSON, STANDARD_JSON } from './_fixture_availability.mjs';
+import { HOURLY } from './_fixture_availability.mjs';
 
 
-async function mkRetailer(tier, slug) {
+async function mkRetailer(tier, slug, status = 'active') {
   const r = await rest('retailers', { method: 'POST', body: JSON.stringify({
-    slug, name: `fixture ${tier}`, billing_email: `${slug}@fixture.test`, billing_tier: tier, billing_status: 'active',
+    slug, name: `fixture ${tier}`, billing_email: `${slug}@fixture.test`, billing_tier: tier, billing_status: status,
   })});
   if (!r.ok) throw new Error(`retailer create failed: ${r.status} ${JSON.stringify(r.body)}`);
   return r.body[0].id;
@@ -22,32 +23,29 @@ const addVenue = (rid, n) => rest('venues', { method: 'POST', body: JSON.stringi
 
 const created = [];
 
-// ---- SOLO: exactly one location, second is refused ----
+// ---- a 'solo' row takes three locations in a row ----
 {
   const rid = await mkRetailer('solo', uniq('t-solo')); created.push(rid);
-  const a = await addVenue(rid, 1);
-  ok('solo: first location is accepted', a.ok, `status ${a.status}`);
-  const b = await addVenue(rid, 2);
-  ok('solo: SECOND location is refused by the database', !b.ok, `status ${b.status}`);
-  ok('solo: refusal names the venue limit, not a generic error',
-     JSON.stringify(b.body).includes('venue_limit_reached'), JSON.stringify(b.body).slice(0, 160));
+  const results = [];
+  for (let i = 1; i <= 3; i++) results.push(await addVenue(rid, i));
+  const refused = results.map((r, i) => (r.ok ? null : `#${i + 1} ${r.status} ${JSON.stringify(r.body).slice(0, 120)}`)).filter(Boolean);
+  ok('solo: three serial locations are all accepted', refused.length === 0, refused.join(' | '));
   const n = await rest(`venues?retailer_id=eq.${rid}&select=id`);
-  ok('solo: exactly one location exists afterwards', n.body.length === 1, `saw ${n.body.length}`);
+  ok('solo: three locations exist afterwards', n.body.length === 3, `saw ${n.body.length}`);
+  ok('solo: no response mentions venue_limit_reached', !results.some(r => JSON.stringify(r.body).includes('venue_limit_reached')));
 }
 
-// ---- SOLO under CONCURRENCY: the real test of the trigger ----
-// A count-then-insert check in application code cannot survive this. The trigger takes
-// FOR UPDATE on the retailer row, which serialises the inserts.
+// ---- a 'solo' row under CONCURRENCY: all eight parallel inserts land ----
 {
   const rid = await mkRetailer('solo', uniq('t-solo-race')); created.push(rid);
   const results = await Promise.all([1,2,3,4,5,6,7,8].map(i => addVenue(rid, i)));
   const accepted = results.filter(r => r.ok).length;
   const rows = await rest(`venues?retailer_id=eq.${rid}&select=id`);
-  ok('solo race: exactly ONE of 8 parallel inserts is accepted', accepted === 1, `accepted ${accepted}`);
-  ok('solo race: the database holds exactly one location', rows.body.length === 1, `rows ${rows.body.length}`);
+  ok('solo race: all 8 parallel inserts are accepted', accepted === 8, `accepted ${accepted}`);
+  ok('solo race: the database holds all eight locations', rows.body.length === 8, `rows ${rows.body.length}`);
 }
 
-// ---- PRO: locations 10 and 11 both succeed (the ceiling used to be 10) ----
+// ---- a legacy 'pro' row still takes locations 10 and 11 (nothing regressed for existing multi-store rows) ----
 {
   const rid = await mkRetailer('pro', uniq('t-pro')); created.push(rid);
   let failedAt = null;
@@ -55,19 +53,27 @@ const created = [];
     const r = await addVenue(rid, i);
     if (!r.ok) { failedAt = i; break; }
   }
-  ok('pro: no refusal anywhere up to location 11', failedAt === null, `refused at ${failedAt}`);
+  ok('legacy pro: no refusal anywhere up to location 11', failedAt === null, `refused at ${failedAt}`);
   const rows = await rest(`venues?retailer_id=eq.${rid}&select=id`);
-  ok('pro: 11 locations exist (old trigger capped at 10)', rows.body.length === 11, `rows ${rows.body.length}`);
+  ok('legacy pro: 11 locations exist', rows.body.length === 11, `rows ${rows.body.length}`);
 }
 
-// ---- PRO with a lapsed subscription drops back to the Solo limit ----
+// ---- billing_status no longer matters either: a past_due row is not dropped to one location ----
 {
   const rid = await mkRetailer('pro', uniq('t-pro-unpaid')); created.push(rid);
   await rest(`retailers?id=eq.${rid}`, { method: 'PATCH', body: JSON.stringify({ billing_status: 'past_due' }) });
   const a = await addVenue(rid, 1);
   const b = await addVenue(rid, 2);
-  ok('pro past_due: first location accepted', a.ok, `status ${a.status}`);
-  ok('pro past_due: second location refused (entitlement follows billing state)', !b.ok, `status ${b.status}`);
+  ok('past_due: first location accepted', a.ok, `status ${a.status}`);
+  ok('past_due: second location accepted too (billing state gates nothing)', b.ok, `status ${b.status} ${JSON.stringify(b.body).slice(0, 120)}`);
+}
+
+// ---- a legacy 'starter' row, which the old trigger treated as solo ----
+{
+  const rid = await mkRetailer('starter', uniq('t-starter')); created.push(rid);
+  const a = await addVenue(rid, 1);
+  const b = await addVenue(rid, 2);
+  ok('legacy starter: two locations accepted', a.ok && b.ok, `${a.status} / ${b.status}`);
 }
 
 // ---- cleanup ----

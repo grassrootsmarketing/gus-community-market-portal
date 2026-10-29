@@ -134,6 +134,9 @@ export default async function handler(req, res) {
 
     // ---- subscribe: create Checkout Session for a tier subscription ----
     if (action === 'subscribe') {
+      // Retired 2026-10-28: Demohub has no paid retailer plan. The Pro tier is gone, every store is free at any
+      // number of locations, and the admin no longer offers this action. Kept as a clear refusal, not a checkout.
+      return jsonResp(res, 410, { error: 'subscriptions_retired', message: 'Demohub has no paid plan for retailers. Your store is free at any number of locations.' });
       const tier = (body.tier || '').toString();
       const interval = (body.interval || 'month').toString();
       if (!VALID_TIERS.has(tier)) return jsonResp(res, 400, { error: 'Invalid tier' });

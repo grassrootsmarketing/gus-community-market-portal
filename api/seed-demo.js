@@ -143,7 +143,7 @@ const RETAILER_FIELDS = () => ({
   name: DEMO_NAME,
   billing_email: DEMO_MAILBOX,
   is_demo: true,
-  billing_tier: 'pro',   // the demo showcases the multi-store experience (venue-limit trigger: pro=999)
+  billing_tier: 'pro',   // legacy column; nothing gates on it since migration 0115 (every retailer is free at any number of locations)
   auto_confirm_bookings: true,
   cancellation_mode: 'refundable',
   platform_keeps_all: true,   // no per-demo platform fee on top of the store's $0, so the cart reads $0 too

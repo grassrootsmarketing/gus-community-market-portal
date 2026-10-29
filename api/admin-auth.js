@@ -561,25 +561,8 @@ export default async function handler(req, res) {
       const myRow = Array.isArray(me) ? me[0] : null;
       if (!myRow || !['owner', 'admin'].includes(String(myRow.role || '').toLowerCase())) return res.status(403).json({ error: 'insufficient_role', message: 'Only owners and admins can invite team members.' });
 
-      // Phase E: Solo tier is single-admin. Team invites require Pro.
-      try {
-        // settings has no billing_tier column and never has, so the "settings first, then
-        // retailers" precedence this used to implement could not have worked, the first query
-        // 400s on an unknown column and the catch swallows it, meaning EVERY retailer read as
-        // 'solo' and every team invite was refused with plan_upgrade_required.
-        // Migration 0054 removed the identical fiction from enforce_venue_limit(). retailers is
-        // the one place a tier is actually stored.
-        const retArr = await sb(`retailers?id=eq.${encodeURIComponent(v.retailer_id)}&select=billing_tier`);
-        const tier = ((Array.isArray(retArr) && retArr[0] && retArr[0].billing_tier) || 'solo').toLowerCase();
-        if (tier === 'solo' || tier === 'free') {
-          return res.status(402).json({
-            error: 'plan_upgrade_required',
-            message: 'Adding team members requires Pro. Solo stores are single-admin. Upgrade to invite staff.',
-            tier,
-            upgrade_url: '/pricing',
-          });
-        }
-      } catch (e) { console.warn('tier check for team-invite:', e && e.message); }
+      // Team invites are not gated by plan: every retailer may invite as many admins and viewers as it needs
+      // (free for retailers, 2026-10-28; the ADMIN_CAP below is the only ceiling).
 
       const normalizedEmail = email.toLowerCase().trim();
       // Check dup

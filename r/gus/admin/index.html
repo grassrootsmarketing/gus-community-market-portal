@@ -763,7 +763,6 @@
                     storeModal: () => window.closeStoreModal && closeStoreModal(),
                     storeBulkModal: () => window.closeStoreBulkUpload && closeStoreBulkUpload(),
                     teamInviteModal: () => window.closeTeamInvite && closeTeamInvite(),
-                    upgradeModal: () => window.closeUpgradeModal && closeUpgradeModal(),
                 };
                 const isOpen = (el) => el && (el.classList.contains('active') || el.style.display === 'flex');
                 document.addEventListener('keydown', function (e) {
@@ -1299,24 +1298,12 @@
                         </div>
                     </div>
                     <div class="settings-card" id="billingCard" data-tab="billingSection">
-                        <div class="settings-card-header"><h3>Plan &amp; billing</h3></div>
+                        <div class="settings-card-header"><h3>Plan</h3></div>
                         <div class="settings-card-body" id="billingCardBody">
-                            <div id="planFreeState" style="padding:14px 0;">
-                                <div style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">You're on the Solo plan.</div>
-                                <div style="font-size:0.88rem; color:var(--ink-500); margin-bottom:16px; line-height:1.5;">Solo is free forever for a single store. Upgrade to Pro to add locations, invite teammates, and unlock paid demos with Stripe.</div>
-                                <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                                    <button type="button" class="btn btn-primary" onclick="subscribeToTier('pro', 'month')" style="padding:10px 20px; font-size:0.95rem; font-weight:700;">Upgrade to Pro &rarr;</button>
-                                    <a href="/pricing" style="font-size:0.85rem; color:var(--forest-700); font-weight:600; text-decoration:underline;">See plan details</a>
-                                </div>
-                                <div style="font-size:0.78rem; color:var(--ink-500); margin-top:14px; line-height:1.5;">$29.99/mo. Cancel anytime from this page.</div>
-                                <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(15,44,23,0.08); font-size:0.78rem; color:var(--ink-500); line-height:1.5;">
-                                    Already paid but still see Solo? <button type="button" onclick="resyncBillingTier(this)" style="background:none; border:none; color:var(--forest-700); font-weight:700; text-decoration:underline; cursor:pointer; padding:0; font-family:inherit; font-size:0.78rem;">Resync my plan &rarr;</button>
-                                </div>
-                            </div>
-                            <div id="planPaidState" style="padding:14px 0; display:none;">
-                                <div id="planPaidLabel" style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">Pro plan</div>
-                                <div id="planPaidStatus" style="font-size:0.88rem; color:var(--ink-500); margin-bottom:16px; line-height:1.5;"></div>
-                                <button type="button" class="btn btn-secondary" onclick="openBillingPortal()" style="padding:10px 20px; font-size:0.9rem;">Manage subscription &rarr;</button>
+                            <div style="padding:14px 0;">
+                                <div style="font-weight:700; color:var(--forest-900); margin-bottom:6px; font-size:1.05rem;">Free for retailers.</div>
+                                <div style="font-size:0.88rem; color:var(--ink-500); line-height:1.5;">Demohub costs your store nothing, at any number of locations, with as many team members as you need. Brands pay Demohub a flat $10 fee per confirmed demo. Any demo fee you set on top is yours, paid out through Stripe from Bank &amp; payouts.</div>
+                                <div style="margin-top:12px;"><a href="/pricing" target="_blank" rel="noopener" style="font-size:0.85rem; color:var(--forest-700); font-weight:600; text-decoration:underline;">How pricing works</a></div>
                             </div>
                         </div>
                     </div>
@@ -7452,102 +7439,8 @@ function escapeHtml(s) {
             }, 1400);
         }
         
-        // ===== Plan & billing (Stripe Phase 1) =====
-        // Two tiers: Solo (free) and Pro (paid). Enterprise/custom is a later conversation.
-        const TIER_LABELS = { solo: 'Solo', pro: 'Pro' };
-        const TIER_PRICES_MONTHLY = { solo: 0, pro: 29.99 };
-
-        async function renderPlanCard() {
-            const body = document.getElementById('billingCardBody');
-            if (!body) return;
-            try {
-                const r = await fetch('/api/stripe?action=status', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
-                const d = await r.json();
-                if (!r.ok) throw new Error(d.error || 'Failed to load');
-                const tierLabel = d.tier ? TIER_LABELS[d.tier] || d.tier : 'Free (no subscription)';
-                const statusBadge = d.status === 'active' ? '<span style="display:inline-block;background:#e3edd6;color:#1f4a26;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Active</span>'
-                    : d.status === 'trialing' ? '<span style="display:inline-block;background:#fff3ed;color:#a14e2a;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Trial</span>'
-                    : d.status === 'past_due' ? '<span style="display:inline-block;background:#fdebe5;color:#c93030;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Past due</span>'
-                    : d.status === 'canceled' ? '<span style="display:inline-block;background:#f1efe8;color:#6b6a64;padding:3px 9px;border-radius:99px;font-size:0.78rem;font-weight:700;margin-left:8px;">Canceled</span>'
-                    : '';
-                const periodLine = d.period_end ? `<div style="font-size:0.82rem;color:var(--ink-500);margin-top:6px;">Renews ${new Date(d.period_end).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}${d.interval ? ' · billed ' + d.interval + 'ly' : ''}</div>` : '';
-
-                let buttons = '';
-                if (d.has_subscription) {
-                    buttons = `<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;">
-                        <button class="btn btn-primary" onclick="openBillingPortal()" style="padding:9px 16px;font-size:0.9rem;">Manage billing &rarr;</button>
-                        <button class="btn btn-secondary" onclick="openUpgradeModal()" style="padding:9px 16px;font-size:0.9rem;">Change plan</button>
-                    </div>`;
-                } else {
-                    buttons = `<div style="margin-top:14px;"><button class="btn btn-primary" onclick="openUpgradeModal()" style="padding:10px 20px;font-size:0.92rem;">Upgrade to a paid plan &rarr;</button></div>`;
-                }
-
-                body.innerHTML = `
-                    <div style="margin-bottom:6px;">
-                        <span style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">${tierLabel}</span>${statusBadge}
-                    </div>
-                    ${periodLine}
-                    ${buttons}
-                `;
-            } catch (e) {
-                body.innerHTML = '<div style="font-size:0.85rem;color:var(--clay-700);padding:6px 0;">Couldn\'t load billing status: ' + (e.message || e) + '</div>';
-            }
-        }
-
-        async function openBillingPortal() {
-            const r = await fetch('/api/stripe?action=portal', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
-            const d = await r.json();
-            if (d.url) window.location.href = d.url;
-            else DhModal.toast('Failed to open billing portal: ' + (d.error || 'unknown'), 'error');
-        }
-
-        function openUpgradeModal() {
-            const m = document.getElementById('upgradeModal');
-            if (m) m.style.display = 'flex';
-        }
-        function closeUpgradeModal() {
-            const m = document.getElementById('upgradeModal');
-            if (m) m.style.display = 'none';
-        }
-
-
-        // Open Stripe Customer Portal for managing an existing subscription
-        async function openBillingPortal() {
-            const btn = event?.target;
-            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
-            try {
-                const r = await fetch('/api/stripe?action=portal', {
-                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}', credentials: 'same-origin'
-                });
-                const d = await r.json();
-                if (d.url) { window.location.href = d.url; return; }
-                throw new Error(d.error || 'Failed');
-            } catch (e) {
-                DhModal.toast('Could not open portal: ' + (e.message || e), 'error');
-                if (btn) { btn.disabled = false; btn.textContent = 'Manage subscription →'; }
-            }
-        }
-        // Show free vs paid state based on the retailer's tier
-        function _renderBillingState() {
-            const tier = ((window.state && window.state.settings && window.state.settings.billing_tier)
-                || (window.state && window.state.retailer && window.state.retailer.billing_tier)
-                || 'solo').toLowerCase();
-            const free = document.getElementById('planFreeState');
-            const paid = document.getElementById('planPaidState');
-            if (!free || !paid) return;
-            if (tier === 'pro') {
-                free.style.display = 'none';
-                paid.style.display = '';
-                const label = document.getElementById('planPaidLabel');
-                if (label) label.textContent = tier.charAt(0).toUpperCase() + tier.slice(1) + ' plan';
-                const status = document.getElementById('planPaidStatus');
-                if (status) status.textContent = 'Active. Renews monthly.';
-            } else {
-                free.style.display = '';
-                paid.style.display = 'none';
-            }
-        }
-        document.addEventListener('DOMContentLoaded', () => setTimeout(_renderBillingState, 1500));
+        // Plan card: static (free for retailers, 2026-10-28). The Stripe subscription UI that lived here, plan
+        // status, upgrade modal and billing portal, was removed with the Pro tier.
         // Load support-session audit list once auth is ready
         async function _loadSupportSessions() {
             const el = document.getElementById('supportSessionsList');
@@ -7652,100 +7545,6 @@ function escapeHtml(s) {
             setTimeout(_loadSupportSessions, 2000);
             setTimeout(_loadSupportAccessStatus, 2000);
         });
-        // Manual Resync: fetches the retailer's true state from Stripe and mirrors it into
-        // our DB. Rescue path for any retailer whose billing_tier didn't update because a
-        // webhook was missed (e.g. before the webhook secret was configured).
-        async function resyncBillingTier(btn) {
-            const origLabel = btn ? btn.innerHTML : null;
-            if (btn) { btn.disabled = true; btn.innerHTML = 'Checking Stripe…'; }
-            try {
-                const r = await fetch('/api/stripe?action=sync', {
-                    method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
-                    credentials: 'same-origin',
-                });
-                const d = await r.json();
-                if (!r.ok) throw new Error(d.error || 'Sync failed');
-                if (d.found === false) {
-                    if (typeof toast === 'function') toast(d.message || 'No Stripe subscription found for this account yet.', 'warn');
-                    else alert(d.message || 'No Stripe subscription found for this account yet.');
-                    if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-                    return;
-                }
-                // Mirror what came back into local state so the UI re-renders immediately
-                if (window.state) {
-                    window.state.retailer = window.state.retailer || {};
-                    window.state.retailer.billing_tier = d.tier;
-                    window.state.retailer.billing_status = d.status;
-                    if (window.state.settings) window.state.settings.billing_tier = d.tier;
-                }
-                if (typeof toast === 'function') toast(`Plan resynced. You're on ${d.tier === 'pro' ? 'Pro' : d.tier}.`, 'success');
-                _renderBillingState();
-                // Also nudge a full refresh so tier-gated UI (team invite, locations count) updates
-                setTimeout(() => window.location.reload(), 900);
-            } catch (e) {
-                console.error('resync failed:', e);
-                if (typeof toast === 'function') toast('Resync failed: ' + (e.message || e), 'error');
-                else alert('Resync failed: ' + (e.message || e));
-                if (btn) { btn.disabled = false; btn.innerHTML = origLabel; }
-            }
-        }
-
-        // Auto-sync: when the retailer returns from Stripe Checkout on ?billing=success, we
-        // trigger a resync so the tier upgrade is reflected immediately even if the webhook
-        // hasn\'t landed yet (or is not configured).
-        (function autoSyncOnBillingReturn() {
-            try {
-                const params = new URLSearchParams(window.location.search || '');
-                if (params.get('billing') !== 'success') return;
-                // Clean the URL so refresh doesn\'t re-fire
-                const clean = window.location.pathname + window.location.hash;
-                window.history.replaceState({}, '', clean);
-                // Wait for session + state to hydrate
-                setTimeout(() => {
-                    // The old `if (!sessionId) return;` guard read a localStorage session that no
-                    // longer exists, so it would abort every auto-sync. The cookie rides along on
-                    // its own; an unauthenticated call simply comes back 401 and is ignored below.
-                    fetch('/api/stripe?action=sync', {
-                        method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}',
-                        credentials: 'same-origin',
-                    }).then(r => r.json()).then(d => {
-                        if (d && d.found && window.state) {
-                            window.state.retailer = window.state.retailer || {};
-                            window.state.retailer.billing_tier = d.tier;
-                            if (window.state.settings) window.state.settings.billing_tier = d.tier;
-                            _renderBillingState();
-                            if (typeof toast === 'function') toast('Payment received. You\'re on Pro.', 'success');
-                        }
-                    }).catch(() => {});
-                }, 1200);
-            } catch (_) { /* non-fatal */ }
-        })();
-
-
-        async function subscribeToTier(tier, interval) {
-            const btn = event?.target;
-            const origLabel = btn ? btn.innerHTML : null;
-            if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
-            try {
-                const r = await fetch('/api/stripe?action=subscribe', {
-                    method: 'POST', headers: {'Content-Type':'application/json'},
-                    body: JSON.stringify({ tier, interval }),
-                    credentials: 'same-origin',
-                });
-                const d = await r.json();
-                if (d.url) { window.location.href = d.url; return; }
-                throw new Error(d.error || 'Failed');
-            } catch (e) {
-                DhModal.toast('Could not start checkout: ' + (e.message || e), 'error');
-                if (btn) { btn.disabled = false; if (origLabel) btn.innerHTML = origLabel; }
-            }
-        }
-
-        // Render billing whenever the settings view becomes visible
-        if (typeof loadSettings === 'function') {
-            const _origLoadSettings = loadSettings;
-            window.loadSettings = function() { _origLoadSettings(); renderPlanCard(); };
-        }
 
 
         // On return from Stripe Connect onboarding, poll status for up to 30s (status can lag).
@@ -8340,31 +8139,6 @@ function escapeHtml(s) {
           if (origClose) window.closeTour = function(skipped){ const f=fab(); if(f) f.style.display='flex'; return origClose(skipped); };
         })();
 </script>
-
-    <!-- Upgrade plan modal -->
-    <div class="modal-overlay" id="upgradeModal" style="display:none; position:fixed; inset:0; background:rgba(15,44,23,0.4); z-index:10000; align-items:center; justify-content:center; padding:24px;">
-      <div style="max-width:760px; background:white; border-radius:16px; padding:30px; width:100%; box-shadow:0 12px 40px rgba(15,44,23,0.2);">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-          <h3 style="font-size:1.5rem; color:var(--forest-900); font-family:'Plus Jakarta Sans',sans-serif; font-weight:800; letter-spacing:-0.025em; margin:0;">Choose your plan</h3>
-          <button style="background:none;border:none;font-size:1.6rem;color:var(--ink-500);cursor:pointer;" onclick="closeUpgradeModal()">&times;</button>
-        </div>
-        <div style="font-size:0.92rem;color:var(--ink-500);margin-bottom:22px;">Annual plans save ~17%. Cancel anytime.</div>
-        <div style="display:flex; gap:8px; margin-bottom:18px;">
-          <button id="upBillMonth" class="btn btn-secondary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillMonth').classList.add('btn-primary');document.getElementById('upBillMonth').classList.remove('btn-secondary');document.getElementById('upBillYear').classList.add('btn-secondary');document.getElementById('upBillYear').classList.remove('btn-primary');window._upInterval='month';">Monthly</button>
-          <button id="upBillYear" class="btn btn-primary" style="flex:1;font-size:0.88rem;font-weight:700;" onclick="document.getElementById('upBillYear').classList.add('btn-primary');document.getElementById('upBillYear').classList.remove('btn-secondary');document.getElementById('upBillMonth').classList.add('btn-secondary');document.getElementById('upBillMonth').classList.remove('btn-primary');window._upInterval='year';">Yearly (save 17%)</button>
-        </div>
-        <div style="max-width:380px;margin:0 auto;">
-          <div style="border:1.5px solid var(--forest-300, #cfe0cf);border-radius:12px;padding:22px;">
-            <div style="font-weight:800;font-size:1.15rem;color:var(--forest-900);">Pro</div>
-            <div style="font-size:0.85rem;color:var(--ink-500);margin:2px 0 8px;">Unlimited locations, plus everything in Demohub.</div>
-            <div style="font-size:1.5rem;font-weight:800;color:var(--forest-900);">$29.99<span style="font-size:0.85rem;font-weight:500;color:var(--ink-500);">/mo</span></div>
-            <div style="font-size:0.78rem;color:var(--ink-500);margin:2px 0 16px;">Billed monthly, or yearly to save ~17%.</div>
-            <button class="btn btn-primary" style="width:100%;font-weight:700;" onclick="subscribeToTier('pro', window._upInterval || 'year')">Upgrade to Pro</button>
-          </div>
-        </div>
-        <div style="font-size:0.78rem;color:var(--ink-500);margin-top:18px;text-align:center;">All plans include unlimited brand demos, COI tracking, and the verified brand badge system. Need help choosing? <a href="mailto:david@demohubhq.com?subject=Help%20choosing%20a%20plan" style="color:var(--forest-700); font-weight:600;">Email david@demohubhq.com</a>.</div>
-      </div>
-    </div>
 
     <!-- Floating help / tour replay button -->
     <!-- Help FAB + popover menu -->
