@@ -1,0 +1,9 @@
+{
+  "endpoint": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+  "authorized_by": "David, in advance, relayed by the main session on 2026-10-30 for the round 4 live run (one pause); this wrapper run by David himself",
+  "paused_at": "2026-10-30T20:46:29.871Z",
+  "restored_at": "2026-10-30T20:51:10.610Z",
+  "status_after_pause": "disabled",
+  "status_after_restore": "enabled",
+  "ended_by": "rehearsal finished"
+}

@@ -1,0 +1,94 @@
+{
+  "run": "cc-mvvfdjpl-d06x0",
+  "date": "2026-10-30T20:29:00.298Z",
+  "project": "demohub-rebuild-check",
+  "stripe_mode": "test",
+  "account": {
+    "id": "acct_1Tt2kgAuAgpJei71",
+    "type": "express",
+    "country": "US",
+    "charges_enabled": true,
+    "payouts_enabled": true,
+    "capabilities": {
+      "affirm_payments": "active",
+      "bancontact_payments": "active",
+      "blik_payments": "active",
+      "card_payments": "active",
+      "cashapp_payments": "active",
+      "eps_payments": "active",
+      "ideal_payments": "active",
+      "klarna_payments": "active",
+      "link_payments": "active",
+      "transfers": "active"
+    },
+    "created": "2026-07-14T09:35:47.000Z"
+  },
+  "fixtures": {
+    "connected_retailer_id": "dbc28754-9749-4b1d-96de-69c8a6cd0b19",
+    "connected_retailer_slug": "rehearsal-connect-mvvfdkq6-x7xy6",
+    "venue_id": "e7ce1ff8-fb0f-4467-9cbc-099e34605b89",
+    "venue_fee_cents": 15000,
+    "keeps_all_retailer_id": "0fdc8374-3d3b-4787-95fe-5c0933803880",
+    "keeps_all_slug": "rehearsal-keepsall-mvvfdmcd-w0x9y",
+    "keeps_all_venue_id": "d9b66814-64bb-4855-ad2a-83a184370774",
+    "brand_id": "7903e6f8-5e2f-49df-946f-0ea69fc04504"
+  },
+  "cases": {
+    "W": {
+      "webhook_status": 200,
+      "before": {
+        "stripe_charges_enabled": false,
+        "stripe_payouts_enabled": false,
+        "stripe_account_status": "pending"
+      },
+      "after": {
+        "stripe_charges_enabled": true,
+        "stripe_payouts_enabled": true,
+        "stripe_account_status": "active"
+      }
+    },
+    "gate": {
+      "probe_booking": "2f3e35da-d480-43c3-9a3d-2cb5cd742c38",
+      "flag_off": {
+        "error": "connected_checkout_unavailable_pilot",
+        "booking_ids": [
+          "2f3e35da-d480-43c3-9a3d-2cb5cd742c38"
+        ]
+      },
+      "not_ready": {
+        "error": "store_not_payout_ready",
+        "message": "This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.",
+        "booking_ids": [
+          "2f3e35da-d480-43c3-9a3d-2cb5cd742c38"
+        ]
+      }
+    }
+  },
+  "fee": {},
+  "stripe_requests": [
+    {
+      "case": "A",
+      "checkout_session_request": {
+        "mode": "payment",
+        "payment_method_types[0]": "card",
+        "metadata[payment_group_id]": "e6141d8b-469a-42f6-a3e5-2874ae4a1b7c",
+        "metadata[retailer_id]": "dbc28754-9749-4b1d-96de-69c8a6cd0b19",
+        "metadata[booking_count]": "1",
+        "payment_intent_data[metadata][payment_group_id]": "e6141d8b-469a-42f6-a3e5-2874ae4a1b7c",
+        "payment_intent_data[metadata][retailer_id]": "dbc28754-9749-4b1d-96de-69c8a6cd0b19",
+        "line_items[0][price_data][currency]": "usd",
+        "line_items[0][price_data][unit_amount]": "16000",
+        "line_items[0][price_data][product_data][name]": "Demo at Rehearsal Main ($150)",
+        "line_items[0][price_data][product_data][description]": "Rehearsal Brand - 2026-11-12 1:00 PM (Rehearsal Market (connected))",
+        "line_items[0][quantity]": "1",
+        "payment_intent_data[application_fee_amount]": "1000",
+        "payment_intent_data[transfer_data][destination]": "acct_1Tt2kgAuAgpJei71",
+        "payment_intent_data[on_behalf_of]": "acct_1Tt2kgAuAgpJei71"
+      }
+    }
+  ],
+  "notes": [
+    "released the account from the earlier rehearsal fixture rehearsal-connect-mvv90b2n-pg8kj",
+    "aborted: browserType.launch: Executable doesn't exist at C:\\Users\\David\\AppData\\Local\\ms-playwright\\chromium_headless_shell-1248\\chrome-headless-shell-win64\\chrome-headless-shell.exe\n╔════════════════════════════════════════════════════════════╗\n║ Looks like Playwright was just installed or updated.       ║\n║ Please run the following command to download new browsers: ║\n║                                                            ║\n║     npx playwright install                                 ║\n║                                                            ║\n║ <3 Playwright Team                                         ║\n╚════════════════════════════════════════════════════════════╝"
+  ]
+}
