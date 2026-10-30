@@ -67,6 +67,26 @@ export default async function handler(req, res) {
     // the whole PaymentIntent, so a held booking can never share a Session with anything else,
     // mixed or multi-booking held carts are rejected, and manual capture is applied ONLY to a held
     // cart (verified brands keep the immediate charge even with the flag on).
+    // Route forward for a held booking after COI approval (Codex connected-checkout review, bounded condition): a brand
+    // books 'held' while its certificate is unreviewed; once the certificate is approved and covers the demo date, the
+    // booking is an ordinary unpaid booking and is paid like one. Only an unpaid held booking with NO payment group yet
+    // is moved (a hold mid-checkout, or one already authorized, settles through the hold paths). The move is a
+    // compare-and-set on status=held, so a concurrent sweep or cancel wins and the loop simply sees the new state.
+    if (bookings.some(b => b.status === 'held')) {
+      try {
+        const br = await sbJson(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status`);
+        const brand = (Array.isArray(br) && br[0]) || {};
+        const { coiCovered } = await import('./_coi-coverage.js');
+        for (const b of bookings) {
+          if (b.status !== 'held' || !coiCovered(brand, b.demo_date).covered) continue;
+          const inGroup = await sbJson(`payment_allocations?booking_id=eq.${encodeURIComponent(b.id)}&select=id&limit=1`);
+          if (Array.isArray(inGroup) && inGroup.length) continue;
+          const moved = await rest(`bookings?id=eq.${encodeURIComponent(b.id)}&status=eq.held&payment_status=eq.unpaid`, { method: 'PATCH', body: JSON.stringify({ status: 'pending_payment', held_expires_at: null }) });
+          const rows = moved && moved.ok ? await moved.json().catch(() => []) : [];
+          if (Array.isArray(rows) && rows.length) b.status = 'pending_payment';
+        }
+      } catch (e) { console.warn('held booking coverage re-check skipped:', (e && e.message) || e); }
+    }
     const heldCount = bookings.filter(b => b.status === 'held').length;
     const provisionalCart = heldCount > 0;
     if (provisionalCart && (heldCount !== bookings.length || bookings.length !== 1)) {
@@ -82,7 +102,7 @@ export default async function handler(req, res) {
     }
 
     const retailerId = bookings[0].retailer_id;
-    const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,platform_keeps_all`);
+    const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,stripe_payouts_enabled,platform_keeps_all`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     const platformKeepsAll = !!retailer.platform_keeps_all;
@@ -97,8 +117,11 @@ export default async function handler(req, res) {
       if (!FLAGS.connectedCheckout) {
         return res.status(409).json({ error: 'connected_checkout_unavailable_pilot', booking_ids: bookings.map(b => b.id) });
       }
+      // Payout readiness (Codex review, bounded condition): charges enabled alone is not readiness. Both booleans
+      // come from Stripe's own account object (account.updated, or the admin's connect-status refresh), and the
+      // account.updated handler marks a store 'active' only with the transfers capability live as well.
       const acct = typeof retailer.stripe_account_id === 'string' ? retailer.stripe_account_id.trim() : '';
-      if (!acct || retailer.stripe_charges_enabled !== true) {
+      if (!acct || retailer.stripe_charges_enabled !== true || retailer.stripe_payouts_enabled !== true) {
         return res.status(409).json({ error: 'store_not_payout_ready', message: 'This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.', booking_ids: bookings.map(b => b.id) });
       }
       // Provisional holds at a connected store are NOT supported yet (revenue split round 2, 2026-10-30). Provisional

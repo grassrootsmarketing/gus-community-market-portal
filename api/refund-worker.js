@@ -21,7 +21,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
 import { sweepMoves } from './_booking-moves.js';
 import { sweepCancellationReviews, sweepUnfinishedResolutions, sweepAbandonedCancellations } from './_cancellation-review.js';
-import { recordConnectSettlementLegs } from './_booking-refund.js';
+import { settleConnectRefund, stripeIdOf } from './_booking-refund.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -70,11 +70,14 @@ async function stripeGetRefund(id) {
   const r = await fetch(`https://api.stripe.com/v1/refunds/${encodeURIComponent(id)}`, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
   const j = await r.json(); return r.ok ? { ok: true, refund: j } : { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status) };
 }
-async function stripeSubmitRefund({ pi, amount, keepsAll, idempotencyKey, requestId, bookingId }) {
+async function stripeSubmitRefund({ pi, amount, keepsAll, strategy, idempotencyKey, requestId, bookingId }) {
   const p = new URLSearchParams();
   p.set('payment_intent', pi);
   if (Number.isFinite(amount) && amount > 0) p.set('amount', String(Math.round(amount)));   // NO currency (Stripe rejects it on create)
-  if (!keepsAll) { p.set('refund_application_fee', 'true'); p.set('reverse_transfer', 'true'); }  // exact for a single-allocation charge (multi-allocation connected is gated off)
+  // Connected (0117, Codex CC-1): reverse the transfer by the refunded amount; the application fee refund is created
+  // exactly, per allocation, by settleConnectRefund(). Only a pre-0117 request (strategy 1) keeps the proportional
+  // flag, so its payload under its idempotency key never changes.
+  if (!keepsAll) { p.set('reverse_transfer', 'true'); if (Number(strategy == null ? 1 : strategy) === 1) p.set('refund_application_fee', 'true'); }
   p.set('reason', 'requested_by_customer');
   p.set('metadata[refund_request_id]', String(requestId));
   if (bookingId) p.set('metadata[booking_id]', String(bookingId));
@@ -98,17 +101,107 @@ async function stripeListRefundsForPI(pi) {
   return { ok: true, data: out };
 }
 
+// Customer-leg recovery only. The Stripe-side settlement legs of a connected refund are the settlement queue's job
+// (drainSettlement below), eligible on the customer leg having SUCCEEDED, which this lease never selects.
 async function applyRefundToLedger(row, refund) {
-  const applied = await sbRpc('apply_refund_event', {
+  return sbRpc('apply_refund_event', {
     p_refund_id: refund.id, p_status: refund.status || 'pending', p_amount: refund.amount, p_currency: refund.currency,
     p_pi: refund.payment_intent || null, p_charge: refund.charge || null, p_meta_request_id: row.id, p_event_id: null,
   });
-  // Connected settlement legs (revenue split round 2): the worker's reconciliation pass records the transfer reversal
-  // and the application fee refund too, so a refund whose webhook delivery was missed still reaches 'complete'.
-  if (String(refund.status || '').toLowerCase() === 'succeeded') {
-    try { await recordConnectSettlementLegs(_b, refund, { requestId: row.id }); } catch (e) { console.warn('settlement legs not recorded for', refund.id, (e && e.message) || e); }
+}
+
+// ---- Connected settlement queue (0117, Codex CC-2) ----
+// claim_settlement_work leases connected refund requests whose customer refund SUCCEEDED but whose settlement is not
+// complete (independent of the customer-leg status machine above), with lease expiry and attempts. Each is settled
+// through the verified helper; a 'retry' outcome is released with exponential backoff (capped at an hour) and its
+// reason persisted; a contradiction has already been marked an exception by the helper (deduplicated case); a request
+// still unresolved after STALE_ATTEMPTS gets a deduplicated 'settlement_stale' case (alerted by drainCaseAlerts) while
+// retries continue. This path NEVER submits a customer refund.
+const SETTLE_BATCH = 25;
+const STALE_ATTEMPTS = 8;
+const settleBackoff = (attempts) => new Date(Date.now() + Math.min(60, Math.pow(2, Math.max(0, attempts))) * 60 * 1000).toISOString();
+async function drainSettlement() {
+  const owner = 'settle-' + Math.random().toString(36).slice(2, 10);
+  const out = { claimed: 0, completed: 0, retried: 0, exceptions: 0, stale_cases: 0, errors: 0, lost_lease: 0, claim_failed: false, first_error: null };
+  let rows = [];
+  try { rows = await sbRpc('claim_settlement_work', { p_owner: owner, p_lease_seconds: 120, p_limit: SETTLE_BATCH }); }
+  catch (e) { out.claim_failed = true; out.first_error = 'claim: ' + String((e && e.message) || e).slice(0, 160); return out; }
+  rows = Array.isArray(rows) ? rows : [];
+  for (const row of rows) {
+    out.claimed++;
+    let s;
+    try { s = await settleConnectRefund(_b, row.id); } catch (e) { s = { outcome: 'retry', reason: 'threw', error: String((e && e.message) || e).slice(0, 160) }; }
+    if (s.outcome === 'complete' || s.outcome === 'already_complete' || s.outcome === 'not_required') out.completed++;
+    else if (s.outcome === 'exception') out.exceptions++;
+    else {
+      out.retried++;
+      // a provider or database error is a run error; provider state that is not there yet is a designed wait
+      if (/^(stripe_|db_)|threw/.test(String(s.reason || ''))) { out.errors++; if (!out.first_error) out.first_error = 'settle: ' + s.reason + (s.error ? ' ' + s.error : ''); }
+      if (row.settlement_attempts >= STALE_ATTEMPTS) {
+        try {
+          await sbRpc('_open_case', { p_kind: 'settlement_exception', p_dedupe: 'settlement-stale:' + row.id, p_reason: 'settlement_stale', p_group: null, p_request: row.id, p_operation: null,
+            p_session: null, p_pi: null, p_charge: null, p_refund: row.stripe_refund_id || null, p_amount: row.amount, p_currency: row.currency,
+            p_details: { attempts: row.settlement_attempts, last_reason: s.reason || null, last_error: s.error || null } });
+          out.stale_cases++;
+        } catch (e) { out.errors++; if (!out.first_error) out.first_error = 'stale case: ' + String((e && e.message) || e).slice(0, 120); }
+      }
+    }
+    const nextAt = (s.outcome === 'retry') ? settleBackoff(row.settlement_attempts) : null;
+    const err = (s.outcome === 'retry') ? String((s.reason || 'retry') + (s.error ? ': ' + s.error : '')).slice(0, 200) : null;
+    try {
+      const held = await sbRpc('release_settlement_work', { p_request_id: row.id, p_owner: owner, p_next_attempt_at: nextAt, p_last_error: err });
+      if (held === false || (Array.isArray(held) && held[0] === false)) out.lost_lease++;
+    } catch (e) { out.errors++; if (!out.first_error) out.first_error = 'release: ' + String((e && e.message) || e).slice(0, 120); }
   }
-  return applied;
+  return out;
+}
+
+// ---- Delayed transfer / application fee ids on connected payment groups (0117, Codex CC-2) ----
+// Stripe fills charge.transfer and charge.application_fee shortly after capture; the webhook's bounded re-read usually
+// sees them, but recovery cannot rest on that. Every connected paid group still missing an id is read back from the
+// charge, validated against the group (PaymentIntent, destination, application fee amount) and filled through
+// apply_verified_payment's idempotent branch (which refuses a different id as a contradiction). A group still missing
+// its ids a day after payment gets a deduplicated case.
+const GROUP_IDS_STALE_MS = 24 * 60 * 60 * 1000;
+async function fillGroupSettlementIds() {
+  const out = { checked: 0, filled: 0, waiting: 0, stale_cases: 0, errors: 0, read_failed: false, first_error: null };
+  let groups = [];
+  try { groups = await sbGet('payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&or=(stripe_transfer_id.is.null,stripe_application_fee_id.is.null)&stripe_charge_id=not.is.null&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,connect_account_id,total_customer_amount,currency,updated_at&order=updated_at.asc&limit=25'); }
+  catch (e) { out.read_failed = true; out.first_error = 'read: ' + String((e && e.message) || e).slice(0, 160); return out; }
+  for (const g of (Array.isArray(groups) ? groups : [])) {
+    out.checked++;
+    try {
+      const r = await fetch(`https://api.stripe.com/v1/charges/${encodeURIComponent(g.stripe_charge_id)}`, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
+      const ch = await r.json();
+      if (!r.ok) throw new Error('charge read: ' + ((ch.error && ch.error.message) || r.status));
+      const sums = await sbGet(`payment_allocations?payment_group_id=eq.${encodeURIComponent(g.id)}&select=platform_fee_amount`);
+      const feeSum = (Array.isArray(sums) ? sums : []).reduce((s, a) => s + (a.platform_fee_amount || 0), 0);
+      const dest = stripeIdOf(ch.destination) || (ch.transfer_data && stripeIdOf(ch.transfer_data.destination)) || null;
+      if (stripeIdOf(ch.payment_intent) !== g.stripe_payment_intent_id || dest !== g.connect_account_id || ch.application_fee_amount !== feeSum) {
+        await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-charge-mismatch:' + g.id, p_reason: 'group_charge_mismatch', p_group: g.id, p_request: null, p_operation: null,
+          p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency,
+          p_details: { charge_pi: stripeIdOf(ch.payment_intent), destination: dest, application_fee_amount: ch.application_fee_amount, expected_destination: g.connect_account_id, expected_fee: feeSum } });
+        out.stale_cases++; continue;
+      }
+      const trId = stripeIdOf(ch.transfer), feeId = stripeIdOf(ch.application_fee);
+      if (!trId || !feeId) {
+        if (Date.now() - new Date(g.updated_at).getTime() > GROUP_IDS_STALE_MS) {
+          await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-ids-missing:' + g.id, p_reason: 'group_settlement_ids_missing', p_group: g.id, p_request: null, p_operation: null,
+            p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency, p_details: { transfer: trId, application_fee: feeId } });
+          out.stale_cases++;
+        } else out.waiting++;
+        continue;
+      }
+      const applied = await sbRpc('apply_verified_payment', {
+        p_session_id: g.stripe_checkout_session_id, p_payment_intent: g.stripe_payment_intent_id, p_charge: ch.id, p_amount: g.total_customer_amount, p_currency: g.currency,
+        p_connect_dest: dest, p_on_behalf_of: stripeIdOf(ch.on_behalf_of) || dest, p_application_fee: ch.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId,
+      });
+      const val = Array.isArray(applied) ? applied[0] : applied;
+      if (val && val.outcome === 'idempotent') out.filled++;
+      else { out.errors++; if (!out.first_error) out.first_error = 'fill: ' + ((val && (val.reason || val.outcome)) || 'no result'); }
+    } catch (e) { out.errors++; if (!out.first_error) out.first_error = 'group ' + g.id + ': ' + String((e && e.message) || e).slice(0, 120); }
+  }
+  return out;
 }
 function backoff(attempts) { return new Date(Date.now() + Math.min(60, Math.pow(2, Math.max(0, attempts))) * 60 * 1000).toISOString(); }
 
@@ -220,7 +313,7 @@ export default async function handler(req, res) {
         } else if (!pi) {
           out.manual++; nextStatus = 'requires_review'; err = 'no_payment_intent';
         } else if (ageMs <= IDEMPOTENCY_WINDOW_MS) {                  // ---- B: safe replay ----
-          const s = await stripeSubmitRefund({ pi, amount: row.amount, keepsAll, idempotencyKey: row.stripe_idempotency_key, requestId: row.id, bookingId: row.booking_id });
+          const s = await stripeSubmitRefund({ pi, amount: row.amount, keepsAll, strategy: row.settlement_strategy, idempotencyKey: row.stripe_idempotency_key, requestId: row.id, bookingId: row.booking_id });
           if (s.ok) { await applyRefundToLedger(row, s.refund); out.resubmitted++; nextStatus = mapTerminal(s.refund.status, 'submitted'); nextAt = terminalDue(s.refund.status); }
           else { out.errors++; err = ('submit: ' + s.error).slice(0, 200); const capped = (row.attempts + 1) >= MAX_ATTEMPTS; nextStatus = capped ? 'requires_review' : 'failed_retryable'; nextAt = capped ? null : backoff(row.attempts); }
         } else {                                                     // ---- C: window expired, reconcile by lookup ----
@@ -263,6 +356,22 @@ export default async function handler(req, res) {
       out.fulfillments_pending = Array.isArray(stuck) ? stuck.length : 0;
       if (out.fulfillments_pending > 0) console.warn('FULFILLMENT BACKLOG:', out.fulfillments_pending, 'paid booking(s) not fully fulfilled');
     } catch (e) { out.errors++; noteError('fulfilment: ' + ((e && e.message) || e)); console.error('fulfilment drain error:', (e && e.message) || e); }
+
+    // 0117 (Codex CC-2): connected settlement legs and delayed group ids, recovered without webhooks.
+    try {
+      const st = await drainSettlement();
+      out.settlement_claimed = st.claimed; out.settlement_completed = st.completed; out.settlement_retried = st.retried; out.settlement_exceptions = st.exceptions; out.settlement_stale_cases = st.stale_cases; out.settlement_lost_lease = st.lost_lease; out.settlement_claim_failed = !!st.claim_failed;
+      if (st.claim_failed) noteError('settlement: claim_settlement_work failed');
+      else if (st.errors > 0) noteError(st.first_error || 'settlement: error');
+      if (st.errors > 0) out.errors += st.errors;
+    } catch (e) { out.errors++; noteError('settlement: ' + ((e && e.message) || e)); console.error('settlement drain error:', (e && e.message) || e); }
+    try {
+      const gi = await fillGroupSettlementIds();
+      out.group_ids_checked = gi.checked; out.group_ids_filled = gi.filled; out.group_ids_waiting = gi.waiting; out.group_ids_cases = gi.stale_cases; out.group_ids_read_failed = !!gi.read_failed;
+      if (gi.read_failed) noteError(gi.first_error || 'group ids: read failed');
+      else if (gi.errors > 0) noteError(gi.first_error || 'group ids: error');
+      if (gi.errors > 0) out.errors += gi.errors;
+    } catch (e) { out.errors++; noteError('group ids: ' + ((e && e.message) || e)); console.error('group id fill error:', (e && e.message) || e); }
 
     // R12-P0-5: notify an operator about every open financial exception (deduped per case).
     try {
@@ -322,7 +431,8 @@ export default async function handler(req, res) {
     const movesFailed = (out.moves_failed || 0) > 0 || out.moves_claim_failed === true || out.moves_read_failed === true || out.moves_notice_failed === true;
     const reviewsFailed = (out.cancellation_cases_failed || 0) > 0 || out.cancellation_reviews_read_failed === true
       || (out.resolutions_failed || 0) > 0 || (out.resolutions_step_failed || 0) > 0 || (out.resolutions_escalated || 0) > 0 || out.resolutions_read_failed === true || (out.abandoned_failed || 0) > 0 || out.abandoned_read_failed === true;   // Codex R4-2: a caught resume failure or an escalation is never an unqualified success
-    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed && !reviewsFailed;
+    const settlementFailed = out.settlement_claim_failed === true || out.group_ids_read_failed === true;   // 0117: a failed settlement claim or group read is a failed run
+    const runOk = out.errors === 0 && !fulfilmentFailed && !alertsFailed && !movesFailed && !reviewsFailed && !settlementFailed;
     if (runOk) {
       await heartbeat('succeeded', startMs, out);
       return res.status(200).json(out);

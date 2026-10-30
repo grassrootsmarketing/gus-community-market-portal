@@ -27,7 +27,7 @@ export const config = { api: { bodyParser: false } };
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
-import { recordConnectSettlementLegs } from './_booking-refund.js';
+import { settleConnectRefund } from './_booking-refund.js';
 
 // stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
 // fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
@@ -251,7 +251,11 @@ async function handleAccountUpdated(event) {
 
   const charges = !!account.charges_enabled;
   const payouts = !!account.payouts_enabled;
-  const status = charges && payouts
+  // Codex connected-checkout review (bounded condition): charges_enabled alone is not payout readiness. 'active' means
+  // Stripe reports charges enabled, payouts enabled AND the transfers capability active (the destination of a
+  // destination charge). The checkout gate reads the two booleans; the status is what the admin UI shows.
+  const transfersActive = !account.capabilities || account.capabilities.transfers === 'active';
+  const status = charges && payouts && transfersActive
     ? 'active'
     : (account.requirements?.disabled_reason ? 'restricted' : 'pending');
 
@@ -386,15 +390,22 @@ async function applyRefundObject(rf, charge, eventId) {
   } else if (outcome === 'contradiction' || outcome === 'failed') {
     console.warn('refund event', outcome, 'for', rf.id, val && val.reason); // RPC already opened a reconciliation_cases row
   }
-  // Connected settlement legs (revenue split round 2): once the customer leg has converged, read the transfer
-  // reversal and the application fee refund from Stripe and record them, so settlement_status reaches 'complete'
-  // without an operator. Idempotent; keeps-all groups are skipped inside. A failure here is logged, never thrown:
-  // the customer leg is already durable and the worker's reconciliation pass records the legs again.
+  // Connected settlement (0117, Codex CC-2/CC-3): once the customer leg has converged through the verified RPC, the
+  // request is resolved by the refund id the LEDGER stored (never by event metadata alone), and settleConnectRefund()
+  // retrieves and verifies the transfer reversal and the application fee refund before recording them. Anything
+  // short of 'complete' is left to the leased settlement queue in api/refund-worker.js; nothing here throws, the
+  // customer leg is already durable.
   if ((outcome === 'applied' || outcome === 'already_terminal') && String(rf.status || '').toLowerCase() === 'succeeded') {
     try {
-      const legs = await recordConnectSettlementLegs(await bind(), rf, { requestId: metaReqId });
-      if (legs && legs.outcome === 'recorded') console.log('connected settlement legs recorded for', rf.id, JSON.stringify(legs.legs));
-    } catch (e) { console.warn('connected settlement legs not recorded for', rf.id, (e && e.message) || e); }
+      const bound = await sb(`refund_requests?stripe_refund_id=eq.${encodeURIComponent(rf.id)}&select=id,settlement_status`);
+      const row = Array.isArray(bound) ? bound[0] : null;
+      if (!row) console.warn('refund settlement: no request holds refund', rf.id);
+      else if (metaReqId && String(metaReqId) !== String(row.id)) console.warn('refund settlement: event metadata names', metaReqId, 'but the ledger bound', rf.id, 'to', row.id, '(left to the worker)');
+      else if (row.settlement_status === 'pending') {
+        const s = await settleConnectRefund(await bind(), row.id);
+        console.log('refund settlement for', rf.id, s.outcome, s.reason || '');
+      }
+    } catch (e) { console.warn('refund settlement not attempted for', rf.id, (e && e.message) || e); }
   }
   return outcome;
 }

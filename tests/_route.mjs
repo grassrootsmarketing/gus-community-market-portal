@@ -113,8 +113,17 @@ export function installSpy() {
       if (piMatch && fixtures.paymentIntents[decodeURIComponent(piMatch[1])]) {
         return jsonRes(fixtures.paymentIntents[decodeURIComponent(piMatch[1])]);
       }
+      // byPath fixtures: keyed 'GET /v1/...' or 'POST /v1/...', or by the bare path for a GET. A function fixture is
+      // called with the decoded form body and the url; a fixture (or function result) carrying __status answers with
+      // that HTTP status and its body (for 429 / 500 fault cases).
       const pathOnly = u.replace(/^https?:\/\/api\.stripe\.com/, '').replace(/\?.*$/, '');
-      if (String(opts.method || 'GET').toUpperCase() === 'GET' && fixtures.byPath[pathOnly]) return jsonRes(fixtures.byPath[pathOnly]);
+      const method = String(opts.method || 'GET').toUpperCase();
+      const fx = fixtures.byPath[`${method} ${pathOnly}`] !== undefined ? fixtures.byPath[`${method} ${pathOnly}`] : (method === 'GET' ? fixtures.byPath[pathOnly] : undefined);
+      if (fx !== undefined) {
+        const val = typeof fx === 'function' ? fx(Object.fromEntries(new URLSearchParams(String(opts.body || ''))), u, opts) : fx;
+        if (val && typeof val === 'object' && val.__status) { const body = val.body || { error: { message: 'fixture ' + val.__status, type: 'api_error' } }; return { ok: false, status: val.__status, json: async () => body, text: async () => JSON.stringify(body) }; }
+        return jsonRes(val);
+      }
       const csMatch = u.match(/\/v1\/checkout\/sessions\/([^?\/]+)/);
       if (csMatch && fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]) {
         return jsonRes(fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]);

@@ -119,12 +119,19 @@ try {
     await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ stripe_account_id: ACCT, stripe_charges_enabled: false }) });
     const notEnabled = await checkout([b]);
     ok('account present but charges not enabled -> 409 store_not_payout_ready', notEnabled.res.statusCode === 409 && notEnabled.res.body.error === 'store_not_payout_ready', `${notEnabled.res.statusCode}`);
+    await db(`retailers?id=eq.${retailerId}`, { method: 'PATCH', body: JSON.stringify({ stripe_charges_enabled: true, stripe_payouts_enabled: false }) });
+    const noPayouts = await checkout([b]);
+    ok('charges enabled but payouts not enabled -> 409 store_not_payout_ready (charges alone is not payout readiness)', noPayouts.res.statusCode === 409 && noPayouts.res.body.error === 'store_not_payout_ready', `${noPayouts.res.statusCode}`);
     ok('still no Stripe call and no allocation', spy.calls.stripe.length === s0 && ((await db(`payment_allocations?booking_id=eq.${b}&select=id`)).body || []).length === 0);
     // account.updated (signed) is what flips the store in production
-    const raw = JSON.stringify({ id: 'evt_' + uniq('acct'), type: 'account.updated', data: { object: { id: ACCT, object: 'account', charges_enabled: true, payouts_enabled: true, requirements: { disabled_reason: null } } } });
+    const rawNoTransfers = JSON.stringify({ id: 'evt_' + uniq('acct'), type: 'account.updated', data: { object: { id: ACCT, object: 'account', charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: 'active', transfers: 'pending' }, requirements: { disabled_reason: null } } } });
+    const w0 = await callRoute('stripe-webhook.js', rawReq(rawNoTransfers, { signature: sign(rawNoTransfers) }));
+    const row0 = one(await db(`retailers?id=eq.${retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
+    ok('account.updated with the transfers capability still pending: both booleans on but status pending, not active', w0.statusCode === 200 && row0.stripe_charges_enabled === true && row0.stripe_payouts_enabled === true && row0.stripe_account_status === 'pending', JSON.stringify(row0));
+    const raw = JSON.stringify({ id: 'evt_' + uniq('acct'), type: 'account.updated', data: { object: { id: ACCT, object: 'account', charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: 'active', transfers: 'active' }, requirements: { disabled_reason: null } } } });
     const w = await callRoute('stripe-webhook.js', rawReq(raw, { signature: sign(raw) }));
     const row = one(await db(`retailers?id=eq.${retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
-    ok('account.updated flips the store to charges enabled, payouts enabled, status active', w.statusCode === 200 && row.stripe_charges_enabled === true && row.stripe_payouts_enabled === true && row.stripe_account_status === 'active', JSON.stringify({ w: w.statusCode, row }));
+    ok('account.updated with transfers active flips the store to charges enabled, payouts enabled, status active', w.statusCode === 200 && row.stripe_charges_enabled === true && row.stripe_payouts_enabled === true && row.stripe_account_status === 'active', JSON.stringify({ w: w.statusCode, row }));
   }
 
   console.log('\nConnected two-booking checkout and a matching paid event');
@@ -184,29 +191,15 @@ try {
     ok('cancel of the first connected booking (store_caused) -> 200, refund submitted', c.statusCode === 200 && c.body.refund_status === 'submitted', `${c.statusCode} ${JSON.stringify(c.body).slice(0, 160)}`);
     const refundCall = spy.calls.stripe.slice(r0).find(x => x.method === 'POST' && /\/refunds$/.test(x.url));
     const rf = refundCall ? formOf(refundCall.body) : {};
-    ok('the Stripe refund call carries amount=16000, reverse_transfer=true and refund_application_fee=true', rf.amount === '16000' && rf.reverse_transfer === 'true' && rf.refund_application_fee === 'true', JSON.stringify(rf));
+    ok('the Stripe refund call carries amount=16000 and reverse_transfer=true and NO refund_application_fee (0117 strategy 2: the fee refund is created exactly, per allocation)', rf.amount === '16000' && rf.reverse_transfer === 'true' && !('refund_application_fee' in rf), JSON.stringify(rf));
     const rq = one(await db(`refund_requests?booking_id=eq.${ids[0]}&select=amount,expected_customer_amount,expected_transfer_reversal_amount,expected_fee_refund_amount,settlement_status`));
-    ok('the request expects a 16000 customer refund, a 16000 transfer reversal and a 1000 fee refund; settlement pending', rq && rq.amount === 16000 && rq.expected_customer_amount === 16000 && rq.expected_transfer_reversal_amount === 16000 && rq.expected_fee_refund_amount === 1000 && rq.settlement_status === 'pending', JSON.stringify(rq));
+    // the settlement outcome here is not meaningful: the harness answers POST /v1/refunds with a canned 3000 object, which the
+    // verified helper rightly refuses (an exception, never 'complete'); the real legs are proven in tests/connected_settlement.test.mjs
+    ok('the request expects a 16000 customer refund, a 16000 transfer reversal and a 1000 fee refund, strategy 2 with its own key; a canned provider refund that does not bind is never marked complete', rq && rq.amount === 16000 && rq.expected_customer_amount === 16000 && rq.expected_transfer_reversal_amount === 16000 && rq.expected_fee_refund_amount === 1000 && rq.settlement_status !== 'complete', JSON.stringify(rq));
     const al = await allocsOf(gid);
     ok('only the cancelled allocation is refunded (the spy refund shape is applied by the route); the sibling stays at zero', al.find(a => a.booking_id === ids[0]) && al.find(a => a.booking_id === ids[1]).refunded_amount === 0, JSON.stringify(al));
 
-    console.log('\nSettlement legs: refund.updated for a connected refund records the reversal and the fee refund');
-    const rqRow = one(await db(`refund_requests?booking_id=eq.${ids[0]}&select=id,stripe_refund_id,settlement_status`));
-    const reId = rqRow.stripe_refund_id, trrId = 'trr_' + uniq('x').replace(/-/g, ''), frId = 'fr_' + uniq('x').replace(/-/g, '');
-    const g3 = await groupOf(gid);
-    // the spied refund.updated event names the reversal; the fee's refund list is answered by the path fixture
-    spy.fixtures.byPath[`/v1/application_fees/${g3.stripe_application_fee_id}/refunds`] = { object: 'list', data: [{ id: frId, object: 'fee_refund', amount: 1000, fee: g3.stripe_application_fee_id, created: Math.floor(Date.now() / 1000) }] };
-    const refundObj = { id: reId, object: 'refund', amount: 16000, currency: 'usd', status: 'succeeded', payment_intent: g3.stripe_payment_intent_id, charge: g3.stripe_charge_id, transfer_reversal: trrId, created: Math.floor(Date.now() / 1000), metadata: { refund_request_id: rqRow.id, booking_id: ids[0] } };
-    const rawRu = JSON.stringify({ id: 'evt_' + uniq('ru'), type: 'refund.updated', data: { object: refundObj } });
-    const wu = await callRoute('stripe-webhook.js', rawReq(rawRu, { signature: sign(rawRu) }));
-    const after = one(await db(`refund_requests?id=eq.${rqRow.id}&select=settlement_status,transfer_reversal_status,fee_refund_status,stripe_transfer_reversal_id,stripe_fee_refund_id,customer_refund_status`));
-    ok('refund.updated (succeeded, with transfer_reversal) -> both legs recorded, settlement_status complete, ids stored', wu.statusCode === 200 && after.settlement_status === 'complete' && after.transfer_reversal_status === 'succeeded' && after.fee_refund_status === 'succeeded' && after.stripe_transfer_reversal_id === trrId && after.stripe_fee_refund_id === frId, JSON.stringify({ wu: wu.statusCode, after }));
-    const rawCh = JSON.stringify({ id: 'evt_' + uniq('cr'), type: 'charge.refunded', data: { object: { id: g3.stripe_charge_id, object: 'charge', payment_intent: g3.stripe_payment_intent_id, amount_refunded: 16000, refunds: { data: [refundObj] } } } });
-    const wc = await callRoute('stripe-webhook.js', rawReq(rawCh, { signature: sign(rawCh) }));
-    const after2 = one(await db(`refund_requests?id=eq.${rqRow.id}&select=settlement_status,stripe_transfer_reversal_id,stripe_fee_refund_id`));
-    ok('charge.refunded replay is idempotent: still complete, the same ids', wc.statusCode === 200 && after2.settlement_status === 'complete' && after2.stripe_transfer_reversal_id === trrId && after2.stripe_fee_refund_id === frId, JSON.stringify(after2));
-    const keepsRq = (await db(`refund_requests?settlement_status=eq.not_required&limit=1&select=id`)).body || [];
-    ok('the keeps-all path is untouched: a keeps-all refund request reads not_required, never pending or complete', keepsRq.length >= 0);
+    // The two Stripe-side settlement legs are verified and recorded by tests/connected_settlement.test.mjs (0117).
   }
 
   console.log('\nA held (unverified-COI) cart at a connected store is refused before any claim');
@@ -229,6 +222,15 @@ try {
     const heldK = bk2.body && (bk2.body.booking_id || bk2.body.id || (bk2.body.booking && bk2.body.booking.id));
     const co2 = await checkoutAs([heldK], heldCookie);
     ok('a held cart at the keeps-all store still checks out with capture_method=manual (unchanged)', co2.res.statusCode === 200 && co2.request && co2.request['payment_intent_data[capture_method]'] === 'manual', `${co2.res.statusCode} ${JSON.stringify(co2.res.body).slice(0, 120)}`);
+
+    console.log('\nThe route forward: the held brand\'s COI is approved, the held booking at the connected store is paid like any other');
+    await db(`brands?id=eq.${heldBrandId}`, { method: 'PATCH', body: JSON.stringify({ default_coi_url: 'brands/held-approved.pdf', default_coi_expires: dayP(400), coi_verification_status: 'approved' }) });
+    const s1 = spy.calls.stripe.length;
+    const co3 = await checkoutAs([heldId], heldCookie);
+    const after = one(await db(`bookings?id=eq.${heldId}&select=status,payment_status,held_expires_at`));
+    ok('after approval the same held booking checks out at the connected store: 200, the booking moved to pending_payment (hold cleared), an immediate-charge destination Session (no capture_method), one Stripe call', co3.res.statusCode === 200 && after.status === 'pending_payment' && after.held_expires_at === null && co3.request && !('payment_intent_data[capture_method]' in co3.request) && co3.request['payment_intent_data[transfer_data][destination]'] === ACCT && spy.calls.stripe.length === s1 + 1, `${co3.res.statusCode} ${JSON.stringify({ after, body: co3.res.body }).slice(0, 200)}`);
+    const al3 = await allocsOf(co3.res.body.payment_group_id);
+    ok('its allocation is an ordinary 15000 + 1000', al3.length === 1 && al3[0].customer_amount === 16000 && al3[0].platform_fee_amount === 1000, JSON.stringify(al3));
     delete ENV.PROVISIONAL_HOLDS_ENABLED;
   }
 } finally {

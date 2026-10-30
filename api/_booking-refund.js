@@ -54,9 +54,14 @@ export async function refundPaymentIntent(b, paymentIntentId, opts = {}) {
   if (amount != null) params.set('amount', String(amount));
   // Keeps-all retailers take a plain platform charge: no transfer, no application fee. Sending
   // reverse_transfer / refund_application_fee on those charges makes Stripe reject the refund outright.
+  // Connected (0117, Codex CC-1): the transfer reversal follows the refund (reverse_transfer), which is exactly the
+  // booking's entitlement on an on_behalf_of destination charge. The application fee is NOT refunded through the
+  // proportional flag any more (strategy 2): Stripe would return the fee in proportion to the WHOLE charge, which is
+  // wrong for an unequal-price cart; settleConnectRefund() creates the exact allocation-derived fee refund instead.
+  // A request reserved before 0117 (strategy 1) keeps the flag: its payload under its idempotency key never changes.
   if (!opts.keepsAll) {
-    params.set('refund_application_fee', 'true');
     params.set('reverse_transfer', 'true');
+    if (Number(opts.strategy == null ? 1 : opts.strategy) === 1) params.set('refund_application_fee', 'true');
   }
   if (opts.reason) params.set('reason', opts.reason);
   if (opts.metadata) {
@@ -75,65 +80,222 @@ export async function refundPaymentIntent(b, paymentIntentId, opts = {}) {
   }
 }
 
-// Connected settlement legs (round 2 of the revenue split rehearsal, 2026-10-30). A refund of a destination charge is
-// three legs on Stripe: the customer refund (re_), the transfer reversal (trr_) and the application fee refund (fr_).
-// The ledger expected all three since 0032/0034 (record_settlement_leg) but no shipped code ever recorded the last two,
-// so settlement_status stayed 'pending' on every connected refund. This reads both legs from Stripe for ONE succeeded
-// refund and records them idempotently: record_settlement_leg keeps the first id it was given (coalesce) and the
-// unique indexes on stripe_transfer_reversal_id / stripe_fee_refund_id make a double claim impossible. Keeps-all
-// groups (settlement 'not_required') and refunds that are not yet succeeded return without touching anything.
-// The fee refund is matched by amount against the application fee's refund list, newest first, skipping ids another
-// request already holds; the Refund object itself does not name its fee refund.
-async function stripeGetJson(b, path) {
-  const r = await fetch('https://api.stripe.com' + path, { headers: { Authorization: 'Bearer ' + b.stripeKey } });
-  const j = await r.json().catch(() => null);
-  return r.ok ? j : null;
-}
-export async function recordConnectSettlementLegs(b, refund, { requestId = null } = {}) {
-  if (!b || !b.stripeKey || !refund || !refund.id) return { outcome: 'skipped', reason: 'no_refund' };
-  if (String(refund.status || '').toLowerCase() !== 'succeeded') return { outcome: 'skipped', reason: 'refund_not_succeeded' };
-  const rid = requestId || (refund.metadata && refund.metadata.refund_request_id) || null;
-  const where = rid ? `id=eq.${encodeURIComponent(rid)}` : `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`;
-  // three plain reads (refund_requests carries two foreign keys to payment_allocations, so an embedded select is ambiguous)
-  let req = null, grp = null;
+// Connected settlement (Codex review of 8f43360, 2026-10-30: CC-1 exact per-allocation fee refunds, CC-2 recovery that
+// does not depend on webhooks or on the customer leg's status, CC-3 evidence that is bound and verified before it is
+// recorded). A refund of a destination charge is three legs on Stripe: the customer refund (re_), the transfer reversal
+// (trr_) and the application fee refund (fr_). settleConnectRefund() takes ONE refund request by id and brings its two
+// Stripe-side legs to 'complete' through the verified RPC record_settlement_leg (0117), or reports why it could not.
+//
+// Strategy 2 (every connected request reserved after 0117): the customer refund was submitted with reverse_transfer
+// only, so Stripe reversed the booking's own entitlement; the application fee refund is created HERE, through the
+// fee-refund API, for the allocation-derived amount the request expects, under the request's own durable idempotency
+// key (fee_refund_idempotency_key, set at reservation and never changed), with metadata naming the request. Intent is
+// recorded (settlement_mark_fee_intent) before the provider call; on a later attempt the fee's refund list is searched
+// for that request id BEFORE any new call, so an ambiguous earlier response can never turn into a second refund. A zero
+// expected fee is a satisfied leg with no provider call.
+//
+// Strategy 1 (requests reserved before 0117, none in production): the proportional fee refund Stripe created on the
+// customer refund is matched on the fee's refund list by amount, inside a time window, excluding ids another request
+// holds; anything but exactly one candidate is an unresolved exception, never an invented association.
+//
+// Every provider object is retrieved and compared with the ledger before it is recorded: the refund against the
+// request (amount, currency, PaymentIntent, charge, metadata), the reversal against the group's transfer and the
+// expected amount, the fee refund against the group's application fee, the expected amount and the currency. The RPC
+// refuses conflicting ids, status regressions and amount or currency mismatches; those become a settlement exception
+// (a deduplicated reconciliation case, the request stops being claimed). Provider or database errors are 'retry'
+// outcomes for the leased settlement queue in api/refund-worker.js.
+export function stripeIdOf(v) { return v == null ? null : (typeof v === 'string' ? v : (typeof v === 'object' && v.id) || null); }
+
+async function stripeCall(b, method, path, { form = null, idempotencyKey = null } = {}) {
+  const headers = { Authorization: 'Bearer ' + b.stripeKey };
+  if (form) headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  if (idempotencyKey) headers['Idempotency-Key'] = String(idempotencyKey).slice(0, 255);
   try {
-    const rows = await sbRaw(b, `refund_requests?${where}&select=id,amount,settlement_status,stripe_transfer_reversal_id,stripe_fee_refund_id,expected_transfer_reversal_amount,expected_fee_refund_amount,payment_allocation_id`);
-    req = Array.isArray(rows) ? rows[0] : null;
-    if (req) {
-      const allocs = await sbRaw(b, `payment_allocations?id=eq.${encodeURIComponent(req.payment_allocation_id)}&select=payment_group_id`);
-      const gid = Array.isArray(allocs) && allocs[0] ? allocs[0].payment_group_id : null;
-      const grps = gid ? await sbRaw(b, `payment_groups?id=eq.${encodeURIComponent(gid)}&select=platform_keeps_all,stripe_application_fee_id,stripe_charge_id`) : [];
-      grp = Array.isArray(grps) ? grps[0] : null;
+    const r = await fetch('https://api.stripe.com' + path, { method, headers, body: form ? new URLSearchParams(form).toString() : undefined });
+    const text = await r.text();
+    let json = null; try { json = text ? JSON.parse(text) : null; } catch (_) {}
+    if (r.ok) return { ok: true, status: r.status, json };
+    const msg = (json && json.error && json.error.message) || ('HTTP ' + r.status);
+    const type = json && json.error && json.error.type;
+    return { ok: false, status: r.status, json, error: msg, type, transient: r.status === 429 || r.status >= 500 };
+  } catch (e) {
+    return { ok: false, status: 0, json: null, error: String((e && e.message) || e), transient: true };
+  }
+}
+
+// Paginated read of an application fee's refunds. A read that fails part way is a failure (never a short list).
+async function listFeeRefunds(b, feeId) {
+  const out = []; let after = null;
+  for (let page = 0; page < 20; page++) {
+    const r = await stripeCall(b, 'GET', `/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=100${after ? '&starting_after=' + encodeURIComponent(after) : ''}`);
+    if (!r.ok) return { ok: false, error: r.error, transient: r.transient };
+    const data = Array.isArray(r.json && r.json.data) ? r.json.data : [];
+    out.push(...data);
+    if (!r.json.has_more || !data.length) break;
+    after = data[data.length - 1].id;
+  }
+  return { ok: true, data: out };
+}
+
+const SETTLE_SELECT = 'id,amount,currency,status,customer_refund_status,settlement_status,settlement_strategy,stripe_refund_id,expected_transfer_reversal_amount,expected_fee_refund_amount,stripe_transfer_reversal_id,stripe_fee_refund_id,transfer_reversal_status,fee_refund_status,fee_refund_idempotency_key,fee_refund_intent_at,payment_allocation_id,booking_id,settlement_attempts';
+
+export async function settleConnectRefund(b, requestId) {
+  const retry = (reason, extra = {}) => ({ outcome: 'retry', reason, ...extra });
+  const exception = async (reason, details) => {
+    try { await sbRpc(b, 'settlement_mark_exception', { p_request_id: requestId, p_reason: reason, p_details: details || {} }); } catch (e) { return retry('db_mark_exception', { error: String((e && e.message) || e).slice(0, 160), wanted_exception: reason }); }
+    return { outcome: 'exception', reason, details };
+  };
+  const recordLeg = async (leg, id, status, amount, currency) => {
+    try {
+      const r = await sbRpc(b, 'record_settlement_leg', { p_request_id: requestId, p_leg: leg, p_stripe_id: id, p_status: status, p_amount: amount, p_currency: currency });
+      return { ok: true, outcome: r && r.outcome };
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/settlement_leg_(conflict|mismatch|regress)/.test(msg)) return { ok: false, conflict: true, error: msg.slice(0, 200) };
+      return { ok: false, conflict: false, error: msg.slice(0, 200) };
     }
-  } catch (_) { req = null; }
-  if (!req) return { outcome: 'skipped', reason: 'no_request' };
-  if (!grp || grp.platform_keeps_all !== false) return { outcome: 'skipped', reason: 'keeps_all' };
-  if (req.settlement_status === 'complete') return { outcome: 'already_complete', refund_request_id: req.id };
-  const out = { outcome: 'recorded', refund_request_id: req.id, legs: {} };
-  // leg 1: the transfer reversal, named on the Refund object (id or expanded object)
-  let trr = refund.transfer_reversal && (typeof refund.transfer_reversal === 'string' ? refund.transfer_reversal : refund.transfer_reversal.id);
-  if (!trr) { const full = await stripeGetJson(b, `/v1/refunds/${encodeURIComponent(refund.id)}`); trr = full && full.transfer_reversal && (typeof full.transfer_reversal === 'string' ? full.transfer_reversal : full.transfer_reversal.id); }
-  if (trr && !req.stripe_transfer_reversal_id) {
-    try { const r1 = await sbRpc(b, 'record_settlement_leg', { p_request_id: req.id, p_leg: 'transfer_reversal', p_stripe_id: trr, p_status: 'succeeded' }); out.legs.transfer_reversal = { id: trr, rpc: r1 && r1.outcome }; }
-    catch (e) { out.legs.transfer_reversal = { id: trr, error: String((e && e.message) || e).slice(0, 120) }; }
-  } else if (req.stripe_transfer_reversal_id) out.legs.transfer_reversal = { id: req.stripe_transfer_reversal_id, rpc: 'already_recorded' };
-  else out.legs.transfer_reversal = { id: null, rpc: 'not_found_on_stripe' };
-  // leg 2: the application fee refund, matched by amount on the fee's refund list
-  let feeId = grp.stripe_application_fee_id;
-  if (!feeId && grp.stripe_charge_id) { const ch = await stripeGetJson(b, `/v1/charges/${encodeURIComponent(grp.stripe_charge_id)}`); feeId = ch && ch.application_fee; }
-  if (feeId && !req.stripe_fee_refund_id) {
-    const list = await stripeGetJson(b, `/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=100`);
-    const candidates = (list && Array.isArray(list.data) ? list.data : []).filter(fr => fr.amount === req.expected_fee_refund_amount);
-    let taken = [];
-    try { taken = (await sbRaw(b, `refund_requests?stripe_fee_refund_id=in.(${candidates.map(c => encodeURIComponent(c.id)).join(',') || 'none'})&select=stripe_fee_refund_id`)).map(x => x.stripe_fee_refund_id); } catch (_) { taken = []; }
-    const fr = candidates.filter(c => !taken.includes(c.id)).sort((x, y) => Math.abs(x.created - (refund.created || 0)) - Math.abs(y.created - (refund.created || 0)))[0];
-    if (fr) {
-      try { const r2 = await sbRpc(b, 'record_settlement_leg', { p_request_id: req.id, p_leg: 'fee_refund', p_stripe_id: fr.id, p_status: 'succeeded' }); out.legs.fee_refund = { id: fr.id, rpc: r2 && r2.outcome }; }
-      catch (e) { out.legs.fee_refund = { id: fr.id, error: String((e && e.message) || e).slice(0, 120) }; }
-    } else out.legs.fee_refund = { id: null, rpc: 'no_matching_fee_refund' };
-  } else if (req.stripe_fee_refund_id) out.legs.fee_refund = { id: req.stripe_fee_refund_id, rpc: 'already_recorded' };
-  else out.legs.fee_refund = { id: null, rpc: 'no_application_fee_id' };
-  return out;
+  };
+  if (!b || !b.stripeKey) return retry('no_stripe_key');
+  let req;
+  try { const rows = await sbRaw(b, `refund_requests?id=eq.${encodeURIComponent(requestId)}&select=${SETTLE_SELECT}`); req = Array.isArray(rows) ? rows[0] : null; }
+  catch (e) { return retry('db_read_request', { error: String((e && e.message) || e).slice(0, 160) }); }
+  if (!req) return { outcome: 'no_request' };
+  if (req.settlement_status === 'complete') return { outcome: 'already_complete' };
+  if (req.settlement_status === 'not_required') return { outcome: 'not_required' };
+  if (req.settlement_status === 'exception') return { outcome: 'exception', reason: 'already_exception' };
+  if (req.status !== 'succeeded' || req.customer_refund_status !== 'succeeded' || !req.stripe_refund_id) return { outcome: 'not_ready', reason: 'customer_leg_not_succeeded' };
+
+  let alloc, grp, feeSum;
+  try {
+    const allocs = await sbRaw(b, `payment_allocations?id=eq.${encodeURIComponent(req.payment_allocation_id)}&select=id,booking_id,payment_group_id,platform_fee_amount`);
+    alloc = Array.isArray(allocs) ? allocs[0] : null;
+    if (!alloc) return await exception('allocation_missing', { payment_allocation_id: req.payment_allocation_id });
+    const grps = await sbRaw(b, `payment_groups?id=eq.${encodeURIComponent(alloc.payment_group_id)}&select=id,platform_keeps_all,connect_account_id,currency,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,total_customer_amount`);
+    grp = Array.isArray(grps) ? grps[0] : null;
+    if (!grp) return await exception('group_missing', { payment_group_id: alloc.payment_group_id });
+    const sums = await sbRaw(b, `payment_allocations?payment_group_id=eq.${encodeURIComponent(grp.id)}&select=platform_fee_amount`);
+    feeSum = (Array.isArray(sums) ? sums : []).reduce((s, a) => s + (a.platform_fee_amount || 0), 0);
+  } catch (e) { return retry('db_read_group', { error: String((e && e.message) || e).slice(0, 160) }); }
+  if (grp.platform_keeps_all !== false) return { outcome: 'not_required', reason: 'keeps_all_group' };
+
+  // ---- the customer refund, bound to the request and the group ----
+  const rf = await stripeCall(b, 'GET', `/v1/refunds/${encodeURIComponent(req.stripe_refund_id)}`);
+  if (!rf.ok) return rf.status === 404 ? await exception('refund_not_found_on_stripe', { refund: req.stripe_refund_id }) : retry('stripe_get_refund', { error: rf.error });
+  const refund = rf.json;
+  if (String(refund.status || '').toLowerCase() !== 'succeeded') return retry('refund_not_succeeded_on_stripe', { stripe_status: refund.status });
+  const metaReq = refund.metadata && refund.metadata.refund_request_id;
+  if (refund.amount !== req.amount || String(refund.currency || '').toLowerCase() !== String(req.currency || '').toLowerCase()
+      || stripeIdOf(refund.payment_intent) !== grp.stripe_payment_intent_id || stripeIdOf(refund.charge) !== grp.stripe_charge_id
+      || (metaReq && String(metaReq) !== String(req.id))) {
+    return await exception('refund_binding_mismatch', { refund: refund.id, refund_amount: refund.amount, refund_currency: refund.currency, refund_pi: stripeIdOf(refund.payment_intent), refund_charge: stripeIdOf(refund.charge), refund_meta_request: metaReq || null, request_amount: req.amount, request_currency: req.currency, group_pi: grp.stripe_payment_intent_id, group_charge: grp.stripe_charge_id });
+  }
+
+  // ---- the group's transfer and application fee ids, filled from validated provider state when still missing ----
+  if (!grp.stripe_transfer_id || !grp.stripe_application_fee_id) {
+    const ch = await stripeCall(b, 'GET', `/v1/charges/${encodeURIComponent(grp.stripe_charge_id)}`);
+    if (!ch.ok) return retry('stripe_get_charge', { error: ch.error });
+    const charge = ch.json;
+    const dest = stripeIdOf(charge.destination) || (charge.transfer_data && stripeIdOf(charge.transfer_data.destination)) || null;
+    if (stripeIdOf(charge.payment_intent) !== grp.stripe_payment_intent_id || dest !== grp.connect_account_id || charge.application_fee_amount !== feeSum) {
+      return await exception('group_charge_mismatch', { charge: charge.id, charge_pi: stripeIdOf(charge.payment_intent), destination: dest, application_fee_amount: charge.application_fee_amount, expected_destination: grp.connect_account_id, expected_fee: feeSum });
+    }
+    const trId = stripeIdOf(charge.transfer), feeId = stripeIdOf(charge.application_fee);
+    if (!trId || !feeId) return retry('group_ids_not_on_charge_yet');
+    try {
+      const applied = await sbRpc(b, 'apply_verified_payment', {
+        p_session_id: grp.stripe_checkout_session_id, p_payment_intent: grp.stripe_payment_intent_id, p_charge: charge.id,
+        p_amount: grp.total_customer_amount, p_currency: grp.currency, p_connect_dest: dest, p_on_behalf_of: stripeIdOf(charge.on_behalf_of) || dest,
+        p_application_fee: charge.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId,
+      });
+      const val = Array.isArray(applied) ? applied[0] : applied;
+      if (val && val.outcome === 'contradiction') return await exception('group_id_fill_contradiction', { reason: val.reason, case_id: val.case_id });
+      const again = await sbRaw(b, `payment_groups?id=eq.${encodeURIComponent(grp.id)}&select=stripe_transfer_id,stripe_application_fee_id`);
+      grp.stripe_transfer_id = again[0] && again[0].stripe_transfer_id; grp.stripe_application_fee_id = again[0] && again[0].stripe_application_fee_id;
+    } catch (e) { return retry('db_fill_group_ids', { error: String((e && e.message) || e).slice(0, 160) }); }
+    if (!grp.stripe_transfer_id || !grp.stripe_application_fee_id) return retry('group_ids_still_missing');
+  }
+
+  const legs = {};
+  // ---- leg: the transfer reversal, verified against the group's transfer and the expected amount ----
+  if (req.transfer_reversal_status !== 'succeeded') {
+    const trrId = stripeIdOf(refund.transfer_reversal) || req.stripe_transfer_reversal_id;
+    if (!trrId) return retry('transfer_reversal_missing_on_refund');
+    const tr = await stripeCall(b, 'GET', `/v1/transfers/${encodeURIComponent(grp.stripe_transfer_id)}/reversals/${encodeURIComponent(trrId)}`);
+    if (!tr.ok) return tr.status === 404 ? await exception('transfer_reversal_not_under_group_transfer', { reversal: trrId, transfer: grp.stripe_transfer_id }) : retry('stripe_get_reversal', { error: tr.error });
+    const rev = tr.json;
+    if (stripeIdOf(rev.transfer) !== grp.stripe_transfer_id || rev.amount !== req.expected_transfer_reversal_amount || String(rev.currency || '').toLowerCase() !== String(req.currency).toLowerCase()) {
+      return await exception('transfer_reversal_mismatch', { reversal: rev.id, reversal_transfer: stripeIdOf(rev.transfer), amount: rev.amount, currency: rev.currency, expected_amount: req.expected_transfer_reversal_amount, group_transfer: grp.stripe_transfer_id });
+    }
+    const rec = await recordLeg('transfer_reversal', rev.id, 'succeeded', rev.amount, rev.currency);
+    if (!rec.ok) return rec.conflict ? await exception('transfer_reversal_conflict', { reversal: rev.id, error: rec.error }) : retry('db_record_reversal', { error: rec.error });
+    legs.transfer_reversal = { id: rev.id, amount: rev.amount, rpc: rec.outcome };
+  } else legs.transfer_reversal = { id: req.stripe_transfer_reversal_id, rpc: 'already_recorded' };
+
+  // ---- leg: the application fee refund ----
+  if (!['succeeded', 'not_required'].includes(req.fee_refund_status || '')) {
+    const expected = req.expected_fee_refund_amount == null ? 0 : req.expected_fee_refund_amount;
+    const feeId = grp.stripe_application_fee_id;
+    const verifyAndRecord = async (fr) => {
+      if (stripeIdOf(fr.fee) !== feeId || fr.amount !== expected || String(fr.currency || '').toLowerCase() !== String(req.currency).toLowerCase()) {
+        return await exception('fee_refund_mismatch', { fee_refund: fr.id, fee: stripeIdOf(fr.fee), amount: fr.amount, currency: fr.currency, expected_amount: expected, group_fee: feeId });
+      }
+      const rec = await recordLeg('fee_refund', fr.id, 'succeeded', fr.amount, fr.currency);
+      if (!rec.ok) return rec.conflict ? await exception('fee_refund_conflict', { fee_refund: fr.id, error: rec.error }) : retry('db_record_fee_refund', { error: rec.error });
+      legs.fee_refund = { id: fr.id, amount: fr.amount, rpc: rec.outcome };
+      return null;
+    };
+    if (expected === 0) {
+      const rec = await recordLeg('fee_refund', null, 'not_required', 0, req.currency);
+      if (!rec.ok) return rec.conflict ? await exception('fee_refund_conflict', { error: rec.error }) : retry('db_record_fee_refund', { error: rec.error });
+      legs.fee_refund = { id: null, amount: 0, rpc: rec.outcome };
+    } else if (req.stripe_fee_refund_id) {
+      const g = await stripeCall(b, 'GET', `/v1/application_fees/${encodeURIComponent(feeId)}/refunds/${encodeURIComponent(req.stripe_fee_refund_id)}`);
+      if (!g.ok) return g.status === 404 ? await exception('fee_refund_not_under_group_fee', { fee_refund: req.stripe_fee_refund_id, fee: feeId }) : retry('stripe_get_fee_refund', { error: g.error });
+      const bad = await verifyAndRecord(g.json); if (bad) return bad;
+    } else if (Number(req.settlement_strategy) === 2) {
+      if (!req.fee_refund_idempotency_key) return await exception('fee_refund_key_missing', {});
+      let intent;
+      try { intent = await sbRpc(b, 'settlement_mark_fee_intent', { p_request_id: req.id }); } catch (e) { return retry('db_mark_intent', { error: String((e && e.message) || e).slice(0, 160) }); }
+      let fr = null;
+      if (intent && intent.first === false) {
+        // an earlier attempt may have reached Stripe: look before creating, by the metadata this request stamps
+        const list = await listFeeRefunds(b, feeId);
+        if (!list.ok) return retry('stripe_list_fee_refunds', { error: list.error });
+        fr = list.data.find(x => x.metadata && String(x.metadata.refund_request_id) === String(req.id)) || null;
+      }
+      if (!fr) {
+        const c = await stripeCall(b, 'POST', `/v1/application_fees/${encodeURIComponent(feeId)}/refunds`, {
+          form: { amount: String(expected), 'metadata[refund_request_id]': req.id, 'metadata[booking_id]': req.booking_id, 'metadata[payment_group_id]': grp.id, 'metadata[refund]': req.stripe_refund_id },
+          idempotencyKey: req.fee_refund_idempotency_key,
+        });
+        if (!c.ok) {
+          if (c.transient) return retry('stripe_create_fee_refund', { error: c.error });
+          return await exception('fee_refund_create_refused', { error: c.error, type: c.type || null, status: c.status });
+        }
+        fr = c.json;
+      }
+      const bad = await verifyAndRecord(fr); if (bad) return bad;
+    } else {
+      // strategy 1 (legacy proportional flag): match, never guess
+      const list = await listFeeRefunds(b, feeId);
+      if (!list.ok) return retry('stripe_list_fee_refunds', { error: list.error });
+      const near = (x) => Math.abs((x.created || 0) - (refund.created || 0)) <= 600;
+      const candidates = list.data.filter(x => x.amount === expected && near(x));
+      let taken;
+      try { taken = candidates.length ? (await sbRaw(b, `refund_requests?stripe_fee_refund_id=in.(${candidates.map(x => encodeURIComponent(x.id)).join(',')})&select=stripe_fee_refund_id`)).map(x => x.stripe_fee_refund_id) : []; }
+      catch (e) { return retry('db_read_taken_ids', { error: String((e && e.message) || e).slice(0, 160) }); }
+      const free = candidates.filter(x => !taken.includes(x.id));
+      if (free.length !== 1) return await exception('legacy_fee_refund_ambiguous', { candidates: candidates.map(x => x.id), free: free.map(x => x.id), expected_amount: expected });
+      const bad = await verifyAndRecord(free[0]); if (bad) return bad;
+    }
+  } else legs.fee_refund = { id: req.stripe_fee_refund_id, rpc: 'already_recorded' };
+
+  let after;
+  try { const rows = await sbRaw(b, `refund_requests?id=eq.${encodeURIComponent(req.id)}&select=settlement_status,transfer_reversal_status,fee_refund_status`); after = rows[0]; }
+  catch (e) { return retry('db_read_after', { error: String((e && e.message) || e).slice(0, 160), legs }); }
+  if (after && after.settlement_status === 'complete') return { outcome: 'complete', legs };
+  if (after && after.settlement_status === 'exception') return { outcome: 'exception', reason: 'leg_failed', legs };
+  return retry('settlement_incomplete_after_legs', { legs, after });
 }
 
 // Reserve against the booking's immutable allocation and submit. opName is the per-booking operation
@@ -166,19 +328,29 @@ export async function reserveAndRefund(b, booking, actor, reason, opName, opts =
   }
 
   const r = await refundPaymentIntent(b, row.payment_intent, {
-    keepsAll: !!row.keeps_all, amountCents: amount, requireAmount: true, idempotencyKey: row.idempotency_key,
+    keepsAll: !!row.keeps_all, strategy: row.settlement_strategy, amountCents: amount, requireAmount: true, idempotencyKey: row.idempotency_key,
     reason: 'requested_by_customer', metadata: { refund_request_id: row.refund_request_id, booking_id: booking.id },
   });
   if (r.ok) {
+    let applied = null;
     try {
-      await sbRpc(b, 'apply_refund_event', {
+      applied = await sbRpc(b, 'apply_refund_event', {
         p_refund_id: r.refund_id, p_status: (r.refund && r.refund.status) || 'pending',
         p_amount: row.amount, p_currency: (r.refund && r.refund.currency) || 'usd',
         p_pi: row.payment_intent, p_charge: (r.refund && r.refund.charge) || row.charge_id || null,
         p_meta_request_id: row.refund_request_id, p_event_id: null,
       });
     } catch (_) { /* webhook/worker will still converge */ }
-    return { ok: true, ledger: true, submitted: true, refund_id: r.refund_id, refund_request_id: row.refund_request_id };
+    // Connected settlement (0117, Codex CC-2): a customer refund that succeeded synchronously used to fall out of
+    // every recovery path. The two Stripe-side legs are attempted here at once (best effort) and, whatever happens
+    // here, the leased settlement queue in api/refund-worker.js picks the request up until it is complete.
+    const appliedVal = Array.isArray(applied) ? applied[0] : applied;
+    let settlement = null;
+    if (!row.keeps_all && appliedVal && ['applied', 'already_terminal'].includes(appliedVal.outcome) && r.refund && String(r.refund.status).toLowerCase() === 'succeeded') {
+      try { settlement = await settleConnectRefund(b, row.refund_request_id); } catch (e) { settlement = { outcome: 'retry', reason: 'threw', error: String((e && e.message) || e).slice(0, 120) }; }
+      if (settlement && settlement.outcome !== 'complete') console.warn('connected settlement deferred to the worker for', row.refund_request_id, settlement.outcome, settlement.reason || '');
+    }
+    return { ok: true, ledger: true, submitted: true, refund_id: r.refund_id, refund_request_id: row.refund_request_id, settlement: settlement && settlement.outcome };
   }
   // Submit failed: leave the reservation for the LEASED worker to retry with the same key.
   await sbRaw(b, `refund_requests?id=eq.${encodeURIComponent(row.refund_request_id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'failed_retryable', last_error: String(r.error || 'stripe refund failed').slice(0, 200) }) }).catch(() => {});
