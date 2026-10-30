@@ -7,6 +7,7 @@
 import { validateProducts, describeErrors } from './_products.js';
 import { randomBytes, randomInt, randomUUID, createHash, scrypt, timingSafeEqual } from 'node:crypto';
 import { FLAGS } from './_flags.js';
+import { monthlyOverviewWindow } from './_monthly-overview.js';   // the month the retailer overview email reports on
 import { hashCode } from './_verify.js';
 import { resolveBrandIdentity, requireRole, bookingBelongsTo, ROLES } from './_brand-identity.js';   // 0097: the brand identity boundary
 
@@ -2326,20 +2327,21 @@ export default async function handler(req, res) {
         const twentyEightDaysAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000).toISOString();
         const path = `retailers?select=id,name,billing_email,slug,monthly_summary_enabled,monthly_summary_last_sent_at` +
           `&monthly_summary_enabled=eq.true` +
+          `&slug=neq.__owner__` +   // the owner panel's session anchor is not a store (2026-10-30)
           `&billing_email=not.is.null` +
           `&or=(monthly_summary_last_sent_at.is.null,monthly_summary_last_sent_at.lt.${encodeURIComponent(twentyEightDaysAgo)})`;
         const eligibleR = await sb(path);
         const eligible = await eligibleR.json();
-        const monthLabel = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        const win = monthlyOverviewWindow(new Date());
+        const monthLabel = win.label;
         await processBatched(Array.isArray(eligible) ? eligible : [], 5, async (ret) => {
           try {
-            // Compute summary metrics for last 30 days
-            const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-            const [demosCompletedR, demoFeesR, pendingBookingsR, expiringCoiR] = await Promise.all([
-              sb(`demos?retailer_id=eq.${encodeURIComponent(ret.id)}&status=eq.completed&demo_date=gte.${since}&select=demo_fee`),
+            // Figures for the named calendar month (see _monthly-overview.js): demos that happened, by date, never cancelled ones.
+            const since = win.from;
+            const [demosCompletedR, pendingBookingsR, expiringCoiR] = await Promise.all([
+              sb(`demos?retailer_id=eq.${encodeURIComponent(ret.id)}&${win.demoStatusFilter}&demo_date=gte.${win.from}&demo_date=lte.${win.to}&select=demo_fee`),
               sb(`bookings?retailer_id=eq.${encodeURIComponent(ret.id)}&status=eq.pending&select=id`),
               sb(`compliance_records?retailer_id=eq.${encodeURIComponent(ret.id)}&doc_type=eq.coi&expires_at=lt.${new Date(Date.now() + 45 * 86400000).toISOString().slice(0,10)}&select=id`),
-              sb(`brand_contacts?retailer_id=eq.${encodeURIComponent(ret.id)}&created_at=gte.${since}&select=id`),
             ]);
             const demosCompleted = await demosCompletedR.json();
             const pendingBookings = await pendingBookingsR.json();

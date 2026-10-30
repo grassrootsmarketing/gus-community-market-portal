@@ -804,9 +804,9 @@ async function renderRetailersTab(selectedId) {
   pane.innerHTML = '<div class="card"><h2>Retailers</h2><div class="sub">' + list.length + ' on Demohub. Open one to see its account as the retailer sees it (read-only).</div>'
     + '<input class="dir-search" id="retailerSearch" placeholder="Search by name or slug" autocomplete="off">'
     + '<div class="tablewrap"><table class="simple"><thead><tr><th>Retailer</th><th>Booking link</th><th>Plan</th><th>Joined</th><th></th></tr></thead><tbody id="retailerRows"></tbody></table></div></div><div id="retailerProfile"></div>';
-  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || 'n/a') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
+  const draw = (q) => { const rows = list.filter(r => !q || (r.name || '').toLowerCase().includes(q) || (r.slug || '').toLowerCase().includes(q)); document.getElementById('retailerRows').innerHTML = rows.map(r => '<tr><td><strong>' + escapeHtml(r.name || r.slug) + '</strong> ' + approvalPill(r) + '</td><td><a href="/r/' + encodeURIComponent(r.slug) + '" target="_blank" rel="noopener">/r/' + escapeHtml(r.slug) + '</a></td><td>' + escapeHtml(r.billing_tier || 'n/a') + '</td><td>' + fmtD(r.created_at) + '</td><td class="num"><button class="btn-sm" data-act="calendar" data-rid="' + escapeHtml(r.id) + '" title="This retailer\'s demos on the Calendar tab">Calendar</button> <button class="btn-sm" data-act="open" data-rid="' + escapeHtml(r.id) + '">Open</button>' + (r.verification_status === 'pending' ? ' ' + statusButtons(r).split('</button>')[0] + '</button>' : '') + '</td></tr>').join('') || '<tr><td colspan="5">No match</td></tr>'; };
   draw(''); document.getElementById('retailerSearch').addEventListener('input', (e) => draw(e.target.value.trim().toLowerCase()));
-  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); else if (b.dataset.act === 'gen') ownerGenerateCode(b.dataset.rid); else if (b.dataset.act === 'off') ownerDeactivateCode(b.dataset.rid, b.dataset.cid); }); }
+  if (!pane.dataset.wired) { pane.dataset.wired = '1'; pane.addEventListener('click', (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; if (b.dataset.act === 'open') openRetailerProfile(b.dataset.rid); else if (b.dataset.act === 'calendar') openRetailerCalendar(b.dataset.rid); else if (b.dataset.act === 'setstatus') setRetailerStatus(b.dataset.rid, b.dataset.status, b); else if (b.dataset.act === 'resendlive') resendLiveNotice(b.dataset.rid, b); else if (b.dataset.act === 'gen') ownerGenerateCode(b.dataset.rid); else if (b.dataset.act === 'off') ownerDeactivateCode(b.dataset.rid, b.dataset.cid); }); }
   if (selectedId) openRetailerProfile(selectedId);
 }
 // Demo length is per location (slot schedule); summarise the distinct slot lengths offered across the venues.
@@ -837,7 +837,7 @@ async function openRetailerProfile(id) {
   const up = (p.upcoming || []).map(b => '<tr><td>' + escapeHtml(b.demo_date) + ' ' + escapeHtml(b.demo_time || '') + '</td><td>' + escapeHtml(b.brand_name || '') + '</td><td>' + escapeHtml(b.status) + '</td><td>' + (b.fee_waived ? 'free (code)' : escapeHtml(b.payment_status || '')) + '</td></tr>').join('');
   const brands = (Array.isArray(p.brands) ? p.brands : []).map(x => '<tr><td>' + escapeHtml(x.brand || 'Unnamed brand') + '</td><td class="num">' + Number(x.bookings) + '</td></tr>').join('');
   const cap = (p.capped || {});
-  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only.</div></div>' + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
+  box.innerHTML = '<div class="card"><div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start; flex-wrap:wrap;"><div><h2>' + escapeHtml(r.name) + '</h2><div class="sub">Mirror of the retailer\'s account. Read-only.</div><button class="btn-sm" data-act="calendar" data-rid="' + escapeHtml(r.id) + '" style="margin-top:8px;">Open this retailer\'s calendar</button></div>' + (r.logo_url ? '<img src="' + escapeHtml(r.logo_url) + '" alt="" style="height:44px; border-radius:8px;">' : '') + '</div>'
     + '<div class="dir-grid">'
     + '<div><h3 class="dir-h3">Account &amp; settings</h3><table class="simple"><tbody>' + kv + '</tbody></table>'
     + (r.cancellation_policy ? '<div style="margin-top:12px; font-size:0.8rem; color:var(--ink-500);"><strong>Cancellation policy:</strong> ' + escapeHtml(String(r.cancellation_policy).slice(0, 400)) + '</div>' : '')
@@ -962,6 +962,13 @@ async function openBrandProfile(id) {
 
 // ---- Owner calendar (2026-09-29): every retailer's demos on one month grid, read-only ----
 const ocal = { y: new Date().getFullYear(), m: new Date().getMonth(), retailer: '', data: null };
+// Retailers tab shortcut (2026-10-30): pick this retailer in the calendar dropdown and open the Calendar tab.
+// The tab click renders the calendar with that retailer selected; the month stays where the owner last left it.
+function openRetailerCalendar(rid) {
+  ocal.retailer = rid || '';
+  const t = document.querySelector('.owner-tab[data-tab="calendar"]');
+  if (t) { t.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+}
 const ymdOf = (y, m, d) => y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
 let ocalSeq = 0;
 // Short zone name ("PDT") for a store's IANA zone on a given date; falls back to the zone id.
