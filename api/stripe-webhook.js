@@ -410,7 +410,7 @@ async function handlePaymentIntentSucceeded(event) {
       const atts = await sb(`payment_attempts?stripe_payment_intent_id=eq.${encodeURIComponent(pi.id)}&select=stripe_checkout_session_id,payment_group_id,status&order=created_at.desc&limit=1`);
       const att = Array.isArray(atts) ? atts[0] : null;
       if (att && att.stripe_checkout_session_id) {
-        const grpRows = await sb(`payment_groups?id=eq.${encodeURIComponent(att.payment_group_id)}&select=status`);
+        const grpRows = await sb(`payment_groups?id=eq.${encodeURIComponent(att.payment_group_id)}&select=status,platform_keeps_all,stripe_transfer_id,stripe_application_fee_id,total_customer_amount,currency`);
         const grp = Array.isArray(grpRows) ? grpRows[0] : null;
         // P0-1 (Codex 2026-08-20): a payment_intent.succeeded is proof Stripe CAPTURED the money. The
         // old code only reconciled when the group was 'authorized' and silently acked every other
@@ -453,6 +453,24 @@ async function handlePaymentIntentSucceeded(event) {
         }
         if (alreadySettled) {
           console.log('payment_intent.succeeded: group already settled (' + grp.status + '), idempotent ack', pi.id);
+          // 0116: a connected group applied before Stripe filled the transfer / application fee ids gets them here
+          // (apply_verified_payment's idempotent branch fills them write-once after re-validating the routing).
+          if (grp.platform_keeps_all === false && (!grp.stripe_transfer_id || !grp.stripe_application_fee_id)) {
+            try {
+              const full = await stripeGetPaymentIntent(pi.id);
+              const charge = full && full.latest_charge && typeof full.latest_charge === 'object' ? full.latest_charge : null;
+              if (charge && charge.transfer && charge.application_fee) {
+                await sbRpc('apply_verified_payment', {
+                  p_session_id: att.stripe_checkout_session_id, p_payment_intent: full.id, p_charge: charge.id,
+                  p_amount: full.amount_received != null ? full.amount_received : full.amount, p_currency: full.currency,
+                  p_connect_dest: charge.destination || full.on_behalf_of || null, p_on_behalf_of: full.on_behalf_of || null,
+                  p_application_fee: charge.application_fee_amount != null ? charge.application_fee_amount : null,
+                  p_transfer_id: charge.transfer || null, p_fee_id: charge.application_fee || null,
+                });
+                console.log('payment_intent.succeeded: settlement ids filled on the connected group', grp.id);
+              }
+            } catch (e) { console.warn('payment_intent.succeeded: settlement id fill skipped:', (e && e.message) || e); }
+          }
           return;
         }
       }
@@ -685,9 +703,20 @@ async function handleCheckoutSessionCompleted(event) {
       console.log('checkout.session.completed payment not paid yet:', session.id, session.payment_status); return;
     }
     const piId = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
-    const pi = await stripeGetPaymentIntent(piId);
+    let pi = await stripeGetPaymentIntent(piId);
     if (!pi) throw new Error('cannot retrieve PaymentIntent for session ' + session.id);   // retryable
-    const charge = (pi.latest_charge && typeof pi.latest_charge === 'object') ? pi.latest_charge : null;
+    let charge = (pi.latest_charge && typeof pi.latest_charge === 'object') ? pi.latest_charge : null;
+    // Connected checkout (0116, rehearsed 2026-10-30): on a destination charge Stripe fills charge.transfer and
+    // charge.application_fee a moment AFTER capture, and this event can arrive first. The ledger validates the
+    // routing (destination, on_behalf_of, fee amount, all present at once) and records the ids when it has them, so
+    // a short bounded re-read is the whole accommodation: no retry storm, no 500, and if the ids are still absent
+    // the payment applies without them and the payment_intent.succeeded delivery fills them in.
+    const isDestinationCharge = !!(pi.on_behalf_of || (charge && charge.destination));
+    for (let attempt = 0; attempt < 4 && isDestinationCharge && charge && (!charge.transfer || !charge.application_fee); attempt++) {
+      await new Promise(r => setTimeout(r, 1500));
+      const again = await stripeGetPaymentIntent(piId);
+      if (again && again.latest_charge && typeof again.latest_charge === 'object') { pi = again; charge = again.latest_charge; }
+    }
     const chargeId = charge ? charge.id : (typeof pi.latest_charge === 'string' ? pi.latest_charge : null);
     const applied = await sbRpc('apply_verified_payment', {
       p_session_id: session.id, p_payment_intent: pi.id, p_charge: chargeId,

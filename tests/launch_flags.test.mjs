@@ -19,6 +19,9 @@ const SWITCHES = [
   // unset/empty/false/malformed/uppercase/padded/mixed-case all report false, "true" reports true,
   // and that flagSnapshot() actually includes the field (a missing field would read undefined -> fail).
   ['PROVISIONAL_HOLDS_ENABLED', 'provisionalHolds'],
+  // 0116 (2026-10-30): connected checkout (the revenue split) is a real switch now, consumed by api/checkout.js.
+  // Before 0116 flagSnapshot() reported the literal 'hard_disabled' for this field.
+  ['CONNECTED_CHECKOUT_ENABLED', 'connectedCheckout'],
 ];
 const ALL_ENV = [...SWITCHES.map(([e]) => e), 'COI_ENFORCEMENT_MODE', 'LAUNCH_MAX_CART'];
 
@@ -80,7 +83,7 @@ console.log('\n--- cart maximum + non-env state ---');
   s = await snapshot({ LAUNCH_MAX_CART: 'abc' });
   check('cart max malformed clamps to 25', s.max_cart === 25, s.max_cart);
   s = await snapshot({});
-  check('connected checkout reported hard_disabled', s.connectedCheckout === 'hard_disabled', s.connectedCheckout);
+  check('connected checkout reported false (off) with nothing set', s.connectedCheckout === false, s.connectedCheckout);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -54,7 +54,7 @@ console.log('\n--- CL-02: /api/version public/operator split ---');
   check('operator response includes flags snapshot', !!flags);
   check('operator snapshot INCLUDES provisionalHolds', flags && ('provisionalHolds' in flags), flags && Object.keys(flags));
   check('provisionalHolds is false when the env var is unset', flags && flags.provisionalHolds === false, flags && flags.provisionalHolds);
-  check('connected checkout still reported hard_disabled', flags && flags.connectedCheckout === 'hard_disabled', flags && flags.connectedCheckout);
+  check('connected checkout reported false when CONNECTED_CHECKOUT_ENABLED is unset (0116)', flags && flags.connectedCheckout === false, flags && flags.connectedCheckout);
 }
 
 // OPERATOR with a WRONG secret must fall back to the public (coarse) view.

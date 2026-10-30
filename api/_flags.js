@@ -22,7 +22,8 @@
 //                                                         retailer-signup request AND verify, before quotas)
 //   notificationWorker    NOTIFICATION_WORKER_ENABLED     api/notification-worker.js (200 disabled) +   false
 //                                                         api/find-retailer.js (job required only when on)
-//   connectedCheckout     (no env control, hard_disabled) api/checkout.js + checkout_claim_group()   hard_disabled
+//   connectedCheckout     CONNECTED_CHECKOUT_ENABLED      api/checkout.js (409 for a non-keeps-all store  false
+//                                                         when off; on = the store must be payout-ready)
 
 // G0-v2-3: LITERAL comparison. No trimming, no case-folding. "TRUE", " true ", "True" are all
 // DISABLED. Normalisation would contradict the stated safety property, so the strict form is the
@@ -84,6 +85,15 @@ export const FLAGS = {
   // set in Vercel (Production; Preview only for a deliberate contained test) and redeploy; a send already handed to
   // the provider cannot be recalled.
   get coiExpiryPings() { return exactTrue(process.env.COI_EXPIRY_PINGS_ENABLED); },
+  // Connected checkout (0116, revenue split rehearsal 2026-10-30): destination charges for a store that is NOT
+  // platform_keeps_all (the brand pays the store's demo fee plus the $10 platform fee; Stripe routes the demo fee
+  // to the store's connected account and keeps the platform fee on Demohub). Exactly "true" = api/checkout.js
+  // accepts a non-keeps-all store that is payout-ready (stripe_account_id present and stripe_charges_enabled).
+  // Anything else = today's pilot behaviour: every non-keeps-all checkout is refused 409
+  // connected_checkout_unavailable_pilot before any claim, so no connected payment group can be created. A group
+  // that already exists keeps working through every later path (webhook apply, refunds, workers), which never
+  // consult this flag. Read at request time: set in Vercel (Production and Preview separately) and redeploy.
+  get connectedCheckout() { return exactTrue(process.env.CONNECTED_CHECKOUT_ENABLED); },
 };
 
 // The COI worker's own mode ladder. Parsed here with the SAME rule the worker uses so the probe and
@@ -131,8 +141,8 @@ export function flagSnapshot() {
     coiAutoEnforcementFlag: FLAGS.coiAutoEnforcement,
     coiEnforcementModeRaw: coiEnforcementMode(),
     coiEnforcementEffective: coiEnforcementEffective(),
-    // not env-controlled: connected checkout is rejected in the handler AND in checkout_claim_group
-    connectedCheckout: 'hard_disabled',
+    // 0116: an enforced control (api/checkout.js). Before 0116 this field was the literal 'hard_disabled'.
+    connectedCheckout: FLAGS.connectedCheckout,
     max_cart: maxCartSize(),
   };
 }

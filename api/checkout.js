@@ -86,14 +86,21 @@ export default async function handler(req, res) {
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     const platformKeepsAll = !!retailer.platform_keeps_all;
-    // R11 strict pilot gate (Codex "fastest safe launch"): the pilot is keeps-all ONLY. All
-    // connected/destination-charge checkout is rejected at the handler until the full Connect
-    // settlement (exact transfer reversal + fee refund legs) + its live-Stripe evidence are done.
-    // This keeps every Connect requirement (proportional refunds, transfer_data.destination
-    // validation, three-leg reconciliation) entirely out of the launch surface. The DB command
-    // (checkout_claim_group) is gated the same way in 0035 so this cannot be bypassed.
+    // Connected (destination-charge) checkout, 0116 / CONNECTED_CHECKOUT_ENABLED (2026-10-30). Before 0116 the
+    // pilot was keeps-all ONLY (Codex R11 "fastest safe launch"): every non-keeps-all checkout was refused here
+    // AND in checkout_claim_group. The flag keeps that refusal as the default. With the flag exactly "true", a
+    // non-keeps-all store is accepted only when it can actually receive the money: a connected account id is
+    // on the row and Stripe has reported charges enabled (api/stripe-webhook.js account.updated, or the status
+    // action in api/stripe.js). A store that is not there yet is refused 409 store_not_payout_ready before any
+    // claim, so no payment group is ever created for an account Stripe would reject as the destination.
     if (!platformKeepsAll) {
-      return res.status(409).json({ error: 'connected_checkout_unavailable_pilot', booking_ids: bookings.map(b => b.id) });
+      if (!FLAGS.connectedCheckout) {
+        return res.status(409).json({ error: 'connected_checkout_unavailable_pilot', booking_ids: bookings.map(b => b.id) });
+      }
+      const acct = typeof retailer.stripe_account_id === 'string' ? retailer.stripe_account_id.trim() : '';
+      if (!acct || retailer.stripe_charges_enabled !== true) {
+        return res.status(409).json({ error: 'store_not_payout_ready', message: 'This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.', booking_ids: bookings.map(b => b.id) });
+      }
     }
 
     // ---- ATOMIC claim + immutable allocations (ownership/payable/venue-fee enforced in the fn) ----

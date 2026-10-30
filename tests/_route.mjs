@@ -90,7 +90,9 @@ export function installSpy() {
   globalThis.fetch = async (url, opts = {}) => {
     const u = String(url);
     if (u.includes('api.stripe.com')) {
-      calls.stripe.push({ url: u, method: (opts.method || 'GET'), body: String(opts.body || '').slice(0, 300) });
+      // The whole form body is kept (it never carries a key): a checkout Session request runs past 300 characters and
+      // tests/connected_checkout.test.mjs reads its payment_intent_data fields.
+      calls.stripe.push({ url: u, method: (opts.method || 'GET'), body: String(opts.body || '').slice(0, 8000) });
       const fault = matchFault(u, opts);
       if (fault) return fault;
       // Shapes the handlers actually consume.

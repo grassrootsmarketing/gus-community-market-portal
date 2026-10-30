@@ -227,11 +227,17 @@ async function run() {
     check('T7 idempotent reserve', r2.outcome === 'existing' && r2.refund_request_id === r1.refund_request_id, JSON.stringify(r2));
   }
 
-  // T8 (R11-P0-1): claim guards — connected gated at DB, exact-set reuse, overlapping/cross-brand/duplicate rejected
+  // T8 (R11-P0-1, revised by 0116): claim guards — a connected claim needs its account (no more pilot refusal),
+  // exact-set reuse, overlapping/cross-brand/duplicate rejected
   {
     const cb = await seedBooking(CONN_RETAILER, CONN_VENUE);
-    const cj = await rpc('checkout_claim_group', { p_brand_id: BRAND1, p_retailer_id: CONN_RETAILER, p_booking_ids: [cb.id], p_platform_keeps_all: false, p_connect_account_id: 'x', p_platform_fee_cents: PLATFORM_FEE });
-    check('T8 connected claim rejected at DB', !cj.ok && /connected_not_in_pilot/.test(cj.text), cj.text.slice(0, 80));
+    const cj0 = await rpc('checkout_claim_group', { p_brand_id: BRAND1, p_retailer_id: CONN_RETAILER, p_booking_ids: [cb.id], p_platform_keeps_all: false, p_connect_account_id: null, p_platform_fee_cents: PLATFORM_FEE });
+    check('T8 connected claim without an account rejected at DB (connect_account_required)', !cj0.ok && /connect_account_required/.test(cj0.text), cj0.text.slice(0, 80));
+    const cj = await claimAndTrack(CONN_RETAILER, false, [cb.id], 'acct_fixture_testb');
+    const cjRow = one(cj.json);
+    const cAlloc = cj.ok ? one((await rest(`payment_allocations?payment_group_id=eq.${cjRow.payment_group_id}&select=customer_amount,venue_amount,platform_fee_amount`)).json) : null;
+    const cGrp = cj.ok ? one((await rest(`payment_groups?id=eq.${cjRow.payment_group_id}&select=platform_keeps_all,connect_account_id`)).json) : null;
+    check('T8 connected claim accepted (0116): $45 venue + $5 fee = 5000, snapshot carries the account', cj.ok && cjRow.total_customer_amount === 5000 && cAlloc && cAlloc.venue_amount === 4500 && cAlloc.platform_fee_amount === PLATFORM_FEE && cGrp && cGrp.platform_keeps_all === false && cGrp.connect_account_id === 'acct_fixture_testb', cj.ok ? JSON.stringify({ cjRow, cAlloc, cGrp }) : cj.text.slice(0, 80));
 
     const a = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
     const b2 = await seedBooking(KEEPS_RETAILER, KEEPS_VENUE);
