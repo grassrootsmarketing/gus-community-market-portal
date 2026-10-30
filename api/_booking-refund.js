@@ -123,17 +123,21 @@ async function stripeCall(b, method, path, { form = null, idempotencyKey = null 
   }
 }
 
-// Paginated read of an application fee's refunds. A read that fails part way is a failure (never a short list).
+// Paginated read of an application fee's refunds. A read that fails part way is a failure (never a short list), and so
+// is one that cannot be proven complete (Codex round 4, small correction 2): a malformed page, or the page cap reached
+// with has_more still true, returns a transient failure, because a negative answer from this list is what authorizes
+// a new fee refund.
 async function listFeeRefunds(b, feeId) {
-  const out = []; let after = null;
+  const out = []; let after = null; let complete = false;
   for (let page = 0; page < 20; page++) {
     const r = await stripeCall(b, 'GET', `/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=100${after ? '&starting_after=' + encodeURIComponent(after) : ''}`);
     if (!r.ok) return { ok: false, error: r.error, transient: r.transient };
-    const data = Array.isArray(r.json && r.json.data) ? r.json.data : [];
-    out.push(...data);
-    if (!r.json.has_more || !data.length) break;
-    after = data[data.length - 1].id;
+    if (!r.json || !Array.isArray(r.json.data)) return { ok: false, error: 'malformed_fee_refund_list', transient: true };
+    out.push(...r.json.data);
+    if (!r.json.has_more || !r.json.data.length) { complete = true; break; }
+    after = r.json.data[r.json.data.length - 1].id;
   }
+  if (!complete) return { ok: false, error: 'incomplete_fee_refund_list', transient: true };
   return { ok: true, data: out };
 }
 
@@ -191,28 +195,31 @@ export async function settleConnectRefund(b, requestId) {
   }
 
   // ---- the group's transfer and application fee ids, filled from validated provider state when still missing ----
-  if (!grp.stripe_transfer_id || !grp.stripe_application_fee_id) {
+  // A zero-fee destination charge carries no application fee object (Codex round 4, small correction 1): the fee id is
+  // required only when the allocations' fee sum is positive; the transfer id, and its reversal, are verified regardless.
+  const feeIdRequired = feeSum > 0;
+  if (!grp.stripe_transfer_id || (!grp.stripe_application_fee_id && feeIdRequired)) {
     const ch = await stripeCall(b, 'GET', `/v1/charges/${encodeURIComponent(grp.stripe_charge_id)}`);
     if (!ch.ok) return retry('stripe_get_charge', { error: ch.error });
     const charge = ch.json;
     const dest = stripeIdOf(charge.destination) || (charge.transfer_data && stripeIdOf(charge.transfer_data.destination)) || null;
-    if (stripeIdOf(charge.payment_intent) !== grp.stripe_payment_intent_id || dest !== grp.connect_account_id || charge.application_fee_amount !== feeSum) {
+    if (stripeIdOf(charge.payment_intent) !== grp.stripe_payment_intent_id || dest !== grp.connect_account_id || (charge.application_fee_amount == null ? 0 : charge.application_fee_amount) !== feeSum) {
       return await exception('group_charge_mismatch', { charge: charge.id, charge_pi: stripeIdOf(charge.payment_intent), destination: dest, application_fee_amount: charge.application_fee_amount, expected_destination: grp.connect_account_id, expected_fee: feeSum });
     }
     const trId = stripeIdOf(charge.transfer), feeId = stripeIdOf(charge.application_fee);
-    if (!trId || !feeId) return retry('group_ids_not_on_charge_yet');
+    if (!trId || (!feeId && feeIdRequired)) return retry('group_ids_not_on_charge_yet');
     try {
       const applied = await sbRpc(b, 'apply_verified_payment', {
         p_session_id: grp.stripe_checkout_session_id, p_payment_intent: grp.stripe_payment_intent_id, p_charge: charge.id,
         p_amount: grp.total_customer_amount, p_currency: grp.currency, p_connect_dest: dest, p_on_behalf_of: stripeIdOf(charge.on_behalf_of) || dest,
-        p_application_fee: charge.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId,
+        p_application_fee: charge.application_fee_amount == null ? 0 : charge.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId || null,
       });
       const val = Array.isArray(applied) ? applied[0] : applied;
       if (val && val.outcome === 'contradiction') return await exception('group_id_fill_contradiction', { reason: val.reason, case_id: val.case_id });
       const again = await sbRaw(b, `payment_groups?id=eq.${encodeURIComponent(grp.id)}&select=stripe_transfer_id,stripe_application_fee_id`);
       grp.stripe_transfer_id = again[0] && again[0].stripe_transfer_id; grp.stripe_application_fee_id = again[0] && again[0].stripe_application_fee_id;
     } catch (e) { return retry('db_fill_group_ids', { error: String((e && e.message) || e).slice(0, 160) }); }
-    if (!grp.stripe_transfer_id || !grp.stripe_application_fee_id) return retry('group_ids_still_missing');
+    if (!grp.stripe_transfer_id || (!grp.stripe_application_fee_id && feeIdRequired)) return retry('group_ids_still_missing');
   }
 
   const legs = {};
@@ -235,6 +242,7 @@ export async function settleConnectRefund(b, requestId) {
   if (!['succeeded', 'not_required'].includes(req.fee_refund_status || '')) {
     const expected = req.expected_fee_refund_amount == null ? 0 : req.expected_fee_refund_amount;
     const feeId = grp.stripe_application_fee_id;
+    if (expected > 0 && !feeId) return await exception('fee_refund_expected_without_fee_object', { expected_amount: expected, fee_sum: feeSum });
     const verifyAndRecord = async (fr) => {
       if (stripeIdOf(fr.fee) !== feeId || fr.amount !== expected || String(fr.currency || '').toLowerCase() !== String(req.currency).toLowerCase()) {
         return await exception('fee_refund_mismatch', { fee_refund: fr.id, fee: stripeIdOf(fr.fee), amount: fr.amount, currency: fr.currency, expected_amount: expected, group_fee: feeId });

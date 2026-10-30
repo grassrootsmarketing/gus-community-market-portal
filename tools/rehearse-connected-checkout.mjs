@@ -26,6 +26,14 @@
 //   R      (0117, Codex CC-2) worker-only recovery on real objects: the customer refund is created outside the routes,
 //          applied to the ledger, no webhook is replayed and no cancel path runs; the refund worker alone creates the
 //          exact fee refund, verifies both legs and completes settlement.
+//   R2     (0118, Codex R3-3) the conflict the round 3 run stumbled into, now on purpose: the customer refund is created
+//          outside the routes under the request's stored idempotency key with OTHER parameters (no reason field), the
+//          ledger is never told and no webhook is replayed; the worker's resubmit is refused by Stripe's idempotency
+//          check and the worker adopts the existing refund by metadata lookup, then settles it. No manual ledger apply.
+//   Z      (Codex round 4, small correction 1) the provider's real shape for a zero platform fee: a destination charge
+//          created with application_fee_amount=0 (what the handler would send) and, if Stripe refuses that, without the
+//          parameter; the charge is read back, applied through the webhook route, refunded through the cancel route and
+//          settled by the worker with no application fee object anywhere.
 //
 // Run (bash):  set -a; . /c/Users/David/demohub.env; set +a
 //              export SB_URL SB_KEY SB_REF STRIPE_TEST_SECRET_KEY PLAYWRIGHT_ROOT REHEARSAL_ACCOUNT
@@ -49,6 +57,7 @@ console.log(`safety: SB_REF ${SB_REF} (demohub-rebuild-check); Stripe key prefix
 
 const H = await import('../tests/_route.mjs');
 const { callRoute, req, rawReq, ok, summary, uniq, state } = H;
+const stripeIdOf = (v) => (v == null ? null : (typeof v === 'string' ? v : (typeof v === 'object' && v.id) || null));
 const WH_SECRET = 'whsec_harness_rehearsal';
 const H_ORIGIN_HOST = new URL(H.ORIGIN).hostname;
 H.ENV.STRIPE_SECRET_KEY = STRIPE_TEST_SECRET_KEY;
@@ -131,7 +140,8 @@ const EVID_DIR = resolve('tests', 'evidence');
 mkdirSync(EVID_DIR, { recursive: true });
 const DATE = new Date().toISOString().slice(0, 10);
 const RUN = uniq('cc');
-const EVID_JSON = resolve(EVID_DIR, `connected-checkout-rehearsal-${DATE}.json`);
+// EVIDENCE_FILE names the evidence file for a run (round 4: a new dated file, so the round 3 record is preserved as it was)
+const EVID_JSON = resolve(EVID_DIR, process.env.EVIDENCE_FILE || `connected-checkout-rehearsal-${DATE}.json`);
 const evidence = { run: RUN, date: new Date().toISOString(), project: 'demohub-rebuild-check', stripe_mode: 'test', account: {}, fixtures: {}, cases: {}, fee: {}, stripe_requests: [], notes: [] };
 const saveEvidence = () => writeFileSync(EVID_JSON, JSON.stringify(evidence, null, 2));
 const groupSnapshot = async (gid) => {
@@ -639,6 +649,86 @@ async function run() {
     const trR = (await stripe(`/v1/transfers/${encodeURIComponent(R.transfer)}`)).body;
     ok('R: one worker run, no webhook: the worker created the exact fee refund (1000, with the request id) and verified the reversal (16000); settlement complete; transfer reversed 16000; still one customer refund', w.statusCode === 200 && post.settlement_status === 'complete' && post.transfer_reversal_amount === 16000 && post.fee_refund_amount === 1000 && frs.length === feeBefore + 1 && frs[0].metadata && frs[0].metadata.refund_request_id === row.refund_request_id && post.stripe_fee_refund_id === frs[0].id && trR.amount_reversed === 16000 && (((await stripe(`/v1/refunds?payment_intent=${encodeURIComponent(R.pi)}&limit=10`)).body || {}).data || []).length === 1, JSON.stringify({ w: w.statusCode, out: w.body && { c: w.body.settlement_claimed, d: w.body.settlement_completed, e: w.body.errors }, post, frs: frs.map(x => [x.id, x.amount]) }));
     evidence.cases.R = { booking: a, group: gid, payment_intent: R.pi, charge: R.charge, transfer: R.transfer, application_fee: R.fee, refund: reR.id, request: row.refund_request_id, worker: w.body && { settlement_claimed: w.body.settlement_claimed, settlement_completed: w.body.settlement_completed }, after: post, fee_refunds: frs.map(x => ({ id: x.id, amount: x.amount, request: x.metadata && x.metadata.refund_request_id })) };
+    saveEvidence();
+  }
+
+
+  // ---- R2: the idempotency-parameter conflict, adopted by the worker (0118, Codex R3-3) -----------------
+  console.log('\n:: R2: a customer refund made outside the routes under the stored key with other parameters; the worker adopts it, never resubmits');
+  {
+    const a = await book(F.slug, F.venueId, dayN++);
+    const co = await checkout([a]);
+    const gid = co.res.body.payment_group_id;
+    const r = await payAndApply('R2', co.res.body.session_id, co.res.body.url, gid);
+    const R2 = { pi: r.pi.id, charge: r.ch.id, transfer: r.ch.transfer, fee: r.ch.application_fee };
+    const rr = (await rpc('refund_reserve_cas', { p_booking_id: a, p_op_key: a + ':cancel', p_actor: 'rehearsal-support-tool', p_reason: 'conflict rehearsal' })).body;
+    const row = Array.isArray(rr) ? rr[0] : rr;
+    ok('R2: the reservation is strategy 2 (reversal 16000, fee refund 1000 expected)', row.outcome === 'reserved' && row.settlement_strategy === 2 && row.expected_transfer_reversal_amount === 16000 && row.expected_fee_refund_amount === 1000, JSON.stringify(row));
+    // the "support tool": the request's key, reverse_transfer, metadata, but NO reason field (the parameters differ from the routes')
+    const outside = await (await realFetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { Authorization: 'Bearer ' + STRIPE_TEST_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': row.idempotency_key }, body: new URLSearchParams({ payment_intent: row.payment_intent, amount: String(row.amount), reverse_transfer: 'true', 'metadata[refund_request_id]': row.refund_request_id, 'metadata[booking_id]': a }).toString() })).json();
+    const pre = one(await db(`refund_requests?id=eq.${row.refund_request_id}&select=status,customer_refund_status,settlement_status,stripe_refund_id`));
+    ok('R2: the outside refund succeeded on Stripe (16000, tagged with the request, transfer reversed); the ledger was NOT told (request still reserved, no refund id)', outside && outside.status === 'succeeded' && outside.amount === 16000 && outside.metadata && outside.metadata.refund_request_id === row.refund_request_id && !!outside.transfer_reversal && pre.status === 'reserved' && !pre.stripe_refund_id, JSON.stringify({ outside: outside && outside.id, pre }));
+    const posts0 = calls.stripe.filter(c => c.method === 'POST' && c.url.endsWith('/v1/refunds')).length;
+    const w = await callRoute('refund-worker.js', req({ body: {}, headers: { authorization: 'Bearer ' + H.ENV.CRON_SECRET } }));
+    const posts = calls.stripe.filter(c => c.method === 'POST' && c.url.endsWith('/v1/refunds')).slice(posts0);
+    let post = one(await db(`refund_requests?id=eq.${row.refund_request_id}&select=status,customer_refund_status,settlement_status,stripe_refund_id,last_error,stripe_fee_refund_id,stripe_transfer_reversal_id,transfer_reversal_amount,fee_refund_amount`));
+    const refundsOnPi = (((await stripe(`/v1/refunds?payment_intent=${encodeURIComponent(R2.pi)}&limit=10`)).body || {}).data || []);
+    ok('R2: one worker run, no webhook, no manual apply: Stripe refused the worker\'s one resubmit under the stored key and the worker adopted the existing refund (request succeeded with that id); exactly one customer refund on the PaymentIntent', w.statusCode === 200 && posts.length === 1 && post.status === 'succeeded' && post.stripe_refund_id === outside.id && refundsOnPi.length === 1 && w.body && w.body.adopted >= 1 && w.body.errors === 0, JSON.stringify({ w: w.statusCode, body: w.body && { adopted: w.body.adopted, resubmitted: w.body.resubmitted, errors: w.body.errors, first_error: w.body.first_error }, posts: posts.length, post, refunds: refundsOnPi.length }));
+    if (post.settlement_status !== 'complete') { await callRoute('refund-worker.js', req({ body: {}, headers: { authorization: 'Bearer ' + H.ENV.CRON_SECRET } })); post = one(await db(`refund_requests?id=eq.${row.refund_request_id}&select=status,customer_refund_status,settlement_status,stripe_refund_id,last_error,stripe_fee_refund_id,stripe_transfer_reversal_id,transfer_reversal_amount,fee_refund_amount`)); }
+    const frs = (((await stripe(`/v1/application_fees/${encodeURIComponent(R2.fee)}/refunds?limit=10`)).body || {}).data || []);
+    const trR = (await stripe(`/v1/transfers/${encodeURIComponent(R2.transfer)}`)).body;
+    ok('R2: settlement completed on the adopted refund: the exact fee refund (1000, with the request id) created by the worker, the reversal verified (16000), still one customer refund', post.settlement_status === 'complete' && post.transfer_reversal_amount === 16000 && post.fee_refund_amount === 1000 && frs.length === 1 && frs[0].amount === 1000 && frs[0].metadata && frs[0].metadata.refund_request_id === row.refund_request_id && post.stripe_fee_refund_id === frs[0].id && trR.amount_reversed === 16000, JSON.stringify({ post, frs: frs.map(x => [x.id, x.amount]), reversed: trR.amount_reversed }));
+    evidence.cases.R2 = { booking: a, group: gid, payment_intent: R2.pi, charge: R2.charge, transfer: R2.transfer, application_fee: R2.fee, request: row.refund_request_id, outside_refund: outside && outside.id, outside_parameters: 'payment_intent, amount, reverse_transfer, metadata (no reason)', worker: w.body && { status: w.statusCode, adopted: w.body.adopted, resubmitted: w.body.resubmitted, errors: w.body.errors }, worker_refund_posts: posts.length, after: post, fee_refunds: frs.map(x => ({ id: x.id, amount: x.amount, request: x.metadata && x.metadata.refund_request_id })), transfer_amount_reversed: trR.amount_reversed, customer_refunds_on_pi: refundsOnPi.map(x => ({ id: x.id, amount: x.amount, status: x.status })) };
+    saveEvidence();
+  }
+
+  // ---- Z: the provider's real shape for a zero platform fee (Codex round 4, small correction 1) ----------
+  console.log('\n:: Z: a destination charge with a zero platform fee, as Stripe really shapes it');
+  {
+    const a = await book(F.slug, F.venueId, dayN++);
+    const brandId = F.brandId || evidence.fixtures.brand_id;
+    const claim = (await rpc('checkout_claim_group', { p_brand_id: brandId, p_retailer_id: F.retailerId, p_booking_ids: [a], p_platform_keeps_all: false, p_connect_account_id: account.id, p_platform_fee_cents: 0, p_provisional: false })).body;
+    const claimRow = Array.isArray(claim) ? claim[0] : claim;
+    const gid = claimRow && claimRow.payment_group_id;
+    ok('Z: a connected claim with a zero platform fee: 15000 to the store, fee 0', !!gid && claimRow.total_customer_amount === 15000, JSON.stringify(claim));
+    const mkSession = async (withZeroFeeParam) => {
+      const form = {
+        mode: 'payment', 'payment_method_types[0]': 'card', client_reference_id: gid, 'metadata[payment_group_id]': gid, 'metadata[retailer_id]': F.retailerId,
+        success_url: `${H.ORIGIN}/r/${F.slug}/?paid=1&bookings=${a}`, cancel_url: `${H.ORIGIN}/r/${F.slug}/?canceled=1`,
+        'payment_intent_data[metadata][payment_group_id]': gid, 'payment_intent_data[metadata][retailer_id]': F.retailerId,
+        'line_items[0][price_data][currency]': 'usd', 'line_items[0][price_data][unit_amount]': '15000', 'line_items[0][price_data][product_data][name]': 'Demo (zero-fee rehearsal)', 'line_items[0][quantity]': '1',
+        'payment_intent_data[transfer_data][destination]': account.id, 'payment_intent_data[on_behalf_of]': account.id,
+      };
+      if (withZeroFeeParam) form['payment_intent_data[application_fee_amount]'] = '0';
+      return stripe('/v1/checkout/sessions', { method: 'POST', form });
+    };
+    let session = await mkSession(true);
+    const zeroParamAccepted = session.ok;
+    evidence.cases.Z = { booking: a, group: gid, application_fee_amount_zero_param: zeroParamAccepted ? 'accepted by Stripe' : 'refused by Stripe: ' + JSON.stringify(session.body && session.body.error && session.body.error.message) };
+    if (!session.ok) session = await mkSession(false);
+    ok('Z: a Checkout Session for the zero-fee destination charge was created (with application_fee_amount=0 if Stripe accepts it, otherwise without the parameter)', session.ok && session.body && session.body.id, JSON.stringify(session.body && session.body.error));
+    const sid = session.body.id;
+    await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: sid, p_payment_intent: session.body.payment_intent || null, p_hash: 'zero-fee-rehearsal-' + gid, p_schema: 1 });
+    const paid = await payHostedCheckout(session.body.url, sid, 'Z');
+    ok('Z: the session reached payment_status=paid', !!paid, 'never paid');
+    const piId = paid && (typeof paid.payment_intent === 'string' ? paid.payment_intent : paid.payment_intent && paid.payment_intent.id);
+    let pi = null;
+    await until('Z charge transfer id', async () => { pi = (await stripe(`/v1/payment_intents/${encodeURIComponent(piId)}?expand[]=latest_charge`)).body; return !!(pi && pi.latest_charge && pi.latest_charge.transfer); }, { timeoutMs: 45000, everyMs: 2000 });
+    const ch = pi && pi.latest_charge;
+    evidence.cases.Z.charge_shape = ch && { id: ch.id, application_fee_amount: ch.application_fee_amount === undefined ? '(absent)' : ch.application_fee_amount, application_fee: ch.application_fee === undefined ? '(absent)' : ch.application_fee, transfer: ch.transfer, destination: stripeIdOf(ch.destination), on_behalf_of: stripeIdOf(ch.on_behalf_of), amount: ch.amount };
+    ok('Z: the real charge carries a transfer and NO application fee object (application_fee null; application_fee_amount null or 0)', ch && !!ch.transfer && !ch.application_fee && (ch.application_fee_amount == null || ch.application_fee_amount === 0), JSON.stringify(evidence.cases.Z.charge_shape));
+    const csEvts = await stripeEvents('checkout.session.completed', e => e.data && e.data.object && e.data.object.id === sid);
+    const w1 = csEvts && csEvts[0] ? await postWebhook(csEvts[0]) : { statusCode: 0 };
+    const g = one(await db(`payment_groups?id=eq.${gid}&select=status,stripe_transfer_id,stripe_application_fee_id,stripe_charge_id`));
+    const casesZ = (await db(`reconciliation_cases?payment_group_id=eq.${gid}&select=kind,reason`)).body || [];
+    ok('Z: the real checkout.session.completed is applied through the webhook route: group paid, transfer id recorded, no application fee id, no contradiction case', w1.statusCode === 200 && g && g.status === 'paid' && g.stripe_transfer_id === ch.transfer && g.stripe_application_fee_id === null && casesZ.length === 0, JSON.stringify({ w1: w1.statusCode, g, casesZ }));
+    const c = await callRoute('booking-action.js', req({ body: { booking_id: a, action: 'cancel', category: 'store_caused' }, cookies: { dh_retailer_session: F.retailerCookie } }));
+    let rq = one(await db(`refund_requests?booking_id=eq.${a}&select=id,status,settlement_status,settlement_strategy,expected_fee_refund_amount,fee_refund_status,fee_refund_amount,stripe_fee_refund_id,transfer_reversal_status,transfer_reversal_amount,stripe_refund_id`));
+    if (rq && rq.settlement_status !== 'complete') { await callRoute('refund-worker.js', req({ body: {}, headers: { authorization: 'Bearer ' + H.ENV.CRON_SECRET } })); rq = one(await db(`refund_requests?booking_id=eq.${a}&select=id,status,settlement_status,settlement_strategy,expected_fee_refund_amount,fee_refund_status,fee_refund_amount,stripe_fee_refund_id,transfer_reversal_status,transfer_reversal_amount,stripe_refund_id`)); }
+    const trZ = ch && (await stripe(`/v1/transfers/${encodeURIComponent(ch.transfer)}`)).body;
+    const casesZ2 = (await db(`reconciliation_cases?payment_group_id=eq.${gid}&select=kind,reason`)).body || [];
+    ok('Z: cancelled through the route: refund 15000 with the transfer reversed in full, settlement complete with the fee leg not_required (expected 0, no fee object, no provider call), no case opened by the worker\'s group id fill', c.statusCode === 200 && rq && rq.status === 'succeeded' && rq.settlement_status === 'complete' && rq.expected_fee_refund_amount === 0 && rq.fee_refund_status === 'not_required' && !rq.stripe_fee_refund_id && rq.transfer_reversal_status === 'succeeded' && rq.transfer_reversal_amount === 15000 && trZ && trZ.amount_reversed === 15000 && casesZ2.length === 0, JSON.stringify({ c: c.statusCode, rq, reversed: trZ && trZ.amount_reversed, casesZ2 }));
+    Object.assign(evidence.cases.Z, { session: sid, payment_intent: piId, charge: ch && ch.id, transfer: ch && ch.transfer, request: rq && rq.id, refund: rq && rq.stripe_refund_id, after: rq, transfer_amount_reversed: trZ && trZ.amount_reversed, cases: casesZ2 });
     saveEvidence();
   }
 

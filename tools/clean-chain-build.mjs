@@ -100,25 +100,63 @@ async function snapshot(url, out) {
   await c.end();
 }
 
-function diff(aPath, bPath) {
+// diff <a.json> <b.json> [allowlist.json]: every section is compared key by key. Codex round 4 (small correction 4): the
+// grants a Supabase project's default privileges add to every new function (EXECUTE to service_role on functions the
+// chain never grants explicitly) are NOT "identical"; they are an audited exception. An allowlist file names each
+// tolerated grant difference with the function's identity (its signature from the functions section) and a reason;
+// a grant difference outside the allowlist, and ANY grant difference for anon or authenticated, still counts.
+function diff(aPath, bPath, allowPath) {
   const A = JSON.parse(readFileSync(aPath, 'utf8')), B = JSON.parse(readFileSync(bPath, 'utf8'));
-  let total = 0;
+  const allow = allowPath ? JSON.parse(readFileSync(allowPath, 'utf8')) : null;
+  const allowed = new Map((allow && allow.grants || []).map(g => [g.key, g]));
+  let total = 0, tolerated = 0; const usedAllow = new Set();
   const keyOf = { columns: r => `${r.table_name}.${r.column_name}`, constraints: r => `${r.table_name}.${r.conname}`, indexes: r => `${r.tablename}.${r.indexname}`, triggers: r => `${r.table_name}.${r.tgname}`, functions: r => r.sig, function_grants: r => `${r.routine_name}:${r.grantee}:${r.privilege_type}`, policies: r => `${r.tablename}.${r.policyname}`, rls: r => r.relname };
   for (const [section, kf] of Object.entries(keyOf)) {
     const ma = new Map(A[section].map(r => [kf(r), JSON.stringify(r)])), mb = new Map(B[section].map(r => [kf(r), JSON.stringify(r)]));
-    const onlyA = [...ma.keys()].filter(k => !mb.has(k)), onlyB = [...mb.keys()].filter(k => !ma.has(k)), changed = [...ma.keys()].filter(k => mb.has(k) && ma.get(k) !== mb.get(k));
+    let onlyA = [...ma.keys()].filter(k => !mb.has(k)), onlyB = [...mb.keys()].filter(k => !ma.has(k)); const changed = [...ma.keys()].filter(k => mb.has(k) && ma.get(k) !== mb.get(k));
+    if (section === 'function_grants' && allowed.size) {
+      const tol = (k, side) => { const g = allowed.get(k); if (g && g.only_in === side && !/:(anon|authenticated):/.test(k)) { usedAllow.add(k); tolerated++; return true; } return false; };
+      onlyA = onlyA.filter(k => !tol(k, 'A')); onlyB = onlyB.filter(k => !tol(k, 'B'));
+    }
     total += onlyA.length + onlyB.length + changed.length;
-    console.log(`${section}: ${ma.size} vs ${mb.size}; only in A ${onlyA.length}; only in B ${onlyB.length}; differing ${changed.length}`);
+    console.log(`${section}: ${ma.size} vs ${mb.size}; only in A ${onlyA.length}; only in B ${onlyB.length}; differing ${changed.length}${section === 'function_grants' && allowed.size ? `; tolerated by the allowlist ${tolerated}` : ''}`);
     for (const k of onlyA.slice(0, 40)) console.log('  only in A:', k);
     for (const k of onlyB.slice(0, 40)) console.log('  only in B:', k);
     for (const k of changed.slice(0, 40)) console.log('  differs:', k);
+    if (section === 'function_grants') {
+      const roleCount = (list) => { const c = {}; for (const k of list) { const role = k.split(':')[1]; c[role] = (c[role] || 0) + 1; } return c; };
+      console.log('  grant differences by grantee (outside the allowlist): only in A', JSON.stringify(roleCount(onlyA)), 'only in B', JSON.stringify(roleCount(onlyB)));
+    }
   }
+  if (allowed.size) { const unused = [...allowed.keys()].filter(k => !usedAllow.has(k)); if (unused.length) { console.log('allowlist entries not needed this time:', unused.length); for (const k of unused.slice(0, 20)) console.log('  unused:', k); } }
   console.log('ledger A:', A.ledger.slice(-3).join(','), 'B:', B.ledger.slice(-3).join(','));
-  console.log('TOTAL differences:', total);
+  console.log('TOTAL differences:', total, allowed.size ? `(plus ${tolerated} allowlisted service_role grants)` : '');
   process.exit(total === 0 ? 0 : 1);
+}
+// grant-allowlist <a.json> <b.json> <out.json>: writes the audited allowlist of function_grants differences between a
+// clean chain build (A) and the project (B): only EXECUTE grants to service_role, each with the function's identity.
+function grantAllowlist(aPath, bPath, outPath) {
+  const A = JSON.parse(readFileSync(aPath, 'utf8')), B = JSON.parse(readFileSync(bPath, 'utf8'));
+  const kf = r => `${r.routine_name}:${r.grantee}:${r.privilege_type}`;
+  const ma = new Set(A.function_grants.map(kf)), mb = new Set(B.function_grants.map(kf));
+  const sigsOf = (snap, name) => snap.functions.filter(f => f.sig && (f.sig.startsWith(name + '(') || f.sig.startsWith('public.' + name + '('))).map(f => f.sig);
+  const grants = [];
+  const refused = [];
+  for (const [side, only] of [['A', [...ma].filter(k => !mb.has(k))], ['B', [...mb].filter(k => !ma.has(k))]]) {
+    for (const k of only) {
+      const [routine, grantee, priv] = k.split(':');
+      if (grantee !== 'service_role' || priv !== 'EXECUTE') { refused.push({ key: k, only_in: side }); continue; }
+      grants.push({ key: k, only_in: side, routine, function_identities: sigsOf(side === 'A' ? A : B, routine), reason: 'EXECUTE granted to service_role by the Supabase project default privileges on function creation; the committed chain never grants it; service_role bypasses grants anyway' });
+    }
+  }
+  const out = { generated_at: new Date().toISOString(), a: aPath, b: bPath, rule: 'only EXECUTE to service_role is ever tolerated; anon and authenticated differences are never tolerated', count: grants.length, grants, refused };
+  writeFileSync(outPath, JSON.stringify(out, null, 2) + '\n');
+  console.log(`allowlist: ${grants.length} tolerated service_role EXECUTE grants; ${refused.length} differences NOT eligible (anon/authenticated or non-EXECUTE)`);
+  process.exit(refused.length === 0 ? 0 : 1);
 }
 
 if (cmd === 'build') await build(a1, a2);
 else if (cmd === 'snapshot') await snapshot(a1, a2);
-else if (cmd === 'diff') diff(a1, a2);
-else { console.error('usage: build <url> [upto] | snapshot <url> <out.json> | diff <a.json> <b.json>'); process.exit(2); }
+else if (cmd === 'diff') diff(a1, a2, process.argv[5]);
+else if (cmd === 'grant-allowlist') grantAllowlist(a1, a2, process.argv[5]);
+else { console.error('usage: build <url> [upto] | snapshot <url> <out.json> | diff <a.json> <b.json> [allowlist.json] | grant-allowlist <a.json> <b.json> <out.json>'); process.exit(2); }

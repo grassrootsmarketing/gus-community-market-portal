@@ -54,53 +54,21 @@ export default async function handler(req, res) {
     const idList = ids.map(id => encodeURIComponent(id)).join(',');
     const bookings = await sbJson(`bookings?id=in.(${idList})&select=id,brand_id,retailer_id,venue_id,demo_date,demo_time,brand_name,contact_email,status,fee_waived,booked_by_member_id`);
     if (!Array.isArray(bookings) || bookings.length === 0) return res.status(404).json({ error: 'booking_not_found' });
-    // exact requested==returned set (Codex): no silent partial
-    if (bookings.length !== ids.length) return res.status(400).json({ error: 'booking_set_mismatch' });
+    // Exact requested set, authority over the WHOLE set and one store, all before any write (Codex round 4, R3-1). The
+    // ledger's claim checks ownership again under its locks; this is the handler's own refusal, so nothing below (the
+    // held promotion included) can act on a booking the caller does not own. A row count alone is not an exact-set check.
+    if (bookings.length !== ids.length || ids.some(id => !bookings.some(b => String(b.id) === String(id)))) return res.status(400).json({ error: 'booking_set_mismatch' });
+    if (bookings.some(b => !b.brand_id || String(b.brand_id) !== String(auth.brandId))) return res.status(403).json({ error: 'not_your_booking' });
     // 0097 (Codex BK-4): a booker checks out only bookings attributed to them, every one in the batch.
     if (auth.role === 'booker' && bookings.some(b => !(b.booked_by_member_id && String(b.booked_by_member_id) === String(auth.memberId)))) {
       return res.status(403).json({ error: 'not_your_booking', message: 'You can only pay for demos you booked yourself.' });
     }
+    if (new Set(bookings.map(b => String(b.retailer_id))).size !== 1) return res.status(400).json({ error: 'mixed_retailers' });
     // Booking codes (0085): a fee-waived booking is free and confirms through the outbox; it never enters checkout.
     if (bookings.some(b => b.fee_waived === true)) return res.status(400).json({ error: 'booking_fee_waived', message: 'This booking is free, so no payment is needed.' });
 
-    // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
-    // the whole PaymentIntent, so a held booking can never share a Session with anything else,
-    // mixed or multi-booking held carts are rejected, and manual capture is applied ONLY to a held
-    // cart (verified brands keep the immediate charge even with the flag on).
-    // Route forward for a held booking after COI approval (Codex connected-checkout review, bounded condition): a brand
-    // books 'held' while its certificate is unreviewed; once the certificate is approved and covers the demo date, the
-    // booking is an ordinary unpaid booking and is paid like one. Only an unpaid held booking with NO payment group yet
-    // is moved (a hold mid-checkout, or one already authorized, settles through the hold paths). The move is a
-    // compare-and-set on status=held, so a concurrent sweep or cancel wins and the loop simply sees the new state.
-    if (bookings.some(b => b.status === 'held')) {
-      try {
-        const br = await sbJson(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status`);
-        const brand = (Array.isArray(br) && br[0]) || {};
-        const { coiCovered } = await import('./_coi-coverage.js');
-        for (const b of bookings) {
-          if (b.status !== 'held' || !coiCovered(brand, b.demo_date).covered) continue;
-          const inGroup = await sbJson(`payment_allocations?booking_id=eq.${encodeURIComponent(b.id)}&select=id&limit=1`);
-          if (Array.isArray(inGroup) && inGroup.length) continue;
-          const moved = await rest(`bookings?id=eq.${encodeURIComponent(b.id)}&status=eq.held&payment_status=eq.unpaid`, { method: 'PATCH', body: JSON.stringify({ status: 'pending_payment', held_expires_at: null }) });
-          const rows = moved && moved.ok ? await moved.json().catch(() => []) : [];
-          if (Array.isArray(rows) && rows.length) b.status = 'pending_payment';
-        }
-      } catch (e) { console.warn('held booking coverage re-check skipped:', (e && e.message) || e); }
-    }
-    const heldCount = bookings.filter(b => b.status === 'held').length;
-    const provisionalCart = heldCount > 0;
-    if (provisionalCart && (heldCount !== bookings.length || bookings.length !== 1)) {
-      return res.status(400).json({ error: 'provisional_checkout_single_only' });
-    }
-    // Flag-off rollback guard: if PROVISIONAL_HOLDS_ENABLED is flipped off while a 'held' booking
-    // exists, checking it out here would take the IMMEDIATE-charge path (no capture_method=manual),
-    // charging the card in full, but apply_verified_payment then freezes the group (a held+unpaid
-    // booking is not flippable), so the customer is charged with no demo. Refuse instead; the hold
-    // can only ever settle through the capture/release paths, which don't gate on the flag.
-    if (provisionalCart && !FLAGS.provisionalHolds) {
-      return res.status(409).json({ error: 'provisional_holds_disabled', message: 'This held booking can\'t be paid right now. Please contact the store.' });
-    }
-
+    // The store and its gates come BEFORE any held promotion (Codex round 4): a store that cannot be paid online (connected
+    // checkout off, or payouts not ready) never has a hold moved to pending_payment for it.
     const retailerId = bookings[0].retailer_id;
     const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,stripe_payouts_enabled,platform_keeps_all`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
@@ -124,16 +92,67 @@ export default async function handler(req, res) {
       if (!acct || retailer.stripe_charges_enabled !== true || retailer.stripe_payouts_enabled !== true) {
         return res.status(409).json({ error: 'store_not_payout_ready', message: 'This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.', booking_ids: bookings.map(b => b.id) });
       }
-      // Provisional holds at a connected store are NOT supported yet (revenue split round 2, 2026-10-30). Provisional
-      // holds are ON in production: a brand without a verified COI books 'held' and would check out with a manual-
-      // capture destination charge. apply_verified_authorization still refuses a connected group (it opens a
-      // contradiction case and applies nothing), so the authorization would stand on Stripe with the hold unapplied.
-      // Refused here, before any claim and before Stripe, until the authorize / capture / release paths are
-      // rehearsed for a connected store in their own round. The brand's remedy is the same as for any held booking:
-      // get the COI on file, or contact the store.
-      if (provisionalCart) {
-        return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.', booking_ids: bookings.map(b => b.id) });
+    }
+
+    // Provisional holds: a 'held' (unverified-COI) booking checks out ALONE. Capture/cancel act on
+    // the whole PaymentIntent, so a held booking can never share a Session with anything else,
+    // mixed or multi-booking held carts are rejected, and manual capture is applied ONLY to a held
+    // cart (verified brands keep the immediate charge even with the flag on).
+    // Route forward for a held booking after COI approval (Codex connected-checkout review, bounded condition; rewritten
+    // for round 4, R3-1 and R3-2): a brand books 'held' while its certificate is unreviewed; once the certificate is
+    // approved and covers the demo date, the booking is an ordinary unpaid booking and is paid like one. The decision
+    // which held bookings the owner's certificate covers is the shared policy (api/_coi-policy.js) applied to the
+    // AUTHENTICATED brand's row, which is the owner of every booking here (checked above and again in the RPC). The move
+    // itself is promote_held_bookings (0118): under the same row locks checkout_claim_group takes, it refuses the whole
+    // set unless every booking is this brand's (and this booker's), and promotes only a booking that is still held and
+    // unpaid, never authorized, not expired and in no payment group. Its fresh rows replace what was read first; a
+    // failed call is a controlled rejection, never a continuation on stale objects.
+    if (bookings.some(b => b.status === 'held')) {
+      let covered = [];
+      try {
+        const br = await sbJson(`brands?id=eq.${encodeURIComponent(auth.brandId)}&select=default_coi_url,default_coi_expires,coi_verification_status`);
+        const brand = (Array.isArray(br) && br[0]) || null;
+        const { coiCovered } = await import('./_coi-coverage.js');
+        if (brand) covered = bookings.filter(b => b.status === 'held' && coiCovered(brand, b.demo_date).covered).map(b => String(b.id));
+      } catch (e) { console.warn('COI read for the held route forward failed; nothing is promoted:', (e && e.message) || e); covered = []; }
+      if (covered.length) {
+        const moved = await rpc('promote_held_bookings', { p_brand_id: auth.brandId, p_member_id: auth.memberId || null, p_role: auth.role || null, p_booking_ids: ids, p_covered_booking_ids: covered });
+        if (!moved.ok) {
+          const msg = String((moved.json && moved.json.message) || moved.text || '');
+          if (/not_your_booking/.test(msg)) return res.status(403).json({ error: 'not_your_booking' });
+          if (/booking_set_mismatch/.test(msg)) return res.status(400).json({ error: 'booking_set_mismatch' });
+          if (/mixed_retailers/.test(msg)) return res.status(400).json({ error: 'mixed_retailers' });
+          console.error('promote_held_bookings failed:', msg);
+          return res.status(503).json({ error: 'held_recheck_failed', message: 'Could not confirm this booking just now. Please try again.' });
+        }
+        const fresh = Array.isArray(moved.json) ? moved.json : [];
+        if (fresh.length !== ids.length || fresh.some(r => !r || !r.id || !ids.includes(String(r.id)))) return res.status(503).json({ error: 'held_recheck_failed', message: 'Could not confirm this booking just now. Please try again.' });
+        bookings.splice(0, bookings.length, ...fresh);
       }
+    }
+    const heldCount = bookings.filter(b => b.status === 'held').length;
+    const provisionalCart = heldCount > 0;
+    if (provisionalCart && (heldCount !== bookings.length || bookings.length !== 1)) {
+      return res.status(400).json({ error: 'provisional_checkout_single_only' });
+    }
+    // Flag-off rollback guard: if PROVISIONAL_HOLDS_ENABLED is flipped off while a 'held' booking
+    // exists, checking it out here would take the IMMEDIATE-charge path (no capture_method=manual),
+    // charging the card in full, but apply_verified_payment then freezes the group (a held+unpaid
+    // booking is not flippable), so the customer is charged with no demo. Refuse instead; the hold
+    // can only ever settle through the capture/release paths, which don't gate on the flag.
+    if (provisionalCart && !FLAGS.provisionalHolds) {
+      return res.status(409).json({ error: 'provisional_holds_disabled', message: 'This held booking can\'t be paid right now. Please contact the store.' });
+    }
+
+    // Provisional holds at a connected store are NOT supported yet (revenue split round 2, 2026-10-30). Provisional
+    // holds are ON in production: a brand without a verified COI books 'held' and would check out with a manual-
+    // capture destination charge. apply_verified_authorization still refuses a connected group (it opens a
+    // contradiction case and applies nothing), so the authorization would stand on Stripe with the hold unapplied.
+    // Refused here, before any claim and before Stripe, until the authorize / capture / release paths are
+    // rehearsed for a connected store in their own round. The brand's remedy is the same as for any held booking:
+    // get the COI on file, or contact the store.
+    if (!platformKeepsAll && provisionalCart) {
+      return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.', booking_ids: bookings.map(b => b.id) });
     }
 
     // ---- ATOMIC claim + immutable allocations (ownership/payable/venue-fee enforced in the fn) ----
@@ -142,12 +161,17 @@ export default async function handler(req, res) {
       p_platform_keeps_all: platformKeepsAll,
       p_connect_account_id: platformKeepsAll ? null : retailer.stripe_account_id,
       p_platform_fee_cents: PLATFORM_FEE_CENTS,
+      // 0118 (R3-2): the capture-mode decision above is asserted inside the claim, under the booking locks
+      p_provisional: provisionalCart,
     });
     if (!claim.ok) {
       const msg = String((claim.json && claim.json.message) || claim.text || '');
       if (/not_your_booking/.test(msg)) return res.status(403).json({ error: 'not_your_booking' });
       if (/mixed_retailers/.test(msg)) return res.status(400).json({ error: 'mixed_retailers' });
       if (/not_payable_state/.test(msg)) return res.status(409).json({ error: 'not_payable_state' });
+      if (/capture_mode_stale/.test(msg)) return res.status(409).json({ error: 'booking_state_changed', message: 'This booking changed while you were paying. Please refresh the page and try again.' });
+      if (/connected_hold_unsupported/.test(msg)) return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.' });
+      if (/provisional_checkout_single_only/.test(msg)) return res.status(400).json({ error: 'provisional_checkout_single_only' });
       if (/another payment group/.test(msg)) return res.status(409).json({ error: 'already_in_checkout' });
       if (/venue_missing_fee/.test(msg)) return res.status(400).json({ error: 'venue_missing_fee' });
       console.error('checkout_claim_group failed:', msg);

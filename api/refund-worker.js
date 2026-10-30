@@ -86,19 +86,48 @@ async function stripeSubmitRefund({ pi, amount, keepsAll, strategy, idempotencyK
     headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': String(idempotencyKey).slice(0, 255) },
     body: p.toString(),
   });
-  const j = await r.json(); return r.ok ? { ok: true, refund: j } : { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status) };
+  const j = await r.json(); return r.ok ? { ok: true, refund: j } : { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status), type: (j.error && j.error.type) || null, code: (j.error && j.error.code) || null, status: r.status };
 }
+// Paginated read of a PaymentIntent's refunds. Codex round 4 (small correction 2, applied to this list as well): a list
+// that cannot be proven complete (a malformed page, or the page cap reached with more to come) is a FAILURE, never a
+// short list, because a negative answer from it decides whether a refund exists.
 async function stripeListRefundsForPI(pi) {
-  const out = []; let startingAfter = null;
+  const out = []; let startingAfter = null; let complete = false;
   for (let page = 0; page < 20; page++) {   // paginate until exhausted (R10-P0-4: not just first 100)
     let url = `https://api.stripe.com/v1/refunds?payment_intent=${encodeURIComponent(pi)}&limit=100`;
     if (startingAfter) url += `&starting_after=${encodeURIComponent(startingAfter)}`;
     const r = await fetch(url, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
     const j = await r.json(); if (!r.ok) return { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status) };
-    const data = Array.isArray(j.data) ? j.data : []; out.push(...data);
-    if (!j.has_more || data.length === 0) break; startingAfter = data[data.length - 1].id;
+    if (!j || !Array.isArray(j.data)) return { ok: false, error: 'malformed_refund_list' };
+    out.push(...j.data);
+    if (!j.has_more || j.data.length === 0) { complete = true; break; }
+    startingAfter = j.data[j.data.length - 1].id;
   }
+  if (!complete) return { ok: false, error: 'incomplete_refund_list' };
   return { ok: true, data: out };
+}
+// 0118 / Codex R3-3: the stored idempotency key was already used with OTHER parameters (a support tool or an older
+// build created the customer refund outside the routes), so a resubmit can never succeed and must never be retried under
+// a new key. The request's own refund is looked up READ-ONLY on the PaymentIntent by the metadata every submission
+// path stamps, validated (request id, PaymentIntent, charge, amount, currency, a live status) and, only when exactly one
+// candidate qualifies, applied through the verified apply_refund_event path, which binds it again at the ledger.
+// Zero valid candidates: a controlled retry (the refund may still be settling on Stripe's side). More than one: review.
+async function adoptExistingRefund(row, pi, grp) {
+  const list = await stripeListRefundsForPI(pi);
+  if (!list.ok) return { outcome: 'retry', reason: 'list: ' + list.error };
+  let currency = row.currency;
+  if (!currency) { try { const rr = await sbGet(`refund_requests?id=eq.${encodeURIComponent(row.id)}&select=currency`); currency = rr && rr[0] && rr[0].currency; } catch (_) { /* validated below */ } }
+  if (!currency) return { outcome: 'retry', reason: 'request_currency_unreadable' };
+  const candidates = list.data.filter(rf => rf && rf.metadata && String(rf.metadata.refund_request_id) === String(row.id));
+  const valid = candidates.filter(rf => rf.amount === row.amount && String(rf.currency || '').toLowerCase() === String(currency).toLowerCase()
+    && stripeIdOf(rf.payment_intent) === pi && (!grp.stripe_charge_id || stripeIdOf(rf.charge) === grp.stripe_charge_id)
+    && ['succeeded', 'pending', 'requires_action'].includes(String(rf.status || '').toLowerCase()));
+  if (valid.length === 0) return { outcome: 'none', reason: candidates.length ? 'refund_for_request_does_not_match' : 'no_refund_for_request_on_pi', candidates: candidates.map(c => c.id) };
+  if (valid.length > 1) return { outcome: 'ambiguous', candidates: valid.map(c => c.id) };
+  const applied = await applyRefundToLedger(row, valid[0]);
+  const val = Array.isArray(applied) ? applied[0] : applied;
+  if (!val || !['applied', 'already_terminal', 'pending_persisted'].includes(val.outcome)) return { outcome: 'contradiction', reason: (val && (val.reason || val.outcome)) || 'apply_failed', refund: valid[0].id };
+  return { outcome: 'adopted', refund: valid[0] };
 }
 
 // Customer-leg recovery only. The Stripe-side settlement legs of a connected refund are the settlement queue's job
@@ -166,7 +195,7 @@ const GROUP_IDS_STALE_MS = 24 * 60 * 60 * 1000;
 async function fillGroupSettlementIds() {
   const out = { checked: 0, filled: 0, waiting: 0, stale_cases: 0, errors: 0, read_failed: false, first_error: null };
   let groups = [];
-  try { groups = await sbGet('payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&or=(stripe_transfer_id.is.null,stripe_application_fee_id.is.null)&stripe_charge_id=not.is.null&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,connect_account_id,total_customer_amount,currency,updated_at&order=updated_at.asc&limit=25'); }
+  try { groups = await sbGet('payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&or=(stripe_transfer_id.is.null,stripe_application_fee_id.is.null)&stripe_charge_id=not.is.null&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,connect_account_id,total_customer_amount,currency,updated_at&order=updated_at.asc&limit=25'); }
   catch (e) { out.read_failed = true; out.first_error = 'read: ' + String((e && e.message) || e).slice(0, 160); return out; }
   for (const g of (Array.isArray(groups) ? groups : [])) {
     out.checked++;
@@ -176,15 +205,18 @@ async function fillGroupSettlementIds() {
       if (!r.ok) throw new Error('charge read: ' + ((ch.error && ch.error.message) || r.status));
       const sums = await sbGet(`payment_allocations?payment_group_id=eq.${encodeURIComponent(g.id)}&select=platform_fee_amount`);
       const feeSum = (Array.isArray(sums) ? sums : []).reduce((s, a) => s + (a.platform_fee_amount || 0), 0);
+      // 0118 (Codex round 4, small correction 1): a zero-fee destination charge has no application fee object at all;
+      // such a group is complete with its transfer id alone, and a missing fee amount on the charge is a zero fee.
+      if (feeSum === 0 && g.stripe_transfer_id && !g.stripe_application_fee_id) { out.zero_fee = (out.zero_fee || 0) + 1; continue; }
       const dest = stripeIdOf(ch.destination) || (ch.transfer_data && stripeIdOf(ch.transfer_data.destination)) || null;
-      if (stripeIdOf(ch.payment_intent) !== g.stripe_payment_intent_id || dest !== g.connect_account_id || ch.application_fee_amount !== feeSum) {
+      if (stripeIdOf(ch.payment_intent) !== g.stripe_payment_intent_id || dest !== g.connect_account_id || (ch.application_fee_amount == null ? 0 : ch.application_fee_amount) !== feeSum) {
         await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-charge-mismatch:' + g.id, p_reason: 'group_charge_mismatch', p_group: g.id, p_request: null, p_operation: null,
           p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency,
           p_details: { charge_pi: stripeIdOf(ch.payment_intent), destination: dest, application_fee_amount: ch.application_fee_amount, expected_destination: g.connect_account_id, expected_fee: feeSum } });
         out.stale_cases++; continue;
       }
       const trId = stripeIdOf(ch.transfer), feeId = stripeIdOf(ch.application_fee);
-      if (!trId || !feeId) {
+      if (!trId || (!feeId && feeSum > 0)) {
         if (Date.now() - new Date(g.updated_at).getTime() > GROUP_IDS_STALE_MS) {
           await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-ids-missing:' + g.id, p_reason: 'group_settlement_ids_missing', p_group: g.id, p_request: null, p_operation: null,
             p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency, p_details: { transfer: trId, application_fee: feeId } });
@@ -194,7 +226,7 @@ async function fillGroupSettlementIds() {
       }
       const applied = await sbRpc('apply_verified_payment', {
         p_session_id: g.stripe_checkout_session_id, p_payment_intent: g.stripe_payment_intent_id, p_charge: ch.id, p_amount: g.total_customer_amount, p_currency: g.currency,
-        p_connect_dest: dest, p_on_behalf_of: stripeIdOf(ch.on_behalf_of) || dest, p_application_fee: ch.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId,
+        p_connect_dest: dest, p_on_behalf_of: stripeIdOf(ch.on_behalf_of) || dest, p_application_fee: ch.application_fee_amount == null ? 0 : ch.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId || null,
       });
       const val = Array.isArray(applied) ? applied[0] : applied;
       if (val && val.outcome === 'idempotent') out.filled++;
@@ -301,7 +333,7 @@ export default async function handler(req, res) {
       const errorsBefore = out.errors;
       try {
         // enrich: PI + keeps-all off the allocation's group
-        const enr = await sbGet(`payment_allocations?id=eq.${encodeURIComponent(row.payment_allocation_id)}&select=payment_groups!inner(stripe_payment_intent_id,platform_keeps_all)`);
+        const enr = await sbGet(`payment_allocations?id=eq.${encodeURIComponent(row.payment_allocation_id)}&select=payment_groups!inner(stripe_payment_intent_id,stripe_charge_id,platform_keeps_all)`);
         const grp = (enr && enr[0] && enr[0].payment_groups) || {};
         const pi = grp.stripe_payment_intent_id; const keepsAll = !!grp.platform_keeps_all;
         const ageMs = Date.now() - new Date(row.created_at).getTime();
@@ -315,6 +347,12 @@ export default async function handler(req, res) {
         } else if (ageMs <= IDEMPOTENCY_WINDOW_MS) {                  // ---- B: safe replay ----
           const s = await stripeSubmitRefund({ pi, amount: row.amount, keepsAll, strategy: row.settlement_strategy, idempotencyKey: row.stripe_idempotency_key, requestId: row.id, bookingId: row.booking_id });
           if (s.ok) { await applyRefundToLedger(row, s.refund); out.resubmitted++; nextStatus = mapTerminal(s.refund.status, 'submitted'); nextAt = terminalDue(s.refund.status); }
+          else if (s.type === 'idempotency_error') {                 // ---- B2 (0118, Codex R3-3): adopt, never resubmit ----
+            const a = await adoptExistingRefund(row, pi, grp);
+            if (a.outcome === 'adopted') { out.adopted++; nextStatus = mapTerminal(a.refund.status, 'submitted'); nextAt = terminalDue(a.refund.status); }
+            else if (a.outcome === 'ambiguous' || a.outcome === 'contradiction') { out.manual++; nextStatus = 'requires_review'; err = ('idempotency_conflict_' + a.outcome + ': ' + (a.reason || (a.candidates || []).join(','))).slice(0, 200); }
+            else { out.errors++; err = ('idempotency_conflict: ' + a.reason).slice(0, 200); const capped = (row.attempts + 1) >= MAX_ATTEMPTS; nextStatus = capped ? 'requires_review' : 'failed_retryable'; nextAt = capped ? null : backoff(row.attempts); }
+          }
           else { out.errors++; err = ('submit: ' + s.error).slice(0, 200); const capped = (row.attempts + 1) >= MAX_ATTEMPTS; nextStatus = capped ? 'requires_review' : 'failed_retryable'; nextAt = capped ? null : backoff(row.attempts); }
         } else {                                                     // ---- C: window expired, reconcile by lookup ----
           const list = await stripeListRefundsForPI(pi);

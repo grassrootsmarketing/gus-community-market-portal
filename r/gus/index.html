@@ -2225,7 +2225,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         // A store-side refusal carries its own explanation (insurance on file required at this store, the
                         // store's payouts not set up yet, online payment not available at this store): show that, not a
                         // generic "try again", because trying again will not change it.
-                        const explained = ['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled'].includes(checkoutJson.error) && checkoutJson.message;
+                        const explained = ['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(checkoutJson.error) && checkoutJson.message;
                         errMsg.innerHTML = explained
                             ? escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' + checkoutJson.message)
                             : escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Could not open payment just now. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
@@ -2314,7 +2314,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
             a.textContent = 'opening payment…';
             try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; }
-                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session. Open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment. See your dashboard' : (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled'].includes(j.error) && j.message) ? j.message : 'could not open payment. Try again or pay from your dashboard'; }
+                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session. Open it from your dashboard' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment. See your dashboard' : (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(j.error) && j.message) ? j.message : 'could not open payment. Try again or pay from your dashboard'; }
             catch (_) { a.textContent = 'could not open payment. Try again or pay from your dashboard'; }
             return false;
         }

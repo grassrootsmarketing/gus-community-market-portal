@@ -41,17 +41,29 @@ function stripeSim({ pi, charge, transfer, fee, total, feeTotal }) {
   const sim = { refunds: [], reversals: [], feeRefunds: [], feeKeys: new Map(), refundForms: [], feeForms: [], overrides: {} };
   const now = () => Math.floor(Date.now() / 1000);
   SIMS.set(pi, sim);
+  sim.refundKeys = new Map();
+  const canon = (form) => JSON.stringify(Object.entries(form).sort());
   sim.createRefund = (form, url, opts) => {
     sim.refundForms.push(form);
+    const key = opts && opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
+    if (key && sim.refundKeys.has(key)) {
+      const prior = sim.refundKeys.get(key);
+      if (canon(prior.form) === canon(form)) return prior.re;
+      // Stripe: a key reused with other parameters is refused (type idempotency_error), nothing is created
+      return { __status: 400, body: { error: { type: 'idempotency_error', message: "Keys for idempotent requests can only be used with the same parameters they were first used with. Try using a key other than '" + key + "' if you meant to execute a different request." } } };
+    }
     const amount = Number(form.amount);
     const re = { id: 're_' + uniq('s').replace(/-/g, ''), object: 'refund', amount, currency: 'usd', status: 'succeeded', payment_intent: pi, charge, created: now(), transfer_reversal: null,
       metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
     if (form.reverse_transfer === 'true') { const trr = { id: 'trr_' + uniq('s').replace(/-/g, ''), object: 'transfer_reversal', amount, currency: 'usd', transfer, created: now() }; sim.reversals.push(trr); re.transfer_reversal = trr.id; spy.fixtures.byPath[`/v1/transfers/${transfer}/reversals/${trr.id}`] = () => ({ ...trr, ...(sim.overrides['reversal:' + trr.id] || {}) }); }
     if (form.refund_application_fee === 'true') { const fr = { id: 'fr_' + uniq('s').replace(/-/g, ''), object: 'fee_refund', amount: Math.round(feeTotal * amount / total), currency: 'usd', fee, created: now(), metadata: {} }; sim.feeRefunds.push(fr); spy.fixtures.byPath[`/v1/application_fees/${fee}/refunds/${fr.id}`] = () => fr; }
     sim.refunds.push(re);
+    if (key) sim.refundKeys.set(key, { form, re });
     spy.fixtures.byPath[`/v1/refunds/${re.id}`] = () => ({ ...re, ...(sim.overrides['refund:' + re.id] || {}) });
     return re;
   };
+  // the PaymentIntent's refund list (the worker's adoption lookup reads it)
+  spy.fixtures.byPath['/v1/refunds'] = (form, url) => { const q = new URL(url).searchParams.get('payment_intent'); const x = SIMS.get(q); return { object: 'list', has_more: false, data: x ? x.refunds.slice().reverse() : [] }; };
   spy.fixtures.byPath[`POST /v1/application_fees/${fee}/refunds`] = (form, url, opts) => {
     sim.feeForms.push({ form, key: opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']) });
     const key = opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
@@ -63,7 +75,7 @@ function stripeSim({ pi, charge, transfer, fee, total, feeTotal }) {
     return fr;
   };
   spy.fixtures.byPath[`/v1/application_fees/${fee}/refunds`] = () => ({ object: 'list', has_more: false, data: sim.feeRefunds.slice().reverse() });
-  spy.fixtures.byPath[`/v1/charges/${charge}`] = () => ({ id: charge, object: 'charge', payment_intent: pi, destination: ACCT, on_behalf_of: ACCT, application_fee_amount: feeTotal, transfer, application_fee: fee, amount: total });
+  spy.fixtures.byPath[`/v1/charges/${charge}`] = () => ({ id: charge, object: 'charge', payment_intent: pi, destination: ACCT, on_behalf_of: ACCT, application_fee_amount: feeTotal > 0 ? feeTotal : null, transfer, application_fee: feeTotal > 0 ? fee : null, amount: total });
   return sim;
 }
 
@@ -111,7 +123,7 @@ async function paidCart(venueIds) {
 }
 const cancel = (booking_id, category = 'store_caused') => callRoute('booking-action.js', req({ body: { action: 'cancel', category, booking_id }, cookies: { dh_retailer_session: cookie } }));
 const runWorker = () => callRoute('refund-worker.js', req({ body: {}, headers: CRON }));
-const requestOf = async (bookingId) => one(await db(`refund_requests?booking_id=eq.${bookingId}&select=id,amount,status,customer_refund_status,settlement_status,settlement_strategy,stripe_refund_id,expected_transfer_reversal_amount,expected_fee_refund_amount,stripe_transfer_reversal_id,stripe_fee_refund_id,transfer_reversal_status,fee_refund_status,transfer_reversal_amount,fee_refund_amount,fee_refund_idempotency_key,fee_refund_intent_at,settlement_attempts,settlement_next_attempt_at,settlement_last_error,settlement_lease_owner&order=created_at.desc`));
+const requestOf = async (bookingId) => one(await db(`refund_requests?booking_id=eq.${bookingId}&select=id,amount,status,customer_refund_status,settlement_status,settlement_strategy,stripe_refund_id,last_error,fee_refund_intent_at,settlement_last_error,expected_transfer_reversal_amount,expected_fee_refund_amount,stripe_transfer_reversal_id,stripe_fee_refund_id,transfer_reversal_status,fee_refund_status,transfer_reversal_amount,fee_refund_amount,fee_refund_idempotency_key,fee_refund_intent_at,settlement_attempts,settlement_next_attempt_at,settlement_last_error,settlement_lease_owner&order=created_at.desc`));
 const allocsOf = async (gid) => (await db(`payment_allocations?payment_group_id=eq.${gid}&select=booking_id,customer_amount,venue_amount,platform_fee_amount,refunded_amount,reserved_refund_amount&order=booking_id.asc`)).body || [];
 const groupStatus = async (gid) => one(await db(`payment_groups?id=eq.${gid}&select=status`)).status;
 const casesOf = async (rqId) => (await db(`reconciliation_cases?refund_request_id=eq.${rqId}&select=kind,reason,dedupe_key,details`)).body || [];
@@ -236,15 +248,20 @@ try {
     const gid = claim.payment_group_id;
     const sid = 'cs_zero_' + uniq('z'), pi = 'pi_zero_' + uniq('z').replace(/-/g, ''), ch = 'ch_zero_' + uniq('z').replace(/-/g, ''), tr = 'tr_zero_' + uniq('z').replace(/-/g, ''), fee = 'fee_zero_' + uniq('z').replace(/-/g, '');
     await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: sid, p_payment_intent: pi, p_hash: 'h-' + gid, p_schema: 1 });
-    const paid = (await rpc('apply_verified_payment', { p_session_id: sid, p_payment_intent: pi, p_charge: ch, p_amount: 15000, p_currency: 'usd', p_connect_dest: ACCT, p_on_behalf_of: ACCT, p_application_fee: 0, p_transfer_id: tr, p_fee_id: fee })).body;
+    // the provider's shape for a destination charge created without an application fee: application_fee_amount absent,
+    // no application fee object; 0118 counts that as a zero fee against the allocations' zero fee sum
+    const paid = (await rpc('apply_verified_payment', { p_session_id: sid, p_payment_intent: pi, p_charge: ch, p_amount: 15000, p_currency: 'usd', p_connect_dest: ACCT, p_on_behalf_of: ACCT, p_application_fee: null, p_transfer_id: tr, p_fee_id: null })).body;
     ok('zero-fee connected group: claim 15000 with fee 0, applied', claim.total_customer_amount === 15000 && paid.outcome === 'applied', JSON.stringify({ claim, paid }));
     const rr = (await rpc('refund_reserve_cas', { p_booking_id: b, p_op_key: b + ':cancel', p_actor: 'test', p_reason: 'zero' })).body;
     ok('the reservation expects a 15000 reversal and a 0 fee refund, strategy 2', rr.outcome === 'reserved' && rr.expected_transfer_reversal_amount === 15000 && rr.expected_fee_refund_amount === 0 && rr.settlement_strategy === 2, JSON.stringify(rr));
-    const sim = stripeSim({ pi, charge: ch, transfer: tr, fee, total: 15000, feeTotal: 0 });
+    const sim = stripeSim({ pi, charge: ch, transfer: tr, fee: null, total: 15000, feeTotal: 0 });
     const re = sim.createRefund({ amount: '15000', reverse_transfer: 'true', payment_intent: pi, 'metadata[refund_request_id]': rr.refund_request_id }, '', {});
+    const grpZ = one(await db(`payment_groups?id=eq.${gid}&select=stripe_transfer_id,stripe_application_fee_id`));
+    ok('zero fee at the provider\'s shape: the group records the transfer id and no application fee id', grpZ && grpZ.stripe_transfer_id === tr && grpZ.stripe_application_fee_id === null, JSON.stringify(grpZ));
     await rpc('apply_refund_event', { p_refund_id: re.id, p_status: 'succeeded', p_amount: 15000, p_currency: 'usd', p_pi: pi, p_charge: ch, p_meta_request_id: rr.refund_request_id, p_event_id: null });
     await runWorker();
     const rqz = one(await db(`refund_requests?id=eq.${rr.refund_request_id}&select=settlement_status,fee_refund_status,fee_refund_amount,stripe_fee_refund_id,transfer_reversal_status`));
+    ok('the worker\'s group id fill neither waits on nor opens a case for the missing fee object of a zero-fee group', ((await db(`reconciliation_cases?payment_group_id=eq.${gid}&select=id`)).body || []).length === 0);
     ok('settled by the worker: fee leg not_required (amount 0, no id, no provider call), reversal recorded, complete', rqz.settlement_status === 'complete' && rqz.fee_refund_status === 'not_required' && rqz.fee_refund_amount === 0 && rqz.stripe_fee_refund_id === null && sim.feeForms.length === 0, JSON.stringify({ rqz, feeForms: sim.feeForms.length }));
 
     // cumulative rounding: $33.33 + $10 = 4333; a prior 2000 refund expected round(1000*2000/4333)=462; the remainder must expect 538, never 539 or 1000
@@ -263,6 +280,8 @@ try {
     await db(`payment_allocations?id=eq.${alloc2.id}`, { method: 'PATCH', body: JSON.stringify({ refunded_amount: 2000, reserved_refund_amount: 0 }) });
     const second = (await rpc('refund_reserve_cas', { p_booking_id: b2, p_op_key: b2 + ':partial2', p_actor: 'test', p_reason: 'round' })).body;
     ok('the remainder (2333) expects fee round(1000 * 4333 / 4333) - 462 = 538, so the two legs sum to exactly 1000', second.outcome === 'reserved' && second.amount === 2333 && second.expected_fee_refund_amount === 538, JSON.stringify(second));
+    // this reservation has no simulated provider behind it; keep it out of every later worker run in this suite
+    await db(`refund_requests?id=eq.${second.refund_request_id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date(Date.now() + 36e5).toISOString() }) });
   }
 
   console.log('\nCC-3: evidence that does not bind is refused (never complete), and good replay stays idempotent');
@@ -389,6 +408,75 @@ try {
     await runWorker(); const rqp = await requestOf(pend.ids[0]);
     ok('intake off: the pending settlement is completed by the worker', isComplete(rqp), JSON.stringify(rqp && rqp.settlement_status));
     ENV.CONNECTED_CHECKOUT_ENABLED = 'true';
+  }
+
+  console.log('\nR3-3: a customer refund made outside the routes under the request\'s key, with other parameters, is adopted by the worker, never resubmitted');
+  {
+    const postsOf = () => spy.calls.stripe.filter(x => String(x.method).toUpperCase() === 'POST' && /\/v1\/refunds$/.test(x.url.replace(/\?.*$/, ''))).length;
+    const keyOf = (x) => x.headers && (x.headers['Idempotency-Key'] || x.headers['idempotency-key']);
+    const sectionStart = spy.calls.stripe.length;
+    // (a) the reported case: same key, no reason field, the ledger never told, no webhook
+    const c = await paidCart([venue150]);
+    const rr = (await rpc('refund_reserve_cas', { p_booking_id: c.ids[0], p_op_key: c.ids[0] + ':cancel', p_actor: 'support-tool', p_reason: 'outside the routes' })).body;
+    const outside = await (await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { 'Idempotency-Key': rr.idempotency_key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payment_intent: c.pi, amount: String(rr.amount), reverse_transfer: 'true', 'metadata[refund_request_id]': rr.refund_request_id, 'metadata[booking_id]': c.ids[0] }).toString() })).json();
+    ok('(a) the outside refund exists on the provider, tagged with the request, the ledger not told (request reserved, no refund id)', outside && /^re_/.test(outside.id) && (await requestOf(c.ids[0])).status === 'reserved' && !(await requestOf(c.ids[0])).stripe_refund_id, JSON.stringify(outside).slice(0, 160));
+    const p0 = postsOf();
+    const w = await runWorker();
+    let rq = await requestOf(c.ids[0]);
+    ok('(a) the worker resubmits ONCE under the stored key, the provider refuses it (idempotency_error), and the worker adopts the existing refund: request succeeded with that refund id, nothing created under any other key, exactly one customer refund', w.statusCode === 200 && postsOf() - p0 === 1 && rq.stripe_refund_id === outside.id && rq.status === 'succeeded' && c.sim.refunds.length === 1 && w.body.adopted >= 1 && w.body.errors === 0, JSON.stringify({ w: w.statusCode, body: w.body, rq, refunds: c.sim.refunds.length }));
+    if (!isComplete(rq)) { await runWorker(); rq = await requestOf(c.ids[0]); }
+    ok('(a) settlement then completes on the adopted refund: the exact fee refund created under the request\'s fee key, the reversal verified', isComplete(rq) && c.sim.feeRefunds.length === 1 && c.sim.feeRefunds[0].amount === 1000 && c.sim.refunds.length === 1, JSON.stringify({ rq, fees: c.sim.feeRefunds.map(x => x.amount) }));
+
+    // (b) mismatched: the outside refund carries the request id but the wrong amount: neither adopted nor resubmitted
+    const d = await paidCart([venue150]);
+    const rd = (await rpc('refund_reserve_cas', { p_booking_id: d.ids[0], p_op_key: d.ids[0] + ':cancel', p_actor: 'support-tool', p_reason: 'wrong amount' })).body;
+    await (await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { 'Idempotency-Key': rd.idempotency_key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payment_intent: d.pi, amount: String(rd.amount - 100), reverse_transfer: 'true', 'metadata[refund_request_id]': rd.refund_request_id }).toString() })).json();
+    const p1 = postsOf();
+    const w2 = await runWorker();
+    const rq2 = await requestOf(d.ids[0]);
+    ok('(b) wrong amount under the request id: the conflict is a controlled retry (failed_retryable, reason recorded), no adoption, no second refund, one provider refusal only', postsOf() - p1 === 1 && rq2.status === 'failed_retryable' && !rq2.stripe_refund_id && /idempotency_conflict/.test(rq2.last_error || '') && d.sim.refunds.length === 1 && w2.body.adopted === 0, JSON.stringify({ rq2, posts: postsOf() - p1, refunds: d.sim.refunds.length }));
+    // keep (b)'s row out of the next runs (its backoff would make it due again and its retry is not what (c) measures)
+    await db(`refund_requests?id=eq.${rq2.id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date(Date.now() + 36e5).toISOString() }) });
+
+    // (c) ambiguous: two live refunds carry the request id (one under the key with other parameters, one with no key): review, no adoption, no resubmit
+    const e = await paidCart([venue150]);
+    const re2 = (await rpc('refund_reserve_cas', { p_booking_id: e.ids[0], p_op_key: e.ids[0] + ':cancel', p_actor: 'support-tool', p_reason: 'twice' })).body;
+    await (await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { 'Idempotency-Key': re2.idempotency_key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payment_intent: e.pi, amount: String(re2.amount), reverse_transfer: 'true', 'metadata[refund_request_id]': re2.refund_request_id }).toString() })).json();
+    e.sim.createRefund({ payment_intent: e.pi, amount: String(re2.amount), reverse_transfer: 'true', 'metadata[refund_request_id]': re2.refund_request_id }, '', {});
+    const p2 = postsOf();
+    const w3 = await runWorker();
+    const rq3 = await requestOf(e.ids[0]);
+    ok('(c) two qualifying refunds for one request: parked requires_review with the candidates named, nothing adopted, nothing resubmitted', postsOf() - p2 === 1 && rq3.status === 'requires_review' && !rq3.stripe_refund_id && /ambiguous/.test(rq3.last_error || '') && e.sim.refunds.length === 2 && w3.body && w3.body.adopted === 0 && w3.body.manual >= 1, JSON.stringify({ posts: postsOf() - p2, w3: w3.statusCode, body: w3.body, status: rq3.status, err: rq3.last_error, refund: rq3.stripe_refund_id, refunds: e.sim.refunds.length }));
+    ok('(c) the parked request has its review case', (await casesOf(rq3.id)).length >= 1);
+    ok('every strategy 2 submission the routes and the worker made in this section carried the canonical parameter set (payment_intent, amount, reverse_transfer, reason, metadata) and no refund_application_fee', spy.calls.stripe.slice(sectionStart).filter(x => String(x.method).toUpperCase() === 'POST' && /\/v1\/refunds$/.test(x.url.replace(/\?.*$/, '')) && /reason=requested_by_customer/.test(x.body)).every(x => /payment_intent=/.test(x.body) && /amount=/.test(x.body) && /reverse_transfer=true/.test(x.body) && /metadata%5Brefund_request_id%5D=/.test(x.body) && !/refund_application_fee/.test(x.body)));
+    void keyOf;
+  }
+
+  console.log('\nSmall correction 2: a fee refund list that cannot be proven complete never authorizes a new fee refund');
+  {
+    const c = await paidCart([venue150]);
+    // the first fee refund create fails transiently, so the next attempt has to look before it creates
+    spy.faults.push({ url: `/v1/application_fees/${c.fee}/refunds`, method: 'POST', status: 500, once: true });
+    const r = await cancel(c.ids[0]);
+    let rq = await requestOf(c.ids[0]);
+    ok('the cancel succeeds, the customer refund is applied, the fee leg is deferred after the transient failure (intent recorded, no fee refund)', r.statusCode === 200 && rq.status === 'succeeded' && rq.settlement_status === 'pending' && !!rq.fee_refund_intent_at && c.sim.feeRefunds.length === 0, JSON.stringify(rq));
+    // the provider now answers the list with has_more on every page (the cap is reached with more to come)
+    const normalList = spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`];
+    spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`] = () => ({ object: 'list', has_more: true, data: [{ id: 'fr_elsewhere_' + uniq('o').replace(/-/g, ''), object: 'fee_refund', amount: 1, currency: 'usd', fee: c.fee, metadata: {} }] });
+    await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+    const gets0 = spy.calls.stripe.length;
+    await runWorker(); rq = await requestOf(c.ids[0]);
+    const pages = spy.calls.stripe.slice(gets0).filter(x => String(x.method).toUpperCase() === 'GET' && x.url.includes(`/v1/application_fees/${c.fee}/refunds`)).length;
+    ok('incomplete enumeration: the worker read the page cap and stopped as a retry; no fee refund was created and the reason is recorded', rq.settlement_status === 'pending' && c.sim.feeRefunds.length === 0 && pages >= 20 && /incomplete/.test(rq.settlement_last_error || ''), JSON.stringify({ pages, rq }));
+    // malformed data is a failure too
+    spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`] = () => ({ object: 'list', has_more: false, data: null });
+    await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+    await runWorker(); rq = await requestOf(c.ids[0]);
+    ok('malformed list: a retry, still no fee refund', rq.settlement_status === 'pending' && c.sim.feeRefunds.length === 0 && /malformed/.test(rq.settlement_last_error || ''), JSON.stringify(rq.settlement_last_error));
+    spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`] = normalList;
+    await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+    await runWorker(); rq = await requestOf(c.ids[0]);
+    ok('once the list is complete again the worker creates exactly one fee refund and completes', isComplete(rq) && c.sim.feeRefunds.length === 1 && c.sim.feeRefunds[0].amount === 1000, JSON.stringify({ rq, fees: c.sim.feeRefunds.length }));
   }
 } finally {
   clearTimeout(watchdog);
