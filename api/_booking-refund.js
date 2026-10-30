@@ -75,6 +75,67 @@ export async function refundPaymentIntent(b, paymentIntentId, opts = {}) {
   }
 }
 
+// Connected settlement legs (round 2 of the revenue split rehearsal, 2026-10-30). A refund of a destination charge is
+// three legs on Stripe: the customer refund (re_), the transfer reversal (trr_) and the application fee refund (fr_).
+// The ledger expected all three since 0032/0034 (record_settlement_leg) but no shipped code ever recorded the last two,
+// so settlement_status stayed 'pending' on every connected refund. This reads both legs from Stripe for ONE succeeded
+// refund and records them idempotently: record_settlement_leg keeps the first id it was given (coalesce) and the
+// unique indexes on stripe_transfer_reversal_id / stripe_fee_refund_id make a double claim impossible. Keeps-all
+// groups (settlement 'not_required') and refunds that are not yet succeeded return without touching anything.
+// The fee refund is matched by amount against the application fee's refund list, newest first, skipping ids another
+// request already holds; the Refund object itself does not name its fee refund.
+async function stripeGetJson(b, path) {
+  const r = await fetch('https://api.stripe.com' + path, { headers: { Authorization: 'Bearer ' + b.stripeKey } });
+  const j = await r.json().catch(() => null);
+  return r.ok ? j : null;
+}
+export async function recordConnectSettlementLegs(b, refund, { requestId = null } = {}) {
+  if (!b || !b.stripeKey || !refund || !refund.id) return { outcome: 'skipped', reason: 'no_refund' };
+  if (String(refund.status || '').toLowerCase() !== 'succeeded') return { outcome: 'skipped', reason: 'refund_not_succeeded' };
+  const rid = requestId || (refund.metadata && refund.metadata.refund_request_id) || null;
+  const where = rid ? `id=eq.${encodeURIComponent(rid)}` : `stripe_refund_id=eq.${encodeURIComponent(refund.id)}`;
+  // three plain reads (refund_requests carries two foreign keys to payment_allocations, so an embedded select is ambiguous)
+  let req = null, grp = null;
+  try {
+    const rows = await sbRaw(b, `refund_requests?${where}&select=id,amount,settlement_status,stripe_transfer_reversal_id,stripe_fee_refund_id,expected_transfer_reversal_amount,expected_fee_refund_amount,payment_allocation_id`);
+    req = Array.isArray(rows) ? rows[0] : null;
+    if (req) {
+      const allocs = await sbRaw(b, `payment_allocations?id=eq.${encodeURIComponent(req.payment_allocation_id)}&select=payment_group_id`);
+      const gid = Array.isArray(allocs) && allocs[0] ? allocs[0].payment_group_id : null;
+      const grps = gid ? await sbRaw(b, `payment_groups?id=eq.${encodeURIComponent(gid)}&select=platform_keeps_all,stripe_application_fee_id,stripe_charge_id`) : [];
+      grp = Array.isArray(grps) ? grps[0] : null;
+    }
+  } catch (_) { req = null; }
+  if (!req) return { outcome: 'skipped', reason: 'no_request' };
+  if (!grp || grp.platform_keeps_all !== false) return { outcome: 'skipped', reason: 'keeps_all' };
+  if (req.settlement_status === 'complete') return { outcome: 'already_complete', refund_request_id: req.id };
+  const out = { outcome: 'recorded', refund_request_id: req.id, legs: {} };
+  // leg 1: the transfer reversal, named on the Refund object (id or expanded object)
+  let trr = refund.transfer_reversal && (typeof refund.transfer_reversal === 'string' ? refund.transfer_reversal : refund.transfer_reversal.id);
+  if (!trr) { const full = await stripeGetJson(b, `/v1/refunds/${encodeURIComponent(refund.id)}`); trr = full && full.transfer_reversal && (typeof full.transfer_reversal === 'string' ? full.transfer_reversal : full.transfer_reversal.id); }
+  if (trr && !req.stripe_transfer_reversal_id) {
+    try { const r1 = await sbRpc(b, 'record_settlement_leg', { p_request_id: req.id, p_leg: 'transfer_reversal', p_stripe_id: trr, p_status: 'succeeded' }); out.legs.transfer_reversal = { id: trr, rpc: r1 && r1.outcome }; }
+    catch (e) { out.legs.transfer_reversal = { id: trr, error: String((e && e.message) || e).slice(0, 120) }; }
+  } else if (req.stripe_transfer_reversal_id) out.legs.transfer_reversal = { id: req.stripe_transfer_reversal_id, rpc: 'already_recorded' };
+  else out.legs.transfer_reversal = { id: null, rpc: 'not_found_on_stripe' };
+  // leg 2: the application fee refund, matched by amount on the fee's refund list
+  let feeId = grp.stripe_application_fee_id;
+  if (!feeId && grp.stripe_charge_id) { const ch = await stripeGetJson(b, `/v1/charges/${encodeURIComponent(grp.stripe_charge_id)}`); feeId = ch && ch.application_fee; }
+  if (feeId && !req.stripe_fee_refund_id) {
+    const list = await stripeGetJson(b, `/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=100`);
+    const candidates = (list && Array.isArray(list.data) ? list.data : []).filter(fr => fr.amount === req.expected_fee_refund_amount);
+    let taken = [];
+    try { taken = (await sbRaw(b, `refund_requests?stripe_fee_refund_id=in.(${candidates.map(c => encodeURIComponent(c.id)).join(',') || 'none'})&select=stripe_fee_refund_id`)).map(x => x.stripe_fee_refund_id); } catch (_) { taken = []; }
+    const fr = candidates.filter(c => !taken.includes(c.id)).sort((x, y) => Math.abs(x.created - (refund.created || 0)) - Math.abs(y.created - (refund.created || 0)))[0];
+    if (fr) {
+      try { const r2 = await sbRpc(b, 'record_settlement_leg', { p_request_id: req.id, p_leg: 'fee_refund', p_stripe_id: fr.id, p_status: 'succeeded' }); out.legs.fee_refund = { id: fr.id, rpc: r2 && r2.outcome }; }
+      catch (e) { out.legs.fee_refund = { id: fr.id, error: String((e && e.message) || e).slice(0, 120) }; }
+    } else out.legs.fee_refund = { id: null, rpc: 'no_matching_fee_refund' };
+  } else if (req.stripe_fee_refund_id) out.legs.fee_refund = { id: req.stripe_fee_refund_id, rpc: 'already_recorded' };
+  else out.legs.fee_refund = { id: null, rpc: 'no_application_fee_id' };
+  return out;
+}
+
 // Reserve against the booking's immutable allocation and submit. opName is the per-booking operation
 // identity ('cancel', 'decline', 'move_declined', 'move_lapsed'): the same (booking, opName) always
 // maps to the same reservation and the same Stripe idempotency key.

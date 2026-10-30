@@ -428,15 +428,11 @@ async function run() {
     ok('B: ledger: allocation refunded 16000, booking cancelled/refunded, group refunded, one refund request succeeded bound to re_', snap.allocations[0].refunded_amount === 16000 && snap.allocations[0].reserved_refund_amount === 0 && snap.bookings[0].status === 'cancelled' && snap.bookings[0].payment_status === 'refunded' && snap.group.status === 'refunded' && snap.refund_requests.length === 1 && rq.status === 'succeeded' && rq.stripe_refund_id === re.id, JSON.stringify({ a: snap.allocations, b: snap.bookings, g: snap.group.status, rq }));
     console.log('  B refund request expectations:', JSON.stringify({ expected_customer_amount: rq.expected_customer_amount, expected_transfer_reversal_amount: rq.expected_transfer_reversal_amount, expected_fee_refund_amount: rq.expected_fee_refund_amount, settlement_status: rq.settlement_status, transfer_reversal_status: rq.transfer_reversal_status, fee_refund_status: rq.fee_refund_status }));
     ok('B: the request\'s settlement expectations (0034) match what Stripe did (reversal 16000, fee refund 1000)', rq.expected_transfer_reversal_amount === 16000 && rq.expected_fee_refund_amount === 1000, JSON.stringify({ exp_tr: rq.expected_transfer_reversal_amount, exp_fee: rq.expected_fee_refund_amount }));
-    // Settlement legs: nothing in the shipped code records the reversal / fee-refund legs (Connect was gated off when
-    // the ledger was built). Recorded here through the existing RPC so the document shows the ledger CAN close, and
-    // flagged as an open item: production code does not do this yet.
-    const legs = { before: rq.settlement_status };
-    const l1 = await rpc('record_settlement_leg', { p_request_id: rq.id, p_leg: 'transfer_reversal', p_stripe_id: trr && trr.id, p_status: 'succeeded' });
-    const l2 = await rpc('record_settlement_leg', { p_request_id: rq.id, p_leg: 'fee_refund', p_stripe_id: fr && fr.id, p_status: 'succeeded' });
+    // Settlement legs (round 2): the shipped webhook records the transfer reversal and the application fee refund
+    // from the replayed refund events; nothing is recorded by hand here.
     const rqAfter = one(await db(`refund_requests?id=eq.${rq.id}&select=settlement_status,transfer_reversal_status,fee_refund_status,stripe_transfer_reversal_id,stripe_fee_refund_id,customer_refund_status`));
-    legs.after = rqAfter; legs.rpc = [l1.body, l2.body];
-    ok('B: settlement legs recorded by the rehearsal (not by shipped code): settlement_status pending -> complete', legs.before === 'pending' && rqAfter.settlement_status === 'complete' && rqAfter.stripe_transfer_reversal_id === (trr && trr.id) && rqAfter.stripe_fee_refund_id === (fr && fr.id), JSON.stringify(legs));
+    const legs = { after: rqAfter };
+    ok('B: the shipped webhook recorded both settlement legs: settlement_status complete, reversal and fee refund ids stored', rqAfter.settlement_status === 'complete' && rqAfter.transfer_reversal_status === 'succeeded' && rqAfter.fee_refund_status === 'succeeded' && rqAfter.stripe_transfer_reversal_id === (trr && trr.id) && rqAfter.stripe_fee_refund_id === (fr && fr.id), JSON.stringify(legs));
     evidence.cases.B = { cancel_response: c.body, refund_request_form: rf, refund: re && { id: re.id, amount: re.amount, status: re.status, charge: re.charge }, transfer_reversal: trr && { id: trr.id, amount: trr.amount, transfer: trr.transfer }, application_fee_refund: fr && { id: fr.id, amount: fr.amount, fee: fr.fee }, transfer_after: tr2 && { amount: tr2.amount, amount_reversed: tr2.amount_reversed, reversed: tr2.reversed }, application_fee_after: fee2 && { amount: fee2.amount, amount_refunded: fee2.amount_refunded, refunded: fee2.refunded }, events_replayed: replayed, ledger_after_refund: snap, settlement_legs: legs };
     saveEvidence();
   }
@@ -474,6 +470,7 @@ async function run() {
     const rq = snap.refund_requests.find(x => x.booking_id === C.b1);
     ok('C: ledger: b1 allocation refunded 16000, b2 untouched (0), b1 cancelled/refunded, b2 confirmed/paid, group partially_refunded', a1.refunded_amount === 16000 && a2.refunded_amount === 0 && a2.reserved_refund_amount === 0 && bk1.status === 'cancelled' && bk1.payment_status === 'refunded' && bk2.status === 'confirmed' && bk2.payment_status === 'paid' && snap.group.status === 'partially_refunded', JSON.stringify({ a1, a2, bk1, bk2, g: snap.group.status }));
     ok('C: the request\'s expectations are per allocation (reversal 16000, fee refund 1000), never a share of the whole charge', rq && rq.expected_transfer_reversal_amount === 16000 && rq.expected_fee_refund_amount === 1000 && rq.amount === 16000, JSON.stringify(rq));
+    ok('C: the shipped webhook recorded the partial refund\'s settlement legs: complete, reversal and fee refund ids stored', rq && rq.settlement_status === 'complete' && rq.stripe_transfer_reversal_id === (trr && trr.id) && rq.stripe_fee_refund_id === (fr && fr.id), JSON.stringify(rq));
     evidence.cases.C = { bookings: [C.b1, C.b2], group: C.group, session: C.session, payment_intent: C.pi, charge: C.charge, transfer: C.transfer, application_fee: C.fee, event_checkout_completed: r.csEvt.id, cancel_response: c.body, refund: re && { id: re.id, amount: re.amount, status: re.status }, transfer_reversal: trr && { id: trr.id, amount: trr.amount }, application_fee_refund: fr && { id: fr.id, amount: fr.amount }, transfer_after: { amount: tr2.amount, amount_reversed: tr2.amount_reversed }, application_fee_after: { amount: fee2.amount, amount_refunded: fee2.amount_refunded }, events_replayed: replayed, ledger_after: snap };
     saveEvidence();
   }
@@ -528,6 +525,28 @@ async function run() {
     const att = (await db(`payment_attempts?stripe_checkout_session_id=in.(${sid},${wco.res.body.session_id})&select=stripe_checkout_session_id,status`)).body || [];
     ok('E: both unpaid sessions expired on Stripe and their attempts read expired in the ledger', expired.every(x => x.stripe_status === 'expired' && x.webhook === 200) && att.length === 2 && att.every(a => a.status === 'expired'), JSON.stringify({ expired, att }));
     evidence.cases.E = { keeps_all_booking: kb, keeps_all_group: gid, keeps_all_session: sid, keeps_all_session_request_keys: Object.keys(rq).filter(k => /payment_intent_data/.test(k)), connect_fields_on_keeps_all: badVal, claim_without_account: noAcct.text.slice(0, 160), wrong_fee_on_connected: { group: wco.res.body.payment_group_id, session: wco.res.body.session_id, result: wrongVal, cases: wpost.cases }, expired };
+    saveEvidence();
+  }
+
+  // ---- H: a held (unverified-COI) cart at the connected store is refused before any claim --------------
+  console.log('\n:: H: provisional holds ON, a brand without a COI at the connected store');
+  {
+    H.ENV.PROVISIONAL_HOLDS_ENABLED = 'true';
+    const heldEmail = `${uniq('rehearsal-held')}@fixture.test`;
+    const hb = await db('brands', { method: 'POST', body: JSON.stringify({ email: heldEmail, company_name: 'Rehearsal Held Brand', contact_name: 'Held Contact', phone: '555-0151', is_verified: true }) });
+    const heldBrandId = one(hb) && one(hb).id;
+    const htok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: heldBrandId, email: heldEmail, token: 'tk-' + uniq('h'), expires_at: new Date(Date.now() + 36e5).toISOString() }) }));
+    const heldCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: htok.token } }))).cookie('dh_brand_session');
+    const bk = await callRoute('book.js', req({ body: { retailer_slug: F.slug, venue_id: F.venueId, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: H.FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    const heldId = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
+    const heldRow = heldId ? one(await db(`bookings?id=eq.${heldId}&select=status,payment_status`)) : null;
+    ok('H: the brand books a held booking at the connected store', bk.statusCode === 200 && heldRow && heldRow.status === 'held', `${bk.statusCode} ${JSON.stringify(heldRow)}`);
+    const before = calls.stripe.length;
+    const co = await callRoute('checkout.js', req({ body: { booking_ids: [heldId] }, cookies: { dh_brand_session: heldCookie } }));
+    const after = heldId ? one(await db(`bookings?id=eq.${heldId}&select=status,payment_status`)) : null;
+    ok('H: checkout refused 409 store_requires_insurance_on_file before any claim: no Stripe call, no allocation, booking still held', co.statusCode === 409 && co.body.error === 'store_requires_insurance_on_file' && calls.stripe.length === before && ((await db(`payment_allocations?booking_id=eq.${heldId}&select=id`)).body || []).length === 0 && after && after.status === 'held', `${co.statusCode} ${JSON.stringify(co.body).slice(0, 160)}`);
+    delete H.ENV.PROVISIONAL_HOLDS_ENABLED;
+    evidence.cases.H = { held_brand_id: heldBrandId, held_booking: heldId, checkout_response: co.body };
     saveEvidence();
   }
 

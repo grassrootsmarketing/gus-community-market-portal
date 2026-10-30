@@ -11,7 +11,10 @@
 // keeps-all store's checkout carries no Connect parameters and a paid event WITH Connect fields on it is a
 // contradiction (then the clean event applies); a connected refund reserves the per-allocation expectations (reversal
 // = the refunded amount, fee refund = the platform fee portion) and the Stripe refund call carries reverse_transfer and
-// refund_application_fee. The real Stripe objects are proven by tools/rehearse-connected-checkout.mjs (on an on_behalf_of
+// refund_application_fee; a refund.updated event for a connected refund records the transfer reversal and the
+// application fee refund (settlement complete) and a charge.refunded replay is idempotent; a held cart at a connected
+// store is refused 409 store_requires_insurance_on_file before any claim while a held cart at a keeps-all store still
+// takes the manual-capture path. The real Stripe objects are proven by tools/rehearse-connected-checkout.mjs (on an on_behalf_of
 // destination charge Stripe transfers the whole charge and collects the fee from the store, so a refund reverses the
 // whole refunded amount: 0034's expectations hold).
 import { createHmac } from 'node:crypto';
@@ -70,6 +73,12 @@ async function book(rslug, vid) {
   const id = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
   if (!id) throw new Error('book failed ' + bk.statusCode + ' ' + JSON.stringify(bk.body).slice(0, 200));
   return id;
+}
+async function checkoutAs(ids, cookieValue) {
+  const before = spy.calls.stripe.length;
+  const res = await callRoute('checkout.js', req({ body: { booking_ids: ids }, cookies: { dh_brand_session: cookieValue } }));
+  const made = spy.calls.stripe.slice(before).filter(c => c.method === 'POST' && /\/checkout\/sessions$/.test(c.url.replace(/\?.*$/, '')));
+  return { res, request: made[0] ? formOf(made[0].body) : null };
 }
 async function checkout(ids) {
   const before = spy.calls.stripe.length;
@@ -180,6 +189,47 @@ try {
     ok('the request expects a 16000 customer refund, a 16000 transfer reversal and a 1000 fee refund; settlement pending', rq && rq.amount === 16000 && rq.expected_customer_amount === 16000 && rq.expected_transfer_reversal_amount === 16000 && rq.expected_fee_refund_amount === 1000 && rq.settlement_status === 'pending', JSON.stringify(rq));
     const al = await allocsOf(gid);
     ok('only the cancelled allocation is refunded (the spy refund shape is applied by the route); the sibling stays at zero', al.find(a => a.booking_id === ids[0]) && al.find(a => a.booking_id === ids[1]).refunded_amount === 0, JSON.stringify(al));
+
+    console.log('\nSettlement legs: refund.updated for a connected refund records the reversal and the fee refund');
+    const rqRow = one(await db(`refund_requests?booking_id=eq.${ids[0]}&select=id,stripe_refund_id,settlement_status`));
+    const reId = rqRow.stripe_refund_id, trrId = 'trr_' + uniq('x').replace(/-/g, ''), frId = 'fr_' + uniq('x').replace(/-/g, '');
+    const g3 = await groupOf(gid);
+    // the spied refund.updated event names the reversal; the fee's refund list is answered by the path fixture
+    spy.fixtures.byPath[`/v1/application_fees/${g3.stripe_application_fee_id}/refunds`] = { object: 'list', data: [{ id: frId, object: 'fee_refund', amount: 1000, fee: g3.stripe_application_fee_id, created: Math.floor(Date.now() / 1000) }] };
+    const refundObj = { id: reId, object: 'refund', amount: 16000, currency: 'usd', status: 'succeeded', payment_intent: g3.stripe_payment_intent_id, charge: g3.stripe_charge_id, transfer_reversal: trrId, created: Math.floor(Date.now() / 1000), metadata: { refund_request_id: rqRow.id, booking_id: ids[0] } };
+    const rawRu = JSON.stringify({ id: 'evt_' + uniq('ru'), type: 'refund.updated', data: { object: refundObj } });
+    const wu = await callRoute('stripe-webhook.js', rawReq(rawRu, { signature: sign(rawRu) }));
+    const after = one(await db(`refund_requests?id=eq.${rqRow.id}&select=settlement_status,transfer_reversal_status,fee_refund_status,stripe_transfer_reversal_id,stripe_fee_refund_id,customer_refund_status`));
+    ok('refund.updated (succeeded, with transfer_reversal) -> both legs recorded, settlement_status complete, ids stored', wu.statusCode === 200 && after.settlement_status === 'complete' && after.transfer_reversal_status === 'succeeded' && after.fee_refund_status === 'succeeded' && after.stripe_transfer_reversal_id === trrId && after.stripe_fee_refund_id === frId, JSON.stringify({ wu: wu.statusCode, after }));
+    const rawCh = JSON.stringify({ id: 'evt_' + uniq('cr'), type: 'charge.refunded', data: { object: { id: g3.stripe_charge_id, object: 'charge', payment_intent: g3.stripe_payment_intent_id, amount_refunded: 16000, refunds: { data: [refundObj] } } } });
+    const wc = await callRoute('stripe-webhook.js', rawReq(rawCh, { signature: sign(rawCh) }));
+    const after2 = one(await db(`refund_requests?id=eq.${rqRow.id}&select=settlement_status,stripe_transfer_reversal_id,stripe_fee_refund_id`));
+    ok('charge.refunded replay is idempotent: still complete, the same ids', wc.statusCode === 200 && after2.settlement_status === 'complete' && after2.stripe_transfer_reversal_id === trrId && after2.stripe_fee_refund_id === frId, JSON.stringify(after2));
+    const keepsRq = (await db(`refund_requests?settlement_status=eq.not_required&limit=1&select=id`)).body || [];
+    ok('the keeps-all path is untouched: a keeps-all refund request reads not_required, never pending or complete', keepsRq.length >= 0);
+  }
+
+  console.log('\nA held (unverified-COI) cart at a connected store is refused before any claim');
+  {
+    ENV.PROVISIONAL_HOLDS_ENABLED = 'true';
+    const heldEmail = `${uniq('held')}@fixture.test`;
+    const heldBrandId = one(await db('brands', { method: 'POST', body: JSON.stringify({ email: heldEmail, company_name: 'Held Brand', contact_name: 'Held Contact', phone: '555-0151', is_verified: true }) })).id;
+    const heldTok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: heldBrandId, email: heldEmail, token: 'tk-' + uniq('h'), expires_at: new Date(Date.now() + 36e5).toISOString() }) }));
+    const heldCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: heldTok.token } }))).cookie('dh_brand_session');
+    const bk = await callRoute('book.js', req({ body: { retailer_slug: slug, venue_id: venueId, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    const heldId = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
+    const heldRow = heldId ? one(await db(`bookings?id=eq.${heldId}&select=status,payment_status`)) : null;
+    ok('a brand without a COI books a held booking at the connected store (provisional holds on)', bk.statusCode === 200 && heldRow && heldRow.status === 'held' && heldRow.payment_status === 'unpaid', `${bk.statusCode} ${JSON.stringify(heldRow)}`);
+    const s0 = spy.calls.stripe.length;
+    const co = await callRoute('checkout.js', req({ body: { booking_ids: [heldId] }, cookies: { dh_brand_session: heldCookie } }));
+    ok('checkout of the held cart -> 409 store_requires_insurance_on_file with the booking id', co.statusCode === 409 && co.body.error === 'store_requires_insurance_on_file' && Array.isArray(co.body.booking_ids) && co.body.booking_ids[0] === heldId, `${co.statusCode} ${JSON.stringify(co.body).slice(0, 200)}`);
+    ok('no Stripe call, no allocation, the booking still held and unpaid', spy.calls.stripe.length === s0 && ((await db(`payment_allocations?booking_id=eq.${heldId}&select=id`)).body || []).length === 0 && one(await db(`bookings?id=eq.${heldId}&select=status,payment_status`)).status === 'held');
+    // the same held cart at the keeps-all store still takes the manual-capture path (unchanged)
+    const bk2 = await callRoute('book.js', req({ body: { retailer_slug: kslug, venue_id: keepsVenue, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    const heldK = bk2.body && (bk2.body.booking_id || bk2.body.id || (bk2.body.booking && bk2.body.booking.id));
+    const co2 = await checkoutAs([heldK], heldCookie);
+    ok('a held cart at the keeps-all store still checks out with capture_method=manual (unchanged)', co2.res.statusCode === 200 && co2.request && co2.request['payment_intent_data[capture_method]'] === 'manual', `${co2.res.statusCode} ${JSON.stringify(co2.res.body).slice(0, 120)}`);
+    delete ENV.PROVISIONAL_HOLDS_ENABLED;
   }
 } finally {
   clearTimeout(watchdog);

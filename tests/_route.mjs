@@ -23,7 +23,7 @@ import { TARGETS, _resetBindingCache } from '../api/_env.js';
 
 const { SB_URL, SB_KEY, SB_REF } = process.env;
 if (!SB_URL || !SB_KEY || !SB_REF) { console.error('SB_URL, SB_KEY, SB_REF required'); process.exit(2); }
-if (['ecapmcyumpjjgjwuokyv', 'eubbgurdwqmwqduamwhn'].includes(SB_REF)) {
+if (['dkgjvsstbgnhcfboqqnd', 'ecapmcyumpjjgjwuokyv', 'eubbgurdwqmwqduamwhn'].includes(SB_REF)) {   // demohub-prod, the retired production, the retired staging
   console.error(`REFUSING: ${SB_REF} is production or a retired project.`); process.exit(2);
 }
 
@@ -71,7 +71,10 @@ export const ENV = {
 export function installSpy() {
   const real = globalThis.fetch;
   const calls = { stripe: [], resend: [], supabase: 0, other: [] };
-  const fixtures = { paymentIntents: {}, checkoutSessions: {} };
+  // byPath: any other Stripe GET a test wants to control, keyed by the path without its query string (for example
+  // '/v1/refunds/re_x' or '/v1/application_fees/fee_x/refunds'); used by tests/connected_checkout.test.mjs for the
+  // settlement legs of a connected refund.
+  const fixtures = { paymentIntents: {}, checkoutSessions: {}, byPath: {} };
   // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
   // can force a specific request (matched by url substring + optional method) to fail, so
   // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
@@ -110,6 +113,8 @@ export function installSpy() {
       if (piMatch && fixtures.paymentIntents[decodeURIComponent(piMatch[1])]) {
         return jsonRes(fixtures.paymentIntents[decodeURIComponent(piMatch[1])]);
       }
+      const pathOnly = u.replace(/^https?:\/\/api\.stripe\.com/, '').replace(/\?.*$/, '');
+      if (String(opts.method || 'GET').toUpperCase() === 'GET' && fixtures.byPath[pathOnly]) return jsonRes(fixtures.byPath[pathOnly]);
       const csMatch = u.match(/\/v1\/checkout\/sessions\/([^?\/]+)/);
       if (csMatch && fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]) {
         return jsonRes(fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]);

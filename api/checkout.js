@@ -101,6 +101,16 @@ export default async function handler(req, res) {
       if (!acct || retailer.stripe_charges_enabled !== true) {
         return res.status(409).json({ error: 'store_not_payout_ready', message: 'This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.', booking_ids: bookings.map(b => b.id) });
       }
+      // Provisional holds at a connected store are NOT supported yet (revenue split round 2, 2026-10-30). Provisional
+      // holds are ON in production: a brand without a verified COI books 'held' and would check out with a manual-
+      // capture destination charge. apply_verified_authorization still refuses a connected group (it opens a
+      // contradiction case and applies nothing), so the authorization would stand on Stripe with the hold unapplied.
+      // Refused here, before any claim and before Stripe, until the authorize / capture / release paths are
+      // rehearsed for a connected store in their own round. The brand's remedy is the same as for any held booking:
+      // get the COI on file, or contact the store.
+      if (provisionalCart) {
+        return res.status(409).json({ error: 'store_requires_insurance_on_file', message: 'This store can only take bookings from brands with insurance on file. Upload your certificate of insurance, or contact the store.', booking_ids: bookings.map(b => b.id) });
+      }
     }
 
     // ---- ATOMIC claim + immutable allocations (ownership/payable/venue-fee enforced in the fn) ----

@@ -27,6 +27,7 @@ export const config = { api: { bodyParser: false } };
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { recordConnectSettlementLegs } from './_booking-refund.js';
 
 // stripe-webhook is both a route AND a helper module (api/_fulfillment.js imports
 // fetchBookingContext / createDemoForConfirmedBooking / sendPromotionEmails and drives them from
@@ -384,6 +385,16 @@ async function applyRefundObject(rf, charge, eventId) {
     try { await sb('unmatched_stripe_refunds', { method: 'POST', body: JSON.stringify({ stripe_refund_id: rf.id, stripe_charge_id: chId, stripe_payment_intent_id: pi, amount: rf.amount, currency: rf.currency, raw: rf }) }); } catch (_) {}
   } else if (outcome === 'contradiction' || outcome === 'failed') {
     console.warn('refund event', outcome, 'for', rf.id, val && val.reason); // RPC already opened a reconciliation_cases row
+  }
+  // Connected settlement legs (revenue split round 2): once the customer leg has converged, read the transfer
+  // reversal and the application fee refund from Stripe and record them, so settlement_status reaches 'complete'
+  // without an operator. Idempotent; keeps-all groups are skipped inside. A failure here is logged, never thrown:
+  // the customer leg is already durable and the worker's reconciliation pass records the legs again.
+  if ((outcome === 'applied' || outcome === 'already_terminal') && String(rf.status || '').toLowerCase() === 'succeeded') {
+    try {
+      const legs = await recordConnectSettlementLegs(await bind(), rf, { requestId: metaReqId });
+      if (legs && legs.outcome === 'recorded') console.log('connected settlement legs recorded for', rf.id, JSON.stringify(legs.legs));
+    } catch (e) { console.warn('connected settlement legs not recorded for', rf.id, (e && e.message) || e); }
   }
   return outcome;
 }

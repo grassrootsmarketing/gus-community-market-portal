@@ -21,6 +21,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
 import { sweepMoves } from './_booking-moves.js';
 import { sweepCancellationReviews, sweepUnfinishedResolutions, sweepAbandonedCancellations } from './_cancellation-review.js';
+import { recordConnectSettlementLegs } from './_booking-refund.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -98,10 +99,16 @@ async function stripeListRefundsForPI(pi) {
 }
 
 async function applyRefundToLedger(row, refund) {
-  return sbRpc('apply_refund_event', {
+  const applied = await sbRpc('apply_refund_event', {
     p_refund_id: refund.id, p_status: refund.status || 'pending', p_amount: refund.amount, p_currency: refund.currency,
     p_pi: refund.payment_intent || null, p_charge: refund.charge || null, p_meta_request_id: row.id, p_event_id: null,
   });
+  // Connected settlement legs (revenue split round 2): the worker's reconciliation pass records the transfer reversal
+  // and the application fee refund too, so a refund whose webhook delivery was missed still reaches 'complete'.
+  if (String(refund.status || '').toLowerCase() === 'succeeded') {
+    try { await recordConnectSettlementLegs(_b, refund, { requestId: row.id }); } catch (e) { console.warn('settlement legs not recorded for', refund.id, (e && e.message) || e); }
+  }
+  return applied;
 }
 function backoff(attempts) { return new Date(Date.now() + Math.min(60, Math.pow(2, Math.max(0, attempts))) * 60 * 1000).toISOString(); }
 

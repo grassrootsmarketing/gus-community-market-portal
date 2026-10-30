@@ -14,7 +14,7 @@ if (!SB_URL || !SB_KEY || !SB_REF) {
 }
 
 // Guard: never let this suite point at production or the retired projects, whatever the env says.
-const FORBIDDEN = new Set(['ecapmcyumpjjgjwuokyv', 'eubbgurdwqmwqduamwhn']);
+const FORBIDDEN = new Set(['dkgjvsstbgnhcfboqqnd', 'ecapmcyumpjjgjwuokyv', 'eubbgurdwqmwqduamwhn']);   // demohub-prod, the retired production, the retired staging
 if (FORBIDDEN.has(SB_REF)) { console.error(`REFUSING: ${SB_REF} is production or a retired project.`); process.exit(2); }
 if (!SB_URL.includes(SB_REF)) { console.error('REFUSING: SB_URL does not match SB_REF.'); process.exit(2); }
 
