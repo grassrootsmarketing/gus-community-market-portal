@@ -19,6 +19,7 @@
 // whole refunded amount: 0034's expectations hold).
 import { createHmac } from 'node:crypto';
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
+import { teardownRetailerFixtures } from './_teardown.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
 
 const SB = process.env.SB_URL, KEY = process.env.SB_KEY;
@@ -236,5 +237,9 @@ try {
 } finally {
   clearTimeout(watchdog);
   spy.restore();
+  // The suite's rows carry simulated Stripe ids; left behind, the real refund worker on demohub-rebuild-check would retry
+  // them forever (found by the 2026-10-30 live rehearsal), so the fixtures go with the run.
+  try { console.log('\n:: teardown ::'); const counts = await teardownRetailerFixtures({ sbUrl: SB, sbKey: KEY, retailerIds: [retailerId, keepsId], brandIds: [brandId], log: (m) => console.log(m) }); console.log('  teardown:', JSON.stringify(counts)); }
+  catch (e) { console.log('  teardown failed (rows left on demohub-rebuild-check):', String((e && e.message) || e)); }
 }
 process.exit(summary('connected checkout (routes, demohub-rebuild-check)') ? 0 : 1);

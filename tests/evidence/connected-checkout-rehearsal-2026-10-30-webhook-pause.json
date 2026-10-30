@@ -1,0 +1,10 @@
+{
+  "endpoint": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+  "authorized_by": "David, relayed by the main session on 2026-10-30",
+  "paused_at": "2026-10-30T17:30:42.998Z",
+  "restored_at": "2026-10-30T17:33:47.158Z",
+  "status_after_pause": "disabled",
+  "status_after_restore": "enabled",
+  "rehearsal_exit": 1,
+  "endpoint_url_host": "demohub-booker-preview.vercel.app"
+}
