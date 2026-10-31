@@ -146,7 +146,9 @@ function grantAllowlist(aPath, bPath, outPath) {
     for (const k of only) {
       const [routine, grantee, priv] = k.split(':');
       if (grantee !== 'service_role' || priv !== 'EXECUTE') { refused.push({ key: k, only_in: side }); continue; }
-      grants.push({ key: k, only_in: side, routine, function_identities: sigsOf(side === 'A' ? A : B, routine), reason: 'EXECUTE granted to service_role by the Supabase project default privileges on function creation; the committed chain never grants it; service_role bypasses grants anyway' });
+      // Round 5 (Codex): this IS a privilege difference, stated as one. BYPASSRLS exempts service_role from row policies, not
+      // from EXECUTE; whether the role can actually run each function is measured by tools/grant-effective-check.mjs.
+      grants.push({ key: k, only_in: side, routine, function_identities: sigsOf(side === 'A' ? A : B, routine), reason: 'an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs' });
     }
   }
   const out = { generated_at: new Date().toISOString(), a: aPath, b: bPath, rule: 'only EXECUTE to service_role is ever tolerated; anon and authenticated differences are never tolerated', count: grants.length, grants, refused };

@@ -34,6 +34,13 @@
 //          created with application_fee_amount=0 (what the handler would send) and, if Stripe refuses that, without the
 //          parameter; the charge is read back, applied through the webhook route, refunded through the cancel route and
 //          settled by the worker with no application fee object anywhere.
+//   RT     (round 5, Codex R4-1) checkout retries on real sessions under the validated claim (0119): a retry while the
+//          first session is open is refused attempt_in_progress; once that session expires (real checkout.session.expired
+//          through the webhook route) the retry REUSES the group with a fresh session (connected and keeps-all immediate
+//          charge; keeps-all manual-capture hold); exactly one charge or authorization follows; after the payment or the
+//          authorization a further checkout is refused before any Stripe call.
+//
+// REHEARSAL_CASES=RT (a comma list) runs only the named case(s) after the account and fixture setup; unset runs everything.
 //
 // Run (bash):  set -a; . /c/Users/David/demohub.env; set +a
 //              export SB_URL SB_KEY SB_REF STRIPE_TEST_SECRET_KEY PLAYWRIGHT_ROOT REHEARSAL_ACCOUNT
@@ -47,6 +54,7 @@ import { HOURLY } from '../tests/_fixture_availability.mjs';
 
 const ORIG_ENV = { ...process.env };
 const { SB_URL, SB_KEY, SB_REF, STRIPE_TEST_SECRET_KEY, REHEARSAL_ACCOUNT } = process.env;
+const ONLY_CASES = String(process.env.REHEARSAL_CASES || '').split(',').map(x => x.trim()).filter(Boolean);
 const refuse = (m) => { console.error('REFUSING TO RUN:', m); process.exit(2); };
 if (!SB_URL || !SB_KEY || !SB_REF) refuse('SB_URL, SB_KEY, SB_REF are required');
 if (SB_REF !== 'tileejdviuvijumjeplv') refuse(`SB_REF must be demohub-rebuild-check (got ${SB_REF.slice(0, 4)}...)`);
@@ -165,7 +173,7 @@ async function loadPlaywright() {
   if (!root) throw new Error('playwright not resolvable: set PLAYWRIGHT_ROOT');
   return import(pathToFileURL(resolve(root, 'node_modules', 'playwright', 'index.mjs')).href);
 }
-async function payHostedCheckout(url, sessionId, label) {
+async function payHostedCheckout(url, sessionId, label, { waitFor = 'paid' } = {}) {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 1500 } });
@@ -198,9 +206,11 @@ async function payHostedCheckout(url, sessionId, label) {
     await page.screenshot({ path: resolve(EVID_DIR, `connected-checkout-rehearsal-${DATE}-${label}-form.png`), fullPage: true }).catch(() => {});
     const submit = page.locator('button[data-testid="hosted-payment-submit-button"], .SubmitButton, button[type="submit"]').first();
     await submit.click({ timeout: 15000 });
-    const paid = await until('checkout session paid', async () => {
+    const paid = await until('checkout session ' + waitFor, async () => {
       const s = await stripe(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`);
-      return (s.body && s.body.payment_status === 'paid') ? s.body : null;
+      if (!s.body) return null;
+      if (waitFor === 'complete') return s.body.status === 'complete' ? s.body : null;
+      return s.body.payment_status === 'paid' ? s.body : null;
     }, { timeoutMs: 90000, everyMs: 3000 });
     return paid;
   } catch (e) {
@@ -268,6 +278,10 @@ async function setup(account) {
   F.keepsRetailerId = one(k) && one(k).id; F.keepsSlug = kslug;
   await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: F.keepsRetailerId, demo_fee: 150, advance_booking_days: 0 }) });
   F.keepsVenueId = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: F.keepsRetailerId, name: 'Keeps-all Main ($150)', address: '1 Keeps St', demo_fee: 150, availability: HOURLY }) })).id;
+  const kstaff = `staff-${kslug}@fixture.test`;
+  await db('retailer_admins', { method: 'POST', body: JSON.stringify({ retailer_id: F.keepsRetailerId, email: kstaff, email_normalized: kstaff, name: 'Rehearsal Keeps-all Staff', role: 'admin' }) });
+  const ktok = one(await db('admin_tokens', { method: 'POST', body: JSON.stringify({ retailer_id: F.keepsRetailerId, email: kstaff }) }));
+  F.keepsRetailerCookie = (await callRoute('admin-auth.js', req({ body: { action: 'verify', token: ktok.token } }))).cookie('dh_retailer_session');
 
   F.brandEmail = `${uniq('rehearsal-brand')}@fixture.test`;
   const b = await db('brands', { method: 'POST', body: JSON.stringify({
@@ -334,6 +348,12 @@ async function run() {
   evidence.account = { id: account.id, type: account.type, country: account.country, charges_enabled: account.charges_enabled, payouts_enabled: account.payouts_enabled, capabilities: account.capabilities, created: account.created && new Date(account.created * 1000).toISOString() };
   ok('connected account is an Express US account with charges and payouts enabled', account.type === 'express' && account.country === 'US' && account.charges_enabled === true && account.payouts_enabled === true, JSON.stringify(evidence.account));
   await setup(account);
+  if (ONLY_CASES.length) {
+    console.log('REHEARSAL_CASES set: running only', ONLY_CASES.join(', '));
+    for (const c of ONLY_CASES) { if (c === 'RT') await runRT(account); else { console.log('  FAIL unknown or not individually runnable case: ' + c); state.fail++; state.fails.push('unknown case ' + c); } }
+    await finish();
+    return;
+  }
 
   // ---- W: account.updated through the webhook route ----------------------------------------
   console.log('\n- W: account.updated (real account object, signed) flips the retailer to charges-enabled -');
@@ -732,12 +752,137 @@ async function run() {
     saveEvidence();
   }
 
+  await runRT(account);
+  await finish();
+}
+
+async function finish() {
   const flags = (await import(pathToFileURL(resolve('api', '_flags.js')).href + '?t=' + Date.now())).flagSnapshot();
   evidence.flag_snapshot_in_harness = { connectedCheckout: flags.connectedCheckout, checkoutEnabled: flags.checkoutEnabled, provisionalHolds: flags.provisionalHolds };
   evidence.mail = { intercepted: calls.resend.length, every_recipient_is_sink: calls.resend.every(m => [].concat(m.to || []).every(t => t === 'sink@fixture.test')) };
   ok('no mail left the machine: every intercepted message was addressed to the harness sink', evidence.mail.every_recipient_is_sink, JSON.stringify(calls.resend.map(m => m.subject).slice(0, 8)));
   evidence.stripe_calls_by_routes = calls.stripe.map(c => `${c.method} ${c.url.replace('https://api.stripe.com', '')}`);
   saveEvidence();
+}
+
+// ---- RT (round 5, Codex R4-1): checkout retries on real sessions under the validated claim ------------------------
+// The lifecycle: a checkout opens ONE payment attempt per group; a retry while that session is still open is 409
+// attempt_in_progress (the handler asked Stripe for a session under a new idempotency key before the ledger refused the
+// second attempt; that unregistered session is expired here to leave Stripe tidy and is recorded as an observation); once
+// the open session expires (checkout.session.expired through the webhook route) the group reopens and the next checkout
+// REUSES the group and its immutable allocations with a fresh session. 0119 validates that reuse under the booking locks.
+async function runRT(account) {
+  console.log('\n:: RT: checkout retries on real Stripe sessions (0119: a reused group is validated under the booking locks)');
+  H.ENV.CONNECTED_CHECKOUT_ENABLED = 'true';
+  evidence.cases.RT = { observations: [] };
+  const chargesOf = async (pi) => (((await stripe(`/v1/charges?payment_intent=${encodeURIComponent(pi)}&limit=10`)).body || {}).data || []);
+  const checkoutWith = async (ids, cookie) => { const before = calls.stripe.length; const co = await callRoute('checkout.js', req({ body: { booking_ids: ids }, cookies: { dh_brand_session: cookie } })); const made = calls.stripe.slice(before); const sess = made.find(c => c.method === 'POST' && c.url.endsWith('/v1/checkout/sessions')); return { res: co, request: sess ? formOf(sess.body) : null, stripeCalls: made.length, sessionPosts: made.filter(c => c.method === 'POST' && c.url.endsWith('/v1/checkout/sessions')).length }; };
+  // expire a session on Stripe and apply the REAL checkout.session.expired through the webhook route
+  const expireOnStripe = async (sid) => {
+    const ex = await stripe(`/v1/checkout/sessions/${encodeURIComponent(sid)}/expire`, { method: 'POST', form: {} });
+    const ev = await stripeEvents('checkout.session.expired', e => e.data && e.data.object && e.data.object.id === sid, { timeoutMs: 30000 });
+    const w = ev && ev[0] ? await postWebhook(ev[0]) : { statusCode: 0 };
+    return { stripe_status: ex.body && ex.body.status, event: ev && ev[0] && ev[0].id, webhook: w.statusCode };
+  };
+  // the unregistered session a refused retry left on Stripe: find it by the group's metadata and expire it
+  const tidyOrphans = async (gid, keep) => {
+    const list = (((await stripe(`/v1/checkout/sessions?limit=20&created[gte]=${RUN_START_TS}`)).body || {}).data || []).filter(x => x.metadata && x.metadata.payment_group_id === gid && x.status === 'open' && !keep.includes(x.id));
+    const done = [];
+    for (const x of list) { const ex = await stripe(`/v1/checkout/sessions/${encodeURIComponent(x.id)}/expire`, { method: 'POST', form: {} }); done.push({ id: x.id, status: ex.body && ex.body.status }); }
+    return done;
+  };
+  const attemptsOf = async (gid) => (await db(`payment_attempts?payment_group_id=eq.${gid}&select=stripe_checkout_session_id,status&order=created_at.asc`)).body || [];
+
+  // RT1: connected store, immediate destination charge
+  {
+    const b = await book(F.slug, F.venueId, dayN++);
+    const co1 = await checkoutWith([b], F.brandCookie);
+    const gid = co1.res.body.payment_group_id, sid1 = co1.res.body.session_id;
+    ok('RT1: the first checkout at the connected store: 200, a real cs_test_ session, one allocation, one open attempt', co1.res.statusCode === 200 && /^cs_test_/.test(String(sid1)) && (await attemptsOf(gid)).length === 1, `${co1.res.statusCode} ${JSON.stringify(co1.res.body).slice(0, 120)}`);
+    const open = await checkoutWith([b], F.brandCookie);
+    const orphans = await tidyOrphans(gid, [sid1]);
+    evidence.cases.RT.observations.push({ case: 'RT1', note: 'a retry while the first session is open is refused attempt_in_progress by the ledger; the handler had already asked Stripe for a session under the next idempotency key, so one unregistered open session existed on Stripe and was expired by the rehearsal', session_posts_on_retry: open.sessionPosts, orphan_sessions_expired: orphans });
+    ok('RT1: a retry while the first session is open is 409 attempt_in_progress; still one allocation and one attempt (the unregistered Stripe session it created was expired by the rehearsal, recorded as an observation)', open.res.statusCode === 409 && open.res.body.error === 'attempt_in_progress' && (await attemptsOf(gid)).length === 1 && (await groupSnapshot(gid)).allocations.length === 1, JSON.stringify({ s: open.res.statusCode, e: open.res.body && open.res.body.error, posts: open.sessionPosts, orphans }));
+    const exp = await expireOnStripe(sid1);
+    const reopened = await groupSnapshot(gid);
+    ok('RT1: the first session expired on Stripe; the real checkout.session.expired through the webhook marked the attempt expired and reopened the group (pending), allocation kept', exp.stripe_status === 'expired' && exp.webhook === 200 && reopened.group.status === 'pending' && reopened.attempts.length === 1 && reopened.attempts[0].status === 'expired' && reopened.allocations.length === 1, JSON.stringify({ exp, g: reopened.group.status, att: reopened.attempts.map(a => a.status) }));
+    const co2 = await checkoutWith([b], F.brandCookie);
+    const sid2 = co2.res.body && co2.res.body.session_id;
+    const atts2 = await attemptsOf(gid);
+    ok('RT1: the retry REUSES the group (same payment_group_id, 200) with a fresh real session; one allocation, attempts expired + open; a destination charge with the $10 fee', co2.res.statusCode === 200 && co2.res.body.payment_group_id === gid && /^cs_test_/.test(String(sid2)) && sid2 !== sid1 && atts2.length === 2 && atts2.map(a => a.status).sort().join(',') === 'expired,open' && co2.request && co2.request['payment_intent_data[transfer_data][destination]'] === account.id && co2.request['payment_intent_data[application_fee_amount]'] === '1000', JSON.stringify({ s: co2.res.statusCode, same_group: co2.res.body && co2.res.body.payment_group_id === gid, atts: atts2.map(a => a.status) }));
+    const r = await payAndApply('RT1', sid2, co2.res.body.url, gid);
+    ok('RT1: paid once on the reused group: destination charge 16000 with application fee 1000 to the account; group paid, booking paid and confirmed, ids recorded', r.ch && r.ch.amount === 16000 && r.ch.application_fee_amount === 1000 && r.ch.destination === account.id && r.snap.group.status === 'paid' && r.snap.bookings[0].payment_status === 'paid' && r.snap.bookings[0].status === 'confirmed' && r.snap.group.stripe_transfer_id === r.ch.transfer, JSON.stringify({ g: r.snap.group.status, b: r.snap.bookings[0] && r.snap.bookings[0].payment_status }));
+    const co3 = await checkoutWith([b], F.brandCookie);
+    const post = await groupSnapshot(gid);
+    const charges = await chargesOf(r.pi.id);
+    ok('RT1: after the payment a further checkout is refused 409 not_payable_state with NO Stripe call; one allocation, two attempts (expired, paid); exactly one charge on Stripe for the PaymentIntent', co3.res.statusCode === 409 && co3.res.body.error === 'not_payable_state' && co3.stripeCalls === 0 && post.allocations.length === 1 && post.attempts.length === 2 && charges.length === 1 && charges[0].id === r.ch.id, JSON.stringify({ s: co3.res.statusCode, e: co3.res.body && co3.res.body.error, calls: co3.stripeCalls, atts: post.attempts.map(a => a.status), charges: charges.map(c => c.id) }));
+    evidence.cases.RT.RT1 = { booking: b, group: gid, first_session: sid1, retry_while_open: { status: open.res.statusCode, body: open.res.body }, expiry: exp, reused_session: sid2, payment_intent: r.pi.id, charge: r.ch && r.ch.id, transfer: r.ch && r.ch.transfer, application_fee: r.ch && r.ch.application_fee, event_checkout_completed: r.csEvt.id, after_payment_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, charges_on_payment_intent: charges.map(c => c.id), ledger_after: post };
+    saveEvidence();
+  }
+
+  // RT2: keeps-all store, immediate charge (the live pilot's path)
+  {
+    const kb = await book(F.keepsSlug, F.keepsVenueId, dayN++);
+    const co1 = await checkoutWith([kb], F.brandCookie);
+    const gid = co1.res.body.payment_group_id, sid1 = co1.res.body.session_id;
+    const exp = await expireOnStripe(sid1);
+    const co2 = await checkoutWith([kb], F.brandCookie);
+    const sid2 = co2.res.body && co2.res.body.session_id;
+    const atts2 = await attemptsOf(gid);
+    ok('RT2: keeps-all: first session expired through the lifecycle, the retry reuses the group with a fresh session and no Connect parameters; attempts expired + open', co1.res.statusCode === 200 && exp.webhook === 200 && co2.res.statusCode === 200 && co2.res.body.payment_group_id === gid && sid2 && sid2 !== sid1 && atts2.length === 2 && co2.request && !('payment_intent_data[transfer_data][destination]' in co2.request) && !('payment_intent_data[application_fee_amount]' in co2.request), JSON.stringify({ a: co1.res.statusCode, exp, b: co2.res.statusCode, atts: atts2.map(a => a.status) }));
+    const paid = await payHostedCheckout(co2.res.body.url, sid2, 'RT2');
+    ok('RT2: the reused keeps-all session reached payment_status=paid', !!paid, 'never paid');
+    const piId = paid && (typeof paid.payment_intent === 'string' ? paid.payment_intent : paid.payment_intent && paid.payment_intent.id);
+    const csEvts = await stripeEvents('checkout.session.completed', e => e.data && e.data.object && e.data.object.id === sid2);
+    const w = csEvts && csEvts[0] ? await postWebhook(csEvts[0]) : { statusCode: 0 };
+    const snap = await groupSnapshot(gid);
+    ok('RT2: the real checkout.session.completed applied through the webhook route: group paid (15000, fee 0), booking paid and confirmed', w.statusCode === 200 && snap.group.status === 'paid' && snap.group.platform_keeps_all === true && snap.allocations[0].platform_fee_amount === 0 && snap.bookings[0].payment_status === 'paid', JSON.stringify({ w: w.statusCode, g: snap.group.status }));
+    const co3 = await checkoutWith([kb], F.brandCookie);
+    const charges = piId ? await chargesOf(piId) : [];
+    ok('RT2: a further checkout after the payment is refused 409 not_payable_state with no Stripe call; one allocation, two attempts, one charge', co3.res.statusCode === 409 && co3.res.body.error === 'not_payable_state' && co3.stripeCalls === 0 && snap.allocations.length === 1 && snap.attempts.length === 2 && charges.length === 1, JSON.stringify({ s: co3.res.statusCode, calls: co3.stripeCalls, atts: snap.attempts.map(a => a.status), charges: charges.length }));
+    evidence.cases.RT.RT2 = { booking: kb, group: gid, first_session: sid1, expiry: exp, reused_session: sid2, payment_intent: piId, charge: charges[0] && charges[0].id, event_checkout_completed: csEvts && csEvts[0] && csEvts[0].id, after_payment_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, ledger_after: snap };
+    saveEvidence();
+  }
+
+  // RT3: keeps-all store, a held booking (brand without a COI), manual-capture authorization on the reused group
+  {
+    H.ENV.PROVISIONAL_HOLDS_ENABLED = 'true';
+    const heldEmail = `${uniq('rehearsal-rt-held')}@fixture.test`;
+    const hb = await db('brands', { method: 'POST', body: JSON.stringify({ email: heldEmail, company_name: 'Rehearsal RT Held Brand', contact_name: 'Held Contact', phone: '555-0152', is_verified: true }) });
+    const heldBrandId = one(hb) && one(hb).id;
+    const htok = one(await db('brand_account_tokens', { method: 'POST', body: JSON.stringify({ brand_id: heldBrandId, email: heldEmail, token: 'tk-' + uniq('h'), expires_at: new Date(Date.now() + 36e5).toISOString() }) }));
+    const heldCookie = (await callRoute('brand-account.js', req({ body: { action: 'verify', token: htok.token } }))).cookie('dh_brand_session');
+    const bk = await callRoute('book.js', req({ body: { retailer_slug: F.keepsSlug, venue_id: F.keepsVenueId, demo_date: dayP(dayN++), demo_time: '13:00', product_skus: H.FIXTURE_PRODUCTS }, cookies: { dh_brand_session: heldCookie } }));
+    const hid = bk.body && (bk.body.booking_id || bk.body.id || (bk.body.booking && bk.body.booking.id));
+    const heldRow = hid ? one(await db(`bookings?id=eq.${hid}&select=status,payment_status,held_expires_at`)) : null;
+    ok('RT3: the brand without a certificate books a held booking at the keeps-all store', bk.statusCode === 200 && heldRow && heldRow.status === 'held', `${bk.statusCode} ${JSON.stringify(heldRow)}`);
+    const co1 = await checkoutWith([hid], heldCookie);
+    const gid = co1.res.body.payment_group_id, sid1 = co1.res.body.session_id;
+    const exp = await expireOnStripe(sid1);
+    const co2 = await checkoutWith([hid], heldCookie);
+    const sid2 = co2.res.body && co2.res.body.session_id;
+    ok('RT3: the held booking checks out with capture_method=manual; after the first session expired the retry reuses the group with a fresh manual-capture session', co1.res.statusCode === 200 && co1.request && co1.request['payment_intent_data[capture_method]'] === 'manual' && exp.webhook === 200 && co2.res.statusCode === 200 && co2.res.body.payment_group_id === gid && sid2 && sid2 !== sid1 && co2.request && co2.request['payment_intent_data[capture_method]'] === 'manual' && (await attemptsOf(gid)).length === 2, JSON.stringify({ a: co1.res.statusCode, exp, b: co2.res.statusCode }));
+    let completed = null;
+    try { completed = await payHostedCheckout(co2.res.body.url, sid2, 'RT3', { waitFor: 'complete' }); } catch (e) { evidence.notes.push('RT3: hosted authorization did not complete: ' + String((e && e.message) || e).slice(0, 160)); }
+    const piId = completed && (typeof completed.payment_intent === 'string' ? completed.payment_intent : completed.payment_intent && completed.payment_intent.id);
+    const piBefore = piId ? (await stripe(`/v1/payment_intents/${encodeURIComponent(piId)}`)).body : null;
+    ok('RT3: the manual-capture session completed on Stripe with the PaymentIntent in requires_capture (an authorization, no capture)', !!completed && completed.payment_status === 'unpaid' && piBefore && piBefore.status === 'requires_capture', JSON.stringify({ ps: completed && completed.payment_status, pi: piBefore && piBefore.status }));
+    const csEvts = completed ? await stripeEvents('checkout.session.completed', e => e.data && e.data.object && e.data.object.id === sid2) : null;
+    const w = csEvts && csEvts[0] ? await postWebhook(csEvts[0]) : { statusCode: 0 };
+    const after = hid ? one(await db(`bookings?id=eq.${hid}&select=status,payment_status,payment_intent_id`)) : null;
+    ok('RT3: the real checkout.session.completed applied through the webhook route: booking still held, payment_status authorized with the PaymentIntent recorded', w.statusCode === 200 && after && after.status === 'held' && after.payment_status === 'authorized' && after.payment_intent_id === piId, JSON.stringify({ w: w.statusCode, after }));
+    const co3 = await checkoutWith([hid], heldCookie);
+    const snap = await groupSnapshot(gid);
+    ok('RT3: a further checkout of the authorized hold is refused 409 not_payable_state with no Stripe call; one allocation, two attempts', co3.res.statusCode === 409 && co3.res.body.error === 'not_payable_state' && co3.stripeCalls === 0 && snap.allocations.length === 1 && snap.attempts.length === 2, JSON.stringify({ s: co3.res.statusCode, e: co3.res.body && co3.res.body.error, calls: co3.stripeCalls }));
+    // release the authorization through the store's own cancel route (the lifecycle), then confirm it on Stripe
+    const rel = await callRoute('booking-action.js', req({ body: { booking_id: hid, action: 'cancel', category: 'store_caused' }, cookies: { dh_retailer_session: F.keepsRetailerCookie } }));
+    const piAfter = piId ? await until('authorization released', async () => { const p = (await stripe(`/v1/payment_intents/${encodeURIComponent(piId)}`)).body; return p && p.status === 'canceled' ? p : null; }, { timeoutMs: 30000, everyMs: 3000 }) : null;
+    const released = hid ? one(await db(`bookings?id=eq.${hid}&select=status,payment_status`)) : null;
+    ok('RT3: the store cancels the held booking through its route and the authorization is released on Stripe (PaymentIntent canceled); nothing was captured', rel.statusCode === 200 && piAfter && piAfter.status === 'canceled' && (piAfter.amount_received || 0) === 0 && released && released.status === 'cancelled', JSON.stringify({ rel: rel.statusCode, body: rel.body && { refund_status: rel.body.refund_status }, pi: piAfter && piAfter.status, released }));
+    delete H.ENV.PROVISIONAL_HOLDS_ENABLED;
+    evidence.cases.RT.RT3 = { held_brand_id: heldBrandId, booking: hid, group: gid, first_session: sid1, expiry: exp, reused_session: sid2, payment_intent: piId, pi_status_after_authorization: piBefore && piBefore.status, event_checkout_completed: csEvts && csEvts[0] && csEvts[0].id, after_authorization_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, release: { route_status: rel.statusCode, pi_status: piAfter && piAfter.status, booking: released }, ledger_after: await groupSnapshot(gid) };
+    saveEvidence();
+  }
 }
 
 try {

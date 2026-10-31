@@ -124,17 +124,32 @@ async function stripeCall(b, method, path, { form = null, idempotencyKey = null 
 }
 
 // Paginated read of an application fee's refunds. A read that fails part way is a failure (never a short list), and so
-// is one that cannot be proven complete (Codex round 4, small correction 2): a malformed page, or the page cap reached
-// with has_more still true, returns a transient failure, because a negative answer from this list is what authorizes
-// a new fee refund.
+// is one that cannot be proven complete (Codex round 4, small correction 2; tightened in round 5, R4-2): a page is
+// accepted only when data is an array and has_more is a boolean; the list is complete only when has_more is exactly
+// false; a page claiming more must be non-empty and must carry a usable, ADVANCING last-object id (an absent or repeated
+// cursor is contradictory output, not completion); the 20-page cap reached with more to come is incomplete. Every such
+// result is a transient failure, never a short list, because a negative answer from this list is what authorizes a new
+// fee refund. The page-walk contract (pageContradiction) is shared with the worker's refund list in api/refund-worker.js.
+export function pageContradiction(json, previousCursor) {
+  if (!json || typeof json !== 'object' || !Array.isArray(json.data)) return 'malformed';
+  if (typeof json.has_more !== 'boolean') return 'malformed_has_more';
+  if (json.has_more === false) return null;
+  if (json.data.length === 0) return 'has_more_with_empty_page';
+  const last = json.data[json.data.length - 1];
+  const cursor = last && typeof last.id === 'string' && last.id.trim() ? last.id : null;
+  if (!cursor) return 'has_more_without_cursor';
+  if (previousCursor && cursor === previousCursor) return 'cursor_not_advancing';
+  return null;
+}
 async function listFeeRefunds(b, feeId) {
   const out = []; let after = null; let complete = false;
   for (let page = 0; page < 20; page++) {
     const r = await stripeCall(b, 'GET', `/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=100${after ? '&starting_after=' + encodeURIComponent(after) : ''}`);
     if (!r.ok) return { ok: false, error: r.error, transient: r.transient };
-    if (!r.json || !Array.isArray(r.json.data)) return { ok: false, error: 'malformed_fee_refund_list', transient: true };
+    const bad = pageContradiction(r.json, after);
+    if (bad) return { ok: false, error: 'malformed_fee_refund_list:' + bad, transient: true };
     out.push(...r.json.data);
-    if (!r.json.has_more || !r.json.data.length) { complete = true; break; }
+    if (r.json.has_more === false) { complete = true; break; }
     after = r.json.data[r.json.data.length - 1].id;
   }
   if (!complete) return { ok: false, error: 'incomplete_fee_refund_list', transient: true };

@@ -1,0 +1,2358 @@
+{
+  "generated_at": "2026-10-31T08:20:44.357Z",
+  "allowlist": "tests/evidence/catalog-grant-allowlist-2026-10-31-r5.json",
+  "A": {
+    "database": "postgres",
+    "ledger_from_0115": "0115,0116,0117,0118,0119",
+    "default_function_acl": [
+      {
+        "rolname": "supabase_admin",
+        "acl": "postgres=X/supabase_admin,anon=X/supabase_admin,authenticated=X/supabase_admin,service_role=X/supabase_admin"
+      },
+      {
+        "rolname": "postgres",
+        "acl": "postgres=X/postgres,service_role=X/postgres"
+      }
+    ]
+  },
+  "B": {
+    "database": "chain_parity_check",
+    "ledger_from_0115": "0115,0116,0117,0118,0119",
+    "default_function_acl": []
+  },
+  "summary": {
+    "total": 102,
+    "allowlisted": 42,
+    "api_called_all_executable_by_service_role_on_A": true,
+    "by_class": {
+      "trigger": 23,
+      "called by the api": 60,
+      "helper": 19
+    },
+    "anon_or_authenticated_executable_on_A": [
+      "_booker_authorize(p_member_id uuid, p_brand_id uuid, p_retailer_id uuid, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "_catalog_snapshot(p_brand_id uuid, p_item_ids text[])",
+      "_pa_refuse_fee_waived()",
+      "agreement_policy_hash(p_demo_policy text, p_cancellation_policy text, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "booking_interval_ok(p_date date, p_time text, p_hours integer, p_tz text)",
+      "booking_notification_events()",
+      "booking_slot_resolve()",
+      "booking_slot_snapshot()",
+      "booking_slot_start(p_date date, p_time text, p_tz text, p_default_hour integer)",
+      "booking_slot_start_strict(p_date date, p_time text, p_tz text)",
+      "booking_slot_time_parseable(p_time text)",
+      "brand_members_owner_defaults()",
+      "brands_products_version_bump()",
+      "coi_notification_events()",
+      "demos_copy_booked_by()",
+      "guard_capacity_decrease()",
+      "move_reconfirm_deadline(p_now timestamp with time zone, p_start timestamp with time zone, p_hours integer)",
+      "owner_booking_events()",
+      "payment_receipt_events()",
+      "slot_key(p_time text)",
+      "slot_label(p_minutes integer)",
+      "slot_minutes(p_time text)",
+      "venue_availability_guard()",
+      "venue_availability_validate(p_availability jsonb)",
+      "venue_blackout_dates(p_availability jsonb)",
+      "venue_day_windows(p_availability jsonb, p_dow integer)",
+      "venue_schedule_present(p_availability jsonb)",
+      "venue_slot_configured(p_availability jsonb)",
+      "venue_slot_offered(p_availability jsonb, p_date date, p_minutes integer)",
+      "venue_slots_config(p_availability jsonb)"
+    ],
+    "anon_or_authenticated_executable_on_B": [
+      "_booker_authorize(p_member_id uuid, p_brand_id uuid, p_retailer_id uuid, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "_catalog_snapshot(p_brand_id uuid, p_item_ids text[])",
+      "_pa_refuse_fee_waived()",
+      "agreement_policy_hash(p_demo_policy text, p_cancellation_policy text, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "booking_interval_ok(p_date date, p_time text, p_hours integer, p_tz text)",
+      "booking_notification_events()",
+      "booking_slot_resolve()",
+      "booking_slot_snapshot()",
+      "booking_slot_start(p_date date, p_time text, p_tz text, p_default_hour integer)",
+      "booking_slot_start_strict(p_date date, p_time text, p_tz text)",
+      "booking_slot_time_parseable(p_time text)",
+      "brand_members_owner_defaults()",
+      "brands_products_version_bump()",
+      "coi_notification_events()",
+      "demos_copy_booked_by()",
+      "guard_capacity_decrease()",
+      "move_reconfirm_deadline(p_now timestamp with time zone, p_start timestamp with time zone, p_hours integer)",
+      "owner_booking_events()",
+      "payment_receipt_events()",
+      "slot_key(p_time text)",
+      "slot_label(p_minutes integer)",
+      "slot_minutes(p_time text)",
+      "venue_availability_guard()",
+      "venue_availability_validate(p_availability jsonb)",
+      "venue_blackout_dates(p_availability jsonb)",
+      "venue_day_windows(p_availability jsonb, p_dow integer)",
+      "venue_schedule_present(p_availability jsonb)",
+      "venue_slot_configured(p_availability jsonb)",
+      "venue_slot_offered(p_availability jsonb, p_date date, p_minutes integer)",
+      "venue_slots_config(p_availability jsonb)"
+    ],
+    "service_role_difference": [
+      "_attempt_immutable()",
+      "_pa_currency_matches_group()",
+      "_pa_immutable()",
+      "_pa_immutable_identity()",
+      "_pg_immutable()",
+      "_pl_touch()",
+      "_refund_booking_matches_alloc()",
+      "_refund_linkage_immutable()",
+      "_refund_terminal_gate(p_existing text, p_incoming text)",
+      "enforce_slot_capacity()",
+      "enforce_slot_capacity_on_move()",
+      "retailer_admins_normalize_email()"
+    ]
+  },
+  "failures": [],
+  "functions": [
+    {
+      "function": "_attempt_immutable()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_booker_authorize(p_member_id uuid, p_brand_id uuid, p_retailer_id uuid, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "_catalog_snapshot(p_brand_id uuid, p_item_ids text[])",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "_open_case(p_kind text, p_dedupe text, p_reason text, p_group uuid, p_request uuid, p_operation uuid, p_session text, p_pi text, p_charge text, p_refund text, p_amount integer, p_currency text, p_details jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "_pa_currency_matches_group()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_pa_immutable()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_pa_immutable_identity()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_pa_refuse_fee_waived()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "_pg_immutable()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_pl_touch()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_refund_booking_matches_alloc()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_refund_linkage_immutable()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "_refund_terminal_gate(p_existing text, p_incoming text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "agreement_policy_hash(p_demo_policy text, p_cancellation_policy text, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "agreement_sign(p_brand_id uuid, p_retailer_id uuid, p_signed_email text, p_signed_name text, p_signed_ip text, p_user_agent text, p_expected_hash text, p_default_demo text, p_default_cancel text, p_tos_version text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "apply_authorization_canceled(p_payment_intent text, p_target_status text, p_reason text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "apply_refund_event(p_refund_id text, p_status text, p_amount integer, p_currency text, p_pi text, p_charge text, p_meta_request_id uuid, p_event_id text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "apply_verified_authorization(p_session_id text, p_payment_intent text, p_charge text, p_amount integer, p_currency text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "apply_verified_payment(p_session_id text, p_payment_intent text, p_charge text, p_amount integer, p_currency text, p_connect_dest text, p_on_behalf_of text, p_application_fee integer, p_transfer_id text, p_fee_id text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_cancellation_claim(p_booking_id uuid, p_retailer_id uuid, p_decision text, p_operator text, p_reason text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_cancellation_progress(p_booking_id uuid, p_retailer_id uuid, p_mark text, p_refund_request_id uuid, p_error text, p_case_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_cancellation_record(p_booking_id uuid, p_retailer_id uuid, p_decision jsonb, p_expect jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_cancellation_relink(p_booking_id uuid, p_retailer_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_code_attempt(p_brand_id uuid, p_retailer_id uuid, p_net_hash text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_code_check(p_code text, p_retailer_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_interval_ok(p_date date, p_time text, p_hours integer, p_tz text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_notification_events()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_slot_resolve()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_slot_snapshot()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_slot_start(p_date date, p_time text, p_tz text, p_default_hour integer)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_slot_start_strict(p_date date, p_time text, p_tz text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_slot_time_parseable(p_time text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "booking_transition(p_booking_id uuid, p_retailer_id uuid, p_action text, p_fields jsonb, p_demo_fee numeric)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "brand_members_owner_defaults()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "brands_products_version_bump()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "cancellation_abandoned_close(p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "cancellation_abandoned_outstanding(p_limit integer, p_minutes integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "cancellation_resolutions_unfinished(p_limit integer, p_grace_seconds integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "cancellation_reviews_outstanding(p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "checkout_claim_group(p_brand_id uuid, p_retailer_id uuid, p_booking_ids uuid[], p_platform_keeps_all boolean, p_connect_account_id text, p_platform_fee_cents integer, p_provisional boolean)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_case_alerts(p_owner text, p_lease_seconds integer, p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_fulfillments(p_owner text, p_lease_seconds integer, p_limit integer, p_group uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_move_settlement(p_move_id uuid, p_owner text, p_lease_seconds integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_refund_work(p_owner text, p_lease_seconds integer, p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_settlement_work(p_owner text, p_lease_seconds integer, p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "claim_stripe_event(p_event_id text, p_event_type text, p_owner text, p_lease_seconds integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "coi_notification_events()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "complete_storage_cleanup(p_id uuid, p_ok boolean, p_error text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "complete_stripe_event(p_event_id text, p_owner text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "demos_copy_booked_by()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "enforce_slot_capacity()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "enforce_slot_capacity_on_move()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "expire_payment_attempt(p_session_id text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "fail_stripe_event(p_event_id text, p_owner text, p_err text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "finalize_coi_upload(p_brand_id uuid, p_verification_id uuid, p_storage_path text, p_content_sha256 text, p_expires date, p_status text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "finalize_move_settlement(p_move_id uuid, p_owner text, p_settled boolean, p_refund_status text, p_refund_request_id uuid, p_case_id uuid, p_error text, p_event_payload jsonb, p_refund_case_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "freeze_fulfillment_outbound(p_booking_id uuid, p_owner text, p_generation integer, p_key text, p_payload jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "get_deployment_identity()",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "guard_capacity_decrease()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "issue_calendar_token(p_brand_id uuid, p_rotate boolean, p_label text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "lapse_booking_moves(p_limit integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "mark_case_alert(p_case_id uuid, p_owner text, p_ok boolean, p_message_id text, p_err text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "move_booking_by_retailer(p_demo_id uuid, p_retailer_id uuid, p_new_date date, p_new_time text, p_note text, p_actor text, p_reconfirm_hours integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "move_reconfirm_deadline(p_now timestamp with time zone, p_start timestamp with time zone, p_hours integer)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "owner_booking_events()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "park_refund_for_review(p_request_id uuid, p_owner text, p_reason text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "payment_receipt_events()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "promote_held_bookings(p_brand_id uuid, p_member_id uuid, p_role text, p_booking_ids uuid[], p_covered_booking_ids uuid[])",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "propose_reschedule(p_demo_id uuid, p_retailer_id uuid, p_new_date date, p_new_time text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "provision_verified_retailer(p_email text, p_store_name text, p_phone text, p_contact_name text, p_store_count integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "record_fulfillment(p_booking_id uuid, p_owner text, p_generation integer, p_demo boolean, p_emails boolean, p_done boolean, p_err text, p_max_attempts integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "record_settlement_leg(p_request_id uuid, p_leg text, p_stripe_id text, p_status text, p_amount integer, p_currency text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "redeem_brand_signup(p_email text, p_code_hash text, p_session_token text, p_session_days integer, p_max_attempts integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "refund_reserve_cas(p_booking_id uuid, p_op_key text, p_actor text, p_reason text, p_booking_expect text[], p_booking_set text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "register_payment_attempt(p_group_id uuid, p_session_id text, p_payment_intent text, p_hash text, p_schema integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "release_refund_work(p_request_id uuid, p_owner text, p_status text, p_next_attempt_at timestamp with time zone, p_last_error text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "release_settlement_work(p_request_id uuid, p_owner text, p_next_attempt_at timestamp with time zone, p_last_error text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "remove_current_coi(p_brand_id uuid, p_actor text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "resolve_calendar_token(p_token uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "resolve_refund_adopt(p_op_key text, p_operator text, p_retailer_id uuid, p_refund_id text, p_evidence jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "resolve_refund_replace(p_op_key text, p_operator text, p_retailer_id uuid, p_evidence jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "retailer_admins_normalize_email()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": false,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "service_role EXECUTE: A true, B false"
+    },
+    {
+      "function": "review_coi_verification(p_verification_id uuid, p_decision text, p_reviewer text, p_notes text, p_expiry date, p_brand_note text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "revoke_calendar_tokens(p_brand_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "schedule_group_ids_check(p_group_id uuid, p_outcome text)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "settlement_mark_exception(p_request_id uuid, p_reason text, p_details jsonb)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "settlement_mark_fee_intent(p_request_id uuid)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "slot_key(p_time text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "slot_label(p_minutes integer)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "slot_minutes(p_time text)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_availability_apply_all(p_retailer_id uuid, p_source_venue_id uuid, p_expected_version integer, p_schedule jsonb, p_slots jsonb, p_reset_slots boolean, p_max_demos_per_slot integer, p_copy_slots boolean)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_availability_guard()",
+      "class": "trigger function (fired by a table trigger; PostgREST does not expose functions returning trigger)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_availability_set(p_retailer_id uuid, p_venue_id uuid, p_expected_version integer, p_schedule jsonb, p_slots jsonb, p_reset_slots boolean, p_max_demos_per_slot integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_availability_validate(p_availability jsonb)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_blackout_dates(p_availability jsonb)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_blackouts_set(p_retailer_id uuid, p_op text, p_dates date[], p_venue_ids uuid[], p_reason text, p_group_id uuid, p_entry_ids uuid[])",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_day_windows(p_availability jsonb, p_dow integer)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_schedule_present(p_availability jsonb)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_slot_configured(p_availability jsonb)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_slot_offered(p_availability jsonb, p_date date, p_minutes integer)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "venue_slots_config(p_availability jsonb)",
+      "class": "helper called only from other SQL functions or triggers (the api never names it)",
+      "allowlisted": true,
+      "api_called": false,
+      "security_definer": false,
+      "A": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": true,
+        "authenticated": true,
+        "public_execute": true,
+        "acl_is_postgres_default": true
+      },
+      "difference": "none (effective privileges equal)"
+    },
+    {
+      "function": "verification_throttle_hit(p_scope text, p_key text, p_purpose text, p_limit integer, p_window_minutes integer, p_block_minutes integer)",
+      "class": "called by the api through rpc as service_role",
+      "allowlisted": false,
+      "api_called": true,
+      "security_definer": true,
+      "A": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "B": {
+        "service_role": true,
+        "anon": false,
+        "authenticated": false,
+        "public_execute": false,
+        "acl_is_postgres_default": false
+      },
+      "difference": "none (effective privileges equal)"
+    }
+  ]
+}

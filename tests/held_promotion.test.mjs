@@ -237,9 +237,10 @@ try {
     await c1.query(`UPDATE bookings SET payment_status = 'authorized', payment_intent_id = $2 WHERE id = $1::uuid`, [r5, 'pi_auth_' + uniq('a').replace(/-/g, '')]);
     const row = (await c2.query(promoteSql, [Hr.id, [r5]])).rows[0].row;
     const claimAgain = await capture(c2.query(claimSql, [Hr.id, K.id, [r5], true, null, false]));
-    // the authorized hold sits in a pending group: an immediate-charge claim of it is refused either as a stale capture-mode
-    // decision (the reuse branch sees a held booking against p_provisional false) or as a booking already in a group
-    ok('4. an authorized hold is not promoted (still held, authorized) and an immediate-charge claim of it is refused (capture_mode_stale or booking_in_another_group)', row.promoted === false && row.status === 'held' && row.payment_status === 'authorized' && !claimAgain.ok && /capture_mode_stale|booking_in_another_group/.test(String(claimAgain.e && claimAgain.e.message)), JSON.stringify({ row: { status: row.status, promoted: row.promoted }, err: String(claimAgain.e && claimAgain.e.message).slice(0, 60) }));
+    // the authorized hold sits in a pending group: since 0119 the claim validates every booking under its lock BEFORE the reuse
+    // decision, so an authorized booking is refused as not payable (not_payable_state) on either path; the 0118 answers
+    // (capture_mode_stale, booking_in_another_group) are kept acceptable for a database that still runs 0118
+    ok('4. an authorized hold is not promoted (still held, authorized) and an immediate-charge claim of it is refused (not_payable_state since 0119; capture_mode_stale or booking_in_another_group on 0118)', row.promoted === false && row.status === 'held' && row.payment_status === 'authorized' && !claimAgain.ok && /not_payable_state|capture_mode_stale|booking_in_another_group/.test(String(claimAgain.e && claimAgain.e.message)), JSON.stringify({ row: { status: row.status, promoted: row.promoted }, err: String(claimAgain.e && claimAgain.e.message).slice(0, 60) }));
   }
   {
     // 5. two concurrent route checkouts of one covered hold: one allocation set, both answers consistent

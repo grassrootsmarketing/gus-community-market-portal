@@ -478,6 +478,85 @@ try {
     await runWorker(); rq = await requestOf(c.ids[0]);
     ok('once the list is complete again the worker creates exactly one fee refund and completes', isComplete(rq) && c.sim.feeRefunds.length === 1 && c.sim.feeRefunds[0].amount === 1000, JSON.stringify({ rq, fees: c.sim.feeRefunds.length }));
   }
+
+  console.log('\nR4-2 (i): contradictory pagination of the fee refund list fails closed (api/_booking-refund.js listFeeRefunds)');
+  {
+    const c = await paidCart([venue150]);
+    spy.faults.push({ url: `/v1/application_fees/${c.fee}/refunds`, method: 'POST', status: 500, once: true });
+    await cancel(c.ids[0]);
+    let rq = await requestOf(c.ids[0]);
+    ok('setup: the fee leg is deferred with intent recorded, so every later attempt must look before it creates', rq.settlement_status === 'pending' && !!rq.fee_refund_intent_at && c.sim.feeRefunds.length === 0, JSON.stringify(rq));
+    const normalList = spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`];
+    const item = (id) => ({ id, object: 'fee_refund', amount: 1, currency: 'usd', fee: c.fee, metadata: {} });
+    let calls = 0;
+    const variants = [
+      ['an empty page claiming has_more', () => ({ object: 'list', has_more: true, data: [] }), /malformed_fee_refund_list:has_more_with_empty_page/],
+      ['has_more missing', () => ({ object: 'list', data: [] }), /malformed_fee_refund_list:malformed_has_more/],
+      ['has_more not a boolean', () => ({ object: 'list', has_more: 'yes', data: [] }), /malformed_fee_refund_list:malformed_has_more/],
+      ['a repeated cursor (every page ends in the same id)', () => ({ object: 'list', has_more: true, data: [item('fr_same_cursor')] }), /malformed_fee_refund_list:cursor_not_advancing/],
+      ['a page claiming more whose last object has no id', () => ({ object: 'list', has_more: true, data: [{ object: 'fee_refund', amount: 1 }] }), /malformed_fee_refund_list:has_more_without_cursor/],
+      ['a later page failing', () => (++calls === 1 ? { object: 'list', has_more: true, data: [item('fr_first_page_' + uniq('f').replace(/-/g, ''))] } : { __status: 500, body: { error: { message: 'page_two_outage', type: 'api_error' } } }), /stripe_list_fee_refunds/],
+    ];
+    for (const [label, fx, re] of variants) {
+      calls = 0;
+      spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`] = fx;
+      await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+      const posts0 = c.sim.feeForms.length;
+      await runWorker(); rq = await requestOf(c.ids[0]);
+      ok(`${label}: a controlled retry (settlement pending, reason recorded), no fee refund POST, nothing created`, rq.settlement_status === 'pending' && c.sim.feeRefunds.length === 0 && c.sim.feeForms.length === posts0 && re.test(rq.settlement_last_error || ''), JSON.stringify({ err: rq.settlement_last_error, fees: c.sim.feeRefunds.length, posts: c.sim.feeForms.length - posts0 }));
+    }
+    spy.fixtures.byPath[`/v1/application_fees/${c.fee}/refunds`] = normalList;
+    await db(`refund_requests?id=eq.${rq.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+    await runWorker(); rq = await requestOf(c.ids[0]);
+    ok('a complete valid list (empty, has_more false): exactly one justified fee refund is created and settlement completes', isComplete(rq) && c.sim.feeRefunds.length === 1 && c.sim.feeRefunds[0].amount === 1000 && rq.stripe_fee_refund_id === c.sim.feeRefunds[0].id, JSON.stringify({ rq, fees: c.sim.feeRefunds.length }));
+    // and a complete list that already holds the request's fee refund (an earlier attempt reached the provider): found, not created again
+    const d = await paidCart([venue150]);
+    spy.faults.push({ url: `/v1/application_fees/${d.fee}/refunds`, method: 'POST', status: 500, once: true });
+    await cancel(d.ids[0]);
+    let rqd = await requestOf(d.ids[0]);
+    const prior = { id: 'fr_prior_' + uniq('p').replace(/-/g, ''), object: 'fee_refund', amount: 1000, currency: 'usd', fee: d.fee, created: Math.floor(Date.now() / 1000), metadata: { refund_request_id: rqd.id } };
+    d.sim.feeRefunds.push(prior);
+    const posts1 = d.sim.feeForms.length;
+    await db(`refund_requests?id=eq.${rqd.id}`, { method: 'PATCH', body: JSON.stringify({ settlement_next_attempt_at: null }) });
+    await runWorker(); rqd = await requestOf(d.ids[0]);
+    ok('a complete valid list holding the request\'s own fee refund: recovery records it, no second fee refund is created', isComplete(rqd) && rqd.stripe_fee_refund_id === prior.id && d.sim.feeForms.length === posts1 && d.sim.feeRefunds.length === 1, JSON.stringify({ rqd: rqd.settlement_status, id: rqd.stripe_fee_refund_id, posts: d.sim.feeForms.length - posts1 }));
+  }
+
+  console.log('\nR4-2 (ii): contradictory pagination of the PaymentIntent refund list fails closed (api/refund-worker.js stripeListRefundsForPI, the adoption lookup)');
+  {
+    const postsOf = () => spy.calls.stripe.filter(x => String(x.method).toUpperCase() === 'POST' && /\/v1\/refunds$/.test(x.url.replace(/\?.*$/, ''))).length;
+    const e = await paidCart([venue150]);
+    const re = (await rpc('refund_reserve_cas', { p_booking_id: e.ids[0], p_op_key: e.ids[0] + ':cancel', p_actor: 'support-tool', p_reason: 'outside, other parameters' })).body;
+    const outside = await (await fetch('https://api.stripe.com/v1/refunds', { method: 'POST', headers: { 'Idempotency-Key': re.idempotency_key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ payment_intent: e.pi, amount: String(re.amount), reverse_transfer: 'true', 'metadata[refund_request_id]': re.refund_request_id }).toString() })).json();
+    ok('setup: the request\'s key was used outside with other parameters, so the worker\'s resubmit is refused and it must look the refund up', outside && /^re_/.test(outside.id) && (await requestOf(e.ids[0])).status === 'reserved');
+    const normalRefundList = spy.fixtures.byPath['/v1/refunds'];
+    const ritem = (id) => ({ id, object: 'refund', amount: re.amount, currency: 'usd', status: 'succeeded', payment_intent: e.pi, charge: e.charge, metadata: { refund_request_id: re.refund_request_id } });
+    let wcalls = 0;
+    const wvariants = [
+      ['an empty page claiming has_more', () => ({ object: 'list', has_more: true, data: [] }), /list: malformed_refund_list:has_more_with_empty_page/],
+      ['has_more missing', () => ({ object: 'list', data: [] }), /list: malformed_refund_list:malformed_has_more/],
+      ['has_more not a boolean', () => ({ object: 'list', has_more: 'true', data: [] }), /list: malformed_refund_list:malformed_has_more/],
+      ['a repeated cursor', () => ({ object: 'list', has_more: true, data: [ritem('re_same_cursor')] }), /list: malformed_refund_list:cursor_not_advancing/],
+      ['a page claiming more whose last object has no id', () => ({ object: 'list', has_more: true, data: [{ object: 'refund' }] }), /list: malformed_refund_list:has_more_without_cursor/],
+      ['a later page failing', () => (++wcalls === 1 ? { object: 'list', has_more: true, data: [ritem('re_first_page_' + uniq('w').replace(/-/g, ''))] } : { __status: 500 }), /list: fixture 500/],
+      ['the page cap reached with more to come', () => ({ object: 'list', has_more: true, data: [ritem('re_cap_' + uniq('c').replace(/-/g, ''))] }), /list: incomplete_refund_list/],
+    ];
+    let rq;
+    for (const [label, fx, rex] of wvariants) {
+      wcalls = 0;
+      spy.fixtures.byPath['/v1/refunds'] = (form, url) => (new URL(url).searchParams.get('payment_intent') === e.pi ? fx() : normalRefundList(form, url));
+      await db(`refund_requests?id=eq.${re.refund_request_id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date().toISOString() }) });   // due now (a NULL next_attempt_at is never due)
+      const p0 = postsOf();
+      const w = await runWorker(); rq = await requestOf(e.ids[0]);
+      ok(`${label}: no adoption (failed_retryable with the reason), one refused resubmit only, still exactly one refund on the provider, no fee refund`, rq.status === 'failed_retryable' && !rq.stripe_refund_id && rex.test(rq.last_error || '') && postsOf() - p0 === 1 && e.sim.refunds.length === 1 && e.sim.feeRefunds.length === 0 && w.body && w.body.adopted === 0, JSON.stringify({ status: rq.status, err: rq.last_error, posts: postsOf() - p0, refunds: e.sim.refunds.length, adopted: w.body && w.body.adopted }));
+    }
+    spy.fixtures.byPath['/v1/refunds'] = normalRefundList;
+    await db(`refund_requests?id=eq.${re.refund_request_id}`, { method: 'PATCH', body: JSON.stringify({ next_attempt_at: new Date().toISOString() }) });   // due now (a NULL next_attempt_at is never due)
+    const w = await runWorker(); rq = await requestOf(e.ids[0]);
+    ok('a complete valid list: the existing refund is adopted (succeeded with its id), nothing created under any key', w.body && w.body.adopted >= 1 && rq.status === 'succeeded' && rq.stripe_refund_id === outside.id && e.sim.refunds.length === 1, JSON.stringify({ body: w.body && { adopted: w.body.adopted, errors: w.body.errors }, rq: rq.status, id: rq.stripe_refund_id }));
+    if (!isComplete(rq)) { await runWorker(); rq = await requestOf(e.ids[0]); }
+    ok('settlement then completes on the adopted refund with exactly one fee refund', isComplete(rq) && e.sim.feeRefunds.length === 1 && e.sim.feeRefunds[0].amount === 1000, JSON.stringify({ rq: rq.settlement_status, fees: e.sim.feeRefunds.length }));
+  }
 } finally {
   clearTimeout(watchdog);
   spy.restore();

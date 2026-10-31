@@ -21,7 +21,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { sendMailQuietly } from './_mail.js';
 import { sweepMoves } from './_booking-moves.js';
 import { sweepCancellationReviews, sweepUnfinishedResolutions, sweepAbandonedCancellations } from './_cancellation-review.js';
-import { settleConnectRefund, stripeIdOf } from './_booking-refund.js';
+import { settleConnectRefund, stripeIdOf, pageContradiction } from './_booking-refund.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -91,16 +91,22 @@ async function stripeSubmitRefund({ pi, amount, keepsAll, strategy, idempotencyK
 // Paginated read of a PaymentIntent's refunds. Codex round 4 (small correction 2, applied to this list as well): a list
 // that cannot be proven complete (a malformed page, or the page cap reached with more to come) is a FAILURE, never a
 // short list, because a negative answer from it decides whether a refund exists.
+// Round 5 (Codex R4-2): the same page-walk contract as the fee refund list (pageContradiction in api/_booking-refund.js):
+// data must be an array and has_more a boolean; complete only on has_more exactly false; a page claiming more must be
+// non-empty with an advancing last-object id; the cap with more to come is incomplete. Any of these is a failure that
+// the caller turns into a controlled retry, never an adoption and never a "no refund exists" answer.
 async function stripeListRefundsForPI(pi) {
   const out = []; let startingAfter = null; let complete = false;
   for (let page = 0; page < 20; page++) {   // paginate until exhausted (R10-P0-4: not just first 100)
     let url = `https://api.stripe.com/v1/refunds?payment_intent=${encodeURIComponent(pi)}&limit=100`;
     if (startingAfter) url += `&starting_after=${encodeURIComponent(startingAfter)}`;
     const r = await fetch(url, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
-    const j = await r.json(); if (!r.ok) return { ok: false, error: (j.error && j.error.message) || ('HTTP ' + r.status) };
-    if (!j || !Array.isArray(j.data)) return { ok: false, error: 'malformed_refund_list' };
+    let j = null; try { j = await r.json(); } catch (_) { j = null; }
+    if (!r.ok) return { ok: false, error: (j && j.error && j.error.message) || ('HTTP ' + r.status) };
+    const bad = pageContradiction(j, startingAfter);
+    if (bad) return { ok: false, error: 'malformed_refund_list:' + bad };
     out.push(...j.data);
-    if (!j.has_more || j.data.length === 0) { complete = true; break; }
+    if (j.has_more === false) { complete = true; break; }
     startingAfter = j.data[j.data.length - 1].id;
   }
   if (!complete) return { ok: false, error: 'incomplete_refund_list' };
@@ -191,37 +197,51 @@ async function drainSettlement() {
 // charge, validated against the group (PaymentIntent, destination, application fee amount) and filled through
 // apply_verified_payment's idempotent branch (which refuses a different id as a contradiction). A group still missing
 // its ids a day after payment gets a deduplicated case.
+//
+// Selection (0119, Codex R4-3): bounded and fair. A group is selected only while it is due: never scheduled yet, or its
+// next check time has passed; a verified zero-fee-complete group (settlement_ids_resolution) is never selected again. After
+// every look the ledger function schedule_group_ids_check records the outcome and the next check time (waiting 5 minutes,
+// a stale-ids case 6 hours, a charge mismatch 24 hours, an error 5 minutes), so neither complete zero-fee groups nor
+// permanently unresolved ones can occupy the batch on every run and starve a later group. The batch is ordered by next
+// check time (never-checked first), then age. Nothing here invents an id; the fill still goes through apply_verified_payment.
 const GROUP_IDS_STALE_MS = 24 * 60 * 60 * 1000;
 async function fillGroupSettlementIds() {
-  const out = { checked: 0, filled: 0, waiting: 0, stale_cases: 0, errors: 0, read_failed: false, first_error: null };
+  const out = { checked: 0, filled: 0, waiting: 0, stale_cases: 0, zero_fee: 0, scheduled: 0, errors: 0, read_failed: false, first_error: null };
   let groups = [];
-  try { groups = await sbGet('payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&or=(stripe_transfer_id.is.null,stripe_application_fee_id.is.null)&stripe_charge_id=not.is.null&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,connect_account_id,total_customer_amount,currency,updated_at&order=updated_at.asc&limit=25'); }
+  const nowIso = new Date().toISOString();
+  try { groups = await sbGet(`payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&stripe_charge_id=not.is.null&settlement_ids_resolution=is.null&and=(or(stripe_transfer_id.is.null,stripe_application_fee_id.is.null),or(settlement_ids_next_check_at.is.null,settlement_ids_next_check_at.lte.${encodeURIComponent(nowIso)}))&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,connect_account_id,total_customer_amount,currency,updated_at,settlement_ids_next_check_at&order=settlement_ids_next_check_at.asc.nullsfirst,updated_at.asc&limit=25`); }
   catch (e) { out.read_failed = true; out.first_error = 'read: ' + String((e && e.message) || e).slice(0, 160); return out; }
+  // the ledger decides the next look; a scheduling failure is counted but never hides the outcome of the look itself
+  const schedule = async (g, outcome) => {
+    try { const r = await sbRpc('schedule_group_ids_check', { p_group_id: g.id, p_outcome: outcome }); const v = Array.isArray(r) ? r[0] : r; if (v && v.outcome === 'scheduled') out.scheduled++; else { out.errors++; if (!out.first_error) out.first_error = 'schedule ' + outcome + ': ' + ((v && (v.reason || v.outcome)) || 'no result'); } }
+    catch (e) { out.errors++; if (!out.first_error) out.first_error = 'schedule ' + outcome + ': ' + String((e && e.message) || e).slice(0, 120); }
+  };
   for (const g of (Array.isArray(groups) ? groups : [])) {
     out.checked++;
     try {
-      const r = await fetch(`https://api.stripe.com/v1/charges/${encodeURIComponent(g.stripe_charge_id)}`, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
-      const ch = await r.json();
-      if (!r.ok) throw new Error('charge read: ' + ((ch.error && ch.error.message) || r.status));
       const sums = await sbGet(`payment_allocations?payment_group_id=eq.${encodeURIComponent(g.id)}&select=platform_fee_amount`);
       const feeSum = (Array.isArray(sums) ? sums : []).reduce((s, a) => s + (a.platform_fee_amount || 0), 0);
       // 0118 (Codex round 4, small correction 1): a zero-fee destination charge has no application fee object at all;
-      // such a group is complete with its transfer id alone, and a missing fee amount on the charge is a zero fee.
-      if (feeSum === 0 && g.stripe_transfer_id && !g.stripe_application_fee_id) { out.zero_fee = (out.zero_fee || 0) + 1; continue; }
+      // such a group is complete with its transfer id alone (no provider read needed). 0119: the ledger verifies that
+      // and marks it, so it is never selected again.
+      if (feeSum === 0 && g.stripe_transfer_id && !g.stripe_application_fee_id) { out.zero_fee++; await schedule(g, 'zero_fee_complete'); continue; }
+      const r = await fetch(`https://api.stripe.com/v1/charges/${encodeURIComponent(g.stripe_charge_id)}`, { headers: { Authorization: 'Bearer ' + STRIPE_SECRET_KEY } });
+      const ch = await r.json();
+      if (!r.ok) throw new Error('charge read: ' + ((ch.error && ch.error.message) || r.status));
       const dest = stripeIdOf(ch.destination) || (ch.transfer_data && stripeIdOf(ch.transfer_data.destination)) || null;
       if (stripeIdOf(ch.payment_intent) !== g.stripe_payment_intent_id || dest !== g.connect_account_id || (ch.application_fee_amount == null ? 0 : ch.application_fee_amount) !== feeSum) {
         await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-charge-mismatch:' + g.id, p_reason: 'group_charge_mismatch', p_group: g.id, p_request: null, p_operation: null,
           p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency,
           p_details: { charge_pi: stripeIdOf(ch.payment_intent), destination: dest, application_fee_amount: ch.application_fee_amount, expected_destination: g.connect_account_id, expected_fee: feeSum } });
-        out.stale_cases++; continue;
+        out.stale_cases++; await schedule(g, 'mismatch'); continue;
       }
       const trId = stripeIdOf(ch.transfer), feeId = stripeIdOf(ch.application_fee);
       if (!trId || (!feeId && feeSum > 0)) {
         if (Date.now() - new Date(g.updated_at).getTime() > GROUP_IDS_STALE_MS) {
           await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-ids-missing:' + g.id, p_reason: 'group_settlement_ids_missing', p_group: g.id, p_request: null, p_operation: null,
             p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency, p_details: { transfer: trId, application_fee: feeId } });
-          out.stale_cases++;
-        } else out.waiting++;
+          out.stale_cases++; await schedule(g, 'unresolved');
+        } else { out.waiting++; await schedule(g, 'waiting'); }
         continue;
       }
       const applied = await sbRpc('apply_verified_payment', {
@@ -229,9 +249,9 @@ async function fillGroupSettlementIds() {
         p_connect_dest: dest, p_on_behalf_of: stripeIdOf(ch.on_behalf_of) || dest, p_application_fee: ch.application_fee_amount == null ? 0 : ch.application_fee_amount, p_transfer_id: trId, p_fee_id: feeId || null,
       });
       const val = Array.isArray(applied) ? applied[0] : applied;
-      if (val && val.outcome === 'idempotent') out.filled++;
-      else { out.errors++; if (!out.first_error) out.first_error = 'fill: ' + ((val && (val.reason || val.outcome)) || 'no result'); }
-    } catch (e) { out.errors++; if (!out.first_error) out.first_error = 'group ' + g.id + ': ' + String((e && e.message) || e).slice(0, 120); }
+      if (val && val.outcome === 'idempotent') out.filled++;   // the ids are on the row now, so the group is no longer selected
+      else { out.errors++; if (!out.first_error) out.first_error = 'fill: ' + ((val && (val.reason || val.outcome)) || 'no result'); await schedule(g, 'error'); }
+    } catch (e) { out.errors++; if (!out.first_error) out.first_error = 'group ' + g.id + ': ' + String((e && e.message) || e).slice(0, 120); await schedule(g, 'error'); }
   }
   return out;
 }
@@ -405,7 +425,7 @@ export default async function handler(req, res) {
     } catch (e) { out.errors++; noteError('settlement: ' + ((e && e.message) || e)); console.error('settlement drain error:', (e && e.message) || e); }
     try {
       const gi = await fillGroupSettlementIds();
-      out.group_ids_checked = gi.checked; out.group_ids_filled = gi.filled; out.group_ids_waiting = gi.waiting; out.group_ids_cases = gi.stale_cases; out.group_ids_read_failed = !!gi.read_failed;
+      out.group_ids_checked = gi.checked; out.group_ids_filled = gi.filled; out.group_ids_waiting = gi.waiting; out.group_ids_cases = gi.stale_cases; out.group_ids_zero_fee = gi.zero_fee; out.group_ids_scheduled = gi.scheduled; out.group_ids_read_failed = !!gi.read_failed;
       if (gi.read_failed) noteError(gi.first_error || 'group ids: read failed');
       else if (gi.errors > 0) noteError(gi.first_error || 'group ids: error');
       if (gi.errors > 0) out.errors += gi.errors;
