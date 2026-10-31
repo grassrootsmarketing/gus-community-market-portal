@@ -280,14 +280,13 @@ console.log('\n— 7: checkout route + session reuse —');
     ok('the refused retry does not hand the caller a payment URL',
        !c2.body || !c2.body.url, JSON.stringify(c2.body).slice(0, 140));
 
-    // OBSERVATION, recorded rather than silently accepted. api/checkout.js creates the Stripe
-    // Checkout Session at line 166 and only registers the attempt at line 183, so the rejected
-    // retry leaves an orphaned session at Stripe. No money moves and the URL is not returned, and
-    // R11's quarantine catches the dangerous case if such a session were ever paid — so this is
-    // noise, not a blocker. Asserted as the CURRENT behaviour so that reordering the two calls
-    // shows up here as a deliberate change rather than passing unnoticed.
-    ok('KNOWN: the refused retry still created a Stripe session (create precedes attempt registration)',
-       spy.calls.stripe.length - stripeMid === 1, `created ${spy.calls.stripe.length - stripeMid}`);
+    // Round 7 (0120, the reserved-attempt checkout): the ledger is asked BEFORE any provider call, so a refused retry
+    // creates nothing on Stripe. It reads the open attempt's session once to confirm it is still open (an expired one
+    // would be recorded and replaced). The earlier observation (create preceded registration, leaving an orphan
+    // session) is resolved and asserted here as the current behaviour.
+    const retryCalls = spy.calls.stripe.slice(stripeMid);
+    ok('the refused retry created nothing on Stripe: exactly one GET of the open session, no POST',
+       retryCalls.length === 1 && String(retryCalls[0].method).toUpperCase() === 'GET' && retryCalls[0].url.includes('/v1/checkout/sessions/cs_'), JSON.stringify(retryCalls.map(c => c.method + ' ' + c.url.replace('https://api.stripe.com', ''))));
   } else {
     ok('checkout: skipped, no booking id from step 6', false, 'booking creation did not return an id');
   }

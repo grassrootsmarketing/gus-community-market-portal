@@ -185,10 +185,12 @@ try {
     await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
     const w6 = await runWorker();
     ok('the ids appear on the charge: recovery fills them through the verified apply', w6.body.group_ids_filled >= 1 && (await filled(g)), JSON.stringify(await groupRow(g.gid)));
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });   // even made due, a complete group is not selectable
+    const before7 = spy.calls.stripe.length;
     const w7 = await runWorker();
-    const sel7 = w7.body.group_ids_checked;
+    const reads7 = spy.calls.stripe.slice(before7).filter(c => c.url.includes('/v1/charges/' + g.charge)).length;
     const r7 = await groupRow(g.gid);
-    ok('once complete the group is no longer selected (its ids are on the row), and the case stays as the record of the delay', !!r7.stripe_transfer_id && !!r7.stripe_application_fee_id && (await casesOf()).length === 1 && Number.isFinite(sel7), JSON.stringify({ checked: sel7, r7 }));
+    ok('once complete the group is absent from later selections and provider reads: its ids are on the row, the worker did not read its charge again even after due_now, no new case; the one case stays as the record of the delay', !!r7.stripe_transfer_id && !!r7.stripe_application_fee_id && reads7 === 0 && (await casesOf()).length === 1 && w7.status === 200, JSON.stringify({ checked: w7.body.group_ids_checked, reads7, r7 }));
   }
 
   console.log('\n3. the ledger function: verified marks only, long waits for unresolved and mismatched groups');

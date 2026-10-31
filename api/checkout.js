@@ -250,31 +250,79 @@ export default async function handler(req, res) {
     });
     const reqHash = crypto.createHash('sha256').update(canonical).digest('hex');
 
-    // R11-P0-2: the idempotency key must be ATTEMPT-scoped, not group-scoped. A group-scoped key
-    // would make a post-expiry retry return the SAME (now expired) Session, permanently locking the
-    // cart. `attemptSeq` is the count of prior attempts on this group, so each new attempt gets a
-    // distinct key while a genuine in-flight retry of the same attempt still reuses its Session.
-    let attemptSeq = 0;
-    try {
-      const prior = await sbJson(`payment_attempts?payment_group_id=eq.${encodeURIComponent(gid)}&select=id`);
-      attemptSeq = Array.isArray(prior) ? prior.length : 0;
-    } catch (_) { /* fall back to 0; a duplicate key here only reuses an in-flight session */ }
-    const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptSeq}` },
-      body: bodyStr,
-    });
-    const session = await stripeResp.json();
-    if (!stripeResp.ok) { console.error('Stripe session failed:', session && session.error); return res.status(502).json({ error: 'stripe_failed' }); }
-
-    if (session.amount_total != null && Number(session.amount_total) !== Number(totalCents)) {
-      console.error('RECONCILE: stripe amount_total', session.amount_total, '!= ledger total', totalCents, 'group', gid);
-      return res.status(500).json({ error: 'amount_reconcile_failed' });
+    // Round 7 (Codex "next action 2", the expired-session retry): the LEDGER reserves the attempt BEFORE any provider
+    // call. reserve_payment_attempt (0120) answers under the group lock with the group's live attempt: an OPEN attempt,
+    // whose session's CURRENT state on Stripe then decides (open: refused, the brand already holds that link; complete:
+    // the payment is being confirmed; expired: recorded as expired through the same path the webhook uses, then a new
+    // generation); a RESERVED attempt (simultaneous retries get the same reservation and therefore the same key); or a
+    // new reservation with the next generation number. The Checkout Session is created under a key that names the
+    // reservation (stable across retries, never random, never derived from a count the handler read). A session that
+    // comes back unusable (an idempotent replay of one that expired or completed since) is recorded as the
+    // reservation's terminal outcome, with the session id, before the handler advances to a new generation. A failed
+    // ledger read fails the checkout closed; nothing falls back to a guessed sequence. The ledger's one-live-attempt
+    // index means a brand can never hold two payable links for one cart.
+    const readSession = async (sid) => {
+      try {
+        const r = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sid)}`, { headers: { Authorization: `Bearer ${STRIPE}` } });
+        let j = null; try { j = await r.json(); } catch (_) { j = null; }
+        return r.ok && j && j.id ? { ok: true, session: j } : { ok: false, status: r.status, error: j && j.error && j.error.message };
+      } catch (e) { return { ok: false, status: 0, error: String((e && e.message) || e) }; }
+    };
+    const reserve = async () => {
+      const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1 });
+      if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), msg }; }
+      const v = Array.isArray(rv.json) ? rv.json[0] : rv.json;
+      return v && v.attempt_id ? { ok: true, row: v } : { ok: false, inProgress: false, msg: 'no reservation row' };
+    };
+    const reserveFailure = (rsv) => {
+      if (rsv.inProgress) return res.status(409).json({ error: 'attempt_in_progress' });
+      console.error('reserve_payment_attempt failed:', rsv.msg);
+      return res.status(503).json({ error: 'attempt_reserve_failed', message: 'Could not start the payment just now. Please try again.' });
+    };
+    let rsv = await reserve();
+    if (!rsv.ok) return reserveFailure(rsv);
+    if (rsv.row.outcome === 'open') {
+      const cur = await readSession(rsv.row.session_id);
+      if (!cur.ok) return res.status(503).json({ error: 'provider_unreachable', message: 'Could not confirm your payment session just now. Please try again.' });
+      const st = String(cur.session.status || '');
+      if (st === 'complete') return res.status(409).json({ error: 'payment_pending', message: 'This payment is being confirmed. Please refresh in a moment.' });
+      if (st === 'open') return res.status(409).json({ error: 'attempt_in_progress' });
+      if (st !== 'expired') return res.status(503).json({ error: 'provider_unreachable', message: 'Could not confirm your payment session just now. Please try again.' });
+      const ex = await rpc('expire_payment_attempt', { p_session_id: rsv.row.session_id });
+      if (!ex.ok) return res.status(503).json({ error: 'attempt_expire_failed', message: 'Could not refresh your payment session just now. Please try again.' });
+      rsv = await reserve();
+      if (!rsv.ok) return reserveFailure(rsv);
+      if (rsv.row.outcome !== 'reserved') return res.status(409).json({ error: 'attempt_in_progress' });
     }
+    let session = null;
+    let attemptId = rsv.row.attempt_id;
+    for (let advance = 0; advance < 2 && !session; advance++) {
+      const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptId}` },
+        body: bodyStr,
+      });
+      let created = null; try { created = await stripeResp.json(); } catch (_) { created = null; }
+      if (!stripeResp.ok || !created || !created.id) { console.error('Stripe session failed:', created && created.error); return res.status(502).json({ error: 'stripe_failed' }); }
+      const usable = String(created.status || '') === 'open' && String(created.payment_status || '') === 'unpaid';
+      const amountOk = created.amount_total == null || Number(created.amount_total) === Number(totalCents);
+      if (usable && amountOk) { session = created; break; }
+      // not payable: the reservation ends here, with the provider object recorded, before any new generation
+      const reason = !usable ? `session_unusable:${created.status}/${created.payment_status}` : 'amount_reconcile_failed';
+      const failed = await rpc('fail_payment_attempt', { p_attempt_id: attemptId, p_session_id: created.id, p_error: reason });
+      if (!failed.ok) return res.status(503).json({ error: 'attempt_persist_failed' });
+      if (!amountOk) { console.error('RECONCILE: stripe amount_total', created.amount_total, '!= ledger total', totalCents, 'group', gid); return res.status(500).json({ error: 'amount_reconcile_failed' }); }
+      rsv = await reserve();
+      if (!rsv.ok) return reserveFailure(rsv);
+      if (rsv.row.outcome !== 'reserved') return res.status(409).json({ error: 'attempt_in_progress' });
+      attemptId = rsv.row.attempt_id;
+    }
+    if (!session) return res.status(503).json({ error: 'session_unusable', message: 'Could not open a payment session just now. Please try again.' });
 
-    // REQUIRED durable write via RPC (no swallow): register the immutable attempt. Enforces ONE open
-    // attempt per group and records session id + canonical hash. A concurrent fork with a different
-    // session/hash -> 'attempt_in_progress' (409). Idempotent retry of the SAME session -> reused.
+    // REQUIRED durable write via RPC (no swallow): bind the session to the reservation (status open) and record the
+    // canonical hash. A fork against an open attempt (a different session or hash) is still 'attempt_in_progress'.
+    // If this write fails after Stripe created the session, the reservation stays and the next retry reuses its key, so
+    // Stripe replays the same session and it is bound then; nothing is ever handed out unregistered.
     const pi = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
     const reg = await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: session.id, p_payment_intent: pi, p_hash: reqHash, p_schema: 1 });
     if (!reg.ok) {

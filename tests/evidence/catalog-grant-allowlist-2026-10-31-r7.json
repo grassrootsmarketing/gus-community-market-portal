@@ -1,0 +1,388 @@
+{
+  "generated_at": "2026-10-31T09:37:04.118Z",
+  "a": "tests/evidence/catalog-clean-chain-2026-10-31-r7.json",
+  "b": "tests/evidence/catalog-rebuild-check-2026-10-31-r7.json",
+  "rule": "only EXECUTE to service_role is ever tolerated; anon and authenticated differences are never tolerated",
+  "count": 42,
+  "grants": [
+    {
+      "key": "_attempt_immutable:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_attempt_immutable",
+      "function_identities": [
+        "_attempt_immutable()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_booker_authorize:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_booker_authorize",
+      "function_identities": [
+        "_booker_authorize(p_member_id uuid, p_brand_id uuid, p_retailer_id uuid, p_default_demo text, p_default_cancel text, p_tos_version text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_catalog_snapshot:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_catalog_snapshot",
+      "function_identities": [
+        "_catalog_snapshot(p_brand_id uuid, p_item_ids text[])"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pa_currency_matches_group:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pa_currency_matches_group",
+      "function_identities": [
+        "_pa_currency_matches_group()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pa_immutable:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pa_immutable",
+      "function_identities": [
+        "_pa_immutable()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pa_immutable_identity:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pa_immutable_identity",
+      "function_identities": [
+        "_pa_immutable_identity()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pa_refuse_fee_waived:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pa_refuse_fee_waived",
+      "function_identities": [
+        "_pa_refuse_fee_waived()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pg_immutable:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pg_immutable",
+      "function_identities": [
+        "_pg_immutable()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_pl_touch:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_pl_touch",
+      "function_identities": [
+        "_pl_touch()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_refund_booking_matches_alloc:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_refund_booking_matches_alloc",
+      "function_identities": [
+        "_refund_booking_matches_alloc()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_refund_linkage_immutable:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_refund_linkage_immutable",
+      "function_identities": [
+        "_refund_linkage_immutable()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "_refund_terminal_gate:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "_refund_terminal_gate",
+      "function_identities": [
+        "_refund_terminal_gate(p_existing text, p_incoming text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "agreement_policy_hash:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "agreement_policy_hash",
+      "function_identities": [
+        "agreement_policy_hash(p_demo_policy text, p_cancellation_policy text, p_default_demo text, p_default_cancel text, p_tos_version text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_interval_ok:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_interval_ok",
+      "function_identities": [
+        "booking_interval_ok(p_date date, p_time text, p_hours integer, p_tz text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_notification_events:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_notification_events",
+      "function_identities": [
+        "booking_notification_events()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_slot_resolve:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_slot_resolve",
+      "function_identities": [
+        "booking_slot_resolve()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_slot_snapshot:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_slot_snapshot",
+      "function_identities": [
+        "booking_slot_snapshot()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_slot_start:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_slot_start",
+      "function_identities": [
+        "booking_slot_start(p_date date, p_time text, p_tz text, p_default_hour integer)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_slot_start_strict:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_slot_start_strict",
+      "function_identities": [
+        "booking_slot_start_strict(p_date date, p_time text, p_tz text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "booking_slot_time_parseable:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "booking_slot_time_parseable",
+      "function_identities": [
+        "booking_slot_time_parseable(p_time text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "brand_members_owner_defaults:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "brand_members_owner_defaults",
+      "function_identities": [
+        "brand_members_owner_defaults()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "brands_products_version_bump:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "brands_products_version_bump",
+      "function_identities": [
+        "brands_products_version_bump()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "coi_notification_events:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "coi_notification_events",
+      "function_identities": [
+        "coi_notification_events()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "demos_copy_booked_by:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "demos_copy_booked_by",
+      "function_identities": [
+        "demos_copy_booked_by()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "enforce_slot_capacity:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "enforce_slot_capacity",
+      "function_identities": [
+        "enforce_slot_capacity()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "enforce_slot_capacity_on_move:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "enforce_slot_capacity_on_move",
+      "function_identities": [
+        "enforce_slot_capacity_on_move()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "guard_capacity_decrease:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "guard_capacity_decrease",
+      "function_identities": [
+        "guard_capacity_decrease()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "move_reconfirm_deadline:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "move_reconfirm_deadline",
+      "function_identities": [
+        "move_reconfirm_deadline(p_now timestamp with time zone, p_start timestamp with time zone, p_hours integer)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "owner_booking_events:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "owner_booking_events",
+      "function_identities": [
+        "owner_booking_events()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "payment_receipt_events:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "payment_receipt_events",
+      "function_identities": [
+        "payment_receipt_events()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "retailer_admins_normalize_email:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "retailer_admins_normalize_email",
+      "function_identities": [
+        "retailer_admins_normalize_email()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "slot_key:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "slot_key",
+      "function_identities": [
+        "slot_key(p_time text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "slot_label:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "slot_label",
+      "function_identities": [
+        "slot_label(p_minutes integer)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "slot_minutes:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "slot_minutes",
+      "function_identities": [
+        "slot_minutes(p_time text)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_availability_guard:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_availability_guard",
+      "function_identities": [
+        "venue_availability_guard()"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_availability_validate:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_availability_validate",
+      "function_identities": [
+        "venue_availability_validate(p_availability jsonb)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_blackout_dates:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_blackout_dates",
+      "function_identities": [
+        "venue_blackout_dates(p_availability jsonb)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_day_windows:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_day_windows",
+      "function_identities": [
+        "venue_day_windows(p_availability jsonb, p_dow integer)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_schedule_present:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_schedule_present",
+      "function_identities": [
+        "venue_schedule_present(p_availability jsonb)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_slot_configured:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_slot_configured",
+      "function_identities": [
+        "venue_slot_configured(p_availability jsonb)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_slot_offered:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_slot_offered",
+      "function_identities": [
+        "venue_slot_offered(p_availability jsonb, p_date date, p_minutes integer)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    },
+    {
+      "key": "venue_slots_config:service_role:EXECUTE",
+      "only_in": "B",
+      "routine": "venue_slots_config",
+      "function_identities": [
+        "venue_slots_config(p_availability jsonb)"
+      ],
+      "reason": "an explicit EXECUTE grant to service_role exists only on the Supabase project, written by its default privileges when the function was created; the committed chain does not write it. This is an actual privilege difference; the effective privileges on both databases are recorded by tools/grant-effective-check.mjs"
+    }
+  ],
+  "refused": []
+}

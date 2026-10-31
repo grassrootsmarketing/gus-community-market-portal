@@ -46,15 +46,7 @@ ENV.PROVISIONAL_HOLDS_ENABLED = 'true';
 ENV.CONNECTED_CHECKOUT_ENABLED = 'true';
 const ACCT = 'acct_reuse_' + uniq('x').replace(/-/g, '');
 const CATALOG = [{ id: 'cat-1', ...FIXTURE_PRODUCTS[0] }];
-// the spied Stripe answers a Checkout Session create like the provider: the same Idempotency-Key gives the same session
-const sessionsByKey = new Map();
-spy.fixtures.byPath['POST /v1/checkout/sessions'] = (form, url, opts) => {
-  const key = opts && opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
-  if (key && sessionsByKey.has(key)) return sessionsByKey.get(key);
-  const s = { id: 'cs_test_' + uniq('s').replace(/-/g, ''), object: 'checkout.session', url: 'https://checkout.stripe.test/' + uniq('u'), payment_intent: null, amount_total: Number(form['line_items[0][price_data][unit_amount]'] || 0) };
-  if (key) sessionsByKey.set(key, s);
-  return s;
-};
+// the spied Stripe (tests/_route.mjs) answers a Checkout Session create like the provider: the same Idempotency-Key replays the same session
 
 console.log('\nFixtures');
 async function mkRetailer(prefix, connected) {

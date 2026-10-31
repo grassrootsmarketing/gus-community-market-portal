@@ -75,6 +75,8 @@ export function installSpy() {
   // '/v1/refunds/re_x' or '/v1/application_fees/fee_x/refunds'); used by tests/connected_checkout.test.mjs for the
   // settlement legs of a connected refund.
   const fixtures = { paymentIntents: {}, checkoutSessions: {}, byPath: {} };
+  // the spy's own Checkout Sessions (round 7): by id, and by the Idempotency-Key that created them
+  const sessions = new Map(), sessionsByKey = new Map();
   // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
   // can force a specific request (matched by url substring + optional method) to fail, so
   // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
@@ -128,8 +130,28 @@ export function installSpy() {
       if (csMatch && fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]) {
         return jsonRes(fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]);
       }
+      // Checkout Sessions behave like the provider's (round 7, the reserved-attempt checkout): a create under an
+      // Idempotency-Key the spy has seen replays the SAME session object (whatever its status has become since; a test
+      // changes a session's status through spy.sessions, keyed by id); a create carries status open and payment_status
+      // unpaid; a GET of a known session returns its current object; an unknown session is 404 as on Stripe.
+      if (csMatch) {
+        const known = sessions.get(decodeURIComponent(csMatch[1]));
+        if (known) return jsonRes(known);
+        const nf = { error: { type: 'invalid_request_error', message: 'No such checkout.session: ' + decodeURIComponent(csMatch[1]) } };
+        return { ok: false, status: 404, json: async () => nf, text: async () => JSON.stringify(nf) };
+      }
+      if (u.includes('/checkout/sessions') && method === 'POST') {
+        const key = opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
+        if (key && sessionsByKey.has(key)) return jsonRes(sessionsByKey.get(key));
+        const form = Object.fromEntries(new URLSearchParams(String(opts.body || '')));
+        let total = 0; for (const [k, v] of Object.entries(form)) if (/^line_items\[\d+\]\[price_data\]\[unit_amount\]$/.test(k)) total += Number(v) * Number(form[k.replace('[price_data][unit_amount]', '[quantity]')] || 1);
+        const created = { id: 'cs_test_' + Math.random().toString(36).slice(2, 10), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: total || null, payment_intent: null, url: 'https://checkout.stripe.test/' + Math.random().toString(36).slice(2, 8), metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
+        sessions.set(created.id, created);
+        if (key) sessionsByKey.set(key, created);
+        return jsonRes(created);
+      }
       if (u.includes('/checkout/sessions')) {
-        return jsonRes({ id: 'cs_test_' + Math.random().toString(36).slice(2, 10), url: 'https://checkout.stripe.test/x' });
+        return jsonRes({ object: 'list', data: [...sessions.values()], has_more: false });
       }
       // Real Stripe refunds always carry a currency; the worker forwards it to apply_refund_event,
       // and PostgREST refuses an RPC call with a missing argument.
@@ -154,7 +176,7 @@ export function installSpy() {
     calls.other.push(u.slice(0, 120));
     return real(url, opts);
   };
-  return { calls, fixtures, faults, restore: () => { globalThis.fetch = real; } };
+  return { calls, fixtures, faults, sessions, sessionsByKey, restore: () => { globalThis.fetch = real; } };
 }
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 
