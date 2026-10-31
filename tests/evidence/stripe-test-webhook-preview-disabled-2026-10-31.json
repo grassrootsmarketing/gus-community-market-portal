@@ -1,0 +1,9 @@
+{
+  "endpoint": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+  "url_host": "demohub-booker-preview.vercel.app",
+  "status_before": "enabled",
+  "status_after": "disabled",
+  "disabled_at": "2026-10-31T09:09:36.250Z",
+  "authorized_by": "David, in chat, 2026-10-31: \"yes, disable it\" (permanent disable, not delete; reversible with disabled=false)",
+  "enabled_endpoints_after": []
+}

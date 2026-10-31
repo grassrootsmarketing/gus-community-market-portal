@@ -140,6 +140,57 @@ try {
     ok('a waiting group made due again (due_now) is looked at on the next run and filled from its charge', due.ok && due.body && due.body.outcome === 'scheduled' && (await filled(back)), JSON.stringify({ due: due.body, row: await groupRow(back.gid) }));
   }
 
+  console.log('\n4. the stale clock (round 6, Codex R5-1): retries and errors refresh updated_at but never the age anchor; past 24 hours the WORKER opens the case and chooses the unresolved wait');
+  {
+    const g = await positiveGroup({ idsOnCharge: false });
+    const attemptsOf = async () => (await db(`payment_attempts?payment_group_id=eq.${g.gid}&select=status,paid_at,updated_at`)).body || [];
+    const paidAtOf = async () => { const a = (await attemptsOf()).find(x => x.status === 'paid'); return a && a.paid_at; };
+    const casesOf = async () => (await db(`reconciliation_cases?payment_group_id=eq.${g.gid}&reason=eq.group_settlement_ids_missing&select=id,dedupe_key,details`)).body || [];
+    const anchor0 = await paidAtOf();
+    const row0 = await groupRow(g.gid);
+    ok('a paid connected group missing its ids has a paid attempt with paid_at (the age anchor) and no schedule yet', !!anchor0 && row0.stripe_transfer_id === null && row0.settlement_ids_next_check_at === null, JSON.stringify({ anchor0, row0 }));
+    const updatedOf = async () => one(await db(`payment_groups?id=eq.${g.gid}&select=updated_at`)).updated_at;
+    const u0 = await updatedOf();
+    const w1 = await runWorker();
+    const u1 = await updatedOf();
+    ok('run 1 below the threshold: the worker reports waiting (no case), updated_at was refreshed by the scheduling write, the anchor is unchanged', w1.status === 200 && w1.body.group_ids_cases === 0 && (await casesOf()).length === 0 && u1 !== u0 && (await paidAtOf()) === anchor0 && (await groupRow(g.gid)).settlement_ids_next_check_at !== null, JSON.stringify({ cases: w1.body.group_ids_cases, waiting: w1.body.group_ids_waiting, u0, u1 }));
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
+    const w2 = await runWorker();
+    const u2 = await updatedOf();
+    ok('run 2 (made due again): waiting again, updated_at changed again, anchor still unchanged, still no case', w2.status === 200 && w2.body.group_ids_cases === 0 && u2 !== u1 && (await paidAtOf()) === anchor0 && (await casesOf()).length === 0, JSON.stringify({ u1, u2 }));
+    // a provider error on the charge read: an error schedule, the anchor untouched
+    spy.faults.push({ url: `/v1/charges/${g.charge}`, method: 'GET', status: 500, message: 'charge_read_outage', once: true });
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
+    const w3 = await runWorker();
+    const r3 = await groupRow(g.gid);
+    const minutes3 = (new Date(r3.settlement_ids_next_check_at).getTime() - Date.now()) / 60000;
+    ok('a provider error on the charge read: counted as an error, scheduled about 5 minutes out, no case, the anchor untouched', w3.body.errors >= 1 && (await casesOf()).length === 0 && minutes3 > 3.5 && minutes3 <= 5.1 && (await paidAtOf()) === anchor0, JSON.stringify({ errors: w3.body.errors, first: w3.body.first_error || null, minutes3: minutes3.toFixed(1) }));
+    // the clock advances past the threshold: the fixture's own payment time is moved 25 hours back (the attempt row is the
+    // test's own; its identity columns stay immutable; nothing else in the database is touched)
+    const backdated = new Date(Date.now() - 25 * 3600e3).toISOString();
+    const bd = await db(`payment_attempts?payment_group_id=eq.${g.gid}&status=eq.paid`, { method: 'PATCH', body: JSON.stringify({ paid_at: backdated }) });
+    ok('the fixture\'s payment time is moved 25 hours back (the controlled clock for this test)', bd.ok && Array.isArray(bd.body) && bd.body.length === 1 && new Date(bd.body[0].paid_at).getTime() < Date.now() - 24 * 3600e3, `${bd.status} ${bd.text.slice(0, 120)}`);
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
+    const w4 = await runWorker();
+    const r4 = await groupRow(g.gid);
+    const cases4 = await casesOf();
+    const hours4 = (new Date(r4.settlement_ids_next_check_at).getTime() - Date.now()) / 3600000;
+    ok('past 24 hours the WORKER opens the group_settlement_ids_missing case (exactly one), records the anchor on it, and schedules the unresolved interval (about 6 hours), not merely waiting', w4.body.group_ids_cases >= 1 && cases4.length === 1 && cases4[0].details && cases4[0].details.age_anchor_source === 'paid_at' && cases4[0].details.age_anchor_at === new Date(backdated).toISOString() && hours4 > 5.9 && hours4 <= 6.01 && r4.stripe_transfer_id === null, JSON.stringify({ cases: w4.body.group_ids_cases, n: cases4.length, details: cases4[0] && cases4[0].details, hours4: hours4.toFixed(2) }));
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
+    const w5 = await runWorker();
+    const cases5 = await casesOf();
+    const hours5 = (new Date((await groupRow(g.gid)).settlement_ids_next_check_at).getTime() - Date.now()) / 3600000;
+    ok('run again after the next due time: still exactly ONE case (deduplicated), unresolved interval again', cases5.length === 1 && cases5[0].id === cases4[0].id && hours5 > 5.9 && hours5 <= 6.01 && w5.status === 200, JSON.stringify({ n: cases5.length, hours5: hours5.toFixed(2) }));
+    g.giveIds();
+    await rpc('schedule_group_ids_check', { p_group_id: g.gid, p_outcome: 'due_now' });
+    const w6 = await runWorker();
+    ok('the ids appear on the charge: recovery fills them through the verified apply', w6.body.group_ids_filled >= 1 && (await filled(g)), JSON.stringify(await groupRow(g.gid)));
+    const w7 = await runWorker();
+    const sel7 = w7.body.group_ids_checked;
+    const r7 = await groupRow(g.gid);
+    ok('once complete the group is no longer selected (its ids are on the row), and the case stays as the record of the delay', !!r7.stripe_transfer_id && !!r7.stripe_application_fee_id && (await casesOf()).length === 1 && Number.isFinite(sel7), JSON.stringify({ checked: sel7, r7 }));
+  }
+
   console.log('\n3. the ledger function: verified marks only, long waits for unresolved and mismatched groups');
   {
     const g = await positiveGroup({ idsOnCharge: false });

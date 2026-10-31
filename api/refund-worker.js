@@ -204,12 +204,25 @@ async function drainSettlement() {
 // a stale-ids case 6 hours, a charge mismatch 24 hours, an error 5 minutes), so neither complete zero-fee groups nor
 // permanently unresolved ones can occupy the batch on every run and starve a later group. The batch is ordered by next
 // check time (never-checked first), then age. Nothing here invents an id; the fill still goes through apply_verified_payment.
+//
+// Age anchor (round 6, Codex R5-1). The stale threshold is measured from the PAYMENT, not from payment_groups.updated_at:
+// every scheduling write (and every other group update) refreshes updated_at through the pg_groups_touch trigger, so a group
+// checked every five minutes would never have reached 24 hours. The anchor is the paid attempt's paid_at, written exactly
+// once by apply_verified_payment when the group became paid and read elsewhere as "the payment time" (receipts, the brand
+// dashboard); no scheduling, retry, provider error or unrelated group update touches it. A paid group always has that row;
+// should it be missing, the group's own created_at (never updated) is the fallback, which is EARLIER than the payment, so
+// the escalation can only come sooner, never later. The anchor and its source are recorded on the case.
 const GROUP_IDS_STALE_MS = 24 * 60 * 60 * 1000;
+function groupAgeAnchor(g) {
+  const paid = (Array.isArray(g.payment_attempts) ? g.payment_attempts : []).filter(a => a && a.status === 'paid' && a.paid_at).map(a => new Date(a.paid_at).getTime()).filter(t => Number.isFinite(t)).sort((a, b) => a - b);
+  if (paid.length) return { at: paid[0], source: 'paid_at' };
+  return { at: new Date(g.created_at).getTime(), source: 'created_at' };
+}
 async function fillGroupSettlementIds() {
   const out = { checked: 0, filled: 0, waiting: 0, stale_cases: 0, zero_fee: 0, scheduled: 0, errors: 0, read_failed: false, first_error: null };
   let groups = [];
   const nowIso = new Date().toISOString();
-  try { groups = await sbGet(`payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&stripe_charge_id=not.is.null&settlement_ids_resolution=is.null&and=(or(stripe_transfer_id.is.null,stripe_application_fee_id.is.null),or(settlement_ids_next_check_at.is.null,settlement_ids_next_check_at.lte.${encodeURIComponent(nowIso)}))&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,connect_account_id,total_customer_amount,currency,updated_at,settlement_ids_next_check_at&order=settlement_ids_next_check_at.asc.nullsfirst,updated_at.asc&limit=25`); }
+  try { groups = await sbGet(`payment_groups?platform_keeps_all=eq.false&status=in.(paid,partially_refunded,refunded)&stripe_charge_id=not.is.null&settlement_ids_resolution=is.null&and=(or(stripe_transfer_id.is.null,stripe_application_fee_id.is.null),or(settlement_ids_next_check_at.is.null,settlement_ids_next_check_at.lte.${encodeURIComponent(nowIso)}))&select=id,stripe_checkout_session_id,stripe_payment_intent_id,stripe_charge_id,stripe_transfer_id,stripe_application_fee_id,connect_account_id,total_customer_amount,currency,created_at,updated_at,settlement_ids_next_check_at,payment_attempts(status,paid_at)&order=settlement_ids_next_check_at.asc.nullsfirst,updated_at.asc&limit=25`); }
   catch (e) { out.read_failed = true; out.first_error = 'read: ' + String((e && e.message) || e).slice(0, 160); return out; }
   // the ledger decides the next look; a scheduling failure is counted but never hides the outcome of the look itself
   const schedule = async (g, outcome) => {
@@ -237,9 +250,10 @@ async function fillGroupSettlementIds() {
       }
       const trId = stripeIdOf(ch.transfer), feeId = stripeIdOf(ch.application_fee);
       if (!trId || (!feeId && feeSum > 0)) {
-        if (Date.now() - new Date(g.updated_at).getTime() > GROUP_IDS_STALE_MS) {
+        const anchor = groupAgeAnchor(g);
+        if (Date.now() - anchor.at > GROUP_IDS_STALE_MS) {
           await sbRpc('_open_case', { p_kind: 'payment_contradiction', p_dedupe: 'group-ids-missing:' + g.id, p_reason: 'group_settlement_ids_missing', p_group: g.id, p_request: null, p_operation: null,
-            p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency, p_details: { transfer: trId, application_fee: feeId } });
+            p_session: g.stripe_checkout_session_id, p_pi: g.stripe_payment_intent_id, p_charge: g.stripe_charge_id, p_refund: null, p_amount: g.total_customer_amount, p_currency: g.currency, p_details: { transfer: trId, application_fee: feeId, age_anchor_at: new Date(anchor.at).toISOString(), age_anchor_source: anchor.source, stale_after_ms: GROUP_IDS_STALE_MS } });
           out.stale_cases++; await schedule(g, 'unresolved');
         } else { out.waiting++; await schedule(g, 'waiting'); }
         continue;
