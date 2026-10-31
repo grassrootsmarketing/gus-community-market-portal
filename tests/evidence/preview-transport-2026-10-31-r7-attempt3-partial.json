@@ -1,0 +1,287 @@
+{
+  "run": "pt-mvw8wie8-kcj5s",
+  "started_at": "2026-10-31T10:15:33.920Z",
+  "project": "demohub-rebuild-check",
+  "stripe_mode": "test",
+  "host": "https://demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+  "endpoint": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+  "expect_commit": "a7e5261",
+  "phases": {
+    "version": {
+      "status": 200,
+      "commit": "a7e52616fd62acddf39683667f529f661c54dbac",
+      "branch": "feat/connected-checkout-rehearsal",
+      "env": "preview",
+      "binding": {
+        "target": "preview",
+        "project_ref_fingerprint": "tile…",
+        "db_environment_expected": "staging",
+        "stripe_mode": "test",
+        "email_mode": "sink",
+        "email_allowlist_count": 1,
+        "has_publishable_key": true,
+        "has_webhook_secret": true
+      },
+      "binding_error": null,
+      "has_cron_secret": true,
+      "flags": {
+        "provisionalHolds": true,
+        "publicRetailerSignup": false,
+        "coiAiVerification": false,
+        "checkoutEnabled": true,
+        "coiUploadEnabled": true,
+        "brandInviteEnabled": true,
+        "slotEditing": false,
+        "signinMaintenance": false,
+        "retailerMoves": true,
+        "coiExpiryPings": false,
+        "notificationWorker": true,
+        "coiAutoEnforcementFlag": false,
+        "coiEnforcementModeRaw": "live",
+        "coiEnforcementEffective": "off",
+        "connectedCheckout": false,
+        "max_cart": 10
+      },
+      "now": "2026-10-31T10:15:34.225Z",
+      "vercel_id": "sfo1::iad1::5tkkb-1793441734018-6a5ce34896d6"
+    },
+    "consumers": {
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "enabled",
+          "host": "demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.amount_capturable_updated",
+            "payment_intent.canceled",
+            "payment_intent.payment_failed",
+            "payment_intent.succeeded",
+            "charge.refunded",
+            "refund.created",
+            "refund.failed",
+            "refund.updated"
+          ],
+          "description": "Demohub_preview_connected_checkout_round7_2026-10-31"
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "host": "demohub-booker-preview.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.amount_capturable_updated",
+            "payment_intent.canceled",
+            "payment_intent.payment_failed",
+            "payment_intent.succeeded",
+            "charge.refunded",
+            "refund.created",
+            "refund.failed",
+            "refund.updated"
+          ],
+          "description": "Demohub_preview_release_b_2026-09-18"
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "host": "gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": "2026-06-24.dahlia",
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.payment_failed",
+            "charge.refunded",
+            "refund.updated",
+            "refund.failed"
+          ],
+          "description": null
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "host": "demohubhq.com",
+          "path": "/api/stripe-webhook",
+          "api_version": "2026-06-24.dahlia",
+          "events": [
+            "account.updated",
+            "checkout.session.completed",
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+            "invoice.paid",
+            "invoice.payment_succeeded",
+            "invoice.payment_failed",
+            "payment_intent.succeeded",
+            "payment_intent.payment_failed",
+            "charge.refunded"
+          ],
+          "description": "Demohub"
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "host": "demohubhq.com",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+            "invoice.payment_failed",
+            "invoice.paid",
+            "invoice.payment_succeeded",
+            "account.updated"
+          ],
+          "description": "Demohub subscriptions "
+        }
+      ],
+      "enabled_ids": [
+        "we_1UWZDNA6b3orPg0ToTQaJm2v"
+      ]
+    },
+    "keeps_all": {
+      "booking": "28074289-7835-4e79-adbc-0ab5da2963ab",
+      "group": "09d0f57e-07d2-4177-b1d8-3bbb9e125268",
+      "session": "cs_test_a1KHeKwdP3Y9L4ncO76fMbLYGkSUcQw0OVpemjpKZmbwXeIVVOaMBTcQ3D",
+      "pi": "pi_3UWZKGA6b3orPg0T1vbydbxY",
+      "event": "evt_1UWZKHA6b3orPg0TppCdYERm",
+      "ledger_after": {
+        "group": {
+          "id": "09d0f57e-07d2-4177-b1d8-3bbb9e125268",
+          "status": "paid",
+          "total_customer_amount": 15000,
+          "platform_keeps_all": true,
+          "connect_account_id": null,
+          "stripe_checkout_session_id": "cs_test_a1KHeKwdP3Y9L4ncO76fMbLYGkSUcQw0OVpemjpKZmbwXeIVVOaMBTcQ3D",
+          "stripe_payment_intent_id": "pi_3UWZKGA6b3orPg0T1vbydbxY",
+          "stripe_charge_id": "ch_3UWZKGA6b3orPg0T1GcHt1cU",
+          "stripe_transfer_id": null,
+          "stripe_application_fee_id": null
+        },
+        "allocations": [
+          {
+            "id": "2750ff7b-a0ad-4cd4-bfb5-c0a592deb8f8",
+            "booking_id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "customer_amount": 15000,
+            "venue_amount": 15000,
+            "platform_fee_amount": 0,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "bookings": [
+          {
+            "id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "payment_intent_id": "pi_3UWZKGA6b3orPg0T1vbydbxY"
+          }
+        ],
+        "refund_requests": [],
+        "attempts": [
+          {
+            "stripe_checkout_session_id": "cs_test_a1KHeKwdP3Y9L4ncO76fMbLYGkSUcQw0OVpemjpKZmbwXeIVVOaMBTcQ3D",
+            "status": "paid",
+            "generation": 1
+          }
+        ],
+        "fulfillments": [
+          {
+            "booking_id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "status": "done",
+            "generation": 1
+          }
+        ],
+        "cases": []
+      }
+    }
+  },
+  "notes": [
+    "mutating calls to the deployed routes carry Origin = the Preview scope SITE_ORIGIN (https://demohub-booker-preview.vercel.app), which api/_csrf.js compares against; the request itself goes to PREVIEW_HOST",
+    "released the test account from the earlier fixture rehearsal-connect-mvw8iezi-ok930",
+    "aborted: page.goto: url: expected string, got undefined"
+  ],
+  "deliveries": [
+    {
+      "label": "keeps-all checkout.session.completed",
+      "event_id": "evt_1UWZKHA6b3orPg0TppCdYERm",
+      "type": "checkout.session.completed",
+      "created": "2026-10-31T10:15:53.000Z",
+      "pending_webhooks_after": 0,
+      "inbox": {
+        "code": "42703",
+        "details": null,
+        "hint": null,
+        "message": "column processed_stripe_events.created_at does not exist"
+      },
+      "ledger": {
+        "group": {
+          "id": "09d0f57e-07d2-4177-b1d8-3bbb9e125268",
+          "status": "paid",
+          "total_customer_amount": 15000,
+          "platform_keeps_all": true,
+          "connect_account_id": null,
+          "stripe_checkout_session_id": "cs_test_a1KHeKwdP3Y9L4ncO76fMbLYGkSUcQw0OVpemjpKZmbwXeIVVOaMBTcQ3D",
+          "stripe_payment_intent_id": "pi_3UWZKGA6b3orPg0T1vbydbxY",
+          "stripe_charge_id": "ch_3UWZKGA6b3orPg0T1GcHt1cU",
+          "stripe_transfer_id": null,
+          "stripe_application_fee_id": null
+        },
+        "allocations": [
+          {
+            "id": "2750ff7b-a0ad-4cd4-bfb5-c0a592deb8f8",
+            "booking_id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "customer_amount": 15000,
+            "venue_amount": 15000,
+            "platform_fee_amount": 0,
+            "refunded_amount": 0,
+            "reserved_refund_amount": 0
+          }
+        ],
+        "bookings": [
+          {
+            "id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "status": "confirmed",
+            "payment_status": "paid",
+            "payment_intent_id": "pi_3UWZKGA6b3orPg0T1vbydbxY"
+          }
+        ],
+        "refund_requests": [],
+        "attempts": [
+          {
+            "stripe_checkout_session_id": "cs_test_a1KHeKwdP3Y9L4ncO76fMbLYGkSUcQw0OVpemjpKZmbwXeIVVOaMBTcQ3D",
+            "status": "paid",
+            "generation": 1
+          }
+        ],
+        "fulfillments": [
+          {
+            "booking_id": "28074289-7835-4e79-adbc-0ab5da2963ab",
+            "status": "done",
+            "generation": 1
+          }
+        ],
+        "cases": []
+      },
+      "dashboard_delivery_status": "to be read from the Stripe dashboard (endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, event evt_1UWZKHA6b3orPg0TppCdYERm) by the main session; the API does not expose per-endpoint attempts"
+    }
+  ],
+  "fixtures": {
+    "connected_retailer_id": "ebefaae8-0629-46b0-936d-1db69f1577c0",
+    "connected_slug": "transport-connect-mvw8wj58-qxbjs",
+    "venue_id": "dbf0fe5b-8823-4f92-bf90-b87586379882",
+    "keeps_all_retailer_id": "c70e9d21-8035-4281-b4fa-70baeb760fe3",
+    "keeps_all_slug": "transport-keepsall-mvw8wjhs-yeowe",
+    "keeps_all_venue_id": "125994dc-2c07-4414-8c95-656668ff0ab0",
+    "brand_id": "0553b9a5-3a24-4c37-ac1c-fef01850be93",
+    "account": "acct_1Tt2kgAuAgpJei71"
+  }
+}

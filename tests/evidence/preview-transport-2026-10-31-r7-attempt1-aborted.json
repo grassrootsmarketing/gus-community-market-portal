@@ -1,0 +1,155 @@
+{
+  "run": "pt-mvw8so9x-xrzad",
+  "started_at": "2026-10-31T10:12:34.917Z",
+  "project": "demohub-rebuild-check",
+  "stripe_mode": "test",
+  "host": "https://demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+  "endpoint": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+  "expect_commit": "a7e5261",
+  "phases": {
+    "version": {
+      "status": 200,
+      "commit": "a7e52616fd62acddf39683667f529f661c54dbac",
+      "branch": "feat/connected-checkout-rehearsal",
+      "env": "preview",
+      "binding": {
+        "target": "preview",
+        "project_ref_fingerprint": "tile…",
+        "db_environment_expected": "staging",
+        "stripe_mode": "test",
+        "email_mode": "sink",
+        "email_allowlist_count": 1,
+        "has_publishable_key": true,
+        "has_webhook_secret": true
+      },
+      "binding_error": null,
+      "has_cron_secret": true,
+      "flags": {
+        "provisionalHolds": true,
+        "publicRetailerSignup": false,
+        "coiAiVerification": false,
+        "checkoutEnabled": true,
+        "coiUploadEnabled": true,
+        "brandInviteEnabled": true,
+        "slotEditing": false,
+        "signinMaintenance": false,
+        "retailerMoves": true,
+        "coiExpiryPings": false,
+        "notificationWorker": true,
+        "coiAutoEnforcementFlag": false,
+        "coiEnforcementModeRaw": "live",
+        "coiEnforcementEffective": "off",
+        "connectedCheckout": false,
+        "max_cart": 10
+      },
+      "now": "2026-10-31T10:12:35.438Z",
+      "vercel_id": "sfo1::iad1::4bfzs-1793441555016-8ce8deb52795"
+    },
+    "consumers": {
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "enabled",
+          "host": "demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.amount_capturable_updated",
+            "payment_intent.canceled",
+            "payment_intent.payment_failed",
+            "payment_intent.succeeded",
+            "charge.refunded",
+            "refund.created",
+            "refund.failed",
+            "refund.updated"
+          ],
+          "description": "Demohub_preview_connected_checkout_round7_2026-10-31"
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "host": "demohub-booker-preview.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.amount_capturable_updated",
+            "payment_intent.canceled",
+            "payment_intent.payment_failed",
+            "payment_intent.succeeded",
+            "charge.refunded",
+            "refund.created",
+            "refund.failed",
+            "refund.updated"
+          ],
+          "description": "Demohub_preview_release_b_2026-09-18"
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "host": "gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app",
+          "path": "/api/stripe-webhook",
+          "api_version": "2026-06-24.dahlia",
+          "events": [
+            "checkout.session.completed",
+            "checkout.session.expired",
+            "payment_intent.payment_failed",
+            "charge.refunded",
+            "refund.updated",
+            "refund.failed"
+          ],
+          "description": null
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "host": "demohubhq.com",
+          "path": "/api/stripe-webhook",
+          "api_version": "2026-06-24.dahlia",
+          "events": [
+            "account.updated",
+            "checkout.session.completed",
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+            "invoice.paid",
+            "invoice.payment_succeeded",
+            "invoice.payment_failed",
+            "payment_intent.succeeded",
+            "payment_intent.payment_failed",
+            "charge.refunded"
+          ],
+          "description": "Demohub"
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "host": "demohubhq.com",
+          "path": "/api/stripe-webhook",
+          "api_version": null,
+          "events": [
+            "checkout.session.completed",
+            "customer.subscription.created",
+            "customer.subscription.updated",
+            "customer.subscription.deleted",
+            "invoice.payment_failed",
+            "invoice.paid",
+            "invoice.payment_succeeded",
+            "account.updated"
+          ],
+          "description": "Demohub subscriptions "
+        }
+      ],
+      "enabled_ids": [
+        "we_1UWZDNA6b3orPg0ToTQaJm2v"
+      ]
+    }
+  },
+  "notes": [
+    "aborted: deployed agreement-sign 403 {\"error\":\"cross_origin_denied\"}"
+  ],
+  "deliveries": []
+}

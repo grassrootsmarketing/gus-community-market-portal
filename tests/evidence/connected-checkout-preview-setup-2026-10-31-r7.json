@@ -1,0 +1,60 @@
+{
+  "purpose": "Codex round 6 Next action 1: isolated Preview deployment for deployed test-mode webhook and worker evidence",
+  "authorized_by": "David, in chat, 2026-10-31: \"yes, set up the preview\" (Preview deployment of feat/connected-checkout-rehearsal only, new Stripe TEST endpoint, its secret in Vercel Preview scope only, one Preview redeploy, then the tests; no Production config, no live key, no CONNECTED_CHECKOUT_ENABLED)",
+  "executed_by": "main session (not the rehearsal session), from a fresh git worktree C:/Users/David/demohub-preview at a7e5261",
+  "vercel_project": "grms-projects-0d18c653/demohub",
+  "deployments": [
+    {
+      "host": "demohub-fz22tjbkg-grms-projects-0d18c653.vercel.app",
+      "note": "first Preview deploy (vercel deploy, never --prod); used only as the endpoint placeholder host; no git metadata"
+    },
+    {
+      "host": "demohub-mf6c2hntx-grms-projects-0d18c653.vercel.app",
+      "note": "redeploy after the new secret was stored; /api/version commit null (CLI deploy carries no git metadata)"
+    },
+    {
+      "host": "demohub-50lacpoz2-grms-projects-0d18c653.vercel.app",
+      "note": "attempt with VERCEL_GIT_* shell variables; commit still null"
+    },
+    {
+      "host": "demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+      "note": "FINAL: VERCEL_GIT_COMMIT_SHA and VERCEL_GIT_COMMIT_REF passed as deployment env (-e); /api/version reports commit a7e52616fd62acddf39683667f529f661c54dbac, branch feat/connected-checkout-rehearsal, env preview, binding tile… (demohub-rebuild-check), stripe test, has_webhook_secret true, has_cron_secret true"
+    }
+  ],
+  "branch_alias": "none assigned to the CLI deployments; the endpoint is bound to the exact final deployment host",
+  "vercel_env": {
+    "STRIPE_WEBHOOK_SECRET": "Preview scope only, replaced (old preview value removed, new endpoint secret added as sensitive, value never printed); Production untouched",
+    "CRON_SECRET": "Preview scope, unchanged",
+    "CONNECTED_CHECKOUT_ENABLED": "absent in Preview and Production, unchanged"
+  },
+  "branch_scoping": "not applied: a CLI deployment carries no git branch for Vercel branch-scoped variables, so the Preview-scope value was replaced instead (the only other consumer of it was the disabled old preview endpoint)",
+  "stripe_endpoint_new": {
+    "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+    "status": "enabled",
+    "url": "https://demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+    "events": [
+      "checkout.session.completed",
+      "checkout.session.expired",
+      "payment_intent.amount_capturable_updated",
+      "payment_intent.canceled",
+      "payment_intent.payment_failed",
+      "payment_intent.succeeded",
+      "charge.refunded",
+      "refund.created",
+      "refund.failed",
+      "refund.updated"
+    ],
+    "description": "Demohub_preview_connected_checkout_round7_2026-10-31",
+    "created_disabled_then_bound_and_enabled_at": "2026-10-31T10:11:56.702Z"
+  },
+  "stripe_endpoint_old": {
+    "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+    "status": "disabled"
+  },
+  "enabled_test_endpoints_after": [
+    {
+      "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+      "url": "https://demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]"
+    }
+  ]
+}

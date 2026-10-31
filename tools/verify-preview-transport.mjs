@@ -37,11 +37,23 @@ if (!/^we_/.test(PREVIEW_ENDPOINT_ID || '')) refuse('PREVIEW_ENDPOINT_ID must be
 if (!BYPASS || !CRON) refuse('VERCEL_BYPASS and PREVIEW_CRON_SECRET must be set (names only; values never printed)');
 if (!EXPECT_COMMIT) refuse('EXPECT_COMMIT must name the deployed commit');
 const AFTER_RESEND = process.argv.includes('--after-resend');
+// The deployed routes accept a mutation only from the origin named by the Preview scope's SITE_ORIGIN (api/_csrf.js), which
+// is the Preview alias the scope was configured with, not the deployment host; the Origin header carries it and the
+// success_url the deployed checkout builds points at it, so Playwright intercepts both hosts.
+const SITE_ORIGIN = String(process.env.PREVIEW_SITE_ORIGIN || 'https://demohub-booker-preview.vercel.app').replace(/[/]+$/, '');
 // the local route harness (for the connected session only; it points Stripe at the real test API and the mail at the sink)
 process.env.STRIPE_SECRET_KEY = STRIPE_TEST_SECRET_KEY; process.env.STRIPE_WEBHOOK_SECRET = 'whsec_harness_unused_here';
 const H = await import('../tests/_route.mjs');
 const { callRoute, req, ok, summary, uniq, state } = H;
+H.ENV.STRIPE_SECRET_KEY = STRIPE_TEST_SECRET_KEY; H.ENV.STRIPE_WEBHOOK_SECRET = 'whsec_harness_unused_here'; H.ENV.CONNECTED_CHECKOUT_ENABLED = 'true'; delete H.ENV.PROVISIONAL_HOLDS_ENABLED;
 const realFetch = globalThis.fetch;
+// the local harness route (the connected session only) talks to real Stripe test mode; its mail goes to a sink, never out
+const mailSink = [];
+globalThis.fetch = async (url, opts = {}) => {
+  const u = String(url);
+  if (u.includes('api.resend.com')) { let parsed = null; try { parsed = JSON.parse(opts.body); } catch (_) {} mailSink.push({ to: parsed && parsed.to, subject: parsed && parsed.subject }); return { ok: true, status: 200, json: async () => ({ id: 'email_sink' }), text: async () => '{"id":"email_sink"}' }; }
+  return realFetch(url, opts);
+};
 const redact = (s) => String(s).replace(/x-vercel-protection-bypass=[^&"'\s]+/g, 'x-vercel-protection-bypass=<redacted>');
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function until(label, fn, { timeoutMs = 90000, everyMs = 3000 } = {}) { const t0 = Date.now(); let last; while (Date.now() - t0 < timeoutMs) { last = await fn(); if (last) return last; await sleep(everyMs); } console.warn(`  (timeout waiting for ${label})`); return null; }
@@ -53,7 +65,7 @@ const stripe = async (path, { method = 'GET', form = null } = {}) => { const r =
 const stripeIdOf = (v) => (v == null ? null : (typeof v === 'string' ? v : (typeof v === 'object' && v.id) || null));
 // the deployed routes, reached with the bypass credential as a HEADER (never in a URL the evidence keeps)
 const deployed = async (path, { method = 'POST', body = null, cookie = null, headers = {} } = {}) => {
-  const r = await realFetch(PREVIEW_HOST + path, { method, headers: { 'x-vercel-protection-bypass': BYPASS, Origin: PREVIEW_HOST, ...(body && typeof body === 'object' ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: body == null ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)) });
+  const r = await realFetch(PREVIEW_HOST + path, { method, headers: { 'x-vercel-protection-bypass': BYPASS, Origin: SITE_ORIGIN, ...(body && typeof body === 'object' ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}), ...headers }, body: body == null ? undefined : (typeof body === 'string' ? body : JSON.stringify(body)) });
   const t = await r.text(); let j = null; try { j = t ? JSON.parse(t) : null; } catch (_) { j = { raw: t.slice(0, 300) }; }
   return { status: r.status, body: j, headers: Object.fromEntries([...r.headers.entries()].filter(([k]) => /^(x-vercel-id|x-vercel-cache|content-type)$/i.test(k))) };
 };
@@ -62,9 +74,9 @@ function dayP(n) { const d = new Date(Date.now() + n * 864e5); const p = {}; for
 const EVID_DIR = resolve('tests', 'evidence'); mkdirSync(EVID_DIR, { recursive: true });
 const DATE = new Date().toISOString().slice(0, 10);
 const EVID_JSON = resolve(EVID_DIR, process.env.EVIDENCE_FILE || `preview-transport-${DATE}.json`);
-let evidence = AFTER_RESEND && existsSync(EVID_JSON) ? JSON.parse(readFileSync(EVID_JSON, 'utf8')) : { run: uniq('pt'), started_at: new Date().toISOString(), project: 'demohub-rebuild-check', stripe_mode: 'test', host: PREVIEW_HOST, endpoint: PREVIEW_ENDPOINT_ID, expect_commit: EXPECT_COMMIT, phases: {}, notes: [], deliveries: [] };
+let evidence = AFTER_RESEND && existsSync(EVID_JSON) ? JSON.parse(readFileSync(EVID_JSON, 'utf8')) : { run: uniq('pt'), started_at: new Date().toISOString(), project: 'demohub-rebuild-check', stripe_mode: 'test', host: PREVIEW_HOST, endpoint: PREVIEW_ENDPOINT_ID, expect_commit: EXPECT_COMMIT, phases: {}, notes: ['mutating calls to the deployed routes carry Origin = the Preview scope SITE_ORIGIN (' + SITE_ORIGIN + '), which api/_csrf.js compares against; the request itself goes to PREVIEW_HOST'], deliveries: [] };
 const save = () => writeFileSync(EVID_JSON, redact(JSON.stringify(evidence, null, 2)));
-const inboxRow = async (eventId) => one(await db(`processed_stripe_events?event_id=eq.${encodeURIComponent(eventId)}&select=event_id,event_type,status,lease_owner,created_at,updated_at,last_error`));
+const inboxRow = async (eventId) => one(await db(`processed_stripe_events?event_id=eq.${encodeURIComponent(eventId)}&select=event_id,event_type,status,lease_owner,processed_at,last_error`));
 const RUN_START_TS = Math.floor(Date.now() / 1000) - 60;
 async function stripeEvents(type, predicate, { timeoutMs = 60000 } = {}) { return until(`stripe event ${type}`, async () => { const r = await stripe(`/v1/events?type=${encodeURIComponent(type)}&limit=100&created[gte]=${RUN_START_TS}`); const hit = ((r.body && r.body.data) || []).filter(predicate); return hit.length ? hit : null; }, { timeoutMs, everyMs: 3000 }); }
 // a delivery record: the event, pending_webhooks reaching 0, the inbox row the deployment wrote, the ledger effect
@@ -83,8 +95,8 @@ async function payHostedCheckout(url, sessionId, label, email) {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 1500 } });
-  const host = new URL(PREVIEW_HOST).hostname;
-  await page.route(u => u.hostname === host, route => route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>success_url reached (runner)</body></html>' }));
+  const hosts = [new URL(PREVIEW_HOST).hostname, new URL(SITE_ORIGIN).hostname];
+  await page.route(u => hosts.includes(u.hostname), route => route.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>success_url reached (runner)</body></html>' }));
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
     if (!(await page.locator('#cardNumber').first().isVisible().catch(() => false))) { await page.waitForTimeout(3000); for (const sel of ['[data-testid="card-accordion-item"]', 'button:has-text("Card")', '#card-tab']) { const l = page.locator(sel).first(); if (await l.count()) { await l.click().catch(() => {}); break; } } await page.waitForSelector('#cardNumber', { timeout: 30000 }); }
@@ -103,8 +115,16 @@ async function payHostedCheckout(url, sessionId, label, email) {
 // ---------------------------------------------------------------------------------------------------
 const F = {};
 async function setup() {
+  // retailers.stripe_account_id is unique: an earlier rehearsal's or run's fixture must let go of the test account first
+  for (const held of ((await db(`retailers?stripe_account_id=eq.${encodeURIComponent(REHEARSAL_ACCOUNT)}&select=id,slug`)).body || [])) {
+    if (!/^(rehearsal-connect-|transport-connect-)/.test(String(held.slug))) refuse('account ' + REHEARSAL_ACCOUNT + ' is held by a non-fixture retailer ' + held.slug);
+    await db(`retailers?id=eq.${held.id}`, { method: 'PATCH', body: JSON.stringify({ stripe_account_id: null, stripe_account_status: 'detached_after_rehearsal' }) });
+    evidence.notes.push('released the test account from the earlier fixture ' + held.slug);
+  }
   const slug = uniq('transport-connect');
-  F.retailerId = one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug, name: 'Transport Market (connected)', verification_status: 'approved', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: false, stripe_account_id: REHEARSAL_ACCOUNT, stripe_charges_enabled: true, stripe_payouts_enabled: true, stripe_account_status: 'active', timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable' }) })).id; F.slug = slug;
+  const ins = await db('retailers', { method: 'POST', body: JSON.stringify({ slug, name: 'Transport Market (connected)', verification_status: 'approved', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active', platform_keeps_all: false, stripe_account_id: REHEARSAL_ACCOUNT, stripe_charges_enabled: true, stripe_payouts_enabled: true, stripe_account_status: 'active', timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable' }) });
+  if (!ins.ok || !one(ins) || !one(ins).id) throw new Error('connected retailer fixture failed: ' + ins.status + ' ' + ins.text.slice(0, 200));
+  F.retailerId = one(ins).id; F.slug = slug;
   await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: F.retailerId, demo_fee: 150, advance_booking_days: 0 }) });
   F.venueId = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: F.retailerId, name: 'Transport Main ($150)', address: '150 Transport St', demo_fee: 150, availability: HOURLY }) })).id;
   const kslug = uniq('transport-keepsall');
@@ -124,6 +144,7 @@ async function setup() {
   F.brandCookie = tok;
   for (const s of [slug, kslug]) {
     const chk = await deployed('/api/booking', { body: { action: 'agreement-check', retailer_slug: s }, cookie: 'dh_brand_session=' + tok });
+    if (chk.status !== 200) throw new Error('deployed agreement-check ' + chk.status + ' ' + JSON.stringify(chk.body).slice(0, 160));
     const hash = chk.body && chk.body.policies && chk.body.policies.policy_hash;
     const sg = await deployed('/api/booking', { body: { action: 'agreement-sign', retailer_slug: s, signed_name: 'Transport Owner', policy_hash: hash }, cookie: 'dh_brand_session=' + tok });
     if (sg.status !== 200) throw new Error('deployed agreement-sign ' + sg.status + ' ' + JSON.stringify(sg.body).slice(0, 160));
