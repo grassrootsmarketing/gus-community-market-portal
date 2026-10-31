@@ -350,6 +350,11 @@ async function run() {
   await setup(account);
   if (ONLY_CASES.length) {
     console.log('REHEARSAL_CASES set: running only', ONLY_CASES.join(', '));
+    // the fixture store starts with charges disabled and is activated by case W's real account.updated event; a partial run
+    // takes the same path first (recorded as setup), otherwise every connected checkout is refused store_not_payout_ready
+    const act = await activateStore(account);
+    ok('setup: account.updated (real account object, signed) through the webhook route activated the fixture store', act.w.statusCode === 200 && act.after.stripe_charges_enabled === true && act.after.stripe_payouts_enabled === true, JSON.stringify({ w: act.w.statusCode, after: act.after }));
+    evidence.setup_activation = { webhook_status: act.w.statusCode, before: act.before, after: act.after };
     for (const c of ONLY_CASES) { if (c === 'RT') await runRT(account); else { console.log('  FAIL unknown or not individually runnable case: ' + c); state.fail++; state.fails.push('unknown case ' + c); } }
     await finish();
     return;
@@ -358,10 +363,7 @@ async function run() {
   // ---- W: account.updated through the webhook route ----------------------------------------
   console.log('\n- W: account.updated (real account object, signed) flips the retailer to charges-enabled -');
   {
-    const before = one(await db(`retailers?id=eq.${F.retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
-    const evt = { id: 'evt_rehearsal_acct_' + RUN, object: 'event', type: 'account.updated', created: Math.floor(Date.now() / 1000), livemode: false, data: { object: account } };
-    const w = await postWebhook(evt);
-    const after = one(await db(`retailers?id=eq.${F.retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
+    const { before, w, after } = await activateStore(account);
     ok('account.updated accepted; retailer went from charges disabled to enabled, status active', w.statusCode === 200 && before.stripe_charges_enabled === false && after.stripe_charges_enabled === true && after.stripe_payouts_enabled === true && after.stripe_account_status === 'active', JSON.stringify({ w: w.statusCode, before, after }));
     evidence.cases.W = { webhook_status: w.statusCode, before, after };
   }
@@ -756,6 +758,14 @@ async function run() {
   await finish();
 }
 
+async function activateStore(account) {
+  const before = one(await db(`retailers?id=eq.${F.retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
+  const evt = { id: 'evt_rehearsal_acct_' + RUN, object: 'event', type: 'account.updated', created: Math.floor(Date.now() / 1000), livemode: false, data: { object: account } };
+  const w = await postWebhook(evt);
+  const after = one(await db(`retailers?id=eq.${F.retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
+  return { before, w, after };
+}
+
 async function finish() {
   const flags = (await import(pathToFileURL(resolve('api', '_flags.js')).href + '?t=' + Date.now())).flagSnapshot();
   evidence.flag_snapshot_in_harness = { connectedCheckout: flags.connectedCheckout, checkoutEnabled: flags.checkoutEnabled, provisionalHolds: flags.provisionalHolds };
@@ -800,21 +810,27 @@ async function runRT(account) {
     const gid = co1.res.body.payment_group_id, sid1 = co1.res.body.session_id;
     ok('RT1: the first checkout at the connected store: 200, a real cs_test_ session, one allocation, one open attempt', co1.res.statusCode === 200 && /^cs_test_/.test(String(sid1)) && (await attemptsOf(gid)).length === 1, `${co1.res.statusCode} ${JSON.stringify(co1.res.body).slice(0, 120)}`);
     const open = await checkoutWith([b], F.brandCookie);
-    const orphans = await tidyOrphans(gid, [sid1]);
-    evidence.cases.RT.observations.push({ case: 'RT1', note: 'a retry while the first session is open is refused attempt_in_progress by the ledger; the handler had already asked Stripe for a session under the next idempotency key, so one unregistered open session existed on Stripe and was expired by the rehearsal', session_posts_on_retry: open.sessionPosts, orphan_sessions_expired: orphans });
-    ok('RT1: a retry while the first session is open is 409 attempt_in_progress; still one allocation and one attempt (the unregistered Stripe session it created was expired by the rehearsal, recorded as an observation)', open.res.statusCode === 409 && open.res.body.error === 'attempt_in_progress' && (await attemptsOf(gid)).length === 1 && (await groupSnapshot(gid)).allocations.length === 1, JSON.stringify({ s: open.res.statusCode, e: open.res.body && open.res.body.error, posts: open.sessionPosts, orphans }));
+    const sessionsOf = async () => (((await stripe(`/v1/checkout/sessions?limit=20&created[gte]=${RUN_START_TS}`)).body || {}).data || []).filter(x => x.metadata && x.metadata.payment_group_id === gid).map(x => ({ id: x.id, status: x.status }));
+    const afterRefusal = await sessionsOf();
+    evidence.cases.RT.observations.push({ case: 'RT1', note: 'a retry while the first session is open is refused attempt_in_progress by the ledger AFTER the handler asked Stripe for a session under the next idempotency key (co-<group>-1); that session is unregistered and its URL was never returned to the brand (the brand saw the refusal). The rehearsal leaves it alone, as production would, and records what the next legitimate retry gets back.', session_posts_on_retry: open.sessionPosts, stripe_sessions_after_refusal: afterRefusal });
+    ok('RT1: a retry while the first session is open is 409 attempt_in_progress with no payment link returned; still one allocation and one attempt; Stripe now holds the first session plus one unregistered open session (observation, pre-existing)', open.res.statusCode === 409 && open.res.body.error === 'attempt_in_progress' && !open.res.body.url && (await attemptsOf(gid)).length === 1 && (await groupSnapshot(gid)).allocations.length === 1 && afterRefusal.length === 2 && afterRefusal.every(x => x.status === 'open'), JSON.stringify({ s: open.res.statusCode, e: open.res.body && open.res.body.error, posts: open.sessionPosts, sessions: afterRefusal }));
     const exp = await expireOnStripe(sid1);
     const reopened = await groupSnapshot(gid);
     ok('RT1: the first session expired on Stripe; the real checkout.session.expired through the webhook marked the attempt expired and reopened the group (pending), allocation kept', exp.stripe_status === 'expired' && exp.webhook === 200 && reopened.group.status === 'pending' && reopened.attempts.length === 1 && reopened.attempts[0].status === 'expired' && reopened.allocations.length === 1, JSON.stringify({ exp, g: reopened.group.status, att: reopened.attempts.map(a => a.status) }));
     const co2 = await checkoutWith([b], F.brandCookie);
     const sid2 = co2.res.body && co2.res.body.session_id;
     const atts2 = await attemptsOf(gid);
+    const afterRetry = await sessionsOf();
+    const orphanId = afterRefusal.map(x => x.id).find(id => id !== sid1);
+    evidence.cases.RT.observations.push({ case: 'RT1', note: sid2 === orphanId ? 'the retry after the expiry got back the very session the refused retry had created (the same idempotency key co-<group>-1, Stripe replayed it); it is now the registered open attempt, so no unregistered session remains. Edge to fix later: had that session expired on its own (Stripe keeps idempotent replies and sessions for 24 hours), the brand would have been handed a dead link; the key should include the attempt count the ledger accepted, not the count it saw.' : 'the retry after the expiry created a new session; the session of the refused retry stays unregistered on Stripe until it expires on its own', reused_session: sid2, orphan_session: orphanId, stripe_sessions_after_retry: afterRetry });
     ok('RT1: the retry REUSES the group (same payment_group_id, 200) with a fresh real session; one allocation, attempts expired + open; a destination charge with the $10 fee', co2.res.statusCode === 200 && co2.res.body.payment_group_id === gid && /^cs_test_/.test(String(sid2)) && sid2 !== sid1 && atts2.length === 2 && atts2.map(a => a.status).sort().join(',') === 'expired,open' && co2.request && co2.request['payment_intent_data[transfer_data][destination]'] === account.id && co2.request['payment_intent_data[application_fee_amount]'] === '1000', JSON.stringify({ s: co2.res.statusCode, same_group: co2.res.body && co2.res.body.payment_group_id === gid, atts: atts2.map(a => a.status) }));
     const r = await payAndApply('RT1', sid2, co2.res.body.url, gid);
     ok('RT1: paid once on the reused group: destination charge 16000 with application fee 1000 to the account; group paid, booking paid and confirmed, ids recorded', r.ch && r.ch.amount === 16000 && r.ch.application_fee_amount === 1000 && r.ch.destination === account.id && r.snap.group.status === 'paid' && r.snap.bookings[0].payment_status === 'paid' && r.snap.bookings[0].status === 'confirmed' && r.snap.group.stripe_transfer_id === r.ch.transfer, JSON.stringify({ g: r.snap.group.status, b: r.snap.bookings[0] && r.snap.bookings[0].payment_status }));
     const co3 = await checkoutWith([b], F.brandCookie);
     const post = await groupSnapshot(gid);
     const charges = await chargesOf(r.pi.id);
+    const leftovers = await tidyOrphans(gid, [sid1, sid2]);
+    evidence.cases.RT.observations.push({ case: 'RT1', note: 'unregistered open sessions left on Stripe for this group after the payment, expired by the rehearsal as housekeeping', expired: leftovers });
     ok('RT1: after the payment a further checkout is refused 409 not_payable_state with NO Stripe call; one allocation, two attempts (expired, paid); exactly one charge on Stripe for the PaymentIntent', co3.res.statusCode === 409 && co3.res.body.error === 'not_payable_state' && co3.stripeCalls === 0 && post.allocations.length === 1 && post.attempts.length === 2 && charges.length === 1 && charges[0].id === r.ch.id, JSON.stringify({ s: co3.res.statusCode, e: co3.res.body && co3.res.body.error, calls: co3.stripeCalls, atts: post.attempts.map(a => a.status), charges: charges.map(c => c.id) }));
     evidence.cases.RT.RT1 = { booking: b, group: gid, first_session: sid1, retry_while_open: { status: open.res.statusCode, body: open.res.body }, expiry: exp, reused_session: sid2, payment_intent: r.pi.id, charge: r.ch && r.ch.id, transfer: r.ch && r.ch.transfer, application_fee: r.ch && r.ch.application_fee, event_checkout_completed: r.csEvt.id, after_payment_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, charges_on_payment_intent: charges.map(c => c.id), ledger_after: post };
     saveEvidence();

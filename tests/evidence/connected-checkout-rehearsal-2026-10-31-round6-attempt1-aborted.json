@@ -1,0 +1,54 @@
+{
+  "run": "cc-mvw6lz1t-zw4tc",
+  "date": "2026-10-31T09:11:23.057Z",
+  "project": "demohub-rebuild-check",
+  "stripe_mode": "test",
+  "account": {
+    "id": "acct_1Tt2kgAuAgpJei71",
+    "type": "express",
+    "country": "US",
+    "charges_enabled": true,
+    "payouts_enabled": true,
+    "capabilities": {
+      "affirm_payments": "active",
+      "bancontact_payments": "active",
+      "blik_payments": "active",
+      "card_payments": "active",
+      "cashapp_payments": "active",
+      "eps_payments": "active",
+      "ideal_payments": "active",
+      "klarna_payments": "active",
+      "link_payments": "active",
+      "transfers": "active"
+    },
+    "created": "2026-07-14T09:35:47.000Z"
+  },
+  "fixtures": {
+    "connected_retailer_id": "0e9b5bc6-289d-4f2b-a96a-29dce2f1e33e",
+    "connected_retailer_slug": "rehearsal-connect-mvw6lzrq-wd90y",
+    "venue_id": "864062d0-7541-409f-9b8a-fdb17d8d9d62",
+    "venue_fee_cents": 15000,
+    "keeps_all_retailer_id": "1be7b228-631f-4016-a806-e5b459001e80",
+    "keeps_all_slug": "rehearsal-keepsall-mvw6m0yo-9w9lr",
+    "keeps_all_venue_id": "2a92976e-7509-451e-86df-27e2f77cfcc4",
+    "brand_id": "38abf643-7583-4c31-9b6d-a277b46ebe30"
+  },
+  "cases": {
+    "RT": {
+      "observations": [
+        {
+          "case": "RT1",
+          "note": "a retry while the first session is open is refused attempt_in_progress by the ledger; the handler had already asked Stripe for a session under the next idempotency key, so one unregistered open session existed on Stripe and was expired by the rehearsal",
+          "session_posts_on_retry": 0,
+          "orphan_sessions_expired": []
+        }
+      ]
+    }
+  },
+  "fee": {},
+  "stripe_requests": [],
+  "notes": [
+    "released the account from the earlier rehearsal fixture rehearsal-connect-mvvg10fa-we5uq",
+    "aborted: allocs.map is not a function"
+  ]
+}

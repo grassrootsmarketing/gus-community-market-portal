@@ -1,0 +1,72 @@
+{
+  "run": "cc-mvw6nsth-c6qiy",
+  "date": "2026-10-31T09:12:48.293Z",
+  "project": "demohub-rebuild-check",
+  "stripe_mode": "test",
+  "account": {
+    "id": "acct_1Tt2kgAuAgpJei71",
+    "type": "express",
+    "country": "US",
+    "charges_enabled": true,
+    "payouts_enabled": true,
+    "capabilities": {
+      "affirm_payments": "active",
+      "bancontact_payments": "active",
+      "blik_payments": "active",
+      "card_payments": "active",
+      "cashapp_payments": "active",
+      "eps_payments": "active",
+      "ideal_payments": "active",
+      "klarna_payments": "active",
+      "link_payments": "active",
+      "transfers": "active"
+    },
+    "created": "2026-07-14T09:35:47.000Z"
+  },
+  "fixtures": {
+    "connected_retailer_id": "4e65e58e-a086-4a1f-a7de-588dffce5f39",
+    "connected_retailer_slug": "rehearsal-connect-mvw6ntn2-ae2j9",
+    "venue_id": "dba17c08-d116-487e-9a22-0f563554d133",
+    "venue_fee_cents": 15000,
+    "keeps_all_retailer_id": "09614f06-de5d-4d03-8505-ed20bf08b6dc",
+    "keeps_all_slug": "rehearsal-keepsall-mvw6nuvz-aw3ya",
+    "keeps_all_venue_id": "4acf0fa0-f424-4621-8966-a3797ba5d237",
+    "brand_id": "6af38972-a947-42fc-a2ce-5c331b776d0f"
+  },
+  "cases": {
+    "RT": {
+      "observations": [
+        {
+          "case": "RT1",
+          "note": "a retry while the first session is open is refused attempt_in_progress by the ledger; the handler had already asked Stripe for a session under the next idempotency key, so one unregistered open session existed on Stripe and was expired by the rehearsal",
+          "session_posts_on_retry": 1,
+          "orphan_sessions_expired": [
+            {
+              "id": "cs_test_a1aDlxOJFKg8scbelZqIIItZ8vwleT5H0tkToTs5pmO9JZRE8jfbiRjFFa",
+              "status": "expired"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "fee": {},
+  "stripe_requests": [],
+  "notes": [
+    "released the account from the earlier rehearsal fixture rehearsal-connect-mvw6lzrq-wd90y",
+    "aborted: page.waitForSelector: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('#cardNumber') to be visible\u001b[22m\n"
+  ],
+  "setup_activation": {
+    "webhook_status": 200,
+    "before": {
+      "stripe_charges_enabled": false,
+      "stripe_payouts_enabled": false,
+      "stripe_account_status": "pending"
+    },
+    "after": {
+      "stripe_charges_enabled": true,
+      "stripe_payouts_enabled": true,
+      "stripe_account_status": "active"
+    }
+  }
+}
