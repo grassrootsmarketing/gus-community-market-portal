@@ -469,7 +469,7 @@
         ],
         "cases": []
       },
-      "dashboard_delivery_status": "to be read from the Stripe dashboard (endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, event evt_1UWZQ0A6b3orPg0TBMUuHfkW) by the main session; the API does not expose per-endpoint attempts"
+      "dashboard_delivery_status": "list status 200 OK (checkout.session.completed, 10:21:50 UTC, source Automatic)"
     },
     {
       "label": "connected checkout.session.completed",
@@ -534,7 +534,7 @@
         ],
         "cases": []
       },
-      "dashboard_delivery_status": "to be read from the Stripe dashboard (endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, event evt_1UWZQCA6b3orPg0Tkrb1HiQL) by the main session; the API does not expose per-endpoint attempts"
+      "dashboard_delivery_status": "list status 200 OK (checkout.session.completed, 10:22:05 UTC, source Automatic)"
     },
     {
       "label": "connected refund.created",
@@ -556,7 +556,7 @@
         "stripe_refund_id": "re_3UWZQBA6b3orPg0T1SBJWPHC",
         "settlement_status": "complete"
       },
-      "dashboard_delivery_status": "to be read from the Stripe dashboard (endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, event evt_3UWZQBA6b3orPg0T1Vt7hvya) by the main session; the API does not expose per-endpoint attempts"
+      "dashboard_delivery_status": "list status 200 OK (refund.created, 10:22:13 UTC, source Automatic)"
     },
     {
       "label": "zero-fee connected checkout.session.completed",
@@ -621,7 +621,7 @@
         ],
         "cases": []
       },
-      "dashboard_delivery_status": "to be read from the Stripe dashboard (endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, event evt_1UWZQbA6b3orPg0TEtlOBHX8) by the main session; the API does not expose per-endpoint attempts"
+      "dashboard_delivery_status": "Delivered, source Automatic, HTTP 200, response body {\"received\": true} (attempt panel; checkout.session.completed, 10:22:33 UTC)"
     }
   ],
   "fixtures": {
@@ -635,5 +635,10 @@
     "account": "acct_1Tt2kgAuAgpJei71"
   },
   "finished_at": "2026-10-31T10:22:39.291Z",
-  "resend_instructions": "In the Stripe test dashboard, open endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, find event evt_1UWZQ0A6b3orPg0TBMUuHfkW and click Resend; then run this script again with --after-resend."
+  "resend_instructions": "In the Stripe test dashboard, open endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, find event evt_1UWZQ0A6b3orPg0TBMUuHfkW and click Resend; then run this script again with --after-resend.",
+  "dashboard": {
+    "read_by": "the main session in David's signed-in Chrome, Stripe TEST dashboard, endpoint we_1UWZDNA6b3orPg0ToTQaJm2v, Event deliveries tab, 2026-10-31 about 10:24 UTC",
+    "endpoint_overview": "Active; event deliveries this week: total 18, failed 0; API version 2026-06-24.dahlia; 10 events listened; every listed delivery 200 OK, source Automatic (no resend yet)",
+    "also_seen_200": "the payment_intent.succeeded, refund.updated and charge.refunded events of the same runs, and the earlier 10:15 to 10:19 attempts, all 200 OK"
+  }
 }
