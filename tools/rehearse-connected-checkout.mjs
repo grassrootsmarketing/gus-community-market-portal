@@ -39,6 +39,12 @@
 //          through the webhook route) the retry REUSES the group with a fresh session (connected and keeps-all immediate
 //          charge; keeps-all manual-capture hold); exactly one charge or authorization follows; after the payment or the
 //          authorization a further checkout is refused before any Stripe call.
+//   RT4    (round 8, Codex R7-1) recovery on real Stripe after a FAILED BINDING: the session is created, the ledger write
+//          fails once (a test-only fault on this script's Supabase passthrough), the reservation stays with no session id;
+//          the session is then expired on Stripe explicitly (the ledger is never told); the retry replays the saved first
+//          response under the reservation key (Stripe answers open/unpaid, recorded here from the response body), reads
+//          the session's current state (expired), records the reservation failed with that session id and creates the
+//          next generation; the dead link is never returned; the new session is paid once.
 //
 // REHEARSAL_CASES=RT (a comma list) runs only the named case(s) after the account and fixture setup; unset runs everything.
 //
@@ -78,11 +84,29 @@ delete H.ENV.PROVISIONAL_HOLDS_ENABLED;
 // ---------------------------------------------------------------------------
 const realFetch = globalThis.fetch;
 const calls = { stripe: [], resend: [] };
+// RT4 (round 8): a one-shot fault on the ledger passthrough (url substring + method), the same shape tests/_route.mjs
+// uses; never touched outside the rehearsal process
+const faults = [];
 const jsonRes = (obj) => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
   if (u.includes('api.stripe.com')) {
-    calls.stripe.push({ url: u.replace(/\?.*$/, ''), method: String(opts.method || 'GET').toUpperCase(), body: typeof opts.body === 'string' ? opts.body : '' });
+    const rec = { url: u.replace(/\?.*$/, ''), method: String(opts.method || 'GET').toUpperCase(), body: typeof opts.body === 'string' ? opts.body : '' };
+    calls.stripe.push(rec);
+    const r = await realFetch(url, opts);
+    // the provider's answer to a Checkout Session create or replay, as the handler saw it (id and state only)
+    if (rec.method === 'POST' && rec.url.endsWith('/v1/checkout/sessions')) {
+      try { const j = await r.clone().json(); rec.response = { id: j.id, status: j.status, payment_status: j.payment_status, url_present: !!j.url, idempotency_key: (opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key'])) || null }; } catch (_) {}
+    }
+    return r;
+  }
+  if (u.includes(SB_REF)) {
+    const i = faults.findIndex(f => u.includes(f.url) && (!f.method || String(opts.method || 'GET').toUpperCase() === f.method));
+    if (i >= 0) {
+      const fault = faults[i]; if (fault.once) faults.splice(i, 1);
+      const body = { message: fault.message || 'injected_fault' };
+      return { ok: false, status: fault.status || 500, json: async () => body, text: async () => JSON.stringify(body) };
+    }
     return realFetch(url, opts);
   }
   if (u.includes('api.resend.com')) {
@@ -131,7 +155,32 @@ async function stripeEvents(type, predicate, { timeoutMs = 45000 } = {}) {
     return hit.length ? hit : null;
   }, { timeoutMs, everyMs: 3000 });
 }
-async function postWebhook(evt) { const raw = JSON.stringify(evt); return callRoute('stripe-webhook.js', rawReq(raw, { signature: sign(raw) })); }
+// Round 8 note: since round 7 the Stripe TEST account has an ENABLED consumer besides this rehearsal: the Preview
+// deployment's endpoint, bound to the same demohub-rebuild-check database. Stripe delivers every test-mode event there
+// too, so an event this rehearsal replays in-process may already be applied (or being applied) by that consumer when
+// the replay arrives: the inbox then answers 409 event_in_progress, or accepts the duplicate without a second
+// application. Each assertion reads the ledger effect, which is the same either way; who applied the event is recorded
+// (evidence.notes and evidence.other_consumers), never assumed.
+const inboxOf = async (id) => one(await db(`processed_stripe_events?event_id=eq.${encodeURIComponent(id)}&select=event_id,status,processed_at`));
+async function postWebhook(evt) {
+  const raw = JSON.stringify(evt);
+  const pre = await inboxOf(evt.id);
+  if (pre && pre.status === 'completed') {
+    evidence.notes.push(`${evt.type} ${evt.id}: already applied by the other enabled consumer of the test account before this replay (inbox completed at ${pre.processed_at}); the replay was not sent`);
+    return { statusCode: 200, body: { received: true, applied_by: 'other_consumer' }, applied_by: 'other_consumer' };
+  }
+  const w = await callRoute('stripe-webhook.js', rawReq(raw, { signature: sign(raw) }));
+  if (w.statusCode === 409 && w.body && w.body.error === 'event_in_progress') {
+    const done = await until(`inbox completed for ${evt.id}`, async () => { const r = await inboxOf(evt.id); return r && r.status === 'completed' ? r : null; }, { timeoutMs: 60000, everyMs: 2000 });
+    evidence.notes.push(`${evt.type} ${evt.id}: the replay was refused event_in_progress (the other enabled consumer held the lease); ${done ? 'that consumer completed it at ' + done.processed_at : 'the inbox did not reach completed within 60s'}`);
+    return { statusCode: done ? 200 : 409, body: { received: !!done, refused_as: 'event_in_progress', applied_by: done ? 'other_consumer' : null }, applied_by: done ? 'other_consumer' : null };
+  }
+  if (w.statusCode === 200 && w.body && w.body.duplicate === true) {
+    evidence.notes.push(`${evt.type} ${evt.id}: the replay was acknowledged as a duplicate (the other enabled consumer completed it between this rehearsal's inbox read and its replay); no second application`);
+    return Object.assign(w, { applied_by: 'other_consumer' });
+  }
+  return Object.assign(w, { applied_by: 'this_replay' });
+}
 const cents = (n) => `$${(Number(n) / 100).toFixed(2)}`;
 const LA = 'America/Los_Angeles';
 function dayP(n) {
@@ -247,6 +296,9 @@ async function ensureAccount() {
 // ---------------------------------------------------------------------------
 const F = {};
 async function setup(account) {
+  // round 8: which other consumers of the TEST account are enabled (read-only; the Preview endpoint since round 7)
+  const eps = (((await stripe('/v1/webhook_endpoints?limit=50')).body || {}).data || []).filter(e => e.status === 'enabled').map(e => ({ id: e.id, host: (() => { try { return new URL(e.url).host; } catch (_) { return null; } })() }));
+  evidence.other_consumers = { enabled_test_endpoints: eps, note: 'every test-mode event is delivered there as well; its database is demohub-rebuild-check, the same as this run' };
   // retailers.stripe_account_id is unique: a previous rehearsal's fixture must let go of the account first
   for (const held of ((await db(`retailers?stripe_account_id=eq.${encodeURIComponent(account.id)}&select=id,slug`)).body || [])) {
     if (!/^rehearsal-connect-/.test(String(held.slug))) refuse('account ' + account.id + ' is held by a non-rehearsal retailer ' + held.slug);
@@ -332,8 +384,8 @@ async function payAndApply(label, sessionId, url, groupId) {
   if (!csEvt) throw new Error('no checkout.session.completed event');
   const stripeBefore = calls.stripe.length;
   const w1 = await postWebhook(csEvt);
-  ok(`${label}: checkout.session.completed (signed) accepted by the webhook route`, w1.statusCode === 200 && w1.body && w1.body.received === true, `${w1.statusCode} ${JSON.stringify(w1.body)}`);
-  ok(`${label}: the webhook retrieved the PaymentIntent from real Stripe`, calls.stripe.slice(stripeBefore).some(c => c.method === 'GET' && c.url.endsWith(`/v1/payment_intents/${piId}`)));
+  ok(`${label}: checkout.session.completed (signed) applied exactly once through the webhook route (by this replay, or by the other enabled consumer of the test account first; see evidence.notes)`, w1.statusCode === 200 && w1.body && w1.body.received === true, `${w1.statusCode} ${JSON.stringify(w1.body)}`);
+  ok(`${label}: when this replay did the application, the webhook retrieved the PaymentIntent from real Stripe (applied by: ${w1.applied_by})`, w1.applied_by !== 'this_replay' || calls.stripe.slice(stripeBefore).some(c => c.method === 'GET' && c.url.endsWith(`/v1/payment_intents/${piId}`)));
   const w2 = piEvts && piEvts[0] ? await postWebhook(piEvts[0]) : { statusCode: 0 };
   const snap = await groupSnapshot(groupId);
   return { paid, pi, ch, csEvt, piEvt: piEvts && piEvts[0], w2, snap };
@@ -897,6 +949,50 @@ async function runRT(account) {
     ok('RT3: the store cancels the held booking through its route and the authorization is released on Stripe (PaymentIntent canceled); nothing was captured', rel.statusCode === 200 && piAfter && piAfter.status === 'canceled' && (piAfter.amount_received || 0) === 0 && released && released.status === 'cancelled', JSON.stringify({ rel: rel.statusCode, body: rel.body && { refund_status: rel.body.refund_status }, pi: piAfter && piAfter.status, released }));
     delete H.ENV.PROVISIONAL_HOLDS_ENABLED;
     evidence.cases.RT.RT3 = { held_brand_id: heldBrandId, booking: hid, group: gid, first_session: sid1, expiry: exp, reused_session: sid2, payment_intent: piId, pi_status_after_authorization: piBefore && piBefore.status, event_checkout_completed: csEvts && csEvts[0] && csEvts[0].id, after_authorization_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, release: { route_status: rel.statusCode, pi_status: piAfter && piAfter.status, booking: released }, ledger_after: await groupSnapshot(gid) };
+    saveEvidence();
+  }
+
+  // RT4 (round 8, Codex R7-1): recovery after a failed binding and an explicit expiry, on real Stripe
+  {
+    console.log('\n:: RT4: a failed binding, then the session expires on Stripe, then the retry (the replay says open; the current state decides)');
+    const b = await book(F.slug, F.venueId, dayN++);
+    const attemptsFull = async (gid) => (await db(`payment_attempts?payment_group_id=eq.${gid}&select=id,status,stripe_checkout_session_id,generation,last_error&order=created_at.asc`)).body || [];
+    const sessionsOf = async (gid) => (((await stripe(`/v1/checkout/sessions?limit=20&created[gte]=${RUN_START_TS}`)).body || {}).data || []).filter(x => x.metadata && x.metadata.payment_group_id === gid).map(x => ({ id: x.id, status: x.status, payment_status: x.payment_status }));
+    faults.push({ url: '/rest/v1/rpc/register_payment_attempt', method: 'POST', status: 500, message: 'rehearsal_db_write_outage', once: true });
+    const before = calls.stripe.length;
+    const co1 = await checkoutWith([b], F.brandCookie);
+    const made1 = calls.stripe.slice(before);
+    const gid = ((await db(`payment_allocations?booking_id=eq.${b}&select=payment_group_id`)).body || [])[0];
+    const gidV = gid && gid.payment_group_id;
+    const a1 = await attemptsFull(gidV);
+    const onStripe1 = gidV ? await sessionsOf(gidV) : [];
+    const dead = onStripe1[0] || null;
+    const firstCreate = made1.find(c => c.method === 'POST' && c.url.endsWith('/v1/checkout/sessions'));
+    ok('RT4: the first checkout created a real session and the ledger write failed once: 503 attempt_persist_failed, no link; the reservation stays reserved with NO session id; exactly one session for the group on Stripe, open', co1.res.statusCode === 503 && co1.res.body.error === 'attempt_persist_failed' && !co1.res.body.url && a1.length === 1 && a1[0].status === 'reserved' && a1[0].stripe_checkout_session_id === null && onStripe1.length === 1 && dead.status === 'open' && firstCreate && firstCreate.response && firstCreate.response.id === dead.id, JSON.stringify({ s: co1.res.statusCode, body: co1.res.body, a1, onStripe1 }));
+    // the session expires on Stripe; the ledger is NOT told (no webhook replay): the reservation still knows no session
+    const ex = await stripe(`/v1/checkout/sessions/${encodeURIComponent(dead.id)}/expire`, { method: 'POST', form: {} });
+    const deadNow = (await stripe(`/v1/checkout/sessions/${encodeURIComponent(dead.id)}`)).body;
+    ok('RT4: the session was expired on Stripe explicitly; the ledger was not told (reservation unchanged, no session id)', ex.ok && ex.body.status === 'expired' && deadNow.status === 'expired' && (await attemptsFull(gidV))[0].status === 'reserved' && (await attemptsFull(gidV))[0].stripe_checkout_session_id === null, JSON.stringify({ ex: ex.body && ex.body.status, now: deadNow.status }));
+    const before2 = calls.stripe.length;
+    const co2 = await checkoutWith([b], F.brandCookie);
+    const made2 = calls.stripe.slice(before2);
+    const posts2 = made2.filter(c => c.method === 'POST' && c.url.endsWith('/v1/checkout/sessions'));
+    const gets2 = made2.filter(c => c.method === 'GET' && /\/v1\/checkout\/sessions\/cs_/.test(c.url)).map(c => c.url.replace(/^.*\/v1\/checkout\/sessions\//, ''));
+    const replay = posts2[0] && posts2[0].response;
+    const a2 = await attemptsFull(gidV);
+    const sid2 = co2.res.body && co2.res.body.session_id;
+    const onStripe2 = await sessionsOf(gidV);
+    evidence.cases.RT.observations.push({ case: 'RT4', note: 'what Stripe answered to the retry\'s first POST under the reservation key (the replay of the saved first response) versus the session\'s current state the handler then read', replay_response: replay, current_state_read: gets2, dead_session_current_status: deadNow.status });
+    ok('RT4: the retry\'s first POST under the reservation key was REPLAYED by Stripe as the same session, still open and unpaid (the saved first response), although the session is expired', replay && replay.id === dead.id && replay.status === 'open' && replay.payment_status === 'unpaid' && replay.idempotency_key === `co-${gidV}-${a1[0].id}`, JSON.stringify({ replay, key_expected: `co-${gidV}-${a1[0].id}` }));
+    ok('RT4: the handler read the current state of the replayed session (GET, expired), recorded the reservation failed WITH that session id and the reason, reserved generation 2, created a fresh real session under the new key and read it back open: 200 with the new session, two POSTs and two GETs', co2.res.statusCode === 200 && sid2 && sid2 !== dead.id && co2.res.body.url && posts2.length === 2 && gets2[0] === dead.id && gets2[1] === sid2 && posts2[1].response && posts2[1].response.id === sid2 && posts2[1].response.idempotency_key === `co-${gidV}-${a2[1] && a2[1].id}` && a2.length === 2 && a2[0].id === a1[0].id && a2[0].status === 'failed' && a2[0].stripe_checkout_session_id === dead.id && /session_unusable:expired/.test(a2[0].last_error || '') && a2[1].status === 'open' && a2[1].generation === 2 && a2[1].stripe_checkout_session_id === sid2, JSON.stringify({ s: co2.res.statusCode, sid2, posts: posts2.map(p => p.response), gets: gets2, a2 }));
+    const newOnStripe = (await stripe(`/v1/checkout/sessions/${encodeURIComponent(sid2)}`)).body;
+    ok('RT4: the dead link was never returned (the returned url is the new session\'s current url); on Stripe the group has exactly the expired session and the new open one', co2.res.body.url === newOnStripe.url && newOnStripe.status === 'open' && newOnStripe.payment_status === 'unpaid' && onStripe2.length === 2 && onStripe2.find(x => x.id === dead.id).status === 'expired' && onStripe2.find(x => x.id === sid2).status === 'open', JSON.stringify({ url_is_new: co2.res.body.url === newOnStripe.url, onStripe2 }));
+    const r = await payAndApply('RT4', sid2, co2.res.body.url, gidV);
+    const co3 = await checkoutWith([b], F.brandCookie);
+    const post = await groupSnapshot(gidV);
+    const charges = await chargesOf(r.pi.id);
+    ok('RT4: the new session paid once (destination charge 16000, fee 1000); group paid, booking paid and confirmed; a further checkout refused not_payable_state with no Stripe call; attempts failed + paid; exactly one charge', r.ch && r.ch.amount === 16000 && r.ch.application_fee_amount === 1000 && r.snap.group.status === 'paid' && r.snap.bookings[0].payment_status === 'paid' && co3.res.statusCode === 409 && co3.res.body.error === 'not_payable_state' && co3.stripeCalls === 0 && post.attempts.map(a => a.status).sort().join(',') === 'failed,paid' && charges.length === 1, JSON.stringify({ g: r.snap.group.status, s: co3.res.statusCode, atts: post.attempts.map(a => a.status), charges: charges.length }));
+    evidence.cases.RT.RT4 = { booking: b, group: gidV, failed_bind: { status: co1.res.statusCode, body: co1.res.body, reservation: a1[0], first_create_response: firstCreate && firstCreate.response }, dead_session: dead.id, explicit_expiry: { stripe_status: ex.body && ex.body.status, current_status_after: deadNow.status, webhook_replayed: false }, retry: { status: co2.res.statusCode, replay_response: replay, current_state_reads: gets2, posts: posts2.map(p => p.response), attempts_after: a2, returned_session: sid2, dead_url_returned: co2.res.body.url === deadNow.url, stripe_sessions_after: onStripe2 }, payment_intent: r.pi.id, charge: r.ch && r.ch.id, transfer: r.ch && r.ch.transfer, application_fee: r.ch && r.ch.application_fee, event_checkout_completed: r.csEvt.id, after_payment_checkout: { status: co3.res.statusCode, body: co3.res.body, stripe_calls: co3.stripeCalls }, charges_on_payment_intent: charges.map(c => c.id), ledger_after: post };
     saveEvidence();
   }
 }

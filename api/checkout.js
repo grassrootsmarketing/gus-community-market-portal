@@ -256,11 +256,30 @@ export default async function handler(req, res) {
     // the payment is being confirmed; expired: recorded as expired through the same path the webhook uses, then a new
     // generation); a RESERVED attempt (simultaneous retries get the same reservation and therefore the same key); or a
     // new reservation with the next generation number. The Checkout Session is created under a key that names the
-    // reservation (stable across retries, never random, never derived from a count the handler read). A session that
-    // comes back unusable (an idempotent replay of one that expired or completed since) is recorded as the
-    // reservation's terminal outcome, with the session id, before the handler advances to a new generation. A failed
-    // ledger read fails the checkout closed; nothing falls back to a guessed sequence. The ledger's one-live-attempt
-    // index means a brand can never hold two payable links for one cart.
+    // reservation (stable across retries, never random, never derived from a count the handler read).
+    //
+    // Round 8 (Codex R7-1, the cached response): Stripe API v1 saves the FIRST response for an idempotency key and
+    // replays that saved body on every later request with the key. A replay is therefore never a read of the session's
+    // current state: a session that expired or completed after a failed bind still replays as open and unpaid. So the
+    // create / replay response supplies only the session id; the handler then GETs the session and decides from that
+    // CURRENT object, validated against this request (id, group binding, amount, currency, mode) and for its state:
+    //   open and unpaid  -> bound to the reservation and returned (its current url, never the replayed one);
+    //   complete or paid -> bound to the reservation and answered payment_pending; the verified payment path (the
+    //                       signed checkout.session.completed) applies it to this attempt; never marked failed, never
+    //                       another payable link;
+    //   expired          -> the one verified non-payable terminal outcome: recorded as the reservation's terminal
+    //                       outcome with the session id (fail_payment_attempt), and ONLY then the next generation;
+    //   unreadable       -> the reservation is kept untouched and the caller gets a retryable refusal; nothing is
+    //                       guessed from the replay and no generation advances;
+    //   contradiction    -> (amount, currency, group, mode) the reservation is kept and the contradiction surfaced; the
+    //                       reservation is not released while that session could still be paid (the verified payment
+    //                       path quarantines a paid contradiction); it is terminalized only once the session has expired.
+    // Every ledger answer is checked by its JSON outcome, not only HTTP success: fail_payment_attempt may answer
+    // not_reserved or no_attempt when another recovery moved the attempt first, and the handler then re-reads the ledger
+    // instead of assuming its transition happened. A failed ledger read fails the checkout closed; nothing falls back to
+    // a guessed sequence. The ledger's one-live-attempt index means a brand can never hold two payable links for one cart.
+    // A successful GET is not a lock on Stripe: a payment can complete right after it; the ledger and the webhook handle
+    // that race as before without inventing another charge.
     const readSession = async (sid) => {
       try {
         const r = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sid)}`, { headers: { Authorization: `Bearer ${STRIPE}` } });
@@ -268,6 +287,22 @@ export default async function handler(req, res) {
         return r.ok && j && j.id ? { ok: true, session: j } : { ok: false, status: r.status, error: j && j.error && j.error.message };
       } catch (e) { return { ok: false, status: 0, error: String((e && e.message) || e) }; }
     };
+    // the CURRENT session object judged against this request: payable | pending | expired | contradiction
+    const judgeSession = (cur, expectId) => {
+      if (String(cur.id || '') !== String(expectId)) return { kind: 'contradiction', reason: 'id_mismatch' };
+      if (cur.mode != null && String(cur.mode) !== 'payment') return { kind: 'contradiction', reason: 'mode:' + cur.mode };
+      if (!cur.metadata || String(cur.metadata.payment_group_id || '') !== String(gid)) return { kind: 'contradiction', reason: 'group_binding' };
+      const st = String(cur.status || ''), ps = String(cur.payment_status || '');
+      // expired first: an expired session can no longer be paid, so it is the verified terminal outcome even when its
+      // amount contradicted the ledger (the contradiction is kept in the recorded reason)
+      if (st === 'expired') return { kind: 'expired', state: `${st}/${ps}` };
+      if (cur.amount_total != null && Number(cur.amount_total) !== Number(totalCents)) return { kind: 'contradiction', reason: `amount_total:${cur.amount_total}!=${totalCents}` };
+      if (cur.currency != null && String(cur.currency).toLowerCase() !== 'usd') return { kind: 'contradiction', reason: 'currency:' + cur.currency };
+      if (st === 'complete' || ps === 'paid') return { kind: 'pending', state: `${st}/${ps}` };
+      if (st === 'open' && ps === 'unpaid') return { kind: 'payable', state: `${st}/${ps}` };
+      return { kind: 'contradiction', reason: `state:${st}/${ps}` };
+    };
+    const jsonOutcome = (r) => { const v = Array.isArray(r.json) ? r.json[0] : r.json; return (v && v.outcome) || null; };
     const reserve = async () => {
       const rv = await rpc('reserve_payment_attempt', { p_group_id: gid, p_hash: reqHash, p_schema: 1 });
       if (!rv.ok) { const msg = String((rv.json && rv.json.message) || rv.text || ''); return { ok: false, inProgress: /attempt_in_progress/.test(msg), msg }; }
@@ -279,24 +314,39 @@ export default async function handler(req, res) {
       console.error('reserve_payment_attempt failed:', rsv.msg);
       return res.status(503).json({ error: 'attempt_reserve_failed', message: 'Could not start the payment just now. Please try again.' });
     };
-    let rsv = await reserve();
-    if (!rsv.ok) return reserveFailure(rsv);
-    if (rsv.row.outcome === 'open') {
-      const cur = await readSession(rsv.row.session_id);
-      if (!cur.ok) return res.status(503).json({ error: 'provider_unreachable', message: 'Could not confirm your payment session just now. Please try again.' });
-      const st = String(cur.session.status || '');
-      if (st === 'complete') return res.status(409).json({ error: 'payment_pending', message: 'This payment is being confirmed. Please refresh in a moment.' });
-      if (st === 'open') return res.status(409).json({ error: 'attempt_in_progress' });
-      if (st !== 'expired') return res.status(503).json({ error: 'provider_unreachable', message: 'Could not confirm your payment session just now. Please try again.' });
-      const ex = await rpc('expire_payment_attempt', { p_session_id: rsv.row.session_id });
-      if (!ex.ok) return res.status(503).json({ error: 'attempt_expire_failed', message: 'Could not refresh your payment session just now. Please try again.' });
-      rsv = await reserve();
-      if (!rsv.ok) return reserveFailure(rsv);
-      if (rsv.row.outcome !== 'reserved') return res.status(409).json({ error: 'attempt_in_progress' });
-    }
+    const unreachable = () => res.status(503).json({ error: 'provider_unreachable', message: 'Could not confirm your payment session just now. Please try again.' });
+    const pending = () => res.status(409).json({ error: 'payment_pending', message: 'This payment is being confirmed. Please refresh in a moment.' });
+    const contradiction = (sid, v) => { console.error('RECONCILE: checkout session', sid, 'contradicts group', gid, v.reason, '(reservation kept)'); return res.status(500).json({ error: 'amount_reconcile_failed' }); };
+    // bind a session to the group's reservation (or reuse the open attempt it already holds); null on success, else the response
+    const bind = async (cur) => {
+      const pi = typeof cur.payment_intent === 'string' ? cur.payment_intent : (cur.payment_intent && cur.payment_intent.id) || null;
+      const reg = await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: cur.id, p_payment_intent: pi, p_hash: reqHash, p_schema: 1 });
+      if (reg.ok) return null;
+      const msg = String((reg.json && reg.json.message) || reg.text || '');
+      if (/attempt_in_progress/.test(msg)) return res.status(409).json({ error: 'attempt_in_progress' });
+      console.error('register_payment_attempt failed:', msg);
+      return res.status(503).json({ error: 'attempt_persist_failed' });
+    };
     let session = null;
-    let attemptId = rsv.row.attempt_id;
-    for (let advance = 0; advance < 2 && !session; advance++) {
+    // at most: an open attempt found expired, a reservation found expired, the next generation created (plus one re-read)
+    for (let pass = 0; pass < 4 && !session; pass++) {
+      const rsv = await reserve();
+      if (!rsv.ok) return reserveFailure(rsv);
+      if (rsv.row.outcome === 'open') {
+        const cur = await readSession(rsv.row.session_id);
+        if (!cur.ok) return unreachable();
+        const v = judgeSession(cur.session, rsv.row.session_id);
+        if (v.kind === 'pending') return pending();
+        if (v.kind === 'payable') return res.status(409).json({ error: 'attempt_in_progress' });
+        if (v.kind === 'contradiction') return contradiction(rsv.row.session_id, v);
+        // expired: recorded through the same path the webhook uses; whatever its outcome (attempt_expired, not_open
+        // because another caller or the webhook got there first), the next pass re-reads the ledger
+        const ex = await rpc('expire_payment_attempt', { p_session_id: rsv.row.session_id });
+        if (!ex.ok) return res.status(503).json({ error: 'attempt_expire_failed', message: 'Could not refresh your payment session just now. Please try again.' });
+        continue;
+      }
+      // a reservation (this caller's, or one a simultaneous caller holds): create, or replay, under its stable key
+      const attemptId = rsv.row.attempt_id;
       const stripeResp = await fetch('https://api.stripe.com/v1/checkout/sessions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${STRIPE}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Idempotency-Key': `co-${gid}-${attemptId}` },
@@ -304,18 +354,28 @@ export default async function handler(req, res) {
       });
       let created = null; try { created = await stripeResp.json(); } catch (_) { created = null; }
       if (!stripeResp.ok || !created || !created.id) { console.error('Stripe session failed:', created && created.error); return res.status(502).json({ error: 'stripe_failed' }); }
-      const usable = String(created.status || '') === 'open' && String(created.payment_status || '') === 'unpaid';
-      const amountOk = created.amount_total == null || Number(created.amount_total) === Number(totalCents);
-      if (usable && amountOk) { session = created; break; }
-      // not payable: the reservation ends here, with the provider object recorded, before any new generation
-      const reason = !usable ? `session_unusable:${created.status}/${created.payment_status}` : 'amount_reconcile_failed';
-      const failed = await rpc('fail_payment_attempt', { p_attempt_id: attemptId, p_session_id: created.id, p_error: reason });
-      if (!failed.ok) return res.status(503).json({ error: 'attempt_persist_failed' });
-      if (!amountOk) { console.error('RECONCILE: stripe amount_total', created.amount_total, '!= ledger total', totalCents, 'group', gid); return res.status(500).json({ error: 'amount_reconcile_failed' }); }
-      rsv = await reserve();
-      if (!rsv.ok) return reserveFailure(rsv);
-      if (rsv.row.outcome !== 'reserved') return res.status(409).json({ error: 'attempt_in_progress' });
-      attemptId = rsv.row.attempt_id;
+      // the response supplied the id only; the decision is made on the session's CURRENT state
+      const cur = await readSession(created.id);
+      if (!cur.ok) return unreachable();
+      const v = judgeSession(cur.session, created.id);
+      if (v.kind === 'contradiction') return contradiction(created.id, v);
+      if (v.kind === 'pending') {
+        // the payment completed (or the hold was authorized) on this reservation's session before it could be bound:
+        // bind it now so the verified payment path applies it to this attempt; never a failed attempt, never another link
+        const failedBind = await bind(cur.session);
+        if (failedBind) return failedBind;
+        return pending();
+      }
+      if (v.kind === 'expired') {
+        const failed = await rpc('fail_payment_attempt', { p_attempt_id: attemptId, p_session_id: created.id, p_error: `session_unusable:${v.state}` });
+        if (!failed.ok) return res.status(503).json({ error: 'attempt_persist_failed' });
+        const outcome = jsonOutcome(failed);
+        if (outcome !== 'failed') console.warn('fail_payment_attempt answered', outcome, 'for attempt', attemptId, 'group', gid, ': another recovery moved it first; re-reading the ledger');
+        // 'failed': the terminal outcome is recorded and the next pass reserves the next generation; anything else: the
+        // next pass re-reads what the ledger holds now instead of assuming the transition happened
+        continue;
+      }
+      session = cur.session;
     }
     if (!session) return res.status(503).json({ error: 'session_unusable', message: 'Could not open a payment session just now. Please try again.' });
 
@@ -323,14 +383,8 @@ export default async function handler(req, res) {
     // canonical hash. A fork against an open attempt (a different session or hash) is still 'attempt_in_progress'.
     // If this write fails after Stripe created the session, the reservation stays and the next retry reuses its key, so
     // Stripe replays the same session and it is bound then; nothing is ever handed out unregistered.
-    const pi = typeof session.payment_intent === 'string' ? session.payment_intent : (session.payment_intent && session.payment_intent.id) || null;
-    const reg = await rpc('register_payment_attempt', { p_group_id: gid, p_session_id: session.id, p_payment_intent: pi, p_hash: reqHash, p_schema: 1 });
-    if (!reg.ok) {
-      const msg = String((reg.json && reg.json.message) || reg.text || '');
-      if (/attempt_in_progress/.test(msg)) return res.status(409).json({ error: 'attempt_in_progress' });
-      console.error('register_payment_attempt failed:', msg);
-      return res.status(503).json({ error: 'attempt_persist_failed' });
-    }
+    const failedBind = await bind(session);
+    if (failedBind) return failedBind;
     // 0103 (Codex shipped-release finding 1): record WHO initiated this payment attempt, from the authenticated
     // session, on the durable attempt row. The booker receipt exception is decided from the PAID attempt's payer,
     // never from who booked or from the booking's contact address. If this write fails the payer stays unknown and

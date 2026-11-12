@@ -270,7 +270,9 @@ try {
     spy.faults.push({ url: '/rest/v1/rpc/fail_payment_attempt', method: 'POST', once: true, passthrough: true, before: async () => {
       await rpc('fail_payment_attempt', { p_attempt_id: second.reservation.id, p_session_id: second.session.id, p_error: 'concurrent_recovery' });
       const rv = (await rpc('reserve_payment_attempt', { p_group_id: second.gid, p_hash: second.reservation.canonical_request_hash, p_schema: 1 })).body;
-      const created = await (await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { 'Idempotency-Key': `co-${second.gid}-${rv.attempt_id}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: `metadata[payment_group_id]=${second.gid}&line_items[0][price_data][unit_amount]=15000&line_items[0][quantity]=1` })).json();
+      // the other recovery's session, placed in the provider simulator directly (not through the handler's call log)
+      const created = { id: 'cs_test_other_' + uniq('o').replace(/-/g, '').slice(-8), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: 15000, payment_intent: null, url: 'https://checkout.stripe.test/other', metadata: { payment_group_id: second.gid } };
+      spy.sessions.set(created.id, created); spy.sessionsByKey.set(`co-${second.gid}-${rv.attempt_id}`, JSON.stringify(created));
       await rpc('register_payment_attempt', { p_group_id: second.gid, p_session_id: created.id, p_payment_intent: null, p_hash: second.reservation.canonical_request_hash, p_schema: 1 });
       bound = created;
     } });

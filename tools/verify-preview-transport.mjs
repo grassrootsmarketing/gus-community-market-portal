@@ -15,6 +15,20 @@
 //   scheduler   the production cron configuration read from vercel.json (read-only); Preview has no scheduler
 //   after-resend (second invocation: --after-resend) once the main session has clicked Resend on the recorded event in the
 //               Stripe dashboard: the inbox answered duplicate, the ledger and fulfilment unchanged
+// Round 8 (Codex R7-2, the deployed financial-recovery worker) adds MODES, each a separate invocation so that the two
+// Stripe settings changes (pause and restore delivery) stay explicit steps the main session performs under David's
+// authorization; this script never changes a Stripe or Vercel setting:
+//   --mode prepare          version, consumers, fixtures, keeps-all (payment through the deployed routes and delivery),
+//                           connected (harness session, paid, delivered), signature, scheduler: the focused smoke of the
+//                           final candidate plus the paid connected payment the recovery needs. Then: PAUSE NEEDED.
+//   --mode recovery-run     with the endpoint DISABLED (verified here first; refused otherwise): a strategy 2 reservation,
+//                           the real customer refund with the transfer reversed (outside the routes), the ledger told; the
+//                           fee leg is then genuinely pending and nothing can settle it but the worker; the authenticated
+//                           deployed worker is invoked and the settlement read back on Stripe and in the ledger; a second
+//                           invocation shows no duplicate provider mutation. Then: RESTORE NEEDED.
+//   --mode recovery-verify  with the endpoint ENABLED again: final endpoint state, the refund event never delivered
+//                           (created while delivery was paused), ledger and provider objects as the worker left them.
+//   --after-resend          as before (the duplicate delivery of the keeps-all event through the restored endpoint).
 // Credentials are read from the environment and never written: VERCEL_BYPASS (sent as the x-vercel-protection-bypass header
 // and, only in the endpoint URL Stripe calls, as a query value that is redacted everywhere here), PREVIEW_CRON_SECRET,
 // STRIPE_TEST_SECRET_KEY, SB_KEY. Required: PREVIEW_HOST (https://...), PREVIEW_ENDPOINT_ID (we_...), EXPECT_COMMIT,
@@ -37,6 +51,9 @@ if (!/^we_/.test(PREVIEW_ENDPOINT_ID || '')) refuse('PREVIEW_ENDPOINT_ID must be
 if (!BYPASS || !CRON) refuse('VERCEL_BYPASS and PREVIEW_CRON_SECRET must be set (names only; values never printed)');
 if (!EXPECT_COMMIT) refuse('EXPECT_COMMIT must name the deployed commit');
 const AFTER_RESEND = process.argv.includes('--after-resend');
+const MODE = AFTER_RESEND ? 'after-resend' : ((process.argv.find(a => a.startsWith('--mode=')) || '--mode=full').slice(7));
+if (!['full', 'prepare', 'recovery-run', 'recovery-verify', 'after-resend'].includes(MODE)) refuse('unknown --mode ' + MODE);
+const LOADS_EVIDENCE = ['after-resend', 'recovery-run', 'recovery-verify'].includes(MODE);
 // The deployed routes accept a mutation only from the origin named by the Preview scope's SITE_ORIGIN (api/_csrf.js), which
 // is the Preview alias the scope was configured with, not the deployment host; the Origin header carries it and the
 // success_url the deployed checkout builds points at it, so Playwright intercepts both hosts.
@@ -74,7 +91,7 @@ function dayP(n) { const d = new Date(Date.now() + n * 864e5); const p = {}; for
 const EVID_DIR = resolve('tests', 'evidence'); mkdirSync(EVID_DIR, { recursive: true });
 const DATE = new Date().toISOString().slice(0, 10);
 const EVID_JSON = resolve(EVID_DIR, process.env.EVIDENCE_FILE || `preview-transport-${DATE}.json`);
-let evidence = AFTER_RESEND && existsSync(EVID_JSON) ? JSON.parse(readFileSync(EVID_JSON, 'utf8')) : { run: uniq('pt'), started_at: new Date().toISOString(), project: 'demohub-rebuild-check', stripe_mode: 'test', host: PREVIEW_HOST, endpoint: PREVIEW_ENDPOINT_ID, expect_commit: EXPECT_COMMIT, phases: {}, notes: ['mutating calls to the deployed routes carry Origin = the Preview scope SITE_ORIGIN (' + SITE_ORIGIN + '), which api/_csrf.js compares against; the request itself goes to PREVIEW_HOST'], deliveries: [] };
+let evidence = LOADS_EVIDENCE && existsSync(EVID_JSON) ? JSON.parse(readFileSync(EVID_JSON, 'utf8')) : { run: uniq('pt'), started_at: new Date().toISOString(), project: 'demohub-rebuild-check', stripe_mode: 'test', host: PREVIEW_HOST, endpoint: PREVIEW_ENDPOINT_ID, expect_commit: EXPECT_COMMIT, phases: {}, notes: ['mutating calls to the deployed routes carry Origin = the Preview scope SITE_ORIGIN (' + SITE_ORIGIN + '), which api/_csrf.js compares against; the request itself goes to PREVIEW_HOST'], deliveries: [] };
 const save = () => writeFileSync(EVID_JSON, redact(JSON.stringify(evidence, null, 2)));
 const inboxRow = async (eventId) => one(await db(`processed_stripe_events?event_id=eq.${encodeURIComponent(eventId)}&select=event_id,event_type,status,lease_owner,processed_at,last_error`));
 const RUN_START_TS = Math.floor(Date.now() / 1000) - 60;
@@ -246,6 +263,7 @@ async function run() {
     save();
   }
   // ---- worker ----
+  if (MODE !== 'prepare') {
   console.log('\n:: worker: the deployed refund worker, invoked by this runner with the Preview CRON secret (not cron)');
   {
     // the connected refund: reserved at the ledger, the customer refund created outside the routes (as in live case R), the
@@ -291,6 +309,7 @@ async function run() {
     ok('zero-fee: the DEPLOYED worker selected the group, verified it through schedule_group_ids_check and marked it zero_fee_complete (transfer id kept, no fee id fabricated); the worker counters show the work', w.status === 200 && w.body && w.body.group_ids_zero_fee >= 1 && after.settlement_ids_resolution === 'zero_fee_complete' && after.stripe_application_fee_id === null && after.stripe_transfer_id === before.stripe_transfer_id, JSON.stringify({ w: w.status, counters: evidence.phases.worker_group_ids.invocation.body, after }));
     save();
   }
+  }
   // ---- scheduler ----
   console.log('\n:: scheduler: the production cron configuration, read-only');
   {
@@ -303,7 +322,92 @@ async function run() {
   evidence.finished_at = new Date().toISOString();
   evidence.resend_instructions = `In the Stripe test dashboard, open endpoint ${PREVIEW_ENDPOINT_ID}, find event ${evidence.phases.keeps_all.event} and click Resend; then run this script again with --after-resend.`;
   console.log('\nRESEND NEEDED:', evidence.resend_instructions);
+  if (MODE === 'prepare') console.log('\nPAUSE NEEDED: disable endpoint', PREVIEW_ENDPOINT_ID, '(the main session, under David\'s authorization), then run this script with --mode=recovery-run');
   save();
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Round 8, Codex R7-2: the deployed worker's financial recovery on a genuinely pending connected leg
+// ---------------------------------------------------------------------------------------------------
+const endpointState = async () => {
+  const ep = (await stripe(`/v1/webhook_endpoints/${PREVIEW_ENDPOINT_ID}`)).body || {};
+  const list = (((await stripe('/v1/webhook_endpoints?limit=50')).body || {}).data || []);
+  const hostOf = (u) => { try { return new URL(u).host; } catch (_) { return null; } };
+  return { read_at: new Date().toISOString(), id: ep.id, status: ep.status, host: hostOf(ep.url), path: (() => { try { return new URL(ep.url).pathname; } catch (_) { return null; } })(), enabled_test_endpoints: list.filter(e => e.status === 'enabled').map(e => ({ id: e.id, host: hostOf(e.url) })) };
+};
+const requestRow = async (id) => one(await db(`refund_requests?id=eq.${id}&select=id,booking_id,amount,status,stripe_refund_id,settlement_status,settlement_strategy,expected_fee_refund_amount,fee_refund_status,fee_refund_amount,stripe_fee_refund_id,transfer_reversal_status,transfer_reversal_amount,stripe_transfer_reversal_id,settlement_attempts,settlement_next_attempt_at,settlement_last_error,updated_at`));
+const feeRefundsOf = async (feeId) => (((await stripe(`/v1/application_fees/${encodeURIComponent(feeId)}/refunds?limit=10`)).body || {}).data || []).map(f => ({ id: f.id, amount: f.amount, currency: f.currency, created: new Date(f.created * 1000).toISOString(), request: f.metadata && f.metadata.refund_request_id }));
+const transferOf = async (trId) => { const t = (await stripe(`/v1/transfers/${encodeURIComponent(trId)}`)).body || {}; return { id: t.id, amount: t.amount, amount_reversed: t.amount_reversed, reversed: t.reversed, reversals: ((t.reversals && t.reversals.data) || []).map(r => ({ id: r.id, amount: r.amount })) }; };
+const refundsOnPi = async (pi) => (((await stripe(`/v1/refunds?payment_intent=${encodeURIComponent(pi)}&limit=10`)).body || {}).data || []).map(r => ({ id: r.id, amount: r.amount, status: r.status }));
+const workerCounters = (body) => body && { ok: body.ok, claimed: body.claimed, reconciled: body.reconciled, resubmitted: body.resubmitted, adopted: body.adopted, manual: body.manual, lost_lease: body.lost_lease, errors: body.errors, settlement_claim_failed: body.settlement_claim_failed, group_ids_checked: body.group_ids_checked, group_ids_filled: body.group_ids_filled, group_ids_zero_fee: body.group_ids_zero_fee, group_ids_scheduled: body.group_ids_scheduled, first_error: body.first_error };
+
+async function recoveryRun() {
+  const C = evidence.phases && evidence.phases.connected;
+  if (!C || !C.group || !C.pi || !C.booking || !C.fee || !C.transfer) refuse('no paid connected payment with fee and transfer ids recorded by --mode=prepare in ' + EVID_JSON);
+  if (evidence.phases.recovery && evidence.phases.recovery.after_first) refuse('a recovery run is already recorded in this evidence file; use a new EVIDENCE_FILE for another attempt');
+  console.log('\n:: recovery-run: the deployed worker settles a genuinely pending connected leg while delivery is paused');
+  const R = { started_at: new Date().toISOString(), provenance: 'the deployed /api/refund-worker invoked by tools/verify-preview-transport.mjs over HTTPS with the Preview CRON secret as Bearer and the Vercel protection-bypass header; NOT Vercel cron (Vercel schedules Production only); the pause and the restore of delivery are Stripe settings changes made by the main session under David\'s authorization, never by this script' };
+  // 1. the pause is in effect: refused otherwise, because the deployed webhook would settle the leg inline on the real
+  //    refund delivery and the evidence would not show the worker
+  R.endpoint_during_pause = await endpointState();
+  const paused = R.endpoint_during_pause.status === 'disabled' && R.endpoint_during_pause.enabled_test_endpoints.length === 0;
+  ok('recovery: delivery is paused: the Preview endpoint is disabled and no test-mode endpoint is enabled (read back from Stripe before anything else)', paused, JSON.stringify(R.endpoint_during_pause));
+  if (!paused) { save(); refuse('delivery is not paused; nothing was created'); }
+  const v = await deployed('/api/version', { method: 'GET', headers: { Authorization: 'Bearer ' + CRON } });
+  R.deployment = { commit: v.body && v.body.commit, branch: v.body && v.body.branch, env: v.body && v.body.env, binding_target: v.body && v.body.binding && v.body.binding.target, project_ref_fingerprint: v.body && v.body.binding && v.body.binding.project_ref_fingerprint, flags: v.body && v.body.flags };
+  ok('recovery: the deployment is the expected final candidate (commit, env preview, demohub-rebuild-check fingerprint)', v.status === 200 && typeof R.deployment.commit === 'string' && (R.deployment.commit.startsWith(EXPECT_COMMIT) || EXPECT_COMMIT.startsWith(R.deployment.commit.slice(0, 7))) && R.deployment.env === 'preview' && String(R.deployment.project_ref_fingerprint || '').startsWith('tile'), JSON.stringify(R.deployment));
+  // 2. the pending leg: a strategy 2 reservation at the ledger, the real customer refund with the transfer reversed,
+  //    created outside the routes (as in live case R), the ledger told through apply_refund_event; no cancel path, no
+  //    replay; the application fee refund (the fee leg) is then owed and nothing but the worker can create it
+  const rr = (await rpc('refund_reserve_cas', { p_booking_id: C.booking, p_op_key: C.booking + ':recovery-run', p_actor: 'transport-runner', p_reason: 'deployed worker recovery test (round 8)' })).body;
+  if (!rr || !rr.refund_request_id) { R.reserve = rr; save(); refuse('refund_reserve_cas did not reserve: ' + JSON.stringify(rr).slice(0, 200)); }
+  const re = await stripe('/v1/refunds', { method: 'POST', form: { payment_intent: C.pi, amount: String(rr.amount), reverse_transfer: 'true', reason: 'requested_by_customer', 'metadata[refund_request_id]': rr.refund_request_id, 'metadata[booking_id]': C.booking } });
+  const applied = (await rpc('apply_refund_event', { p_refund_id: re.body && re.body.id, p_status: re.body && re.body.status, p_amount: re.body && re.body.amount, p_currency: re.body && re.body.currency, p_pi: C.pi, p_charge: stripeIdOf(re.body && re.body.charge), p_meta_request_id: rr.refund_request_id, p_event_id: null })).body;
+  const refundEvts = await stripeEvents('refund.created', e => e.data && e.data.object && e.data.object.id === (re.body && re.body.id), { timeoutMs: 30000 });
+  const refundEvt = refundEvts && refundEvts[0];
+  await sleep(8000);   // a consumer, had one been enabled, would have settled the leg by now
+  const evtNow = refundEvt ? (await stripe(`/v1/events/${refundEvt.id}`)).body : null;
+  R.before = { reservation: rr, customer_refund: re.body && { id: re.body.id, amount: re.body.amount, currency: re.body.currency, status: re.body.status, charge: stripeIdOf(re.body.charge) }, apply_refund_event: applied, request: await requestRow(rr.refund_request_id), fee_refunds_on_stripe: await feeRefundsOf(C.fee), transfer: await transferOf(C.transfer), refunds_on_payment_intent: await refundsOnPi(C.pi), refund_event: refundEvt ? { id: refundEvt.id, pending_webhooks_now: evtNow && evtNow.pending_webhooks } : null, inbox_row_for_refund_event: refundEvt ? await inboxRow(refundEvt.id) : null, read_at: new Date().toISOString() };
+  save();
+  const b = R.before;
+  ok('recovery: the leg is genuinely pending: the real customer refund (16000) succeeded with the transfer reversed on Stripe, the ledger holds the request succeeded with settlement pending and NO fee refund id, the application fee has NO refund, the refund event reached no consumer (no inbox row) because delivery is paused', rr.settlement_strategy === 2 && re.ok && /^re_/.test(b.customer_refund.id) && b.customer_refund.status === 'succeeded' && b.request && b.request.status === 'succeeded' && b.request.settlement_status === 'pending' && !b.request.stripe_fee_refund_id && b.request.fee_refund_status !== 'succeeded' && b.fee_refunds_on_stripe.length === 0 && b.transfer.amount_reversed === b.customer_refund.amount && !b.inbox_row_for_refund_event, JSON.stringify(b));
+  // 3. the authenticated deployed worker does the missing settlement work
+  const invocations = [];
+  const invoke = async (label) => { const w = await deployed('/api/refund-worker', { body: {}, headers: { Authorization: 'Bearer ' + CRON } }); invocations.push({ label, at: new Date().toISOString(), status: w.status, vercel_id: w.headers['x-vercel-id'], counters: workerCounters(w.body) }); return w; };
+  let w = await invoke('first');
+  let rq = await requestRow(rr.refund_request_id);
+  for (let i = 0; i < 3 && rq.settlement_status !== 'complete'; i++) { await sleep(5000); w = await invoke(`first, repeated after 5s (${i + 1}): the request was not yet due or still leased`); rq = await requestRow(rr.refund_request_id); }
+  R.after_first = { request: rq, fee_refunds_on_stripe: await feeRefundsOf(C.fee), transfer: await transferOf(C.transfer), refunds_on_payment_intent: await refundsOnPi(C.pi), group: (await groupSnapshot(C.group)).group, inbox_row_for_refund_event: refundEvt ? await inboxRow(refundEvt.id) : null, read_at: new Date().toISOString() };
+  R.invocations = invocations; save();
+  const a = R.after_first;
+  const settlingRun = invocations.find(x => x.counters && (x.counters.resubmitted > 0 || x.counters.adopted > 0 || x.counters.reconciled > 0)) || null;
+  ok('recovery: the DEPLOYED worker did the settlement work (its counters show it): exactly one application fee refund of 1000 created under the request (metadata refund_request_id) on Stripe, the reversal of 16000 verified, the request complete with the fee refund id and the reversal recorded; the group ids present; still no inbox row for the refund event (no delivery happened; the worker did this, not the webhook)', invocations.every(x => x.status === 200) && !!settlingRun && a.request.settlement_status === 'complete' && a.fee_refunds_on_stripe.length === 1 && a.fee_refunds_on_stripe[0].amount === 1000 && a.fee_refunds_on_stripe[0].request === rr.refund_request_id && a.request.stripe_fee_refund_id === a.fee_refunds_on_stripe[0].id && a.request.fee_refund_amount === 1000 && a.request.transfer_reversal_amount === 16000 && a.transfer.amount_reversed === 16000 && !!a.group.stripe_transfer_id && !!a.group.stripe_application_fee_id && !a.inbox_row_for_refund_event, JSON.stringify({ invocations, after: a }));
+  // 4. a second invocation: no duplicate provider mutation, the ledger row untouched
+  const w2 = await invoke('second (no work expected)');
+  R.after_second = { request: await requestRow(rr.refund_request_id), fee_refunds_on_stripe: await feeRefundsOf(C.fee), transfer: await transferOf(C.transfer), refunds_on_payment_intent: await refundsOnPi(C.pi), read_at: new Date().toISOString() };
+  const c2 = invocations[invocations.length - 1].counters;
+  const same = JSON.stringify(R.after_second.request) === JSON.stringify(a.request);
+  ok('recovery: the second invocation changed nothing: still one fee refund (same id), the same reversed amount and reversal set, one customer refund on the PaymentIntent, the request row byte-identical (attempts, ids, timestamps), and the counters show no settlement work', w2.status === 200 && same && R.after_second.fee_refunds_on_stripe.length === 1 && R.after_second.fee_refunds_on_stripe[0].id === a.fee_refunds_on_stripe[0].id && JSON.stringify(R.after_second.transfer) === JSON.stringify(a.transfer) && R.after_second.refunds_on_payment_intent.length === 1 && c2 && (c2.resubmitted || 0) === 0 && (c2.adopted || 0) === 0 && (c2.reconciled || 0) === 0 && (c2.errors || 0) === 0, JSON.stringify({ second: c2, request_identical: same, after_second: R.after_second }));
+  R.endpoint_still_paused = await endpointState();
+  R.finished_at = new Date().toISOString();
+  evidence.phases.recovery = R; save();
+  console.log('\nRESTORE NEEDED: enable endpoint', PREVIEW_ENDPOINT_ID, 'again (the main session), then run this script with --mode=recovery-verify');
+}
+
+async function recoveryVerify() {
+  const R = evidence.phases && evidence.phases.recovery;
+  const C = evidence.phases && evidence.phases.connected;
+  if (!R || !R.after_second) refuse('no recovery run recorded in ' + EVID_JSON);
+  console.log('\n:: recovery-verify: delivery restored, nothing moved since the worker');
+  const ep = await endpointState();
+  const restored = ep.status === 'enabled' && ep.host === new URL(PREVIEW_HOST).host && ep.path === '/api/stripe-webhook' && ep.enabled_test_endpoints.length === 1 && ep.enabled_test_endpoints[0].id === PREVIEW_ENDPOINT_ID;
+  ok('recovery-verify: the endpoint is enabled again at this host and is the only enabled test-mode consumer (read back from Stripe)', restored, JSON.stringify(ep));
+  const evt = R.before.refund_event ? (await stripe(`/v1/events/${R.before.refund_event.id}`)).body : null;
+  const now = { request: await requestRow(R.before.reservation.refund_request_id), fee_refunds_on_stripe: await feeRefundsOf(C.fee), transfer: await transferOf(C.transfer), refunds_on_payment_intent: await refundsOnPi(C.pi), refund_event: evt && { id: evt.id, pending_webhooks: evt.pending_webhooks }, inbox_row_for_refund_event: evt ? await inboxRow(evt.id) : null, read_at: new Date().toISOString() };
+  const unchanged = JSON.stringify(now.request) === JSON.stringify(R.after_second.request) && JSON.stringify(now.fee_refunds_on_stripe) === JSON.stringify(R.after_second.fee_refunds_on_stripe) && JSON.stringify(now.transfer) === JSON.stringify(R.after_second.transfer);
+  ok('recovery-verify: the refund event created during the pause was never delivered (pending_webhooks 0, no inbox row: Stripe does not queue events for a disabled endpoint), and the request, the fee refund and the reversal are exactly as the worker left them', unchanged && (!evt || evt.pending_webhooks === 0) && !now.inbox_row_for_refund_event, JSON.stringify(now));
+  R.endpoint_after_restore = ep; R.after_restore = now; R.verified_at = new Date().toISOString();
+  evidence.phases.recovery = R; save();
 }
 
 async function afterResend() {
@@ -320,7 +424,7 @@ async function afterResend() {
   save();
 }
 
-try { if (AFTER_RESEND) await afterResend(); else await run(); }
+try { if (MODE === 'after-resend') await afterResend(); else if (MODE === 'recovery-run') await recoveryRun(); else if (MODE === 'recovery-verify') await recoveryVerify(); else await run(); }
 catch (e) { console.error('\nRUN ABORTED:', (e && e.stack) || e); evidence.notes.push('aborted: ' + String((e && e.message) || e)); state.fail++; state.fails.push('aborted: ' + String((e && e.message) || e)); }
 finally { save(); process.env = { ...ORIG_ENV }; }
 console.log('evidence:', EVID_JSON);
