@@ -823,7 +823,7 @@
                         <li data-step="bank" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
                             <span style="flex:1; font-size:0.9rem; color:var(--forest-900);"><strong>Connect your bank</strong>: <span style="color:var(--ink-500);">receive payouts from Stripe.</span></span>
-                            <a onclick="onboardingGo('billingSection','payoutsCard')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Connect →</a>
+                            <a onclick="onboardingGo('settingsSection','payoutsCard')" style="font-size:0.8rem; color:var(--forest-700); font-weight:600; text-decoration:none; white-space:nowrap; cursor:pointer;">Connect →</a>
                         </li>
                         <li data-step="link" style="display:flex; align-items:center; gap:10px; padding: 8px 10px; border-radius: 8px; transition: background 0.15s;">
                             <span class="ocl-check" style="width:18px; height:18px; border-radius:50%; border:1.5px solid var(--sand-300); flex-shrink:0; display:inline-flex; align-items:center; justify-content:center; background:white;"></span>
@@ -1255,7 +1255,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="settings-card" id="payoutsCard" data-tab="billingSection">
+                    <div class="settings-card" id="payoutsCard" data-tab="settingsSection">
                         <div class="settings-card-header"><h3>Bank &amp; payouts</h3></div>
                         <div class="settings-card-body" id="payoutsCardBody">
                             <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:12px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
@@ -2754,7 +2754,7 @@ END:VEVENT
                         if (t === 'Brand paid' || t === 'Platform fee' || t === 'You receive') th.style.display = 'none';
                     });
                 }
-                // 2026-11-12: the Bank & payouts card stays visible for keeps-all stores. It used to be hidden here,
+                // 2026-11-12: the Bank & payouts card (Settings tab) stays visible for keeps-all stores. It used to be hidden here,
                 // which left the checklist's "Connect your bank" link pointing at nothing, and a store has to be
                 // able to connect its bank BEFORE it is moved to direct payouts. renderPayouts() words the card
                 // for a store whose fees Demohub still collects.
@@ -7556,8 +7556,9 @@ function escapeHtml(s) {
             const params = new URLSearchParams(location.search);
             const connect = params.get('connect');
             if (!connect) return;
-            // Strip the query so refresh doesn't re-trigger the polling
-            try { history.replaceState({}, '', location.pathname + location.hash); } catch(_){}
+            // Strip the query so refresh doesn't re-trigger the polling, and land on the Settings tab, where the
+            // Bank & payouts card lives (the default-tab loader below honors this hash).
+            try { history.replaceState({}, '', location.pathname + '#settingsSection'); } catch(_){}
 
             document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
