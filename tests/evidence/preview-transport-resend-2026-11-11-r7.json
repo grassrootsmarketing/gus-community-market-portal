@@ -1,0 +1,15 @@
+{
+  "event": "evt_1UWZQ0A6b3orPg0TBMUuHfkW",
+  "endpoint": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+  "method": "POST /v1/events/{id}/retry with webhook_endpoint (the call the Stripe CLI \"events resend\" makes); the dashboard Resend button was not used because the dashboard session was signed out",
+  "authorized_by": "David, in chat, 2026-11-11: \"resend it\"",
+  "requested_at": "2026-11-12T00:54:12.958Z",
+  "http_status": 200,
+  "request_id": "req_bn6OhktCZFR3Jd",
+  "response": {
+    "id": "evt_1UWZQ0A6b3orPg0TBMUuHfkW",
+    "type": "checkout.session.completed",
+    "pending_webhooks": 1
+  },
+  "pending_webhooks_after_8s": 0
+}
