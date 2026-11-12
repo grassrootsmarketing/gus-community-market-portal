@@ -1,0 +1,67 @@
+# Pre-fix run A (2026-11-11, round 8, Codex R7-1): tests/attempt_reservation.test.mjs as committed at eebc0e0, against the
+# UNFIXED api/checkout.js (eebc0e0) with the CORRECTED simulator (tests/_route.mjs: a same-key POST replays the frozen first
+# response; GET returns the current state). demohub-rebuild-check. Secrets never printed.
+# handler commit: eebc0e0 (api/checkout.js unchanged since)
+
+===== tests/attempt_reservation.test.mjs (exit 1) =====
+
+Fixtures
+  ok   fixtures: keeps-all retailer, $150 venue, brand session
+
+1. a retry while the first session is open creates nothing
+  ok   first checkout: 200, one POST, one open attempt bound to the session with generation 1
+  ok   retry while open: 409 attempt_in_progress, no url, exactly one Stripe call and it is a GET of that session, nothing created
+
+2. the open attempt's session expired on Stripe without the ledger being told
+  ok   retry: the dead session is recorded expired and a fresh session is returned (200, new id, one POST); attempts expired + open, the expired one keeps its session id
+  ok   the dead link is never in a response: the new url differs from the expired session's
+
+3. provider creation succeeds, the ledger write fails
+  ok   503 attempt_persist_failed, no url; the reservation stays reserved with NO session id; one session exists on the provider
+  ok   the retry reuses the reservation: the same key replays the SAME session, it is bound (open), one attempt, no second session
+
+4. the replayed session is unusable (it expired between the failed write and the retry)
+  FAIL the retry replays the dead session, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead link is never returned {"s":200,"atts":[["open",1,null]]}
+
+5. simultaneous retries share one reservation and one session
+  ok   two checkouts at once: every 200 answer names the SAME session, exactly one live attempt (open), no second session on the provider for the group
+
+6. the attempt read fails: fail closed, no provider call
+  ok   503 attempt_reserve_failed, no url, zero Stripe calls, no attempt row
+  ok   the next checkout works normally: 200, one open attempt, generation 1
+
+7. the payment completes during a retry
+  ok   retry while the session is complete on Stripe: 409 payment_pending, no url, nothing created, the attempt still open for the webhook
+checkout.session.completed: applied, fulfilled 1 booking(s) cs_test_j2cfrxv4
+  ok   the paid event applies (group paid, attempt paid) and a further checkout is refused not_payable_state with no Stripe call
+
+8. the ledger functions on their own: direct registration, forks, failing a non-reserved attempt
+  ok   a direct registration without a reservation still inserts an open attempt (generation 1)
+  ok   a different session against the open attempt is still refused attempt_in_progress
+  ok   reserve_payment_attempt on a group with an open attempt answers that attempt (outcome open, existing true) and inserts nothing
+  ok   a different request snapshot against the live attempt is attempt_in_progress
+  ok   fail_payment_attempt refuses an attempt that is not reserved (outcome not_reserved), the open attempt untouched
+  ok   the reservation function is not reachable without the service credential
+
+:: teardown ::
+  deleted 1 booking_fulfillments
+  deleted 3 notification_events
+  deleted 8 payment_allocations
+  deleted 9 payment_attempts
+  deleted 8 payment_groups
+  deleted 1 retailers
+  deleted 1 brands
+  teardown: {"cases_by_group":0,"refund_requests":0,"refund_operations":0,"booking_fulfillments":1,"booking_operations":0,"booking_code_redemptions":0,"notification_deliveries":0,"notification_events":3,"payment_allocations":8,"payment_attempts":9,"booking_fulfillments_by_group":0,"payment_groups":8,"brand_sessions":0,"brand_tokens":0,"retailers":1,"brands":1}
+
+payment attempt reservations (routes + ledger, demohub-rebuild-check): 18 passed, 1 failed
+FAILURES:
+  x the retry replays the dead session, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead link is never returned {"s":200,"atts":[["open",1,null]]}
+
+--- stderr ---
+(node:27464) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/David/demohub/api/_env.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\David\demohub\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+reserve_payment_attempt failed: ledger_outage

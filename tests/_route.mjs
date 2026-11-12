@@ -75,7 +75,9 @@ export function installSpy() {
   // '/v1/refunds/re_x' or '/v1/application_fees/fee_x/refunds'); used by tests/connected_checkout.test.mjs for the
   // settlement legs of a connected refund.
   const fixtures = { paymentIntents: {}, checkoutSessions: {}, byPath: {} };
-  // the spy's own Checkout Sessions (round 7): by id, and by the Idempotency-Key that created them
+  // the spy's own Checkout Sessions (round 7): by id (the CURRENT, mutable state a GET returns; a test changes it through
+  // spy.sessions), and by the Idempotency-Key that created them (round 8, Codex R7-1: the SAVED FIRST RESPONSE, kept as
+  // its serialized body exactly as Stripe keeps it; a same-key POST replays a copy of that body, never the current state).
   const sessions = new Map(), sessionsByKey = new Map();
   // Test-only fault injection on the REAL staging passthrough AND on the spied Stripe surface. A test
   // can force a specific request (matched by url substring + optional method) to fail, so
@@ -130,10 +132,12 @@ export function installSpy() {
       if (csMatch && fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]) {
         return jsonRes(fixtures.checkoutSessions[decodeURIComponent(csMatch[1])]);
       }
-      // Checkout Sessions behave like the provider's (round 7, the reserved-attempt checkout): a create under an
-      // Idempotency-Key the spy has seen replays the SAME session object (whatever its status has become since; a test
-      // changes a session's status through spy.sessions, keyed by id); a create carries status open and payment_status
-      // unpaid; a GET of a known session returns its current object; an unknown session is 404 as on Stripe.
+      // Checkout Sessions behave like the provider's (round 7, the reserved-attempt checkout; corrected in round 8 for
+      // Codex R7-1): a create under an Idempotency-Key the spy has seen replays the body of the FIRST response, frozen at
+      // creation (status open, payment_status unpaid), whatever the session's state has become since, exactly as Stripe
+      // API v1 saves and replays the first response for a key; a create carries status open and payment_status unpaid;
+      // a GET of a known session returns its CURRENT object (a test changes it through spy.sessions, keyed by id); an
+      // unknown session is 404 as on Stripe.
       if (csMatch) {
         const known = sessions.get(decodeURIComponent(csMatch[1]));
         if (known) return jsonRes(known);
@@ -142,13 +146,13 @@ export function installSpy() {
       }
       if (u.includes('/checkout/sessions') && method === 'POST') {
         const key = opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key']);
-        if (key && sessionsByKey.has(key)) return jsonRes(sessionsByKey.get(key));
+        if (key && sessionsByKey.has(key)) return jsonRes(JSON.parse(sessionsByKey.get(key)));
         const form = Object.fromEntries(new URLSearchParams(String(opts.body || '')));
         let total = 0; for (const [k, v] of Object.entries(form)) if (/^line_items\[\d+\]\[price_data\]\[unit_amount\]$/.test(k)) total += Number(v) * Number(form[k.replace('[price_data][unit_amount]', '[quantity]')] || 1);
         const created = { id: 'cs_test_' + Math.random().toString(36).slice(2, 10), object: 'checkout.session', status: 'open', payment_status: 'unpaid', mode: 'payment', amount_total: total || null, payment_intent: null, url: 'https://checkout.stripe.test/' + Math.random().toString(36).slice(2, 8), metadata: Object.fromEntries(Object.entries(form).filter(([k]) => k.startsWith('metadata[')).map(([k, v]) => [k.slice(9, -1), v])) };
         sessions.set(created.id, created);
-        if (key) sessionsByKey.set(key, created);
-        return jsonRes(created);
+        if (key) sessionsByKey.set(key, JSON.stringify(created));
+        return jsonRes(JSON.parse(JSON.stringify(created)));
       }
       if (u.includes('/checkout/sessions')) {
         return jsonRes({ object: 'list', data: [...sessions.values()], has_more: false });
