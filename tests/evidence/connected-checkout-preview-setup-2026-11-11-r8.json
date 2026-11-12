@@ -1,0 +1,229 @@
+{
+  "round": 8,
+  "authorized_by": "David, in chat, 2026-11-11, in reply to the listed steps (Preview deploy of the fixed build, rebind of the test endpoint, a pause of a few minutes and the restore): \"ok what now just fic this bc rev share is the whole point\"",
+  "performed_by": "main session",
+  "endpoint": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+  "steps": [
+    {
+      "step": "version",
+      "at": "2026-11-12T04:54:03.281Z",
+      "host": "demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app",
+      "http": 200,
+      "body": {
+        "ok": true,
+        "commit": "55ecc91a44974921dd7f22b7732ea896c4ee85c4",
+        "commit_short": "55ecc91a44",
+        "branch": "feat/connected-checkout-rehearsal",
+        "env": "preview",
+        "binding": {
+          "target": "preview",
+          "project_ref_fingerprint": "tile…",
+          "db_environment_expected": "staging",
+          "stripe_mode": "test",
+          "email_mode": "sink",
+          "email_allowlist_count": 1,
+          "has_publishable_key": true,
+          "has_webhook_secret": true
+        },
+        "binding_error": null,
+        "has_cron_secret": true,
+        "flags": {
+          "provisionalHolds": true,
+          "publicRetailerSignup": false,
+          "coiAiVerification": false,
+          "checkoutEnabled": true,
+          "coiUploadEnabled": true,
+          "brandInviteEnabled": true,
+          "slotEditing": false,
+          "signinMaintenance": false,
+          "retailerMoves": true,
+          "coiExpiryPings": false,
+          "notificationWorker": true,
+          "coiAutoEnforcementFlag": false,
+          "coiEnforcementModeRaw": "live",
+          "coiEnforcementEffective": "off",
+          "connectedCheckout": false,
+          "max_cart": 10
+        },
+        "now": "2026-11-12T04:54:03.100Z"
+      }
+    },
+    {
+      "step": "endpoint_inventory",
+      "at": "2026-11-12T04:54:03.344Z",
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "enabled",
+          "url": "https://demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "url": "https://demohub-booker-preview.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "url": "https://gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 6
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 11
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 8
+        }
+      ]
+    },
+    {
+      "step": "rebind",
+      "at": "2026-11-12T04:54:15.017Z",
+      "from_host": "demohub-n7yiqhak6-grms-projects-0d18c653.vercel.app",
+      "to_host": "demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app",
+      "http": 200,
+      "request_id": "req_QI6N2Kpt4zhTiN",
+      "after": {
+        "status": "enabled",
+        "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+        "events": 10
+      },
+      "signing_secret": "unchanged (not rotated, not read)",
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "enabled",
+          "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "url": "https://demohub-booker-preview.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "url": "https://gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 6
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 11
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 8
+        }
+      ]
+    },
+    {
+      "step": "pause",
+      "at": "2026-11-12T04:56:44.348Z",
+      "http": 200,
+      "request_id": "req_86D7sjIroDYwv6",
+      "after": {
+        "status": "disabled",
+        "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]"
+      },
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "disabled",
+          "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "url": "https://demohub-booker-preview.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "url": "https://gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 6
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 11
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 8
+        }
+      ]
+    },
+    {
+      "step": "restore",
+      "at": "2026-11-12T04:57:33.392Z",
+      "http": 200,
+      "request_id": "req_Zd4VryLRn7XA30",
+      "after": {
+        "status": "enabled",
+        "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]"
+      },
+      "endpoints": [
+        {
+          "id": "we_1UWZDNA6b3orPg0ToTQaJm2v",
+          "status": "enabled",
+          "url": "https://demohub-o7xg6ejlr-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1UGuAnA6b3orPg0Tagj0q9RX",
+          "status": "disabled",
+          "url": "https://demohub-booker-preview.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 10
+        },
+        {
+          "id": "we_1Ty6gvA6b3orPg0TrtvDXPd2",
+          "status": "disabled",
+          "url": "https://gus-community-market-portal-git-l-2c188e-grms-projects-0d18c653.vercel.app/api/stripe-webhook?x-vercel-protection-bypass=[redacted]",
+          "events": 6
+        },
+        {
+          "id": "we_1Tt1zGA6b3orPg0TfYOUG2CH",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 11
+        },
+        {
+          "id": "we_1Tn7YMA6b3orPg0TX444QrbR",
+          "status": "disabled",
+          "url": "https://demohubhq.com/api/stripe-webhook",
+          "events": 8
+        }
+      ]
+    },
+    {
+      "step": "retry_event",
+      "at": "2026-11-12T05:00:32.610Z",
+      "event": "evt_1Uaq3FA6b3orPg0TNmvmu7IQ",
+      "method": "POST /v1/events/{id}/retry with webhook_endpoint",
+      "http": 200,
+      "request_id": "req_iiJQgAxUZ75Aog",
+      "type": "checkout.session.completed",
+      "pending_webhooks_in_response": 1,
+      "pending_webhooks_after_8s": 0
+    }
+  ]
+}

@@ -265,7 +265,8 @@ console.log('\n— 7: checkout route + session reuse —');
     const stripeBefore = spy.calls.stripe.length;
     const c1 = await callRoute('checkout.js', req({ body: { booking_ids: [bookingId] }, cookies: { dh_brand_session: brandCookie } }));
     ok('checkout succeeds through the route', c1.statusCode === 200, `${c1.statusCode} ${JSON.stringify(c1.body).slice(0, 180)}`);
-    ok('checkout opened exactly one Stripe session', spy.calls.stripe.length - stripeBefore === 1, `${spy.calls.stripe.length - stripeBefore}`);
+    // round 8 (Codex R7-1): a create is followed by a read of the session's current state, so two Stripe calls (POST + GET)
+    ok('checkout opened exactly one Stripe session and read its current state once (POST then GET, nothing else)', spy.calls.stripe.length - stripeBefore === 2 && spy.calls.stripe.slice(stripeBefore).map(c => String(c.method).toUpperCase()).join(',') === 'POST,GET', `${spy.calls.stripe.length - stripeBefore}`);
     const row = (await db(`bookings?id=eq.${bookingId}&select=stripe_session_id`)).body[0];
     ok('stripe_session_id was persisted on the booking (0057)', row && !!row.stripe_session_id, JSON.stringify(row));
 

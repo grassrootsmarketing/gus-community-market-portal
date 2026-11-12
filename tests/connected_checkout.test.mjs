@@ -229,7 +229,7 @@ try {
     const s1 = spy.calls.stripe.length;
     const co3 = await checkoutAs([heldId], heldCookie);
     const after = one(await db(`bookings?id=eq.${heldId}&select=status,payment_status,held_expires_at`));
-    ok('after approval the same held booking checks out at the connected store: 200, the booking moved to pending_payment (hold cleared), an immediate-charge destination Session (no capture_method), one Stripe call', co3.res.statusCode === 200 && after.status === 'pending_payment' && after.held_expires_at === null && co3.request && !('payment_intent_data[capture_method]' in co3.request) && co3.request['payment_intent_data[transfer_data][destination]'] === ACCT && spy.calls.stripe.length === s1 + 1, `${co3.res.statusCode} ${JSON.stringify({ after, body: co3.res.body }).slice(0, 200)}`);
+    ok('after approval the same held booking checks out at the connected store: 200, the booking moved to pending_payment (hold cleared), an immediate-charge destination Session (no capture_method), two Stripe calls (create, then the current-state read)', co3.res.statusCode === 200 && after.status === 'pending_payment' && after.held_expires_at === null && co3.request && !('payment_intent_data[capture_method]' in co3.request) && co3.request['payment_intent_data[transfer_data][destination]'] === ACCT && spy.calls.stripe.length === s1 + 2 /* round 8: create + current-state read */, `${co3.res.statusCode} ${JSON.stringify({ after, body: co3.res.body }).slice(0, 200)}`);
     const al3 = await allocsOf(co3.res.body.payment_group_id);
     ok('its allocation is an ordinary 15000 + 1000', al3.length === 1 && al3[0].customer_amount === 16000 && al3[0].platform_fee_amount === 1000, JSON.stringify(al3));
     delete ENV.PROVISIONAL_HOLDS_ENABLED;
