@@ -2754,8 +2754,10 @@ END:VEVENT
                         if (t === 'Brand paid' || t === 'Platform fee' || t === 'You receive') th.style.display = 'none';
                     });
                 }
-                const po = document.getElementById('payoutsCard');
-                if (po) po.style.display = 'none';
+                // 2026-11-12: the Bank & payouts card stays visible for keeps-all stores. It used to be hidden here,
+                // which left the checklist's "Connect your bank" link pointing at nothing, and a store has to be
+                // able to connect its bank BEFORE it is moved to direct payouts. renderPayouts() words the card
+                // for a store whose fees Demohub still collects.
             }
             renderBilling();
             refreshAvailabilityEditorFromServer();
@@ -7612,9 +7614,11 @@ function escapeHtml(s) {
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
 
+                // A keeps-all store can connect its bank ahead of time; say plainly that payouts have not started.
+                const keepsAll = (typeof _isKeepsAll === 'function') && _isKeepsAll();
                 if (!d.connected) {
                     body.innerHTML = `
-                        <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:14px;">Connect a bank account to receive payouts when brands pay for demos at your store.</div>
+                        <div style="font-size:0.92rem;color:var(--ink-700);line-height:1.55;margin-bottom:14px;">${keepsAll ? 'Connect a bank account so your store can be paid directly for demos. Until direct payouts are turned on for your store, Demohub collects the demo fees under your current arrangement.' : 'Connect a bank account to receive payouts when brands pay for demos at your store.'}</div>
                         <div style="background:#f9f7f2;border-radius:10px;padding:14px 16px;margin-bottom:8px;">
                             <div style="font-size:0.82rem;font-weight:700;color:var(--forest-900);margin-bottom:8px;">Two ways to verify your bank</div>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; font-size:0.8rem; color:var(--ink-700); line-height:1.55;">
@@ -7641,10 +7645,10 @@ function escapeHtml(s) {
                     body.innerHTML = `
                         <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
                             <svg width="22" height="22" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#2a5b32"/><path d="M7.5 12.5l2.8 2.8 6-6.4" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-                            <div style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">Bank connected · payouts active</div>
+                            <div style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">${keepsAll ? 'Bank connected' : 'Bank connected · payouts active'}</div>
                         </div>
                         ${bankLine}
-                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">You'll receive payouts within 2 business days of each demo payment, minus Stripe + Demohub platform fees.</div>
+                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">${keepsAll ? 'Your bank is ready. Direct payouts are not turned on for your store yet, so Demohub still collects the demo fees under your current arrangement. Demohub will let you know when payouts to this bank begin.' : 'You\'ll receive payouts within 2 business days of each demo payment, minus Stripe + Demohub platform fees.'}</div>
                         <button class="btn btn-secondary" onclick="openConnectDashboard()" style="padding:9px 16px;font-size:0.9rem;">Open Stripe Express dashboard &rarr;</button>
                     `;
                 } else {
