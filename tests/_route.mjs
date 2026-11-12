@@ -84,13 +84,17 @@ export function installSpy() {
   // failure/reconciliation paths are exercised deterministically WITHOUT any production code seam.
   // `once: true` fires for the first matching request only (one bad item among good ones). The
   // response carries both PostgREST's {message} and Stripe's {error:{message}} shapes. Never touched
-  // by production.
+  // by production. Round 8: a fault with `before` runs that async hook when the request is matched (a test
+  // plays a concurrent actor between two of the handler's steps); with `passthrough: true` the request then
+  // goes through normally instead of failing.
   const faults = [];
-  const matchFault = (u, opts) => {
+  const matchFault = async (u, opts) => {
     const i = faults.findIndex(f => u.includes(f.url) && (!f.method || String(opts.method || 'GET').toUpperCase() === f.method));
     if (i < 0) return null;
     const fault = faults[i];
     if (fault.once) faults.splice(i, 1);
+    if (typeof fault.before === 'function') await fault.before(u, opts);
+    if (fault.passthrough) return null;
     const body = { message: fault.message || 'injected_fault', error: { message: fault.message || 'injected_fault', type: 'injected_fault' } };
     return { ok: false, status: fault.status || 500, json: async () => body, text: async () => JSON.stringify(body) };
   };
@@ -100,7 +104,7 @@ export function installSpy() {
       // The whole form body is kept (it never carries a key): a checkout Session request runs past 300 characters and
       // tests/connected_checkout.test.mjs reads its payment_intent_data fields.
       calls.stripe.push({ url: u, method: (opts.method || 'GET'), body: String(opts.body || '').slice(0, 8000) });
-      const fault = matchFault(u, opts);
+      const fault = await matchFault(u, opts);
       if (fault) return fault;
       // Shapes the handlers actually consume.
       // TEST-CONTROLLED FIXTURES — Codex v6.
@@ -167,13 +171,13 @@ export function installSpy() {
       calls.resend.push({ to: parsed && parsed.to, subject: parsed && parsed.subject, html: (parsed && parsed.html) || '', idempotency_key: (opts.headers && (opts.headers['Idempotency-Key'] || opts.headers['idempotency-key'])) || null });
       // Faults apply to the mail provider too, so a test can prove a failed send is retried rather
       // than recorded as delivered (the notification outbox keeps the row as failed with a backoff).
-      const fault = matchFault(u, opts);
+      const fault = await matchFault(u, opts);
       if (fault) return fault;
       return jsonRes({ id: 'email_test' });
     }
     if (u.includes(SB_REF)) {
       calls.supabase++;
-      const fault = matchFault(u, opts);
+      const fault = await matchFault(u, opts);
       if (fault) return fault;
       return real(url, opts);
     }

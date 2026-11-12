@@ -19,6 +19,23 @@
 //      further checkout is refused not_payable_state;
 //   8. a direct registration without a reservation (the ledger tests' and rehearsal's path) still works, and a fork
 //      against an open attempt is still attempt_in_progress; fail_payment_attempt refuses a non-reserved attempt.
+// Round 8 (2026-11-11, Codex R7-1: Stripe replays the SAVED FIRST RESPONSE for an idempotency key, never current state;
+// the simulator now does the same, and the handler must read the session's current state after every create or replay):
+//   4. (tightened) the replay still says open/unpaid; the handler's fresh GET observes the expiry; the dead url is never
+//      returned; exactly one usable payable attempt results;
+//   9. the session COMPLETED (paid) between the failed write and the retry while the replay still says open/unpaid: 409
+//      payment_pending, no second generation, session or charge; the completed session is bound to its reservation so the
+//      verified payment path applies it; the paid event then applies and a further checkout is refused;
+//  10. the current object is unreadable (GET fails): 503 provider_unreachable, the reservation kept, no guess, no new
+//      generation; the next retry binds the same session;
+//  11. simultaneous recovery calls after the failed write and the expiry: one usable payable attempt, one new session, the
+//      dead url never returned, no duplicate;
+//  12. fail_payment_attempt answers not_reserved (another recovery terminalized the reservation first): the handler
+//      re-reads the ledger instead of assuming; a. it reserves the next generation itself; b. the other recovery already
+//      bound a new session: 409 attempt_in_progress, nothing created;
+//  13. the current object contradicts the ledger (amount): 500 amount_reconcile_failed, the reservation KEPT (not failed,
+//      no new generation; the contradictory session could still be paid), nothing returned; after a verified expiry the
+//      reservation is terminalized and the next generation created.
 import { createHmac } from 'node:crypto';
 import { installSpy, callRoute, req, rawReq, ok, summary, uniq, ENV, FIXTURE_PRODUCTS } from './_route.mjs';
 import { HOURLY } from './_fixture_availability.mjs';
@@ -68,6 +85,20 @@ async function checkout(ids) {
 const attemptsOf = async (gid) => (await db(`payment_attempts?payment_group_id=eq.${gid}&select=id,status,stripe_checkout_session_id,generation,canonical_request_hash,last_error&order=created_at.asc`)).body || [];
 const groupOf = async (gid) => one(await db(`payment_groups?id=eq.${gid}&select=id,status,stripe_checkout_session_id`));
 const live = (atts) => atts.filter(a => ['open', 'reserved'].includes(a.status));
+const sessionsForGroup = (gid) => [...spy.sessions.values()].filter(s => s.metadata && s.metadata.payment_group_id === gid).length;
+const replayBody = (gid, attemptId) => JSON.parse(spy.sessionsByKey.get(`co-${gid}-${attemptId}`) || 'null');
+const gidOfBooking = async (b) => (((await db(`payment_allocations?booking_id=eq.${b}&select=payment_group_id`)).body || [])[0] || {}).payment_group_id;
+// a failed bind: provider creation succeeds, the ledger write fails once; returns the reservation row and the session
+async function failedBind() {
+  const b = await book();
+  spy.faults.push({ url: '/rest/v1/rpc/register_payment_attempt', method: 'POST', status: 500, message: 'db_write_outage', once: true });
+  const c1 = await checkout([b]);
+  const gid = await gidOfBooking(b);
+  const a1 = await attemptsOf(gid);
+  const s = [...spy.sessions.values()].slice(-1)[0];
+  if (!(c1.res.statusCode === 503 && a1.length === 1 && a1[0].status === 'reserved' && a1[0].stripe_checkout_session_id === null && s && s.metadata.payment_group_id === gid)) throw new Error('failed bind precondition not met: ' + JSON.stringify({ s: c1.res.statusCode, a1 }));
+  return { b, gid, reservation: a1[0], session: s, c1 };
+}
 
 try {
   console.log('\n1. a retry while the first session is open creates nothing');
@@ -116,9 +147,12 @@ try {
     const gid = ((await db(`payment_allocations?booking_id=eq.${b}&select=payment_group_id`)).body || [])[0].payment_group_id;
     const dead = [...spy.sessions.values()].slice(-1)[0];
     dead.status = 'expired';
+    const a1 = await attemptsOf(gid);
     const c2 = await checkout([b]);
     const atts = await attemptsOf(gid);
-    ok('the retry replays the dead session, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead link is never returned', c1.res.statusCode === 503 && c2.res.statusCode === 200 && c2.res.body.session_id !== dead.id && c2.posts === 2 && atts.length === 2 && atts[0].status === 'failed' && atts[0].stripe_checkout_session_id === dead.id && /session_unusable:expired/.test(atts[0].last_error || '') && atts[1].status === 'open' && atts[1].generation === 2 && atts[1].stripe_checkout_session_id === c2.res.body.session_id, JSON.stringify({ s: c2.res.statusCode, atts: atts.map(a => [a.status, a.generation, a.last_error]) }));
+    const replay = replayBody(gid, a1[0].id);
+    ok('round 8: the replay for the reservation key still says open/unpaid (the saved first response), and the handler read the session\'s CURRENT state (GET) after the replay', replay && replay.id === dead.id && replay.status === 'open' && replay.payment_status === 'unpaid' && c2.calls.includes(`GET /v1/checkout/sessions/${dead.id}`), JSON.stringify({ replay: replay && [replay.status, replay.payment_status], calls: c2.calls }));
+    ok('the retry sees the expiry on the fresh read, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead url is never returned; exactly one live attempt', c1.res.statusCode === 503 && c2.res.statusCode === 200 && c2.res.body.session_id !== dead.id && c2.res.body.url && c2.res.body.url !== dead.url && c2.posts === 2 && atts.length === 2 && atts[0].status === 'failed' && atts[0].stripe_checkout_session_id === dead.id && /session_unusable:expired/.test(atts[0].last_error || '') && atts[1].status === 'open' && atts[1].generation === 2 && atts[1].stripe_checkout_session_id === c2.res.body.session_id && live(atts).length === 1 && sessionsForGroup(gid) === 2, JSON.stringify({ s: c2.res.statusCode, dead_url_returned: c2.res.body.url === dead.url, atts: atts.map(a => [a.status, a.generation, a.last_error]) }));
   }
 
   console.log('\n5. simultaneous retries share one reservation and one session');
@@ -177,6 +211,85 @@ try {
     ok('fail_payment_attempt refuses an attempt that is not reserved (outcome not_reserved), the open attempt untouched', notReserved.ok && notReserved.body.outcome === 'not_reserved' && (await attemptsOf(gid))[0].status === 'open', notReserved.text.slice(0, 120));
     const anon = await fetch(`${SB}/rest/v1/rpc/reserve_payment_attempt`, { method: 'POST', headers: { apikey: process.env.SB_ANON_KEY || KEY.replace(/./g, 'x'), 'Content-Type': 'application/json' }, body: JSON.stringify({ p_group_id: gid, p_hash: 'x', p_schema: 1 }) });
     ok('the reservation function is not reachable without the service credential', anon.status === 401 || anon.status === 403 || anon.status === 404, String(anon.status));
+  }
+
+  console.log('\n9. the replayed session completed (paid) between the failed write and the retry; the replay still says open/unpaid');
+  {
+    const { b, gid, reservation, session: s } = await failedBind();
+    const pi = 'pi_' + uniq('r').replace(/-/g, '');
+    s.status = 'complete'; s.payment_status = 'paid'; s.payment_intent = pi;
+    const c2 = await checkout([b]);
+    const atts = await attemptsOf(gid);
+    const replay = replayBody(gid, reservation.id);
+    ok('the retry: the replay says open/unpaid, the fresh GET sees complete/paid: 409 payment_pending, no url, no new generation, no second session, nothing marked failed; the completed session is bound to its reservation (open) for the verified payment path', c2.res.statusCode === 409 && c2.res.body.error === 'payment_pending' && !c2.res.body.url && c2.posts === 1 && c2.calls.includes(`GET /v1/checkout/sessions/${s.id}`) && replay && replay.status === 'open' && atts.length === 1 && atts[0].id === reservation.id && atts[0].status === 'open' && atts[0].stripe_checkout_session_id === s.id && sessionsForGroup(gid) === 1, JSON.stringify({ s: c2.res.statusCode, body: c2.res.body, calls: c2.calls, atts: atts.map(a => [a.status, a.generation, a.stripe_checkout_session_id === s.id]) }));
+    spy.fixtures.paymentIntents[pi] = { id: pi, object: 'payment_intent', amount_received: 15000, currency: 'usd', latest_charge: { id: 'ch_' + uniq('r').replace(/-/g, ''), object: 'charge' } };
+    const raw = JSON.stringify({ id: 'evt_' + uniq('p'), type: 'checkout.session.completed', data: { object: { id: s.id, object: 'checkout.session', mode: 'payment', payment_status: 'paid', amount_total: 15000, currency: 'usd', payment_intent: pi, metadata: { payment_group_id: gid } } } });
+    const w = await callRoute('stripe-webhook.js', rawReq(raw, { signature: sign(raw) }));
+    const c3 = await checkout([b]);
+    const after = await attemptsOf(gid);
+    ok('the verified payment path applies the completed payment to that attempt (group paid, attempt paid, no case); a further checkout is refused not_payable_state with no Stripe call; still one attempt, one session', w.statusCode === 200 && (await groupOf(gid)).status === 'paid' && after.length === 1 && after[0].status === 'paid' && c3.res.statusCode === 409 && c3.res.body.error === 'not_payable_state' && c3.calls.length === 0 && sessionsForGroup(gid) === 1 && (((await db(`reconciliation_cases?payment_group_id=eq.${gid}&select=id`)).body || []).length === 0), JSON.stringify({ w: w.statusCode, g: (await groupOf(gid)).status, after: after.map(a => a.status), s: c3.res.statusCode }));
+  }
+
+  console.log('\n10. the current object is unreadable after the replay');
+  {
+    const { b, gid, reservation, session: s } = await failedBind();
+    spy.faults.push({ url: `/v1/checkout/sessions/${s.id}`, method: 'GET', status: 500, message: 'provider_outage', once: true });
+    const c2 = await checkout([b]);
+    const atts = await attemptsOf(gid);
+    ok('GET fails: 503 provider_unreachable, no url, the reservation kept as it was (reserved, no session id), nothing failed, no new generation, no second session; the replay happened once and the current read was attempted', c2.res.statusCode === 503 && c2.res.body.error === 'provider_unreachable' && !c2.res.body.url && c2.posts === 1 && c2.calls.includes(`GET /v1/checkout/sessions/${s.id}`) && atts.length === 1 && atts[0].id === reservation.id && atts[0].status === 'reserved' && atts[0].stripe_checkout_session_id === null && sessionsForGroup(gid) === 1, JSON.stringify({ s: c2.res.statusCode, body: c2.res.body, calls: c2.calls, atts: atts.map(a => [a.status, a.generation]) }));
+    const c3 = await checkout([b]);
+    const after = await attemptsOf(gid);
+    ok('the next retry: the same key replays the same session, the fresh read sees it open, it is bound; one attempt, one session, its current url', c3.res.statusCode === 200 && c3.res.body.session_id === s.id && c3.res.body.url === s.url && after.length === 1 && after[0].status === 'open' && after[0].stripe_checkout_session_id === s.id && sessionsForGroup(gid) === 1, JSON.stringify({ s: c3.res.statusCode, after: after.map(a => [a.status, a.generation]) }));
+  }
+
+  console.log('\n11. simultaneous recovery calls after the failed write and the expiry');
+  {
+    const { b, gid, reservation, session: dead } = await failedBind();
+    dead.status = 'expired';
+    const [p, q] = await Promise.all([checkout([b]), checkout([b])]);
+    const atts = await attemptsOf(gid);
+    const wins = [p, q].filter(x => x.res.statusCode === 200);
+    const sameSession = wins.every(x => x.res.body.session_id === wins[0].res.body.session_id);
+    const acceptable = [p, q].every(x => x.res.statusCode === 200 || (x.res.statusCode === 409 && x.res.body.error === 'attempt_in_progress'));
+    ok('two recoveries at once: every answer is 200 with the SAME fresh session or 409 attempt_in_progress; the dead url never returned; attempts failed (dead) + open (generation 2), exactly one live attempt; exactly one new session for the group', wins.length >= 1 && sameSession && acceptable && wins.every(x => x.res.body.session_id !== dead.id && x.res.body.url !== dead.url) && atts.length === 2 && atts.filter(a => a.status === 'failed' && a.id === reservation.id && a.stripe_checkout_session_id === dead.id).length === 1 && atts.filter(a => a.status === 'open' && a.generation === 2).length === 1 && live(atts).length === 1 && sessionsForGroup(gid) === 2, JSON.stringify({ codes: [p.res.statusCode, q.res.statusCode], errors: [p.res.body.error, q.res.body.error], atts: atts.map(a => [a.status, a.generation]), sessions: sessionsForGroup(gid) }));
+  }
+
+  console.log('\n12. fail_payment_attempt answers not_reserved: another recovery moved the reservation first');
+  {
+    // a. the other recovery only terminalized it: the handler re-reads, reserves the next generation itself
+    const { b, gid, reservation, session: dead } = await failedBind();
+    dead.status = 'expired';
+    spy.faults.push({ url: '/rest/v1/rpc/fail_payment_attempt', method: 'POST', once: true, passthrough: true, before: async () => { await rpc('fail_payment_attempt', { p_attempt_id: reservation.id, p_session_id: dead.id, p_error: 'concurrent_recovery' }); } });
+    const c2 = await checkout([b]);
+    const atts = await attemptsOf(gid);
+    ok('a. the handler\'s fail_payment_attempt came back not_reserved (status failed by the other caller): it re-read the ledger, reserved generation 2 and returned a fresh session; the first attempt keeps the other caller\'s record, nothing duplicated', c2.res.statusCode === 200 && c2.res.body.session_id !== dead.id && c2.res.body.url !== dead.url && c2.posts === 2 && atts.length === 2 && atts[0].status === 'failed' && atts[0].last_error === 'concurrent_recovery' && atts[0].stripe_checkout_session_id === dead.id && atts[1].status === 'open' && atts[1].generation === 2 && atts[1].stripe_checkout_session_id === c2.res.body.session_id && live(atts).length === 1, JSON.stringify({ s: c2.res.statusCode, body: c2.res.body && c2.res.body.error, atts: atts.map(a => [a.status, a.generation, a.last_error]) }));
+    // b. the other recovery terminalized it AND bound a new session: the handler sees the open attempt and refuses
+    const second = await failedBind();
+    second.session.status = 'expired';
+    let bound = null;
+    spy.faults.push({ url: '/rest/v1/rpc/fail_payment_attempt', method: 'POST', once: true, passthrough: true, before: async () => {
+      await rpc('fail_payment_attempt', { p_attempt_id: second.reservation.id, p_session_id: second.session.id, p_error: 'concurrent_recovery' });
+      const rv = (await rpc('reserve_payment_attempt', { p_group_id: second.gid, p_hash: second.reservation.canonical_request_hash, p_schema: 1 })).body;
+      const created = await (await fetch('https://api.stripe.com/v1/checkout/sessions', { method: 'POST', headers: { 'Idempotency-Key': `co-${second.gid}-${rv.attempt_id}`, 'Content-Type': 'application/x-www-form-urlencoded' }, body: `metadata[payment_group_id]=${second.gid}&line_items[0][price_data][unit_amount]=15000&line_items[0][quantity]=1` })).json();
+      await rpc('register_payment_attempt', { p_group_id: second.gid, p_session_id: created.id, p_payment_intent: null, p_hash: second.reservation.canonical_request_hash, p_schema: 1 });
+      bound = created;
+    } });
+    const c3 = await checkout([second.b]);
+    const atts2 = await attemptsOf(second.gid);
+    ok('b. the other recovery had already bound generation 2: the handler\'s re-read finds the open attempt, confirms it open on a fresh read and answers 409 attempt_in_progress; nothing created beyond the replay, no url, one live attempt', c3.res.statusCode === 409 && c3.res.body.error === 'attempt_in_progress' && !c3.res.body.url && c3.posts === 1 && bound && c3.calls.includes(`GET /v1/checkout/sessions/${bound.id}`) && atts2.length === 2 && atts2[0].status === 'failed' && atts2[1].status === 'open' && atts2[1].stripe_checkout_session_id === bound.id && live(atts2).length === 1 && sessionsForGroup(second.gid) === 2, JSON.stringify({ s: c3.res.statusCode, body: c3.res.body, calls: c3.calls, atts: atts2.map(a => [a.status, a.generation]) }));
+  }
+
+  console.log('\n13. the current object contradicts the ledger (amount)');
+  {
+    const { b, gid, reservation, session: s } = await failedBind();
+    s.amount_total = 99999;
+    const c2 = await checkout([b]);
+    const atts = await attemptsOf(gid);
+    ok('amount contradiction on the fresh read: 500 amount_reconcile_failed, no url, the reservation KEPT (reserved, no session id, not failed), no new generation, no second session', c2.res.statusCode === 500 && c2.res.body.error === 'amount_reconcile_failed' && !c2.res.body.url && c2.posts === 1 && atts.length === 1 && atts[0].id === reservation.id && atts[0].status === 'reserved' && atts[0].stripe_checkout_session_id === null && sessionsForGroup(gid) === 1, JSON.stringify({ s: c2.res.statusCode, body: c2.res.body, atts: atts.map(a => [a.status, a.generation]) }));
+    s.status = 'expired';
+    const c3 = await checkout([b]);
+    const after = await attemptsOf(gid);
+    ok('only a verified non-payable outcome (the contradictory session expired) terminalizes the reservation: failed with that session id, generation 2 created and returned', c3.res.statusCode === 200 && c3.res.body.session_id !== s.id && after.length === 2 && after[0].status === 'failed' && after[0].stripe_checkout_session_id === s.id && after[1].status === 'open' && after[1].generation === 2 && live(after).length === 1, JSON.stringify({ s: c3.res.statusCode, after: after.map(a => [a.status, a.generation, a.last_error]) }));
   }
 } finally {
   clearTimeout(watchdog);

@@ -1,0 +1,103 @@
+# Pre-fix run B (2026-11-11, round 8, Codex R7-1): the EXTENDED tests/attempt_reservation.test.mjs (scenario 4 tightened, scenarios 9 to 13
+# added) against the UNFIXED api/checkout.js (unchanged since eebc0e0) with the corrected simulator (db41265). demohub-rebuild-check.
+# Scenario 4 shows the defect exactly: the replay said open/unpaid, the handler made no GET, answered 200 and returned the dead url
+# (dead_url_returned: true), binding the expired session as the open attempt. Secrets never printed.
+
+===== tests/attempt_reservation.test.mjs (exit 1) =====
+
+Fixtures
+  ok   fixtures: keeps-all retailer, $150 venue, brand session
+
+1. a retry while the first session is open creates nothing
+  ok   first checkout: 200, one POST, one open attempt bound to the session with generation 1
+  ok   retry while open: 409 attempt_in_progress, no url, exactly one Stripe call and it is a GET of that session, nothing created
+
+2. the open attempt's session expired on Stripe without the ledger being told
+  ok   retry: the dead session is recorded expired and a fresh session is returned (200, new id, one POST); attempts expired + open, the expired one keeps its session id
+  ok   the dead link is never in a response: the new url differs from the expired session's
+
+3. provider creation succeeds, the ledger write fails
+  ok   503 attempt_persist_failed, no url; the reservation stays reserved with NO session id; one session exists on the provider
+  ok   the retry reuses the reservation: the same key replays the SAME session, it is bound (open), one attempt, no second session
+
+4. the replayed session is unusable (it expired between the failed write and the retry)
+  FAIL round 8: the replay for the reservation key still says open/unpaid (the saved first response), and the handler read the session's CURRENT state (GET) after the replay {"replay":["open","unpaid"],"calls":["POST /v1/checkout/sessions"]}
+  FAIL the retry sees the expiry on the fresh read, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead url is never returned; exactly one live attempt {"s":200,"dead_url_returned":true,"atts":[["open",1,null]]}
+
+5. simultaneous retries share one reservation and one session
+  ok   two checkouts at once: every 200 answer names the SAME session, exactly one live attempt (open), no second session on the provider for the group
+
+6. the attempt read fails: fail closed, no provider call
+  ok   503 attempt_reserve_failed, no url, zero Stripe calls, no attempt row
+  ok   the next checkout works normally: 200, one open attempt, generation 1
+
+7. the payment completes during a retry
+  ok   retry while the session is complete on Stripe: 409 payment_pending, no url, nothing created, the attempt still open for the webhook
+checkout.session.completed: applied, fulfilled 1 booking(s) cs_test_dgcqa0h2
+  ok   the paid event applies (group paid, attempt paid) and a further checkout is refused not_payable_state with no Stripe call
+
+8. the ledger functions on their own: direct registration, forks, failing a non-reserved attempt
+  ok   a direct registration without a reservation still inserts an open attempt (generation 1)
+  ok   a different session against the open attempt is still refused attempt_in_progress
+  ok   reserve_payment_attempt on a group with an open attempt answers that attempt (outcome open, existing true) and inserts nothing
+  ok   a different request snapshot against the live attempt is attempt_in_progress
+  ok   fail_payment_attempt refuses an attempt that is not reserved (outcome not_reserved), the open attempt untouched
+  ok   the reservation function is not reachable without the service credential
+
+9. the replayed session completed (paid) between the failed write and the retry; the replay still says open/unpaid
+  FAIL the retry: the replay says open/unpaid, the fresh GET sees complete/paid: 409 payment_pending, no url, no new generation, no second session, nothing marked failed; the completed session is bound to its reservation (open) for the verified payment path {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/05qtr0","session_id":"cs_test_1mmkgga5","payment_group_id":"9fc55c65-de6c-4fa8-8c2d-40329ff20860","total_cents":15000,"booking_ids":["1f3b3d90-6fe8-43e0-8d95-a93929eabcdd"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1,true]]}
+checkout.session.completed: applied, fulfilled 1 booking(s) cs_test_1mmkgga5
+  ok   the verified payment path applies the completed payment to that attempt (group paid, attempt paid, no case); a further checkout is refused not_payable_state with no Stripe call; still one attempt, one session
+
+10. the current object is unreadable after the replay
+  FAIL GET fails: 503 provider_unreachable, no url, the reservation kept as it was (reserved, no session id), nothing failed, no new generation, no second session; the replay happened once and the current read was attempted {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/fjcy6t","session_id":"cs_test_oldlrelj","payment_group_id":"bc63ee53-a780-4137-8c5e-5e4881f09a99","total_cents":15000,"booking_ids":["e1a07b70-e0b7-460c-b55e-2d263361f3cb"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1]]}
+  FAIL the next retry: the same key replays the same session, the fresh read sees it open, it is bound; one attempt, one session, its current url {"s":503,"after":[["open",1]]}
+
+11. simultaneous recovery calls after the failed write and the expiry
+  FAIL two recoveries at once: every answer is 200 with the SAME fresh session or 409 attempt_in_progress; the dead url never returned; attempts failed (dead) + open (generation 2), exactly one live attempt; exactly one new session for the group {"codes":[200,200],"errors":[null,null],"atts":[["open",1]],"sessions":1}
+
+12. fail_payment_attempt answers not_reserved: another recovery moved the reservation first
+  FAIL a. the handler's fail_payment_attempt came back not_reserved (status failed by the other caller): it re-read the ledger, reserved generation 2 and returned a fresh session; the first attempt keeps the other caller's record, nothing duplicated {"s":200,"atts":[["open",1,null]]}
+  FAIL b. the other recovery had already bound generation 2: the handler's re-read finds the open attempt, confirms it open on a fresh read and answers 409 attempt_in_progress; nothing created beyond the replay, no url, one live attempt {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/hzfidq","session_id":"cs_test_13i84py3","payment_group_id":"ebe02624-cfab-4904-a973-468d446294fd","total_cents":15000,"booking_ids":["5bf41899-7f55-4afa-8103-2fe1cffc324f"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1]]}
+
+13. the current object contradicts the ledger (amount)
+  FAIL amount contradiction on the fresh read: 500 amount_reconcile_failed, no url, the reservation KEPT (reserved, no session id, not failed), no new generation, no second session {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/j3vxoq","session_id":"cs_test_f6bqs4kt","payment_group_id":"082a897b-fb18-433d-ba2f-ee667fbccba0","total_cents":15000,"booking_ids":["17ae1c2d-da82-4279-8056-30664cfc2cbe"]},"atts":[["open",1]]}
+  FAIL only a verified non-payable outcome (the contradictory session expired) terminalizes the reservation: failed with that session id, generation 2 created and returned {"s":200,"after":[["expired",1,null],["open",2,null]]}
+
+:: teardown ::
+  deleted 2 booking_fulfillments
+  deleted 6 notification_events
+  deleted 14 payment_allocations
+  deleted 16 payment_attempts
+  deleted 14 payment_groups
+  deleted 1 retailers
+  deleted 1 brands
+  teardown: {"cases_by_group":0,"refund_requests":0,"refund_operations":0,"booking_fulfillments":2,"booking_operations":0,"booking_code_redemptions":0,"notification_deliveries":0,"notification_events":6,"payment_allocations":14,"payment_attempts":16,"booking_fulfillments_by_group":0,"payment_groups":14,"brand_sessions":0,"brand_tokens":0,"retailers":1,"brands":1}
+
+payment attempt reservations (routes + ledger, demohub-rebuild-check): 19 passed, 10 failed
+FAILURES:
+  x round 8: the replay for the reservation key still says open/unpaid (the saved first response), and the handler read the session's CURRENT state (GET) after the replay {"replay":["open","unpaid"],"calls":["POST /v1/checkout/sessions"]}
+  x the retry sees the expiry on the fresh read, records the reservation failed WITH that session id and the reason, reserves generation 2 and returns a fresh usable session; the dead url is never returned; exactly one live attempt {"s":200,"dead_url_returned":true,"atts":[["open",1,null]]}
+  x the retry: the replay says open/unpaid, the fresh GET sees complete/paid: 409 payment_pending, no url, no new generation, no second session, nothing marked failed; the completed session is bound to its reservation (open) for the verified payment path {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/05qtr0","session_id":"cs_test_1mmkgga5","payment_group_id":"9fc55c65-de6c-4fa8-8c2d-40329ff20860","total_cents":15000,"booking_ids":["1f3b3d90-6fe8-43e0-8d95-a93929eabcdd"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1,true]]}
+  x GET fails: 503 provider_unreachable, no url, the reservation kept as it was (reserved, no session id), nothing failed, no new generation, no second session; the replay happened once and the current read was attempted {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/fjcy6t","session_id":"cs_test_oldlrelj","payment_group_id":"bc63ee53-a780-4137-8c5e-5e4881f09a99","total_cents":15000,"booking_ids":["e1a07b70-e0b7-460c-b55e-2d263361f3cb"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1]]}
+  x the next retry: the same key replays the same session, the fresh read sees it open, it is bound; one attempt, one session, its current url {"s":503,"after":[["open",1]]}
+  x two recoveries at once: every answer is 200 with the SAME fresh session or 409 attempt_in_progress; the dead url never returned; attempts failed (dead) + open (generation 2), exactly one live attempt; exactly one new session for the group {"codes":[200,200],"errors":[null,null],"atts":[["open",1]],"sessions":1}
+  x a. the handler's fail_payment_attempt came back not_reserved (status failed by the other caller): it re-read the ledger, reserved generation 2 and returned a fresh session; the first attempt keeps the other caller's record, nothing duplicated {"s":200,"atts":[["open",1,null]]}
+  x b. the other recovery had already bound generation 2: the handler's re-read finds the open attempt, confirms it open on a fresh read and answers 409 attempt_in_progress; nothing created beyond the replay, no url, one live attempt {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/hzfidq","session_id":"cs_test_13i84py3","payment_group_id":"ebe02624-cfab-4904-a973-468d446294fd","total_cents":15000,"booking_ids":["5bf41899-7f55-4afa-8103-2fe1cffc324f"]},"calls":["POST /v1/checkout/sessions"],"atts":[["open",1]]}
+  x amount contradiction on the fresh read: 500 amount_reconcile_failed, no url, the reservation KEPT (reserved, no session id, not failed), no new generation, no second session {"s":200,"body":{"ok":true,"url":"https://checkout.stripe.test/j3vxoq","session_id":"cs_test_f6bqs4kt","payment_group_id":"082a897b-fb18-433d-ba2f-ee667fbccba0","total_cents":15000,"booking_ids":["17ae1c2d-da82-4279-8056-30664cfc2cbe"]},"atts":[["open",1]]}
+  x only a verified non-payable outcome (the contradictory session expired) terminalizes the reservation: failed with that session id, generation 2 created and returned {"s":200,"after":[["expired",1,null],["open",2,null]]}
+
+--- stderr ---
+(node:38732) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///C:/Users/David/demohub/api/_env.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to C:\Users\David\demohub\package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+reserve_payment_attempt failed: ledger_outage
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
+register_payment_attempt failed: db_write_outage
