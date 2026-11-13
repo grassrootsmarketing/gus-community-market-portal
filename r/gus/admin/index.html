@@ -7667,6 +7667,7 @@ function escapeHtml(s) {
         }
 
         async function startConnectOnboarding(btn) {
+            const btnLabel = btn ? btn.textContent : '';
             if (btn) { btn.disabled = true; btn.textContent = 'Loading…'; }
             try {
                 const r = await fetch('/api/stripe?action=connect-onboard', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
@@ -7674,8 +7675,10 @@ function escapeHtml(s) {
                 if (d.url) { window.location.href = d.url; return; }
                 throw new Error(d.error || 'Failed');
             } catch (e) {
-                DhModal.toast('Could not start onboarding: ' + (e.message || e), 'error');
-                if (btn) { btn.disabled = false; btn.textContent = 'Connect bank for payouts →'; }
+                // Plain wording for the store. The technical reason goes to the console only.
+                try { console.warn('connect-onboard failed:', (e && e.message) || e); } catch (_) {}
+                DhModal.toast('Bank setup could not be opened right now. Nothing on your account was changed. Please try again in a few minutes, or email david@demohubhq.com and we will get it sorted.', 'error');
+                if (btn) { btn.disabled = false; btn.textContent = btnLabel || 'Connect bank for payouts →'; }
             }
         }
         async function openConnectDashboard() {
