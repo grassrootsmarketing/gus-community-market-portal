@@ -702,6 +702,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 const p = new URLSearchParams(location.search);
                 if (p.has('paid')) {
                     try { sessionStorage.removeItem('dh_outcomes_' + (location.pathname.split('/')[2] || '')); } catch (_) {}
+                    forgetPayLink();
                     const bookingsParam = p.get('bookings') || '';
                     const bookingIds = bookingsParam ? bookingsParam.split(',').filter(Boolean) : [];
                     // Clear the cart client-side before we leave. No redraw: the assign() below
@@ -976,9 +977,29 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             const el = document.createElement('div');
             el.setAttribute('role', 'status');
             el.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#a14e2a;color:#fbf7f0;padding:14px 22px;border-radius:12px;box-shadow:0 8px 24px rgba(15,44,23,0.35);font-family:"Plus Jakarta Sans",sans-serif;font-size:0.95rem;font-weight:600;max-width:520px;';
-            el.textContent = 'Checkout cancelled. Your booking is still pending, you can pick it up in your email or try again.';
+            // The brand came back from Stripe without paying. The demo is saved and unpaid, and the payment page they left
+            // is still open at Stripe, so the notice offers the way back to it (the link this tab remembered, or a fresh
+            // attempt for the saved demos). It stays on screen until dismissed when there is something to click; no email
+            // and no dashboard page carries a pay link, so neither is promised here.
+            const link = recallPayLink();
+            const pendingIds = loadOutcomes().paid.map(o => o.id);
+            const linkStyle = 'color:#fbf7f0; font-weight:800; text-decoration:underline;';
+            const msg = document.createElement('span');
+            msg.textContent = 'Payment was not completed. Your demo is saved but not paid yet. ';
+            el.appendChild(msg);
+            let actionable = false;
+            if (link) {
+                const a = document.createElement('a'); a.href = link.url; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; el.appendChild(a); actionable = true;
+            } else if (pendingIds.length) {
+                const a = document.createElement('a'); a.href = '#'; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; a.onclick = function () { return payPendingBookings(a); }; el.appendChild(a); actionable = true;
+            }
+            if (actionable) {
+                const x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×';
+                x.style.cssText = 'margin-left:14px; background:transparent; border:0; color:#fbf7f0; font-size:1.2rem; font-weight:700; cursor:pointer; line-height:1;';
+                x.onclick = function () { el.remove(); }; el.appendChild(x);
+            }
             document.body.appendChild(el);
-            setTimeout(() => { el.style.transition = 'opacity 0.4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }, 6000);
+            if (!actionable) setTimeout(() => { el.style.transition = 'opacity 0.4s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 500); }, 8000);
         }
         
 
@@ -2208,6 +2229,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     const checkoutJson = await checkoutResp.json().catch(() => ({}));
                     if (checkoutResp.ok && checkoutJson.url && !checkoutJson.skip) {
                         // Redirect the brand to Stripe. Webhook flips bookings to paid on success.
+                        rememberPayLink(checkoutJson.url);
                         window.location.assign(checkoutJson.url);
                         return; // stop here; brand comes back to /r/{slug}/?paid=1
                     }
@@ -2225,10 +2247,10 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                         // A store-side refusal carries its own explanation (insurance on file required at this store, the
                         // store's payouts not set up yet, online payment not available at this store): show that, not a
                         // generic "try again", because trying again will not change it.
-                        const explained = ['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(checkoutJson.error) && checkoutJson.message;
+                        const explained = checkoutRefusalText(checkoutJson);
                         errMsg.innerHTML = explained
-                            ? escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' + checkoutJson.message)
-                            : escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Could not open payment just now. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
+                            ? escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. ' + explained)
+                            : escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Payment could not be opened just now. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a>.';
                         errMsg.style.display = 'block';
                         btn.disabled = false;
                         btn.textContent = origLabel;
@@ -2236,7 +2258,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     }
                 } catch (e) {
                     console.warn('checkout-session error, falling back to modal:', e);
-                    errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. Network error opening payment. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a> or pay from your dashboard.';
+                    errMsg.innerHTML = escapeHtml(freeNote + unpaid.length + ' full-price ' + (unpaid.length === 1 ? 'demo is' : 'demos are') + ' saved but not yet paid. The payment page could not be reached. ') + '<a href="#" onclick="return payPendingBookings(this)" style="color:inherit; font-weight:700; text-decoration:underline;">Try payment again</a>.';
                     errMsg.style.display = 'block';
                     btn.disabled = false;
                     btn.textContent = origLabel;
@@ -2309,13 +2331,33 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (!window._bookingCode && o.recovery[0] && o.recovery[0].frozen && o.recovery[0].frozen.booking_code) window._bookingCode = { code: o.recovery[0].frozen.booking_code, waives_fee: false, waives_lead_time: true, itemId: o.recovery[0].op_key, locked: true };
             updateCartDisplay(); renderLocationSwitcher();
         }
+        // The Stripe payment page this tab last opened, kept so a brand who comes back without paying can return to it.
+        // The server refuses a second link while that page is still open (one payable link per cart), so without this the
+        // brand would have no way back until the page expires. Same-tab sessionStorage only; the address is the brand's own
+        // payment link, it is only ever followed when it is a Stripe Checkout address, and it is dropped after 23 hours
+        // (Stripe closes an unpaid page after 24) and as soon as the payment comes back paid.
+        function payLinkKey() { return 'dh_paylink_' + (location.pathname.split('/')[2] || ''); }
+        function rememberPayLink(url) { try { if (typeof url === 'string' && url) sessionStorage.setItem(payLinkKey(), JSON.stringify({ url: url, at: Date.now() })); } catch (_) {} }
+        function recallPayLink() { try { const o = JSON.parse(sessionStorage.getItem(payLinkKey()) || 'null'); if (o && typeof o.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(o.url) && Date.now() - Number(o.at || 0) < 23 * 3600 * 1000) return o; } catch (_) {} return null; }
+        function forgetPayLink() { try { sessionStorage.removeItem(payLinkKey()); } catch (_) {} }
+        // A refusal that trying again will not change, in words a person can act on. The server's own message when it sends
+        // one; its own wording here for the one refusal that carries none (online payment switched off for this store).
+        function checkoutRefusalText(j) {
+            const code = j && j.error;
+            if (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(code) && j.message) return j.message;
+            if (code === 'connected_checkout_unavailable_pilot') return 'Online payment is not available at this store right now. Please contact the store.';
+            return '';
+        }
         async function payPendingBookings(a) {
             // the EXACT saved unpaid set: the claim function reuses the existing pending payment group for an identical set
             const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
-            a.textContent = 'opening payment…';
-            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { window.location.assign(j.url); return false; }
-                a.textContent = j.error === 'already_in_checkout' ? 'these demos are already in a payment session. Open it from your dashboard' : j.error === 'payment_pending' ? 'this payment is being confirmed. Refresh in a moment' : j.error === 'not_payable_state' ? 'these demos are no longer awaiting payment. See your dashboard' : (['store_requires_insurance_on_file', 'store_not_payout_ready', 'connected_checkout_unavailable_pilot', 'provisional_holds_disabled', 'booking_state_changed', 'held_recheck_failed'].includes(j.error) && j.message) ? j.message : 'could not open payment. Try again or pay from your dashboard'; }
-            catch (_) { a.textContent = 'could not open payment. Try again or pay from your dashboard'; }
+            a.textContent = 'Opening payment…';
+            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { rememberPayLink(j.url); window.location.assign(j.url); return false; }
+                // a payment page is already open for these demos: go back to it when this tab still has its address
+                if (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') { const link = recallPayLink(); if (link) { window.location.assign(link.url); return false; } }
+                const refusal = checkoutRefusalText(j);
+                a.textContent = (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') ? 'A payment page is already open for these demos. Finish paying on that page. If you closed it, you can open payment again here once it expires, within 24 hours.' : j.error === 'payment_pending' ? 'This payment is being confirmed. Refresh this page in a moment.' : j.error === 'not_payable_state' ? 'These demos are no longer awaiting payment. See your dashboard.' : refusal ? refusal : 'Payment could not be opened. Click here to try again.'; }
+            catch (_) { a.textContent = 'The payment page could not be reached. Click here to try again.'; }
             return false;
         }
         async function applyBookingCode() {
