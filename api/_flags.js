@@ -88,7 +88,7 @@ export const FLAGS = {
   // Connected checkout (0116, revenue split rehearsal 2026-10-30): destination charges for a store that is NOT
   // platform_keeps_all (the brand pays the store's demo fee plus the $10 platform fee; Stripe routes the demo fee
   // to the store's connected account and keeps the platform fee on Demohub). Exactly "true" = api/checkout.js
-  // accepts a non-keeps-all store that is payout-ready (stripe_account_id present and stripe_charges_enabled).
+  // accepts a non-keeps-all store that is payout-ready (storedConnectReady in api/_connect-readiness.js).
   // Anything else = today's pilot behaviour: every non-keeps-all checkout is refused 409
   // connected_checkout_unavailable_pilot before any claim, so no connected payment group can be created. A group
   // that already exists keeps working through every later path (webhook apply, refunds, workers), which never

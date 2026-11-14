@@ -47,7 +47,7 @@ console.log('\nFixtures');
 async function mkRetailer(prefix, connected) {
   const slug = uniq(prefix);
   const id = one(await db('retailers', { method: 'POST', body: JSON.stringify({ slug, name: connected ? 'Promotion Connected Market' : 'Promotion Keeps-all Market', billing_email: `${slug}@fixture.test`, billing_tier: 'pro', billing_status: 'active',
-    platform_keeps_all: !connected, stripe_account_id: connected ? ACCT : null, stripe_charges_enabled: connected, stripe_payouts_enabled: connected, timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable', verification_status: 'approved' }) })).id;
+    platform_keeps_all: !connected, stripe_account_id: connected ? ACCT : null, stripe_charges_enabled: connected, stripe_payouts_enabled: connected, stripe_account_status: connected ? 'active' : null, timezone: LA, auto_confirm_bookings: true, cancellation_mode: 'refundable', verification_status: 'approved' }) })).id;
   await db('settings', { method: 'POST', body: JSON.stringify({ retailer_id: id, demo_fee: 150, advance_booking_days: 0 }) });
   const venue = one(await db('venues', { method: 'POST', body: JSON.stringify({ retailer_id: id, name: 'Main', address: '1 Promotion St', demo_fee: 150, availability: HOURLY }) })).id;
   return { id, slug, venue };

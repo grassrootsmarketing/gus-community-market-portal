@@ -12,6 +12,7 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
+import { connectReadiness, readinessPatch } from './_connect-readiness.js';
 let _b = null;
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
 
@@ -358,19 +359,21 @@ export default async function handler(req, res) {
           connected: false,
           charges_enabled: false,
           payouts_enabled: false,
+          transfers_active: false,
+          ready: false,
         });
       }
       const acct = await stripe('GET', `/v1/accounts/${encodeURIComponent(retailer.stripe_account_id)}`);
-      const charges = !!acct.charges_enabled;
-      const payouts = !!acct.payouts_enabled;
-      const status = charges && payouts ? 'active' : (acct.requirements?.disabled_reason ? 'restricted' : 'pending');
+      // The shared readiness policy (api/_connect-readiness.js): charges enabled, payouts enabled AND the transfers
+      // capability active. The same function decides for the connected-account event route, and the checkout gate
+      // reads what is stored here, so the admin card, the stored status and checkout cannot disagree.
+      const readiness = connectReadiness(acct);
+      const charges = readiness.charges_enabled;
+      const payouts = readiness.payouts_enabled;
+      const status = readiness.status;
       await sb(`retailers?id=eq.${encodeURIComponent(retailer.id)}`, {
         method: 'PATCH',
-        body: JSON.stringify({
-          stripe_charges_enabled: charges,
-          stripe_payouts_enabled: payouts,
-          stripe_account_status: status,
-        }),
+        body: JSON.stringify(readinessPatch(readiness)),
       });
       // Fetch the primary external account (bank) to show last4 + bank name in admin
       let bank_last4 = null, bank_name = null;
@@ -386,6 +389,8 @@ export default async function handler(req, res) {
         connected: true,
         charges_enabled: charges,
         payouts_enabled: payouts,
+        transfers_active: readiness.transfers_active,
+        ready: readiness.ready,
         bank_last4,
         bank_name,
         status,

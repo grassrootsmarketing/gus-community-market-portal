@@ -129,6 +129,10 @@ try {
     const w0 = await callRoute('stripe-webhook.js', rawReq(rawNoTransfers, { signature: sign(rawNoTransfers) }));
     const row0 = one(await db(`retailers?id=eq.${retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));
     ok('account.updated with the transfers capability still pending: both booleans on but status pending, not active', w0.statusCode === 200 && row0.stripe_charges_enabled === true && row0.stripe_payouts_enabled === true && row0.stripe_account_status === 'pending', JSON.stringify(row0));
+    // Codex release verdict 2026-11-13: the gate follows the shared readiness policy, so both booleans on without the
+    // transfers capability is still not payout-ready (the status is not 'active').
+    const noTransfers = await checkout([b]);
+    ok('transfers capability pending: checkout still refuses 409 store_not_payout_ready, no Stripe call', noTransfers.res.statusCode === 409 && noTransfers.res.body.error === 'store_not_payout_ready' && spy.calls.stripe.length === s0, `${noTransfers.res.statusCode}`);
     const raw = JSON.stringify({ id: 'evt_' + uniq('acct'), type: 'account.updated', data: { object: { id: ACCT, object: 'account', charges_enabled: true, payouts_enabled: true, capabilities: { card_payments: 'active', transfers: 'active' }, requirements: { disabled_reason: null } } } });
     const w = await callRoute('stripe-webhook.js', rawReq(raw, { signature: sign(raw) }));
     const row = one(await db(`retailers?id=eq.${retailerId}&select=stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status`));

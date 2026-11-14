@@ -8,7 +8,8 @@ import { FLAGS, maxCartSize } from './_flags.js';
 
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
-const STRIPE = process.env.STRIPE_SECRET_KEY;
+import { storedConnectReady } from './_connect-readiness.js';
+const STRIPE =process.env.STRIPE_SECRET_KEY;
 let _b = null;
 // SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
 // fallback here is what let a preview deployment send customers to production on checkout return.
@@ -70,7 +71,7 @@ export default async function handler(req, res) {
     // The store and its gates come BEFORE any held promotion (Codex round 4): a store that cannot be paid online (connected
     // checkout off, or payouts not ready) never has a hold moved to pending_payment for it.
     const retailerId = bookings[0].retailer_id;
-    const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,stripe_payouts_enabled,platform_keeps_all`);
+    const retailers = await sbJson(`retailers?id=eq.${encodeURIComponent(retailerId)}&select=name,slug,stripe_account_id,stripe_charges_enabled,stripe_payouts_enabled,stripe_account_status,platform_keeps_all`);
     const retailer = Array.isArray(retailers) ? retailers[0] : null;
     if (!retailer) return res.status(404).json({ error: 'retailer_not_found' });
     const platformKeepsAll = !!retailer.platform_keeps_all;
@@ -78,18 +79,20 @@ export default async function handler(req, res) {
     // pilot was keeps-all ONLY (Codex R11 "fastest safe launch"): every non-keeps-all checkout was refused here
     // AND in checkout_claim_group. The flag keeps that refusal as the default. With the flag exactly "true", a
     // non-keeps-all store is accepted only when it can actually receive the money: a connected account id is
-    // on the row and Stripe has reported charges enabled (api/stripe-webhook.js account.updated, or the status
-    // action in api/stripe.js). A store that is not there yet is refused 409 store_not_payout_ready before any
-    // claim, so no payment group is ever created for an account Stripe would reject as the destination.
+    // on the row and the stored readiness says so (see the gate below). A store that is not there yet is refused
+    // 409 store_not_payout_ready before any claim, so no payment group is ever created for an account Stripe
+    // would reject as the destination.
     if (!platformKeepsAll) {
       if (!FLAGS.connectedCheckout) {
         return res.status(409).json({ error: 'connected_checkout_unavailable_pilot', booking_ids: bookings.map(b => b.id) });
       }
-      // Payout readiness (Codex review, bounded condition): charges enabled alone is not readiness. Both booleans
-      // come from Stripe's own account object (account.updated, or the admin's connect-status refresh), and the
-      // account.updated handler marks a store 'active' only with the transfers capability live as well.
-      const acct = typeof retailer.stripe_account_id === 'string' ? retailer.stripe_account_id.trim() : '';
-      if (!acct || retailer.stripe_charges_enabled !== true || retailer.stripe_payouts_enabled !== true) {
+      // Payout readiness (Codex release verdict 2026-11-13: the gate follows the shared policy, it does not merely sit
+      // beside a display status). storedConnectReady (api/_connect-readiness.js) requires the connected account id,
+      // charges enabled, payouts enabled AND the stored status 'active'. The status is written 'active' only by that
+      // same policy, applied to Stripe's current account object, when the transfers capability is active as well
+      // (the admin's connect-status refresh and the connected-account event route, api/stripe-connect-webhook.js).
+      // So a store whose transfers capability is missing, or whose account Stripe has restricted, is refused here.
+      if (!storedConnectReady(retailer)) {
         return res.status(409).json({ error: 'store_not_payout_ready', message: 'This store has not finished setting up payouts yet, so it cannot be paid online. Please contact the store.', booking_ids: bookings.map(b => b.id) });
       }
     }
