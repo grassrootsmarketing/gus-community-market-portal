@@ -134,7 +134,7 @@ console.log('\n:: the page no longer promises a payout time or a deduction anywh
   ok('no "within 2 business days" payout promise and no "minus ... fees" in the admin page', !/within 2 business days/.test(src) && !/minus Stripe/.test(src) && !/minus platform fees/.test(src));
   const tour = lift(/\{ selector: '#payoutsCard', title: "Set up your bank next\."[^\n]*\}/, 'the bank tour step');
   ok('the first-run tour step refers to the Stripe payout schedule', /Stripe sends your money to your bank on your Stripe payout schedule\./.test(tour) && !PROMISE.test(tour), tour);
-  ok('no em dash or en dash in the card, the setup handler or the tour step', !/[–—]/.test(renderSrc + onboardSrc + tour));
+  ok('no em dash or en dash in the card, the setup handler or the tour step', !new RegExp('[' + String.fromCharCode(0x2013, 0x2014) + ']').test(renderSrc + onboardSrc + tour));
 }
 
 console.log('\n:: the wording matches how api/checkout.js builds the charge ::');
