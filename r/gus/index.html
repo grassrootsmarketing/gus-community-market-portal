@@ -715,16 +715,20 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                     window.location.assign('/brand/dashboard?booked=' + (bookingIds.length || 0) + (p.has('held') ? '&held=1' : ''));
                     return;
                 } else if (p.has('cancelled')) {
-                    showCancelledBanner();
                     history.replaceState({}, '', location.pathname);
-                } else if (recallPayLink()) {
-                    // back on this page some other way (the browser's own Back button, a reload) with a payment page still open
-                    showCancelledBanner();
+                    whenBrandSessionKnown(() => showCancelledBanner(true));
+                } else {
+                    // back on this page some other way (the browser's own Back button, a reload): the notice shows only
+                    // when this tab holds a payment link for THIS signed-in customer and THIS set of unpaid demos
+                    whenBrandSessionKnown(() => showCancelledBanner(false));
                 }
             } catch(_){}
         });
         // The browser's Back button can restore this page from its cache without running the handler above.
-        window.addEventListener('pageshow', (e) => { try { if (e.persisted && recallPayLink()) showCancelledBanner(); } catch (_) {} });
+        window.addEventListener('pageshow', (e) => { try { if (e.persisted) whenBrandSessionKnown(() => showCancelledBanner(false)); } catch (_) {} });
+        // The saved payment link is bound to the signed-in customer, so nothing about it is decided before the page knows
+        // who is signed in (the session read started at the end of this script).
+        function whenBrandSessionKnown(fn) { const run = () => { try { fn(); } catch (_) {} }; Promise.resolve(window._brandSessionLoaded).then(run, run); }
 
         // Phase B: full-page success card shown when a brand returns from Stripe Checkout with paid=1.
         // The brand already has an account (created + signed in at the booking step), so this
@@ -978,27 +982,33 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             document.body.appendChild(overlay);
         }
 
-        function showCancelledBanner() {
+        function showCancelledBanner(fromCancel) {
             const prior = document.getElementById('unpaidNotice'); if (prior) prior.remove();
+            // what may be offered is decided in one place (unpaidNoticePlan): nothing, the saved link that matches this
+            // customer and these demos, or a fresh attempt through the server
+            const plan = unpaidNoticePlan(!!fromCancel);
+            if (!plan.show) return;
             const el = document.createElement('div');
             el.id = 'unpaidNotice';
+            el.dataset.cancel = fromCancel ? '1' : '';
+            el.dataset.cust = payLinkCustomer() || '';   // who this notice was decided for
             el.setAttribute('role', 'status');
             el.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#a14e2a;color:#fbf7f0;padding:14px 22px;border-radius:12px;box-shadow:0 8px 24px rgba(15,44,23,0.35);font-family:"Plus Jakarta Sans",sans-serif;font-size:0.95rem;font-weight:600;max-width:520px;';
             // The brand came back from Stripe without paying. The demo is saved and unpaid, and the payment page they left
-            // is still open at Stripe, so the notice offers the way back to it (the link this tab remembered, or a fresh
-            // attempt for the saved demos). It stays on screen until dismissed when there is something to click; no email
-            // and no dashboard page carries a pay link, so neither is promised here.
-            const link = recallPayLink();
-            const pendingIds = loadOutcomes().paid.map(o => o.id);
+            // is still open at Stripe, so the notice offers the way back to it (the link this tab remembered for this
+            // customer and these demos, or a fresh attempt for the saved demos). It stays on screen until dismissed when
+            // there is something to click; no email and no dashboard page carries a pay link, so neither is promised here.
             const linkStyle = 'color:#fbf7f0; font-weight:800; text-decoration:underline;';
             const msg = document.createElement('span');
             msg.textContent = 'Payment was not completed. Your demo is saved but not paid yet. ';
             el.appendChild(msg);
             let actionable = false;
-            if (link) {
-                const a = document.createElement('a'); a.href = link.url; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; el.appendChild(a); actionable = true;
-            } else if (pendingIds.length) {
-                const a = document.createElement('a'); a.href = '#'; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; a.onclick = function () { payPendingBookings(a); return false; }; el.appendChild(a); actionable = true;
+            if (plan.url || plan.retry) {
+                // The address is never placed on the link itself. A click checks again that the saved link still belongs
+                // to the signed-in customer and to these demos; if it does not, the click asks the server instead.
+                const a = document.createElement('a'); a.href = '#'; a.textContent = 'Return to payment'; a.style.cssText = linkStyle;
+                a.onclick = function () { const again = recallPayLink(pendingPaidIds()); if (again) window.location.assign(again.url); else payPendingBookings(a); return false; };
+                el.appendChild(a); actionable = true;
             }
             if (actionable) {
                 const x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×';
@@ -2236,7 +2246,7 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                     const checkoutJson = await checkoutResp.json().catch(() => ({}));
                     if (checkoutResp.ok && checkoutJson.url && !checkoutJson.skip) {
                         // Redirect the brand to Stripe. Webhook flips bookings to paid on success.
-                        rememberPayLink(checkoutJson.url);
+                        rememberPayLink(checkoutJson, unpaid);   // bound to the exact set just submitted and to who is signed in
                         window.location.assign(checkoutJson.url);
                         return; // stop here; brand comes back to /r/{slug}/?paid=1
                     }
@@ -2338,15 +2348,95 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             if (!window._bookingCode && o.recovery[0] && o.recovery[0].frozen && o.recovery[0].frozen.booking_code) window._bookingCode = { code: o.recovery[0].frozen.booking_code, waives_fee: false, waives_lead_time: true, itemId: o.recovery[0].op_key, locked: true };
             updateCartDisplay(); renderLocationSwitcher();
         }
+        // ==== The saved payment link (record version 2) ====
         // The Stripe payment page this tab last opened, kept so a brand who comes back without paying can return to it.
         // The server refuses a second link while that page is still open (one payable link per cart), so without this the
-        // brand would have no way back until the page expires. Same-tab sessionStorage only; the address is the brand's own
-        // payment link, it is only ever followed when it is a Stripe Checkout address, and it is dropped after 23 hours
-        // (Stripe closes an unpaid page after 24) and as soon as the payment comes back paid.
-        function payLinkKey() { return 'dh_paylink_' + (location.pathname.split('/')[2] || ''); }
-        function rememberPayLink(url) { try { if (typeof url === 'string' && url) sessionStorage.setItem(payLinkKey(), JSON.stringify({ url: url, at: Date.now() })); } catch (_) {} }
-        function recallPayLink() { try { const o = JSON.parse(sessionStorage.getItem(payLinkKey()) || 'null'); if (o && typeof o.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(o.url) && Date.now() - Number(o.at || 0) < 23 * 3600 * 1000) return o; } catch (_) {} return null; }
-        function forgetPayLink() { try { sessionStorage.removeItem(payLinkKey()); } catch (_) {} }
+        // brand would have no way back until the page expires.
+        //
+        // The record is a convenience and never an authorization: the server decides every payment. It is bound to WHO
+        // and WHAT it was opened for (Codex final closeout 2026-11-14, "Required fix for the saved payment link"):
+        //   store    the store slug of this page
+        //   cust     the signed-in account, as the ids the server sent with the session (never an email, never a token)
+        //   ids      the exact set of booking ids that was submitted to the checkout call that returned the link, in one
+        //            canonical form (valid ids only, lower case, no repeats, sorted), confirmed by the server's own answer
+        //   checkout / group   the Stripe Checkout session and the payment group, as the checkout answer named them; the
+        //            address must contain that Checkout session's id. (These are payment identifiers, not a sign-in session.)
+        // A link is offered or followed ONLY when all of that matches the request at hand. A valid Stripe address alone
+        // is not a match. Anything else (no sign-in, another customer, another store, another or a changed set of demos,
+        // an old record without identity, a malformed or too-old record, storage that is not available) means the link
+        // is not used and the page falls back to its plain refusal wording. The 23 hour limit only bounds how long this
+        // tab keeps the address; it proves nothing about whether Stripe still accepts payment on that page.
+        function payLinkKey() { return 'dh_paylink_v2_' + (location.pathname.split('/')[2] || ''); }
+        function payLinkStore() { return String(location.pathname.split('/')[2] || '').toLowerCase(); }
+        function canonBookingIds(ids) {
+            if (!Array.isArray(ids) || !ids.length) return null;
+            const out = [];
+            for (const raw of ids) {
+                const s = String(raw == null ? '' : raw).trim().toLowerCase();
+                if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s)) return null;   // anything that is not a booking id: no match at all
+                if (!out.includes(s)) out.push(s);
+            }
+            return out.sort();
+        }
+        function payLinkCustomer() {
+            const p = window._brandProfile, me = window._brandMe;
+            const brand = p && p.id != null ? String(p.id) : '';
+            if (!brand) return null;   // not signed in, or the session has not been read yet
+            return brand + '|' + (me && me.member_id != null ? String(me.member_id) : '');
+        }
+        // the record written before version 2 held only an address and a time: it is discarded, never trusted
+        function dropLegacyPayLink() { try { sessionStorage.removeItem('dh_paylink_' + (location.pathname.split('/')[2] || '')); } catch (_) {} }
+        function forgetPayLink() { dropLegacyPayLink(); try { sessionStorage.removeItem(payLinkKey()); } catch (_) {} }
+        // Called only with a successful checkout answer and the booking set that was actually submitted to that call.
+        function rememberPayLink(resp, submittedIds) {
+            try {
+                dropLegacyPayLink();
+                sessionStorage.removeItem(payLinkKey());   // a new payment page replaces whatever was kept; nothing is inherited
+                const url = resp && typeof resp.url === 'string' ? resp.url : '';
+                const ids = canonBookingIds(submittedIds), cust = payLinkCustomer(), store = payLinkStore();
+                const answeredSession = resp ? resp['session_id'] : null;   // the Stripe Checkout session the server named (a payment identifier)
+                const sid = typeof answeredSession === 'string' ? answeredSession : '';
+                const answered = resp && Array.isArray(resp.booking_ids) ? canonBookingIds(resp.booking_ids) : null;
+                const sameSet = !(resp && 'booking_ids' in resp) || (!!answered && !!ids && answered.join(',') === ids.join(','));
+                if (!/^https:\/\/checkout\.stripe\.com\//.test(url) || !ids || !cust || !store || !sameSet || (sid && url.indexOf(sid) === -1)) return false;
+                sessionStorage.setItem(payLinkKey(), JSON.stringify({ v: 2, url: url, at: Date.now(), store: store, cust: cust, ids: ids, checkout: sid || null, group: (resp && typeof resp.payment_group_id === 'string') ? resp.payment_group_id : null }));
+                return true;
+            } catch (_) { return false; }
+        }
+        // The saved link for exactly this request, or null. requestedIds is the booking set being asked about right now.
+        function recallPayLink(requestedIds) {
+            try {
+                dropLegacyPayLink();
+                const raw = sessionStorage.getItem(payLinkKey()); if (!raw) return null;
+                let o = null; try { o = JSON.parse(raw); } catch (_) { o = null; }
+                const wellFormed = !!o && o.v === 2 && typeof o.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(o.url)
+                    && typeof o.store === 'string' && !!o.store && typeof o.cust === 'string' && !!o.cust && Array.isArray(o.ids) && Number.isFinite(Number(o.at));
+                const stored = wellFormed ? canonBookingIds(o.ids) : null;
+                if (!wellFormed || !stored || stored.join(',') !== o.ids.join(',') || (o.checkout && (typeof o.checkout !== 'string' || o.url.indexOf(o.checkout) === -1))) { sessionStorage.removeItem(payLinkKey()); return null; }
+                const age = Date.now() - Number(o.at);
+                if (age >= 23 * 3600 * 1000 || age < -60000) { sessionStorage.removeItem(payLinkKey()); return null; }
+                const cust = payLinkCustomer();
+                if (!cust) return null;                                                          // nobody signed in: never shown, never followed
+                if (o.cust !== cust) { sessionStorage.removeItem(payLinkKey()); return null; }   // another customer's link: gone
+                if (o.store !== payLinkStore()) return null;                                     // another store's link
+                const want = canonBookingIds(requestedIds);
+                if (!want || want.join(',') !== o.ids.join(',')) return null;                    // another, or a changed, set of demos
+                return o;
+            } catch (_) { return null; }
+        }
+        // the unpaid demos this tab is asking to pay for right now (a copy, so later page changes cannot alter a request)
+        function pendingPaidIds() { return (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds.slice() : loadOutcomes().paid.map(o => o.id); }
+        // What the unpaid notice may offer. url: the saved link that matches this customer and these demos. retry: no such
+        // link, but a signed-in customer came back from Stripe with saved unpaid demos, so the server can be asked again.
+        function unpaidNoticePlan(fromCancel) {
+            const ids = pendingPaidIds();
+            const link = ids.length ? recallPayLink(ids) : null;
+            if (link) return { show: true, url: link.url, retry: false };
+            if (!fromCancel) return { show: false, url: null, retry: false };
+            return { show: true, url: null, retry: !!payLinkCustomer() && ids.length > 0 };
+        }
+        // a notice already on screen was decided for one signed-in account: when the account is no longer that one, it goes
+        function syncUnpaidNotice() { try { const el = document.getElementById('unpaidNotice'); if (el && el.dataset.cust !== (payLinkCustomer() || '')) el.remove(); } catch (_) {} }
         // A refusal that trying again will not change, in words a person can act on. The server's own message when it sends
         // one; its own wording here for the one refusal that carries none (online payment switched off for this store).
         function checkoutRefusalText(j) {
@@ -2357,11 +2447,14 @@ function renderLocationGridTight(venues, retailer, demoFee) {
         }
         async function payPendingBookings(a) {
             // the EXACT saved unpaid set: the claim function reuses the existing pending payment group for an identical set
-            const ids = (window._pendingPaidIds && window._pendingPaidIds.length) ? window._pendingPaidIds : loadOutcomes().paid.map(o => o.id); if (!ids.length) return false;
+            const ids = pendingPaidIds(); if (!ids.length) return false;   // captured once: this exact set is what is submitted, saved and matched
             a.textContent = 'Opening payment…';
-            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { rememberPayLink(j.url); window.location.assign(j.url); return false; }
-                // a payment page is already open for these demos: go back to it when this tab still has its address
-                if (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') { const link = recallPayLink(); if (link) { window.location.assign(link.url); return false; } }
+            try { const r = await fetch('/api/checkout', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ booking_ids: ids }) }); const j = await r.json().catch(() => ({})); if (r.ok && j.url) { rememberPayLink(j, ids); window.location.assign(j.url); return false; }
+                // a payment page is already open for these demos: go back to it ONLY when this tab holds the link that was
+                // opened for this same customer and this same set of demos; otherwise the plain refusal below is shown
+                if (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') { const link = recallPayLink(ids); if (link) { window.location.assign(link.url); return false; } }
+                // a terminal answer for these demos: a link kept for them is of no further use
+                if (j.error === 'not_payable_state' && recallPayLink(ids)) forgetPayLink();
                 const refusal = checkoutRefusalText(j);
                 const final = (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') ? 'A payment page is already open for these demos. Finish paying on that page. If you closed it, you can open payment again here once it expires, within 24 hours.' : j.error === 'payment_pending' ? 'This payment is being confirmed. Refresh this page in a moment.' : j.error === 'not_payable_state' ? 'These demos are no longer awaiting payment. See your dashboard.' : refusal;
                 if (final) {
@@ -2764,6 +2857,7 @@ function supportMailto(a) {
                 }
             } catch (e) { /* silent */ }
             renderBrandAuthUi();
+            syncUnpaidNotice();   // the signed-in account may have changed: a notice on screen is decided again for it
         }
 
         function renderBrandAuthUi() {
@@ -2796,7 +2890,10 @@ function supportMailto(a) {
                     credentials: 'same-origin',
                 });
             } catch (_) {}
-            window._brandProfile = null;
+            window._brandProfile = null; window._brandMe = null;
+            // signed out: the previous customer's payment link is neither kept nor shown
+            forgetPayLink();
+            try { const n = document.getElementById('unpaidNotice'); if (n) n.remove(); } catch (_) {}
             renderBrandAuthUi();
         };
 
@@ -2880,7 +2977,7 @@ function supportMailto(a) {
             if (m && e.target === m) closeBrandSignIn();
         });
         // Fire off brand session check as the page loads; doesn't block bookings.
-        loadBrandAccountSession();
+        window._brandSessionLoaded = loadBrandAccountSession();   // kept so the unpaid notice waits until the page knows who is signed in
 
         async function initSupabase() {
             // Best-effort: create Supabase client if lib is available. It's not strictly required
