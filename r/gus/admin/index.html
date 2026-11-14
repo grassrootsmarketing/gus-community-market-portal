@@ -2817,7 +2817,13 @@ END:VEVENT
               ? venues.some(v => Number(v.demo_fee) > 0)
               : Number((s.settings && s.settings.demo_fee) || 0) > 0;
             const bankNotNeeded = !chargesFees;
-            const bankDone = bankNotNeeded || !!retailer.stripe_charges_enabled;
+            // The bank state comes from window._connectStatus, which renderPayouts() fills from the server's
+            // connect-status answer and then re-runs this checklist (2026-11-13). It used to read
+            // retailer.stripe_charges_enabled, a field the admin data payload never carries, so the row stayed
+            // unticked for a store whose account was active. Ready is the server's readiness answer, the same one
+            // the Bank & payouts card and checkout use.
+            const connect = window._connectStatus || null;
+            const bankDone = bankNotNeeded || !!(connect && connect.ready === true);
 
             // 5) link: user has copied the booking link at least once
             const linkDone = localStorage.getItem('demohub_link_copied_' + (window.RETAILER_SLUG || '')) === '1';
@@ -7615,6 +7621,11 @@ function escapeHtml(s) {
                 const r = await fetch('/api/stripe?action=connect-status', { method: 'POST', headers: {'Content-Type':'application/json'}, credentials: 'same-origin' });
                 const d = await r.json();
                 if (!r.ok) throw new Error(d.error || 'Failed to load');
+
+                // Share the answer with the Get Started checklist ("Connect your bank") and redraw it now, so the row
+                // and this card always agree. A failed read leaves the last known answer in place.
+                window._connectStatus = { connected: d.connected === true, ready: d.ready === true, status: d.status || null };
+                if (typeof window.refreshOnboardingChecklist === 'function') window.refreshOnboardingChecklist();
 
                 // A keeps-all store can connect its bank ahead of time; say plainly that payouts have not started.
                 const keepsAll = (typeof _isKeepsAll === 'function') && _isKeepsAll();

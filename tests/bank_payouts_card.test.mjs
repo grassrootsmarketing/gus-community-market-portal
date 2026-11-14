@@ -77,6 +77,39 @@ console.log('\n:: the card, by store state ::');
   ok('a failed status read says so and shows no state', /Couldn't load payout status/.test(err.text) && !/Bank connected/.test(err.text), err.text);
 }
 
+console.log('\n:: the Get Started checklist follows the same answer ("Connect your bank") ::');
+{
+  // _onboardingStepStatus is lifted too. The store here charges a demo fee, so the bank step is required.
+  const statusSrc = lift(/function _onboardingStepStatus\(\) \{[\s\S]*?\n {8}\}\n/, '_onboardingStepStatus');
+  const adminData = readFileSync('api/admin.js', 'utf8');
+  ok('the admin data payload does not carry stripe_charges_enabled (so the checklist cannot read the bank state from state.retailer)', !/stripe_charges_enabled/.test(adminData));
+  const statusCode = statusSrc.replace(/\/\/[^\n]*/g, '');   // code only: the comment there names the old field
+  ok('the checklist no longer reads retailer.stripe_charges_enabled', !/stripe_charges_enabled/.test(statusCode) && /window\._connectStatus/.test(statusCode));
+  const page = (venues = [{ id: 'v1', address: '1 St', demo_fee: 30 }]) => {
+    const window = { state: { venues, retailer: { platform_keeps_all: false }, internalContacts: [], settings: { demo_fee: 30 } }, RETAILER_SLUG: 'gus', refreshes: 0 };
+    window.refreshOnboardingChecklist = () => { window.refreshes++; };
+    const localStorage = { getItem: () => null };
+    const stepStatus = () => new Function('window', 'localStorage', statusSrc + '\nreturn _onboardingStepStatus();')(window, localStorage);
+    const body = { innerHTML: '' };
+    const render = async (answer, httpOk = true) => new Function('document', 'fetch', 'window', '_isKeepsAll', renderSrc + '\nreturn renderPayouts();')({ getElementById: (id) => (id === 'payoutsCardBody' ? body : null) }, async () => ({ ok: httpOk, json: async () => answer }), window, () => false);
+    return { window, stepStatus, render, body };
+  };
+  const p = page();
+  ok('before the status is known the bank step is not done (and is required, the store charges a fee)', p.stepStatus().bank === false && p.stepStatus().bankNotNeeded === false);
+  await p.render(READY);
+  ok('after connect-status answers ready, renderPayouts publishes it and redraws the checklist', p.window._connectStatus && p.window._connectStatus.ready === true && p.window._connectStatus.status === 'active' && p.window.refreshes === 1, JSON.stringify(p.window._connectStatus) + ' refreshes=' + p.window.refreshes);
+  ok('and the bank step is now done, with the card saying connected', p.stepStatus().bank === true && /Bank connected/.test(text(p.body.innerHTML)));
+  await p.render({ connected: true, charges_enabled: true, payouts_enabled: false, ready: false, status: 'restricted', requirements: ['external_account'] });
+  ok('if the account later becomes restricted, the step is not done again (the card and the row agree)', p.stepStatus().bank === false && p.window._connectStatus.status === 'restricted' && p.window.refreshes === 2 && !/Bank connected/.test(text(p.body.innerHTML)));
+  await p.render({ ...READY, transfers_active: false, ready: false, status: 'pending' });
+  ok('charges and payouts enabled without the transfers capability: the step is not done', p.stepStatus().bank === false);
+  await p.render(READY);
+  await p.render({ error: 'boom' }, false);
+  ok('a failed status read leaves the last known answer in place (no flicker to unticked)', p.stepStatus().bank === true && p.window.refreshes === 4, 'refreshes=' + p.window.refreshes);
+  const free = page([{ id: 'v1', address: '1 St', demo_fee: 0 }]);
+  ok('a store whose demos are free still has the step satisfied as "not needed", as before', free.stepStatus().bank === true && free.stepStatus().bankNotNeeded === true);
+}
+
 console.log('\n:: bank setup could not be opened ::');
 {
   const toasts = [];
