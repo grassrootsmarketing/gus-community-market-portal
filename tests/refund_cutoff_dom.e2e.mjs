@@ -120,9 +120,21 @@ try {
     ok('no backdate note and no override reason are asked yet', v.back === 'none' && v.over === 'none', JSON.stringify(v));
     await dialog().locator('#cancelRefundAnyway').check(); await page.waitForTimeout(150);
     ok('ticking Refund anyway reveals the reason field', await page.evaluate(() => document.getElementById('cancelOverrideWrap').style.display !== 'none'));
+    // 2026-11-13: the reason is optional. The field says so, and OK with no reason (or only spaces) posts the cancel
+    // with force_refund and no override_reason at all.
+    ok('the reason field is labelled optional', /Reason \(optional\)/.test(await page.evaluate(() => document.getElementById('cancelOverrideWrap').innerText)));
     const before = posted.cancels.length;
-    await pressOk();
-    ok('OK with Refund anyway but no reason posts nothing and says so', posted.cancels.length === before && /Give a short reason/.test(await toastText()), await toastText());
+    cancelReply = { ok: true, refund_status: 'submitted', refund_reason: 'forced', demo_cancelled: true, hours_before_demo: 30 };
+    await pressOk(); await page.waitForTimeout(300);
+    const noWhy = posted.cancels[posted.cancels.length - 1];
+    ok('OK with Refund anyway and no reason posts the cancel: force_refund true and no override_reason key', posted.cancels.length === before + 1 && noWhy && noWhy.force_refund === true && noWhy.category === 'brand_requested' && !('override_reason' in noWhy) && !/Give a short reason/.test(await toastText()), JSON.stringify(noWhy) + ' ' + await toastText());
+    await openCancel('bk1', 'Fire Season Goods', dayP(1), '1:00 PM');
+    await dialog().locator('input[name="cancelCategory"][value="brand_requested"]').check(); await page.waitForTimeout(100);
+    await dialog().locator('#cancelRefundAnyway').check(); await page.waitForTimeout(100);
+    await dialog().locator('#cancelOverrideReason').fill('   ');
+    await pressOk(); await page.waitForTimeout(300);
+    const spaces = posted.cancels[posted.cancels.length - 1];
+    ok('a reason of only spaces is treated as no reason: posted with force_refund true and no override_reason key', posted.cancels.length === before + 2 && spaces && spaces.force_refund === true && !('override_reason' in spaces), JSON.stringify(spaces));
     await openCancel('bk1', 'Fire Season Goods', dayP(1), '1:00 PM');
     await dialog().locator('input[name="cancelCategory"][value="brand_requested"]').check(); await page.waitForTimeout(100);
     await dialog().locator('#cancelRefundAnyway').check(); await page.waitForTimeout(100);

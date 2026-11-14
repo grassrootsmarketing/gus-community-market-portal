@@ -89,7 +89,13 @@ console.log('\n— admin cancel/refund wiring —');
   check('no category is preselected and a missing category stops the cancel with a toast, nothing posted', /category: null/.test(fn) && /Pick why the demo is being cancelled/.test(fn) && fn.indexOf('Pick why the demo is being cancelled') < fn.indexOf("fetch('/api/booking-action'"));
   check('the brand-requested branch asks when the brand asked (datetime-local, defaulting to now) and posts requested_at as ISO', /type="datetime-local" id="cancelRequestedAt"/.test(fn) && /localDateTimeValue\(new Date\(\)\)/.test(fn) && /body\.requested_at = reqDate\.toISOString\(\)/.test(fn));
   check('a request more than a day old needs a note, posted as backdate_note', /id="cancelBackdateNote"/.test(fn) && /body\.backdate_note = /.test(fn) && /more than a day ago/.test(fn));
-  check('Refund anyway needs a reason, posted as override_reason', /id="cancelOverrideReason"/.test(fn) && /body\.override_reason = /.test(fn) && /Give a short reason for refunding the brand anyway/.test(fn));
+  // 2026-11-13 (the owner's request, Codex release verdict): the reason for Refund anyway is OPTIONAL. The dialog never
+  // blocks on it, labels it optional, posts it only when one was typed, and never invents one.
+  check('the Refund anyway reason field is labelled optional', /id="cancelOverrideWrap"[^>]*>Reason \(optional\)<br><input type="text" id="cancelOverrideReason"/.test(fn));
+  check('no client block on an empty reason: the old "Give a short reason" stop is gone', !/Give a short reason/.test(html) && !/override_reason[^;\n]*\.length\s*<\s*3/.test(fn));
+  check('a typed reason is trimmed and posted as override_reason; an empty one is not posted at all', /const why = String\(fm\.override_reason \|\| ''\)\.trim\(\);\s*if \(why\) body\.override_reason = why;/.test(fn));
+  check('the helper text says the reason is recorded only if one is given', /Recorded with your name, and your reason if you give one\./.test(fn));
+  check('the override itself is unchanged: force_refund is still posted as an exact boolean for a brand-requested cancel only', /body\.force_refund = fm\.force_refund === true;/.test(fn) && fn.indexOf('body.force_refund = fm.force_refund === true') > fn.indexOf("if (fm.category === 'brand_requested')"));
   check('the store-caused choice says the brand is refunded in full', /refunded in full/.test(fn));
   check('the toast distinguishes submitted (store cancelled), inside_cutoff, non_refundable and under_review outcomes', /refund_reason === 'store_caused'/.test(fn) && /refund_status === 'under_review'/.test(fn) && /under review by Demohub/.test(fn));
   check('the dialog posts category with the booking id', /const body = \{ booking_id: bookingId, action: 'cancel', category: fm\.category \}/.test(fn));

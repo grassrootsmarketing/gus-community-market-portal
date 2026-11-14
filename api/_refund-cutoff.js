@@ -16,7 +16,7 @@
 //           the start cannot be resolved -> no automatic refund, flagged for review (under_review)
 //       non_refundable
 //           never an automatic refund (pending_manual)
-//       force_refund (the store ticked "Refund the brand anyway", with a recorded reason)
+//       force_refund (the store ticked "Refund the brand anyway"; its reason is optional and recorded when given)
 //           refunds in either mode and at any distance; it is the store's explicit choice, not automatic
 //   unpaid bookings, released holds and fee-waived (booking code) bookings never reach a refund
 //

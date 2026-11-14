@@ -7,7 +7,8 @@ import { requireRetailerMembership } from './_retailer-auth.js';
 //            received (requested_at). A store-caused cancellation refunds in full. A brand-requested one refunds
 //            automatically only when the demo starts at least REFUND_CUTOFF_HOURS (72) after the request, in the
 //            store's zone; inside that window, and always in non_refundable mode, the refund is left to the store
-//            (pending_manual) unless it ticked "Refund the brand anyway" (force_refund + override_reason). The
+//            (pending_manual) unless it ticked "Refund the brand anyway" (force_refund, with an optional
+//            override_reason: an empty one is stored as null, never filled in for the store). The
 //            decision is recorded (0105 booking_cancellation_record) BEFORE any refund effect and reused on retry.
 // Uses service_role; must be called from a Cloudflare-Access-gated admin page.
 
@@ -476,7 +477,10 @@ export default async function handler(req, res) {
     if (booking.retailer_id !== session.retailer_id) return res.status(403).json({ error: 'Not allowed for this retailer' });
     // Codex RC-1 / RC-3 (2026-10-18): a cancel says WHO asked and WHEN, validated here before anything moves. A
     // missing or unknown category is refused (never read as the brand's fault); a backdated request needs a note;
-    // "Refund the brand anyway" needs a reason. The shipped admin dialog sends all of these.
+    // The shipped admin dialog sends all of these. The reason for "Refund the brand anyway" is OPTIONAL (the owner's
+    // request, Codex release verdict 2026-11-13): an empty or whitespace-only reason is recorded as null, never as
+    // an invented one. The override itself is unchanged: the same authenticated roles, force_refund exactly true,
+    // and the actor, time and category recorded with the decision (0105 booking_cancellation_record).
     let cancelCategory = null, cancelRequestedAt = null, cancelBackdateNote = null, cancelOverrideReason = null;
     if (action === 'cancel') {
       if (!isCancellationCategory(category)) {
@@ -488,8 +492,7 @@ export default async function handler(req, res) {
       if (!ra.ok) return res.status(400).json({ error: ra.error, message: ra.message + ' Nothing was changed.' });
       cancelRequestedAt = ra.requested_at;
       if (force_refund === true && cancelCategory === 'brand_requested') {
-        cancelOverrideReason = override_reason == null ? '' : String(override_reason).trim().slice(0, 500);
-        if (cancelOverrideReason.length < 3) return res.status(400).json({ error: 'override_reason_required', message: 'Refunding the brand anyway needs a short reason, recorded with the cancellation. Nothing was changed.' });
+        cancelOverrideReason = override_reason == null ? null : (String(override_reason).trim().slice(0, 500) || null);
       }
     }
 

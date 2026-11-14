@@ -104,8 +104,7 @@ try {
     ok('a request time more than a day ago without a note is refused (backdate_note_required)', old.statusCode === 400 && old.body.error === 'backdate_note_required', `${old.statusCode}`);
     const junk = await cancel(b.id, { requested_at: 'last tuesday' });
     ok('a junk request time is refused (invalid_requested_at)', junk.statusCode === 400 && junk.body.error === 'invalid_requested_at', `${junk.statusCode}`);
-    const noWhy = await cancel(b.id, { force_refund: true });
-    ok('Refund anyway without a reason is refused (override_reason_required)', noWhy.statusCode === 400 && noWhy.body.error === 'override_reason_required', `${noWhy.statusCode}`);
+    // (2026-11-13: "Refund anyway" without a reason is no longer a refusal; the accepted cases are further down.)
     const after = await row(b.id);
     ok('every refusal left the booking confirmed and paid, made no Stripe call and recorded no decision', after.status === 'confirmed' && after.payment_status === 'paid' && stripeCalls() === s0 && (await decisionRows(b.id)).length === 0, JSON.stringify(after));
   }
@@ -240,6 +239,16 @@ try {
     ok('non_refundable + Refund anyway with a reason: forced, the refund step ran', rf.statusCode === 200 && rf.body.refund_reason === 'forced' && rf.body.refund_status === 'refund_failed', `${rf.statusCode} ${JSON.stringify(rf.body).slice(0, 200)}`);
     const dn2 = await decisionRows(n2.id);
     ok('the override is recorded with its reason and actor', dn2.length === 1 && dn2[0].force_refund === true && dn2[0].override_reason === 'goodwill, first-time brand' && dn2[0].actor === staffEmail, JSON.stringify(dn2));
+    // 2026-11-13 (the owner's request, Codex release verdict): the reason is optional. No reason and a whitespace-only
+    // reason are both accepted; the override is still recorded with force_refund and the actor, and the reason is null.
+    const n2b = await seed({ days: 15 });
+    const rfb = await cancel(n2b.id, { force_refund: true });
+    const dn2b = await decisionRows(n2b.id);
+    ok('non_refundable + Refund anyway with NO reason: accepted and forced; recorded with force_refund, the actor and a null reason', rfb.statusCode === 200 && rfb.body.refund_reason === 'forced' && dn2b.length === 1 && dn2b[0].force_refund === true && dn2b[0].override_reason === null && dn2b[0].actor === staffEmail && dn2b[0].category === 'brand_requested', `${rfb.statusCode} ${JSON.stringify(dn2b)}`);
+    const n2c = await seed({ days: 16 });
+    const rfc = await cancel(n2c.id, { force_refund: true, override_reason: '   ' });
+    const dn2c = await decisionRows(n2c.id);
+    ok('a whitespace-only reason is accepted the same way and recorded as null, never as text', rfc.statusCode === 200 && rfc.body.refund_reason === 'forced' && dn2c.length === 1 && dn2c[0].force_refund === true && dn2c[0].override_reason === null, `${rfc.statusCode} ${JSON.stringify(dn2c)}`);
     const n3 = await seed({ days: 14 });
     const sc = await cancel(n3.id, { category: 'store_caused' });
     ok('store_caused under non_refundable: reason store_caused, the refund step ran', sc.statusCode === 200 && sc.body.refund_reason === 'store_caused' && sc.body.refund_status === 'refund_failed', `${sc.statusCode} ${JSON.stringify(sc.body).slice(0, 200)}`);

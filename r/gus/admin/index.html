@@ -5461,8 +5461,8 @@ function escapeHtml(s) {
                         '<label style="display:block; font-size:0.85rem; margin-bottom:6px;">When did the brand ask? <span style="color:var(--ink-500);">(your local time)</span><br><input type="datetime-local" id="cancelRequestedAt" value="' + escapeHtml(window._cancelForm.requested_at) + '" onchange="window._cancelForm.requested_at = this.value; _cancelFormSync()" style="margin-top:4px; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
                         '<div id="cancelHoursHint" style="font-size:0.8rem; color:var(--forest-900); line-height:1.45; margin-bottom:8px;"></div>' +
                         '<label id="cancelBackdateWrap" style="display:none; font-size:0.85rem; margin-bottom:8px;">That is more than a day ago. How do you know when they asked (an email, a call)?<br><input type="text" id="cancelBackdateNote" maxlength="200" placeholder="e.g. email from the brand on Tuesday 4pm" oninput="window._cancelForm.backdate_note = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
-                        '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;"><input type="checkbox" id="cancelRefundAnyway" onchange="window._cancelForm.force_refund = this.checked; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Refund the brand anyway</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Sends the full demo fee back to the brand even inside the 72-hour window or under a non-refundable policy. Recorded with your name and reason.</span></span></label>' +
-                        '<label id="cancelOverrideWrap" style="display:none; font-size:0.85rem; margin:8px 0 0 26px;">Why?<br><input type="text" id="cancelOverrideReason" maxlength="200" placeholder="e.g. first-time brand, goodwill" oninput="window._cancelForm.override_reason = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
+                        '<label style="display:flex; gap:10px; align-items:flex-start; cursor:pointer;"><input type="checkbox" id="cancelRefundAnyway" onchange="window._cancelForm.force_refund = this.checked; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>Refund the brand anyway</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">Sends the full demo fee back to the brand even inside the 72-hour window or under a non-refundable policy. Recorded with your name, and your reason if you give one.</span></span></label>' +
+                        '<label id="cancelOverrideWrap" style="display:none; font-size:0.85rem; margin:8px 0 0 26px;">Reason (optional)<br><input type="text" id="cancelOverrideReason" maxlength="200" placeholder="e.g. first-time brand, goodwill" oninput="window._cancelForm.override_reason = this.value" style="margin-top:4px; width:100%; padding:6px 8px; border:1px solid #d9d4c7; border-radius:6px; font-size:0.9rem;"></label>' +
                     '</div>' +
                     '<label style="display:flex; gap:10px; align-items:flex-start; margin:0 0 4px; cursor:pointer;"><input type="radio" name="cancelCategory" value="store_caused" onchange="window._cancelForm.category = this.value; _cancelFormSync()" style="margin-top:3px; accent-color:var(--forest-700);"><span><strong>We can\'t host it</strong><br><span style="font-size:0.82rem; color:var(--ink-500); line-height:1.45;">The brand is refunded in full if they paid, whatever the timing or your policy.</span></span></label>',
                 ok: 'Yes, cancel demo',
@@ -5484,8 +5484,9 @@ function escapeHtml(s) {
                 }
                 body.force_refund = fm.force_refund === true;
                 if (body.force_refund) {
-                    if (String(fm.override_reason || '').trim().length < 3) { DhModal.toast('Not cancelled. Give a short reason for refunding the brand anyway, then try again.', 'error'); return; }
-                    body.override_reason = String(fm.override_reason).trim();
+                    // The reason is optional (2026-11-13). An empty one is simply not sent, and the server records none.
+                    const why = String(fm.override_reason || '').trim();
+                    if (why) body.override_reason = why;
                 }
             }
             try {
