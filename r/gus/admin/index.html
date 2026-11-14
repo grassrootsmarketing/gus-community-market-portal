@@ -7639,7 +7639,9 @@ function escapeHtml(s) {
                     `;
                     return;
                 }
-                if (d.charges_enabled && d.payouts_enabled) {
+                // Ready is the server's answer under the shared readiness policy (charges enabled, payouts enabled and the
+                // transfers capability active), the same answer checkout uses. The card never decides it on its own.
+                if (d.ready === true) {
                     // Show masked bank info if Stripe returned it (external_account)
                     // Per David: don't surface bank last-4 or bank name; only show 'Bank connected'.
                     const bankLine = '';
@@ -7649,8 +7651,20 @@ function escapeHtml(s) {
                             <div style="font-size:1.05rem;font-weight:700;color:var(--forest-900);">${keepsAll ? 'Bank connected' : 'Bank connected · payouts active'}</div>
                         </div>
                         ${bankLine}
-                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">${keepsAll ? 'Your bank is ready. Direct payouts are not turned on for your store yet, so Demohub still collects the demo fees under your current arrangement. Demohub will let you know when payouts to this bank begin.' : 'You\'ll receive payouts within 2 business days of each demo payment, minus Stripe + Demohub platform fees.'}</div>
+                        <div style="font-size:0.88rem;color:var(--ink-700);margin-bottom:14px;">${keepsAll ? 'Your bank is ready. Direct payouts are not turned on for your store yet, so Demohub still collects the demo fees under your current arrangement. Demohub will let you know when payouts to this bank begin.' : 'For each paid demo, your store receives its demo fee. Demohub\'s platform fee is added to what the brand pays and collected separately, and Demohub covers the card processing cost. Stripe sends your money to your bank on your Stripe payout schedule, which you can see in your Stripe Express dashboard.'}</div>
                         <button class="btn btn-secondary" onclick="openConnectDashboard()" style="padding:9px 16px;font-size:0.9rem;">Open Stripe Express dashboard &rarr;</button>
+                    `;
+                } else if (d.status === 'restricted') {
+                    // Stripe has paused or limited the account. Say what that means for this store's payments, which
+                    // depends on the arrangement: a keeps-all store's demos are still collected by Demohub; a store on
+                    // direct payouts cannot be paid online until Stripe is satisfied (checkout refuses it).
+                    const reqs = (d.requirements || []).length;
+                    body.innerHTML = `
+                        <div style="background:#fff3ed;border-left:4px solid #ed682f;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:0.9rem;color:#a14e2a;line-height:1.5;">
+                            <strong>Stripe needs more information from you.</strong> ${reqs ? reqs + ' item' + (reqs>1?'s are':' is') + ' still needed.' : 'Open Stripe to see what is needed.'}
+                            ${keepsAll ? 'Your demos are not affected, because Demohub still collects the demo fees under your current arrangement.' : 'Until this is finished, brands cannot pay online for demos at your store.'}
+                        </div>
+                        <button class="btn btn-primary" onclick="startConnectOnboarding(this)" style="padding:10px 20px;font-size:0.92rem;">Continue with Stripe &rarr;</button>
                     `;
                 } else {
                     const reqs = (d.requirements || []).length;
@@ -7677,7 +7691,9 @@ function escapeHtml(s) {
             } catch (e) {
                 // Plain wording for the store. The technical reason goes to the console only.
                 try { console.warn('connect-onboard failed:', (e && e.message) || e); } catch (_) {}
-                DhModal.toast('Bank setup could not be opened right now. Nothing on your account was changed. Please try again in a few minutes, or email david@demohubhq.com and we will get it sorted.', 'error');
+                // Neutral on purpose (Codex release verdict 2026-11-13): the server records the Stripe account before it asks
+                // for the setup link, so a failure here does not mean nothing changed. The next attempt reuses that account.
+                DhModal.toast('Bank setup could not be opened. Please try again or contact support.', 'error');
                 if (btn) { btn.disabled = false; btn.textContent = btnLabel || 'Connect bank for payouts →'; }
             }
         }
@@ -7881,7 +7897,7 @@ function escapeHtml(s) {
           { selector: '.big-cal-card', title: "Your demo calendar.", body: "Every confirmed demo shows here. We've put an example on today so you can see what it'll look like once brands start booking.", placement: 'top' },
           { selector: '.chart-card', title: "Trend chart.", body: "See your demo volume over the last 6 months. Fills in as you get bookings.", placement: 'top' },
           { selector: '.header-nav', title: "Preview the public side.", body: "Click 'Preview booking page' anytime to see what brands see. Share that URL with your brand partners to start filling your calendar.", placement: 'bottom' },
-          { selector: '#payoutsCard', title: "Set up your bank next.", body: "Head to Settings → Bank & payouts and connect your bank via Stripe. This is how you actually get paid. Payouts drop within 2 business days of each demo, minus platform fees. Do this now so you're ready when your first booking comes in.", placement: 'top', scrollIntoView: true, skipIfHidden: true },
+          { selector: '#payoutsCard', title: "Set up your bank next.", body: "Head to Settings → Bank & payouts and connect your bank via Stripe. This is how your store gets paid for demos. Stripe sends your money to your bank on your Stripe payout schedule. Do this now so you're ready when your first booking comes in.", placement: 'top', scrollIntoView: true, skipIfHidden: true },
         ];
         let _tourIndex = 0;
         let _activeTourSteps = [];
