@@ -26,6 +26,23 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { HOURLY } from '../tests/_fixture_availability.mjs';
 
+// ---- Page-side functions -------------------------------------------------------------------------------------------
+// Playwright serializes these two functions and runs them INSIDE the store page, so `window` and `document` there are
+// the page's own. They are declared for the linter in THIS FILE ONLY (the comment below); the project's no-undef rule
+// is unchanged, and nothing on the Node side of this script touches either name.
+/* global window, document */
+// Sets the booking the page's pay link will pay for (the same variable the store page sets after a booking).
+const pageSetPendingPaid = (id) => { window._pendingPaidIds = [id]; };
+// Calls the store page's OWN pay function, the one behind its "pay" link, on a fresh link element, and returns the text
+// the page left on that element. The function is reached through window and checked first, so a store page that no
+// longer defines it fails this step with a plain message instead of a ReferenceError inside the browser.
+const pagePayPending = async () => {
+  if (typeof window.payPendingBookings !== 'function') throw new Error('the store page does not define payPendingBookings(); the checkout steps of this check cannot run');
+  const a = document.createElement('a'); document.body.appendChild(a);
+  await window.payPendingBookings(a);
+  return a.textContent;
+};
+
 const ORIG_ENV = { ...process.env };
 const { SB_URL, SB_KEY, SB_REF, STRIPE_TEST_SECRET_KEY, EXPECT_COMMIT } = process.env;
 const ORIGIN = String(process.env.BROWSER_ORIGIN || 'https://demohub-booker-preview.vercel.app').replace(/[/]+$/, '');
@@ -125,9 +142,9 @@ async function run() {
     // ---- checkout initiation through the page's own code path, the navigation to Stripe observed ----
     let gid = null, sid = null, stripeUrl = null;
     {
-      await page.evaluate((id) => { window._pendingPaidIds = [id]; }, bookingId);
+      await page.evaluate(pageSetPendingPaid, bookingId);
       const nav = page.waitForURL(/checkout\.stripe\.com/, { timeout: 45000 }).then(() => true).catch(() => false);
-      await page.evaluate(async () => { const a = document.createElement('a'); document.body.appendChild(a); return payPendingBookings(a); });
+      await page.evaluate(pagePayPending);
       const reached = await nav;
       stripeUrl = page.url();
       const snapRow = one(await db(`payment_allocations?booking_id=eq.${bookingId}&select=payment_group_id`));
@@ -151,9 +168,9 @@ async function run() {
     }
     // ---- in-progress: a second checkout while the link is open, answered by the deployment and shown by the page ----
     {
-      await page.evaluate((id) => { window._pendingPaidIds = [id]; }, bookingId);
+      await page.evaluate(pageSetPendingPaid, bookingId);
       const res = page.waitForResponse(r => r.url().startsWith(ORIGIN + '/api/checkout') && r.request().method() === 'POST', { timeout: 30000 });
-      const shown = await page.evaluate(async () => { const a = document.createElement('a'); document.body.appendChild(a); await payPendingBookings(a); return a.textContent; });
+      const shown = await page.evaluate(pagePayPending);
       const r = await res; const rb = await r.json().catch(() => ({}));
       const g = await groupOf(gid);
       evidence.steps.in_progress = { backend: { status: r.status, error: rb.error }, page_text: shown, ledger_attempts: g.attempts.map(a => [a.status, a.generation]) };
@@ -186,9 +203,9 @@ async function run() {
       const src = await (await fetch(`${ORIGIN}/r/${F.slug}/`, { headers: BYPASS ? { 'x-vercel-protection-bypass': BYPASS } : {} })).text();
       const mapped = /payment_pending/.test(src) && /being confirmed/.test(src);
       await page.goto(`${ORIGIN}/r/${F.slug}/`, { waitUntil: 'domcontentloaded' }); await sleep(1000);
-      await page.evaluate((id) => { window._pendingPaidIds = [id]; }, bookingId);
+      await page.evaluate(pageSetPendingPaid, bookingId);
       const res = page.waitForResponse(r => r.url().startsWith(ORIGIN + '/api/checkout') && r.request().method() === 'POST', { timeout: 30000 });
-      const shown = await page.evaluate(async () => { const a = document.createElement('a'); document.body.appendChild(a); await payPendingBookings(a); return a.textContent; });
+      const shown = await page.evaluate(pagePayPending);
       const r = await res; const rb = await r.json().catch(() => ({}));
       evidence.steps.pending = { page_maps_payment_pending: mapped, live_retry_after_payment: { status: r.status, error: rb.error, page_text: shown }, note: 'the pending answer (409 payment_pending) exists only between a session completing and the webhook applying it, a window of seconds on a live deployment; the retry above ran after the application and is answered not_payable_state, which the page shows as "no longer awaiting payment"' };
       ok('pending: the page maps payment_pending to "this payment is being confirmed. Refresh in a moment"; the live retry after the payment was applied is refused not_payable_state and shown as a brand-readable message', mapped && r.status === 409 && rb.error === 'not_payable_state' && /no longer awaiting payment/i.test(shown || ''), JSON.stringify(evidence.steps.pending));
