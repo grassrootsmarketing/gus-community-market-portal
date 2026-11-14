@@ -9,7 +9,7 @@ import { FLAGS, maxCartSize } from './_flags.js';
 import { getBinding, sendBindingFailure } from './_env.js';
 import { requireSameOrigin } from './_csrf.js';
 import { storedConnectReady } from './_connect-readiness.js';
-const STRIPE =process.env.STRIPE_SECRET_KEY;
+const STRIPE = process.env.STRIPE_SECRET_KEY;
 let _b = null;
 // SITE comes from the validated binding inside the handler (_b.siteOrigin). A hardcoded
 // fallback here is what let a preview deployment send customers to production on checkout return.
