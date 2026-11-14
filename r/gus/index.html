@@ -717,9 +717,14 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 } else if (p.has('cancelled')) {
                     showCancelledBanner();
                     history.replaceState({}, '', location.pathname);
+                } else if (recallPayLink()) {
+                    // back on this page some other way (the browser's own Back button, a reload) with a payment page still open
+                    showCancelledBanner();
                 }
             } catch(_){}
         });
+        // The browser's Back button can restore this page from its cache without running the handler above.
+        window.addEventListener('pageshow', (e) => { try { if (e.persisted && recallPayLink()) showCancelledBanner(); } catch (_) {} });
 
         // Phase B: full-page success card shown when a brand returns from Stripe Checkout with paid=1.
         // The brand already has an account (created + signed in at the booking step), so this
@@ -974,7 +979,9 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
         }
 
         function showCancelledBanner() {
+            const prior = document.getElementById('unpaidNotice'); if (prior) prior.remove();
             const el = document.createElement('div');
+            el.id = 'unpaidNotice';
             el.setAttribute('role', 'status');
             el.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;background:#a14e2a;color:#fbf7f0;padding:14px 22px;border-radius:12px;box-shadow:0 8px 24px rgba(15,44,23,0.35);font-family:"Plus Jakarta Sans",sans-serif;font-size:0.95rem;font-weight:600;max-width:520px;';
             // The brand came back from Stripe without paying. The demo is saved and unpaid, and the payment page they left
@@ -991,7 +998,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
             if (link) {
                 const a = document.createElement('a'); a.href = link.url; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; el.appendChild(a); actionable = true;
             } else if (pendingIds.length) {
-                const a = document.createElement('a'); a.href = '#'; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; a.onclick = function () { return payPendingBookings(a); }; el.appendChild(a); actionable = true;
+                const a = document.createElement('a'); a.href = '#'; a.textContent = 'Return to payment'; a.style.cssText = linkStyle; a.onclick = function () { payPendingBookings(a); return false; }; el.appendChild(a); actionable = true;
             }
             if (actionable) {
                 const x = document.createElement('button'); x.type = 'button'; x.setAttribute('aria-label', 'Dismiss'); x.textContent = '×';
@@ -2356,7 +2363,11 @@ function renderLocationGridTight(venues, retailer, demoFee) {
                 // a payment page is already open for these demos: go back to it when this tab still has its address
                 if (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') { const link = recallPayLink(); if (link) { window.location.assign(link.url); return false; } }
                 const refusal = checkoutRefusalText(j);
-                a.textContent = (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') ? 'A payment page is already open for these demos. Finish paying on that page. If you closed it, you can open payment again here once it expires, within 24 hours.' : j.error === 'payment_pending' ? 'This payment is being confirmed. Refresh this page in a moment.' : j.error === 'not_payable_state' ? 'These demos are no longer awaiting payment. See your dashboard.' : refusal ? refusal : 'Payment could not be opened. Click here to try again.'; }
+                const final = (j.error === 'attempt_in_progress' || j.error === 'already_in_checkout') ? 'A payment page is already open for these demos. Finish paying on that page. If you closed it, you can open payment again here once it expires, within 24 hours.' : j.error === 'payment_pending' ? 'This payment is being confirmed. Refresh this page in a moment.' : j.error === 'not_payable_state' ? 'These demos are no longer awaiting payment. See your dashboard.' : refusal;
+                if (final) {
+                    // an answer that clicking again will not change: plain text from here on, not something that looks clickable
+                    a.textContent = final; a.removeAttribute('href'); a.onclick = null; a.removeAttribute('onclick'); a.style.textDecoration = 'none'; a.style.cursor = 'default';
+                } else a.textContent = 'Payment could not be opened. Click here to try again.'; }
             catch (_) { a.textContent = 'The payment page could not be reached. Click here to try again.'; }
             return false;
         }
