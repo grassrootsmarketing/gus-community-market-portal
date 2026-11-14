@@ -21,6 +21,7 @@ service key (the systemic gap the F5 program closes).
 | find-retailer.js | none (public) | P | public-data + status |
 | cal.js | token | P | retailer iCal feed (token-gated) |
 | stripe-webhook.js | Stripe signature | S | payment/refund/subscription events |
+| stripe-connect-webhook.js | Stripe signature (connected-accounts secret, `STRIPE_CONNECT_WEBHOOK_SECRET`) | S | connected-account status events (`account.updated`, `capability.updated`); re-reads the account from Stripe and stores readiness; refuses every request when its secret is unset |
 | coi-enforcement.js | cron secret | S | COI reminder/cancel sweep |
 | seed-demo.js | cron secret | S | demo tenant seed (non-prod) |
 | apply-migrations.js | — | S | **RETIRED (410)** |

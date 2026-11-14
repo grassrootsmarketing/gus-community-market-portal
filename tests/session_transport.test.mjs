@@ -485,6 +485,7 @@ function stripComments(src) {
 // instead, because "it is exempt" is not a reason — the mechanism is. Used by 4e and 4f.
 const EXEMPT = new Map([
   ['stripe-webhook.js', 'authenticated by Stripe signature; carries no cookie'],
+  ['stripe-connect-webhook.js', 'authenticated by Stripe signature under the connected-accounts signing secret; carries no cookie'],
   ['fulfill-booking.js', 'authenticated by CRON_SECRET'],
   ['coi-enforcement.js', 'authenticated by CRON_SECRET'],
   ['refund-worker.js', 'authenticated by CRON_SECRET'],

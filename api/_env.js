@@ -158,6 +158,9 @@ function assembleBinding(env, targets) {
     stripeKey,
     stripeMode,
     stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET || null,
+    // The "Connected accounts" destination's own signing secret (api/stripe-connect-webhook.js). Carried here only so
+    // the operator view can report its PRESENCE; the route reads it per request and refuses to run without it.
+    stripeConnectWebhookSecret: (env.STRIPE_CONNECT_WEBHOOK_SECRET && String(env.STRIPE_CONNECT_WEBHOOK_SECRET).trim()) || null,
     // [C] Provider credentials come from the binding, never from a direct env read in a route.
     // A missing key is not silently tolerated: _mail.js refuses to send rather than logging
     // the code or link it was meant to deliver.
@@ -322,5 +325,6 @@ export function diagnosticSnapshot(b) {
     email_allowlist_count: b.emailAllowlist.length,
     has_publishable_key: !!b.publishableKey,
     has_webhook_secret: !!b.stripeWebhookSecret,
+    has_connect_webhook_secret: !!b.stripeConnectWebhookSecret,
   };
 }
