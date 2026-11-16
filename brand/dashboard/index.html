@@ -1684,7 +1684,21 @@ window.openDemoDetail = function(demoId) {
   const ret = demo.retailers || {};
   const venue = demo.venues || {};
   const niceDate = demo.demo_date ? new Date(demo.demo_date + 'T00:00:00').toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }) : 'n/a';
-  const fee = demo.demo_fee != null && demo.demo_fee !== '' ? '$' + Number(demo.demo_fee).toFixed(2) : 'n/a';
+  // A demo the store has confirmed carries its fee. A paid booking the store has not answered yet has no
+  // fee on it, so show what the brand paid for it (from its own payment records) instead of "n/a"; when
+  // neither is known (a hold with no charge, or a booker who cannot see payments) the row is left out.
+  let feeRow = '';
+  if (demo.demo_fee != null && demo.demo_fee !== '') {
+    feeRow = `<div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml('$' + Number(demo.demo_fee).toFixed(2))}</span></div>`;
+  } else if (demo.booking_id) {
+    let paid = null, paidCurrency = null;
+    (Array.isArray(_data.payments) ? _data.payments : []).forEach(function (p) {
+      (Array.isArray(p && p.demos) ? p.demos : []).forEach(function (a) {
+        if (a && a.amount != null && String(a.booking_id) === String(demo.booking_id)) { paid = a.amount; paidCurrency = p.currency; }
+      });
+    });
+    if (paid != null) feeRow = `<div class="row"><span class="k">Amount paid</span><span class="v">${escapeHtml(moneyLabel(paid, paidCurrency))}</span></div>`;
+  }
   const logoSrc = ret.logo_url ? `<img src="${escapeHtml(ret.logo_url)}" alt="">` : DEFAULT_AVATAR_SVG;
   const content = `
     <div class="demo-detail-head">
@@ -1701,7 +1715,7 @@ window.openDemoDetail = function(demoId) {
       ${venue.address ? `<div class="row"><span class="k">Address</span><span class="v">${escapeHtml(venue.address)}</span></div>` : ''}
       <div class="row"><span class="k">Product</span><span class="v">${escapeHtml(demo.product || 'n/a')}</span></div>
       <div class="row"><span class="k">Status</span><span class="v"><span class="demos-status ${escapeHtml(demo.status || '')}">${escapeHtml(demo.status || 'n/a')}</span></span></div>
-      <div class="row"><span class="k">Demo fee</span><span class="v">${escapeHtml(fee)}</span></div>
+      ${feeRow}
     </div>
     ${demo.pending_move ? '<div class="resched-banner move-banner" style="margin-top:14px;"><div class="move-title">' + escapeHtml(ret.name || 'The store') + ' moved this demo</div><div class="move-facts">' + (demo.pending_move.from_date ? '<div class="k">Was</div><div class="v"><span style="text-decoration:line-through;opacity:.7;">' + escapeHtml(_calMoveLabel(demo.pending_move.from_date, demo.pending_move.from_time)) + '</span></div>' : '') + '<div class="k">Now</div><div class="v"><strong>' + escapeHtml(_calMoveLabel(demo.pending_move.to_date || demo.demo_date, demo.pending_move.to_time || demo.demo_time)) + '</strong></div></div><div class="move-note">' + (window._brandRole === 'booker' ? 'The brand account owner has been asked to confirm the new time.' : 'Waiting for your answer: <a href="#overview" onclick="closeDemoDetail()">answer on the Overview tab</a>.') + '</div></div>' : ''}
   `;

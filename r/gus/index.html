@@ -1706,7 +1706,9 @@ function renderLocationGridTight(venues, retailer, demoFee) {
             const itemFees = cart.map(it => (_code && _code.waives_fee && _code.itemId === it.id) ? 0 : _venueFeeFor(it.location));
             const total = itemFees.reduce((a, b) => a + b, 0);
             // "Price per demo" summary: exact when all venues share a fee (the common case).
-            const perDemoFee = itemFees.length ? itemFees[0] : (_pka ? _settingsFee : _settingsFee + PLATFORM_FEE_PER_DEMO);
+            // With an empty cart, show the fee of the location the brand is looking at (its own fee when it
+            // has one), not the store default: a $20 location read "$40.00" until the first slot was added.
+            const perDemoFee = itemFees.length ? itemFees[0] : _venueFeeFor(currentLocation);
             const priceEl = document.getElementById('pricePerDemo');
             if (priceEl) priceEl.textContent = '$' + Number(perDemoFee).toFixed(2);
             const subLine = document.getElementById('subtotalLine');
