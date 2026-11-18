@@ -11,6 +11,7 @@ import { getBinding, sendBindingFailure } from './_env.js';
 import { setSessionCookie as setRoleCookie } from './_cookies.js';
 import { requireSameOrigin } from './_csrf.js';
 import { sendMailQuietly, link } from './_mail.js';
+import { codeEmail } from './_code-email.js';
 import { OWNER_ALERT_EMAIL } from './_owner-alerts.js';
 import { signinConfigStatus, signinUnavailableBody, logSigninConfigFailure, logSigninMailFailure } from './_signin-config.js';
 let _b = null;
@@ -63,9 +64,13 @@ export async function provisionVerifiedRetailer(email, storeName, opts = {}) {
   return { retailer_id: row.retailer_id, slug: row.slug, session_id: row.session_id, already: !!row.already };
 }
 
-async function sendCode(email, code) {
-  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, subject: 'Your Demohub verification code',
-    html: `<p>Your code is <strong style="font-size:20px">${code}</strong>. It expires in 30 minutes.</p>` }, { binding: _b });
+// The code email wears the same card as the store sign-in email (api/_code-email.js), with the store's own name on it.
+async function sendCode(email, code, storeName) {
+  const name = String(storeName || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  const sent = await sendMailQuietly({ from: 'Demohub <bookings@demohubhq.com>', to: email, replyTo: 'bookings@demohubhq.com', subject: 'Your Demohub verification code',
+    html: codeEmail({ eyebrow: 'Set up your store', heading: name || null, label: 'Your verification code', code, minutes: 30,
+      hint: 'Type this code into the sign-up page to create your store on Demohub.',
+      reason: "You're receiving this because someone used this address to sign up a store on Demohub." }) }, { binding: _b });
   logSigninMailFailure('retailer-signup', sent);
 }
 
@@ -156,7 +161,7 @@ export default async function handler(req, res) {
         phone: String(body.phone || '').slice(0, 40),
         store_count: Number.isFinite(+body.store_count) ? Math.max(1, Math.min(999, Math.round(+body.store_count))) : null,
       });
-      await sendCode(email, ch.code);
+      await sendCode(email, ch.code, body.store_name);
     } catch (_) {}
     return res.status(200).json({ ok: true, message: 'If that email can receive mail, a code is on its way.' });
   }
