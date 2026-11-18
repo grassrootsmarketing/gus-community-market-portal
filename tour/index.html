@@ -184,6 +184,8 @@ main.tour { max-width:1200px; padding:0 20px 72px; }
 .v-big svg { width:22px; height:22px; }
 .facts { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin:28px auto 0; max-width:1120px; }
 .fact { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:18px 20px; }
+.fact-icon { width:52px; height:52px; border-radius:14px; background:#e3eee0; display:flex; align-items:center; justify-content:center; margin:0 0 12px; }
+.fact-icon svg { width:36px; height:36px; }
 .fact h2 { margin:0 0 6px; font-size:17px; font-weight:800; color:var(--forest-900); letter-spacing:-0.01em; }
 .fact p { margin:0; font-size:15px; line-height:1.55; color:var(--ink-700); }
 main.tour .cta-card { max-width:1120px; margin:28px auto 0; }
@@ -203,6 +205,10 @@ main.tour .cta-card { max-width:1120px; margin:28px auto 0; }
   .v-sound { top:10px; right:10px; }
   .v-big { font-size:15px; padding:13px 20px; }
   .facts { grid-template-columns:1fr; gap:12px; margin-top:20px; }
+  .fact { display:grid; grid-template-columns:48px 1fr; column-gap:14px; align-items:start; padding:16px; }
+  .fact-icon { width:48px; height:48px; border-radius:12px; margin:0; grid-row:1 / span 2; }
+  .fact-icon svg { width:34px; height:34px; }
+  .fact h2, .fact p { grid-column:2; }
 }
 
 </style>
@@ -242,14 +248,17 @@ main.tour .cta-card { max-width:1120px; margin:28px auto 0; }
 
   <div class="facts">
     <div class="fact">
+      <div class="fact-icon"><svg viewBox="4 3 40 41" aria-hidden="true"><path d="M11 22v17h26V22" fill="#fdf9ee" stroke="#0f2c17" stroke-width="2.6" stroke-linejoin="round"/><rect x="20" y="28" width="8" height="11" rx="1.2" fill="#0f2c17"/><path d="M11.5 9h25l3.5 9a4 4 0 0 1-8 0a4 4 0 0 1-8 0a4 4 0 0 1-8 0a4 4 0 0 1-8 0z" fill="#ed682f" stroke="#0f2c17" stroke-width="2.6" stroke-linejoin="round"/></svg></div>
       <h2>Free for your store</h2>
       <p>There is no subscription and no charge to the store, at any number of locations. The brand pays a flat $10 to book.</p>
     </div>
     <div class="fact">
+      <div class="fact-icon"><svg viewBox="4 3 40 41" aria-hidden="true"><path d="M24 6l14 5v11c0 9.4-5.9 16.4-14 20-8.1-3.6-14-10.6-14-20V11z" fill="#fdf9ee" stroke="#0f2c17" stroke-width="2.6" stroke-linejoin="round"/><path d="M17.5 24.5l4.6 4.6 8.6-9.4" fill="none" stroke="#ed682f" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <h2>Insurance comes first</h2>
       <p>A brand cannot book a demo until its certificate of insurance is on file, so nobody at your store chases paperwork.</p>
     </div>
     <div class="fact">
+      <div class="fact-icon"><svg viewBox="4 3 40 41" aria-hidden="true"><rect x="8" y="11" width="32" height="29" rx="4.5" fill="#fdf9ee" stroke="#0f2c17" stroke-width="2.6"/><path d="M8 19.5h32" stroke="#0f2c17" stroke-width="2.6"/><path d="M16.5 7v7M31.5 7v7" stroke="#0f2c17" stroke-width="2.6" stroke-linecap="round"/><rect x="14" y="24.5" width="6" height="5.5" rx="1.4" fill="#0f2c17" opacity="0.28"/><rect x="14" y="32" width="6" height="5" rx="1.4" fill="#0f2c17" opacity="0.28"/><rect x="24" y="24.5" width="10" height="12.5" rx="2" fill="#ed682f"/></svg></div>
       <h2>One calendar for your team</h2>
       <p>Every confirmed demo shows on your admin calendar, with the brand, the location and the time.</p>
     </div>
