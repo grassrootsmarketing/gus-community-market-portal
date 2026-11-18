@@ -1,6 +1,6 @@
 // api/_monthly-summary.js (2026-11-18): the store's monthly demo summary email.
 //
-// One email a month to each store that has the summary switched on (Settings, Notifications), sent in the first week
+// One email a month to each store that has the summary switched on (the Settings tab of the store admin), sent in the first week
 // of a month about the month that just ended. It reports ACTIVITY only: how many demos the store hosted, at which
 // locations, which brands came, whether those brands have an approved certificate of insurance, and what is already
 // booked for the month ahead. It never shows or adds up money. A store judges a line like "$220 in fees" as small
@@ -172,7 +172,7 @@ ${ins ? `<div style="margin-top:14px;padding:12px 14px;background:#eef4ec;border
 <tr><td style="padding:24px 36px 34px;text-align:center;">
 <p style="margin:0;"><a href="${esc(adminUrl)}" style="background:#0f2c17;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600;display:inline-block;font-size:14px;">Open your admin calendar &rarr;</a></p>
 </td></tr>
-<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this once a month because the monthly summary is switched on for ${esc(storeName)}. You can switch it off in your admin, under Settings, then Notifications.</td></tr>
+<tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;line-height:1.5;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You're receiving this once a month because the monthly summary is switched on for ${esc(storeName)}. You can switch it off on the Settings tab of your admin.</td></tr>
 </table></body></html>`;
   const text = [
     `Your demo summary for ${monthName}: ${storeName}`,
@@ -182,7 +182,7 @@ ${ins ? `<div style="margin-top:14px;padding:12px 14px;background:#eef4ec;border
     ins,
     `Coming up in ${nextMonthName}: ${up.strong}${up.rest}`,
     `Open your admin calendar: ${adminUrl}`,
-    'You can switch this monthly summary off in your admin, under Settings, then Notifications.',
+    'You can switch this monthly summary off on the Settings tab of your admin.',
   ].filter(Boolean).join('\n');
   return { subject, html, text };
 }

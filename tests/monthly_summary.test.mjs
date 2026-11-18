@@ -53,7 +53,7 @@ ok('each location and each brand is listed', venues.every(v => mail.html.include
 ok('the insurance sentence says all three are approved', mail.html.includes('All 3 brands have an approved certificate of insurance on file.'));
 ok('the coming up sentence names the count and the first demo', mail.html.includes('4 demos are booked so far.') && mail.html.includes('The first is Framani on Tuesday, December 8, at Mission Bay Market.'));
 ok('one green button opens the admin calendar', (mail.html.match(/<a href=/g) || []).length === 1 && mail.html.includes('href="https://www.demohubhq.com/r/gus/admin"') && mail.html.includes('Open your admin calendar'));
-ok('it says how to switch the summary off', mail.html.includes('You can switch it off in your admin, under Settings, then Notifications.'));
+ok('it says how to switch the summary off', mail.html.includes('You can switch it off on the Settings tab of your admin.'));
 ok('the same card as the other emails: dark header with the Demohub mark, cream footer with the address', mail.html.includes('background:#0f2c17;') && mail.html.includes('<svg width="36" height="36"') && mail.html.includes('Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307'));
 ok('no em dash, en dash or bare dash rule', !/[—–]/.test(mail.html + mail.text + mail.subject));
 ok('the plain text version carries the same facts', mail.text.includes('11 demos hosted, 3 brands, 5 locations.') && mail.text.includes('https://www.demohubhq.com/r/gus/admin'));
