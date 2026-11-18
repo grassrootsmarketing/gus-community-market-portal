@@ -279,17 +279,17 @@ function retailerDay3Email({ first_name }) {
 <p style="margin:0 0 14px;">It's been a few days since you joined Demohub. Wanted to check in.</p>
 <p style="margin:0 0 8px;">A couple of things I see most retailers ask in the first week:</p>
 <ul style="margin:0 0 18px;padding-left:22px;">
-<li style="margin-bottom:8px;"><strong>"How do I price demos?"</strong> Most start at $30 per slot. You'll see it round to $3 per demo on your Demohub bill, and you can change it any time, per store.</li>
+<li style="margin-bottom:8px;"><strong>"Do I have to charge brands a demo fee?"</strong> No, a demo fee is optional and it is your choice. If you set one, for example $20, the brand pays it when they book and it goes to your bank. Demohub is free for your store either way, and you can change the fee any time.</li>
 <li style="margin-bottom:8px;"><strong>"Can I share my booking link on Instagram?"</strong> Yep. Drop the link in your bio or a story. Brands can submit a request without ever calling you.</li>
 <li style="margin-bottom:8px;"><strong>"How does the calendar sync work?"</strong> Copy the iCal URL from Settings &rarr; Calendar feed and paste it into Google Calendar, Apple Calendar, or Outlook.</li>
 </ul>
-<p style="margin:0 0 14px;">If you want a 20-minute walkthrough where I show you how to set up venues, manage team access, and review your first booking, grab a slot here: <a href="https://calendly.com/demohubhq/walkthrough" style="color:#2a5b32;">calendly.com/demohubhq/walkthrough</a></p>
+<p style="margin:0 0 14px;">If you want a walkthrough where I show you how to set up venues, manage team access, and review your first booking, <a href="https://calendly.com/david-demohubhq/30min" style="color:#2a5b32;font-weight:700;">pick a time with me here</a>.</p>
 <p style="margin:0 0 14px;">Or just hit reply. Happy to help by email too.</p>
 <p style="margin:0 0 4px;">Talk soon,<br>David<br>Demohub</p>
 </td></tr>
 <tr><td style="padding:20px 32px;background:#fbf7f0;border-top:1px solid rgba(15,44,23,0.06);font-size:12px;color:#6b6a64;text-align:center;">Demohub LLC &middot; 6700 Fallbrook Ave #125, West Hills, CA 91307<br>You\'re receiving this because you have a Demohub account or recently took an action on demohubhq.com.</td></tr>
 </table></body></html>`;
-  const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- How to price demos: Most start at $30 per slot.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\n20-min walkthrough: https://calendly.com/demohubhq/walkthrough\n\nTalk soon,\nDavid\nDemohub`;
+  const text = `Hi ${first_name || 'there'},\n\nIt's been a few days since you joined Demohub. Wanted to check in.\n\n- Demo fee: optional and your choice. If you set one, for example $20, it goes to your bank. Demohub is free for your store either way.\n- Sharing your booking link: drop it in your Instagram bio.\n- Calendar sync: copy the iCal URL from Settings -> Calendar feed.\n\nPick a time for a walkthrough with me: https://calendly.com/david-demohubhq/30min\n\nTalk soon,\nDavid\nDemohub`;
   const subject = `${first_name || 'there'}, how's your Demohub setup going?`;
   return { subject, html: htmlBody, text };
 }
