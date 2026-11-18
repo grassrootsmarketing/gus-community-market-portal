@@ -166,28 +166,50 @@
 }
 
 
-/* ===== Tour page ===== */
-main.tour { max-width:960px; padding-top:0; }
-.video-frame { margin:-64px auto 0; position:relative; z-index:2; border-radius:18px; overflow:hidden; background:#0f2c17; box-shadow:0 18px 48px rgba(15,44,23,0.28); border:1px solid rgba(15,44,23,0.12); }
+/* ===== Tour page: slim header, the video first and large ===== */
+[hidden] { display:none !important; }
+.page-hero-wrap.tour-top nav.nav { padding:14px 32px !important; }
+.tour-head { text-align:center; padding:6px 24px 0; }
+.tour-head h1 { font-family:'Instrument Serif', Georgia, serif; font-weight:400; font-size:clamp(1.7rem, 2.6vw, 2.4rem); line-height:1.1; letter-spacing:-0.01em; color:#fdf9ee; margin:0 0 8px; text-shadow:0 2px 18px rgba(15,44,23,0.35); }
+.tour-head p { font-size:1rem; line-height:1.45; color:#fdf9ee; margin:0 auto; max-width:640px; }
+.tour-band { height:150px; }
+main.tour { max-width:1200px; padding:0 20px 72px; }
+.video-frame { width:min(100%, 1120px, max(320px, calc((100vh - 215px) * 16 / 9))); margin:-134px auto 0; position:relative; z-index:2; border-radius:16px; overflow:hidden; background:#0f2c17; box-shadow:0 18px 48px rgba(15,44,23,0.30); border:1px solid rgba(15,44,23,0.14); }
 .video-frame video { display:block; width:100%; height:auto; aspect-ratio:16/9; background:#0f2c17; }
-.facts { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin:36px 0 0; }
-.fact { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:20px 22px; }
+.v-btn { position:absolute; z-index:3; display:inline-flex; align-items:center; gap:9px; border:0; border-radius:99px; background:#fdf9ee; color:#0f2c17; font-family:inherit; font-weight:800; font-size:16px; padding:13px 22px; box-shadow:0 6px 22px rgba(0,0,0,0.38); }
+.v-btn:hover { background:#ffffff; }
+.v-btn svg { width:20px; height:20px; flex:none; }
+.v-sound { top:16px; right:16px; }
+.v-big { top:50%; left:50%; transform:translate(-50%,-50%); font-size:18px; padding:17px 28px; white-space:nowrap; }
+.v-big svg { width:22px; height:22px; }
+.facts { display:grid; grid-template-columns:repeat(3, 1fr); gap:16px; margin:28px auto 0; max-width:1120px; }
+.fact { background:white; border:1px solid rgba(15,44,23,0.08); border-radius:14px; padding:18px 20px; }
 .fact h2 { margin:0 0 6px; font-size:17px; font-weight:800; color:var(--forest-900); letter-spacing:-0.01em; }
 .fact p { margin:0; font-size:15px; line-height:1.55; color:var(--ink-700); }
+main.tour .cta-card { max-width:1120px; margin:28px auto 0; }
 .cta-card .btn-row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-.cta-card a.btn-quiet { display:inline-block; padding:10px 20px; border-radius:10px; border:1px solid rgba(255,255,255,0.55); color:white; text-decoration:none; font-weight:700; font-size:15px; }
+.cta-card a.btn-quiet { display:inline-block; padding:10px 20px; border-radius:10px; border:1px solid rgba(255,255,255,0.6); color:white; text-decoration:none; font-weight:700; font-size:15px; }
 .cta-card a.btn-quiet:hover { background:rgba(255,255,255,0.12); }
 .cta-card p a { color:white; font-weight:700; }
 @media (max-width:760px) {
-  .facts { grid-template-columns:1fr; }
-  .video-frame { margin-top:-40px; border-radius:12px; }
+  .page-hero-wrap.tour-top nav.nav { padding:10px 16px !important; }
+  .tour-head { padding:2px 16px 0; }
+  .tour-head h1 { font-size:1.55rem; margin-bottom:6px; }
+  .tour-head p { font-size:0.94rem; }
+  .tour-band { height:96px; }
+  main.tour { padding:0 12px 56px; }
+  .video-frame { margin-top:-84px; border-radius:12px; width:100%; }
+  .v-btn { font-size:13px; padding:8px 13px; }
+  .v-sound { top:10px; right:10px; }
+  .v-big { font-size:15px; padding:13px 20px; }
+  .facts { grid-template-columns:1fr; gap:12px; margin-top:20px; }
 }
 
 </style>
 </head>
 <body>
 
-<div class="page-hero-wrap">
+<div class="page-hero-wrap tour-top">
 <nav class="nav">
   <a href="/" class="brand">
     <svg class="brand-mark" viewBox="0 0 72 72" xmlns="http://www.w3.org/2000/svg">
@@ -200,19 +222,22 @@ main.tour { max-width:960px; padding-top:0; }
   </a>
   <a href="/" class="nav-back">Demohub home</a>
 </nav>
-<section class="hero"><div class="container">
-<div class="eyebrow">30 second tour</div>
+<div class="tour-head">
   <h1>See how brands book demos at your store</h1>
-  <p class="lede">Brands book and pay on your store's own booking page, and every demo shows up on one calendar for your team. Demohub is free for stores.</p>
-</div></section>
+  <p>A 30 second look at Demohub, which is free for stores.</p>
+</div>
+<div class="tour-band"></div>
 </div>
 
 <main class="tour">
   <div class="video-frame">
-    <video controls playsinline preload="metadata" poster="/tour/poster.png" aria-label="A 30 second walkthrough of Demohub for stores">
+    <video id="tourVideo" controls muted playsinline preload="auto" poster="/tour/poster.png" aria-label="A 30 second walkthrough of Demohub for stores">
       <source src="/tour/demohub-walkthrough.mp4" type="video/mp4">
       Your browser cannot play this video. <a href="/tour/demohub-walkthrough.mp4">Open the video file</a>.
     </video>
+    <button type="button" class="v-btn v-sound" id="tourSound" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="#0f2c17"/><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="#0f2c17" stroke-width="2" stroke-linecap="round"/></svg>Turn sound on</button>
+    <button type="button" class="v-btn v-big" id="tourPlay" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="#0f2c17"/></svg>Play the 30 second tour</button>
+    <button type="button" class="v-btn v-big" id="tourAgain" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="#0f2c17"/></svg>Watch again</button>
   </div>
 
   <div class="facts">
@@ -239,6 +264,32 @@ main.tour { max-width:960px; padding-top:0; }
     </div>
   </div>
 </main>
+
+<script>
+// The tour starts by itself with the sound off (browsers only allow a silent start). One button turns the sound on
+// and restarts it. If the browser refuses to start it, or the visitor prefers reduced motion, a large play button shows.
+(function () {
+  var v = document.getElementById('tourVideo');
+  var sound = document.getElementById('tourSound'), big = document.getElementById('tourPlay'), again = document.getElementById('tourAgain');
+  function show(el, on) { el.hidden = !on; }
+  function withSound() {
+    v.muted = false; v.currentTime = 0;
+    show(sound, false); show(big, false); show(again, false);
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+  }
+  sound.addEventListener('click', withSound);
+  big.addEventListener('click', withSound);
+  again.addEventListener('click', withSound);
+  v.addEventListener('volumechange', function () { if (!v.muted) show(sound, false); });
+  v.addEventListener('play', function () { show(big, false); show(again, false); if (v.muted) show(sound, true); });
+  v.addEventListener('ended', function () { show(sound, false); show(again, true); });
+  var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (calm) { show(big, true); return; }
+  v.muted = true;
+  var p = v.play();
+  if (p && p.catch) p.catch(function () { show(big, true); });
+})();
+</script>
 
 </body>
 </html>
