@@ -31,7 +31,10 @@ ok('the eligible-retailer query excludes the __owner__ system row', /slug=neq\._
 ok('demos are no longer counted by a status nobody sets', !/status=eq\.completed/.test(block));
 ok('demos are counted by the window status filter and both ends of the month', /\$\{win\.demoStatusFilter\}/.test(block) && /demo_date=gte\.\$\{win\.from\}/.test(block) && /demo_date=lte\.\$\{win\.to\}/.test(block));
 ok('the subject and heading use the same month as the figures', /const monthLabel = win\.label/.test(block));
-ok('new brand contacts count from the start of the same month', /brand_contacts\?[^`]*created_at=gte\.\$\{since\}/.test(block) && /const since = win\.from/.test(block));
+// 2026-11-18: the email became the monthly demo summary (api/_monthly-summary.js, tests/monthly_summary.test.mjs).
+ok('the email no longer adds up or mentions demo fees', !/demo_fee|totalFees|in fees|fees collected/i.test(block));
+ok('a store is only sent to when its own last send is before this month', /monthlySummaryDue\(now, r\.monthly_summary_last_sent_at\)/.test(block) && !/twentyEightDaysAgo/.test(block));
+ok('a month with no demos sends nothing and is not marked as sent', /if \(demos\.length === 0\) return;/.test(block) && block.indexOf('demos.length === 0') < block.indexOf('monthly_summary_last_sent_at: new Date()'));
 const apiSrc = ['admin.js', 'booking.js', 'notification-worker.js', 'brand-account.js'].map(f => readFileSync('api/' + f, 'utf8')).join('\n');
 ok('nothing in the api ever sets a demo to completed (the reason for the fix)', !/demos\?[^\n]*status:\s*'completed'/.test(apiSrc));
 ok('no em dashes', !/—/.test(block) && !/—/.test(readFileSync('api/_monthly-overview.js', 'utf8')));

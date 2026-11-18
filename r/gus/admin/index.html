@@ -1238,7 +1238,7 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-                                    <span style="display:inline-flex; align-items:center; gap:6px;">Monthly overview email<span data-tooltip="Sent on the 1st of each month with demos completed, fees collected, pending bookings, COIs expiring, and new brand contacts." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></span>
+                                    <span style="display:inline-flex; align-items:center; gap:6px;">Monthly demo summary email<span data-tooltip="Sent at the start of each month: how many demos your store hosted, at which locations, which brands came, and what is booked next. A month with no demos sends nothing." style="display:inline-flex; align-items:center; justify-content:center; width:14px; height:14px; border-radius:50%; background:var(--sand-200); color:var(--ink-500); font-size:0.7rem; font-weight:700; cursor:help;">?</span></span>
                                     <label class="toggle" style="flex-shrink:0;">
                                         <input type="checkbox" id="settingMonthlySummary" checked onchange="saveNotificationPrefs()">
                                         <span class="toggle-slider"></span>
@@ -6094,7 +6094,7 @@ function escapeHtml(s) {
                 if (j.error) throw new Error(j.error);
                 if (status) {
                     status.style.color = 'var(--forest-700)';
-                    status.textContent = cb.checked ? 'Monthly overviews on.' : 'Monthly overviews off.';
+                    status.textContent = cb.checked ? 'Monthly summary on.' : 'Monthly summary off.';
                     setTimeout(() => { if (status) status.textContent = ''; }, 2500);
                 }
                 DhModal.toast('Notification settings saved', 'success');
