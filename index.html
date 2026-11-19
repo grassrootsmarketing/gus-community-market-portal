@@ -14,7 +14,7 @@
     <meta property="og:url" content="https://demohubhq.com/">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="https://demohubhq.com/og-home.png">
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..700,100,1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
     <style>
         :root {
             /* Whole Foods-inspired forest greens, deeper and more refined */
@@ -62,20 +62,19 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html { scroll-behavior: smooth; }
         body {
-            font-family: 'Plus Jakarta Sans', -apple-system, sans-serif;
+            font-family: 'Hanken Grotesk', -apple-system, sans-serif;
             background: var(--cream-50);
             color: var(--ink-900);
             line-height: 1.6;
             -webkit-font-smoothing: antialiased;
-            font-feature-settings: 'ss01';
         }
         h1, h2, h3, h4, h5 {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            font-weight: 400;
+            font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+            font-variation-settings: 'opsz' 60, 'SOFT' 100, 'WONK' 1;
+            font-weight: 600;
             line-height: 1.1;
             letter-spacing: -0.025em;
             color: var(--forest-900);
-            font-variation-settings: 'opsz' 144;
         }
         a { color: inherit; text-decoration: none; }
         img { max-width: 100%; display: block; }
@@ -221,9 +220,9 @@
             padding-top: 20px;
         }
         .hero h1 {
-            font-family: 'Instrument Serif', Georgia, serif;
-            font-weight: 400;
-            font-size: clamp(3.2rem, 8vw, 6.4rem);
+            font-family: 'Fraunces', Georgia, 'Times New Roman', serif;
+            font-weight: 620;
+            font-size: clamp(2.8rem, 6.4vw, 5.4rem);
             color: #fdf9ee;
             letter-spacing: -0.015em;
             line-height: 1.02;
@@ -231,8 +230,8 @@
             text-shadow: 0 2px 24px rgba(15, 44, 23, 0.35);
         }
         .hero h1 .hero-punch {
-            font-style: italic;
-            font-weight: 400;
+            font-style: normal;
+            font-weight: inherit;
             color: #f28855;
             position: relative;
             display: inline-block;
@@ -240,7 +239,7 @@
         /* Hand-drawn circle around the punch word */
         .hero h1 .hero-punch::after { display: none; }
         .hero-sub {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: clamp(1.05rem, 1.6vw, 1.3rem);
             color: rgba(253, 249, 238, 0.9);
             margin: 0 auto 40px;
@@ -257,7 +256,7 @@
             background: #1e5aa8;
             color: white;
             border-radius: 14px;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-weight: 700;
             font-size: 1.05rem;
             box-shadow: 0 8px 24px rgba(30, 90, 168, 0.35);
@@ -334,14 +333,14 @@
         .dash-titlebar .dot-mac { width: 11px; height: 11px; border-radius: 50%; background: var(--ink-300); }
         .dash-url {
             margin-left: 14px; font-size: 0.78rem; color: var(--ink-500);
-            font-family: 'Plus Jakarta Sans', monospace;
+            font-family: 'Hanken Grotesk', monospace;
             background: white; padding: 4px 12px; border-radius: 6px;
             flex: 1; max-width: 360px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .dash-body { padding: 24px; }
         .dash-header { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 20px; }
-        .dash-greeting { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.4rem; color: var(--forest-900); font-weight: 500; }
+        .dash-greeting { font-family: 'Hanken Grotesk', sans-serif; font-size: 1.4rem; color: var(--forest-900); font-weight: 500; }
         .dash-date { font-size: 0.8rem; color: var(--ink-500); }
         .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 24px; }
         .dash-stat {
@@ -351,7 +350,7 @@
             border: 1px solid rgba(15, 44, 23, 0.06);
         }
         .dash-stat-num {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: 1.8rem;
             color: var(--forest-800);
             font-weight: 500;
@@ -373,7 +372,7 @@
             background: var(--forest-100);
             border-radius: 50%;
             display: grid; place-items: center;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             color: var(--forest-700);
             font-weight: 600;
             font-size: 0.85rem;
@@ -396,7 +395,7 @@
         .stat-bar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 32px; }
         .stat-bar-item { text-align: center; }
         .stat-bar-num {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: clamp(2.4rem, 4vw, 3.2rem);
             color: var(--cream-50);
             font-weight: 400;
@@ -557,16 +556,16 @@
             transition: all 0.2s;
         }
         .audience-card:hover { background: white; border-color: var(--forest-300); box-shadow: var(--shadow-md); }
-        .audience-card-icon { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.4rem; color: var(--clay-600); margin-bottom: 12px; line-height: 1; font-weight: 300; }
-        .audience-card h4 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.2rem; color: var(--forest-900); margin-bottom: 10px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.2; }
+        .audience-card-icon { font-family: 'Hanken Grotesk', sans-serif; font-size: 2.4rem; color: var(--clay-600); margin-bottom: 12px; line-height: 1; font-weight: 300; }
+        .audience-card h4 { font-family: 'Hanken Grotesk', sans-serif; font-size: 1.2rem; color: var(--forest-900); margin-bottom: 10px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.2; }
         .audience-card p { color: var(--ink-700); font-size: 0.95rem; line-height: 1.55; }
 
         /* ====== Testimonial ====== */
         .quote { background: var(--forest-50); padding: 100px 0; }
         .quote-content { max-width: 920px; margin: 0 auto; text-align: center; }
-        .quote-mark { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 6rem; color: var(--forest-300); line-height: 0.6; margin-bottom: 0; }
+        .quote-mark { font-family: 'Hanken Grotesk', sans-serif; font-size: 6rem; color: var(--forest-300); line-height: 0.6; margin-bottom: 0; }
         .quote-text {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: clamp(1.5rem, 3vw, 2.2rem);
             line-height: 1.35;
             color: var(--forest-900);
@@ -580,7 +579,7 @@
             background: var(--forest-700);
             display: grid; place-items: center;
             color: var(--cream-50);
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: 1.4rem;
         }
         .quote-author-info { text-align: left; }
@@ -637,7 +636,7 @@
         .footer-brand .brand-mark { background: transparent; }
         .footer-brand p { color: var(--forest-300); font-size: 0.95rem; max-width: 280px; line-height: 1.55; }
         .footer-col h5 {
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.14em; color: var(--cream-100); margin-bottom: 20px;
         }
@@ -689,7 +688,7 @@
         .trust-band-inner { max-width: 1100px; margin: 0 auto; padding: 0 32px; }
         .trust-band-head { text-align: center; margin-bottom: 36px; }
         .trust-band-eyebrow { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.18em; color: var(--clay-700); margin-bottom: 12px; }
-        .trust-band-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.7rem; font-weight: 700; color: var(--forest-900); letter-spacing: -0.01em; }
+        .trust-band-title { font-family: 'Hanken Grotesk', sans-serif; font-size: 1.7rem; font-weight: 700; color: var(--forest-900); letter-spacing: -0.01em; }
         .trust-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
         @media (max-width: 820px) { .trust-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 480px) { .trust-grid { grid-template-columns: 1fr; } }
@@ -697,7 +696,7 @@
         .trust-item:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(15,44,23,0.08); border-color: rgba(15,44,23,0.15); }
         .trust-icon { width: 38px; height: 38px; background: var(--forest-50); border-radius: 10px; display: grid; place-items: center; margin-bottom: 14px; }
         .trust-icon svg { width: 20px; height: 20px; stroke: var(--forest-700); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
-        .trust-label { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.05rem; font-weight: 500; color: var(--forest-900); margin-bottom: 4px; line-height: 1.25; }
+        .trust-label { font-family: 'Hanken Grotesk', sans-serif; font-size: 1.05rem; font-weight: 500; color: var(--forest-900); margin-bottom: 4px; line-height: 1.25; }
         .trust-sub { font-size: 0.85rem; color: var(--ink-500); line-height: 1.4; }
         .trust-band-link { text-align: center; margin-top: 28px; }
         .trust-band-link a { font-size: 0.92rem; color: var(--forest-700); text-decoration: none; font-weight: 500; }
@@ -736,7 +735,7 @@
             border-left: 3px solid var(--forest-600);
             border-radius: 6px;
             padding: 6px 8px;
-            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            font-family: 'Hanken Grotesk', system-ui, sans-serif;
             box-shadow: 0 1px 2px rgba(15, 44, 23, 0.05);
             font-size: 10px;
             line-height: 1.35;
@@ -806,7 +805,7 @@
             border-radius: 10px;
             padding: 14px;
             box-shadow: 0 8px 20px rgba(15,44,23,0.15);
-            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            font-family: 'Hanken Grotesk', system-ui, sans-serif;
             box-sizing: border-box;
         }
 
@@ -1052,7 +1051,7 @@
             padding: 18px;
             max-width: 520px;
             width: 100%;
-            font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+            font-family: 'Hanken Grotesk', system-ui, sans-serif;
 
         }
         /* Compact the calendar inside the tour scene */
@@ -1246,7 +1245,7 @@
             background: rgba(255, 255, 255, 0.08);
             border: 1.5px solid rgba(253, 249, 238, 0.4);
             color: #fdf9ee;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-weight: 700;
             font-size: 1rem;
             cursor: pointer;
@@ -1273,7 +1272,7 @@
             border-radius: 99px;
             background: var(--forest-900);
             color: #fdf9ee;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-weight: 700;
             font-size: 0.92rem;
             border: none;
@@ -1305,7 +1304,7 @@
             color: #fdf9ee;
             border: none;
             border-radius: 99px;
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-family: 'Hanken Grotesk', sans-serif;
             font-weight: 700;
             font-size: 0.8rem;
             cursor: pointer;
@@ -1357,6 +1356,12 @@
         .hero-tour-cta { gap: 10px !important; }
         .tour-band-cta { gap: 8px !important; }
         .hero-product-play { padding: 6px 12px 6px 6px !important; gap: 6px !important; }
+        /* ====== Typography 2026-11: Fraunces headlines, Hanken Grotesk text ====== */
+        h1, h2, h3, h4, h5 { letter-spacing: -0.012em; }
+        .hero h1 { letter-spacing: -0.02em; line-height: 1.04; }
+        .section-title, .cta-banner h2, .feature-text h3 { font-weight: 600; letter-spacing: -0.018em; line-height: 1.08; }
+        .section-title em, .cta-banner h2 em { font-weight: inherit; }
+        .pillar-content h3 { font-weight: 600; letter-spacing: -0.008em; }
 </style>
 <!-- PostHog -->
 <script>
@@ -2208,7 +2213,7 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
                             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--forest-700, #2a5b32)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                         </div>
                         <div style="font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.14em; color:var(--clay-700); margin-bottom:8px;">You've seen the tour</div>
-                        <div style="font-family:'Instrument Serif', Georgia, serif; font-size:2.6rem; line-height:1.1; color:var(--forest-900); margin-bottom:12px;">Ready to start?</div>
+                        <div style="font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-weight:620; font-size:2.4rem; line-height:1.1; color:var(--forest-900); margin-bottom:12px;">Ready to start?</div>
                         <div style="font-size:1rem; color:var(--ink-700); line-height:1.55; margin-bottom:24px;">
                             <strong style="color:var(--forest-900);">Free for retailers.</strong> Setting up takes about ten minutes.
                         </div>
