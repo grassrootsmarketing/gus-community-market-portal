@@ -16,7 +16,7 @@
 <meta name="twitter:image" content="https://demohubhq.com/og-brand.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..700,100,1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
 <style>
 :root {
   --forest-900:#0f2c17; --forest-800:#183e1e; --forest-700:#1f4a26; --forest-600:#2a5b32; --forest-500:#3a7142;
@@ -30,7 +30,7 @@
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html { -webkit-text-size-adjust:100%; }
-body { font-family:'Plus Jakarta Sans',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
+body { font-family:'Hanken Grotesk',-apple-system,sans-serif; background:var(--cream-50); color:var(--ink-900); line-height:1.55; min-height:100vh; }
 a { color:inherit; text-decoration:none; }
 .container { max-width:1120px; margin:0 auto; padding:0 24px; }
 
@@ -103,20 +103,20 @@ a { color:inherit; text-decoration:none; }
     margin-bottom:32px;
 }
 .hero h1 {
-    font-family:'Instrument Serif', Georgia, serif;
-    font-weight:400;
-    font-size:clamp(3.2rem, 8vw, 6.4rem);
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1;
+    font-weight:620;
+    font-size:clamp(2.8rem, 6.4vw, 5.4rem);
     color:#fdf9ee;
     letter-spacing:-0.015em; line-height:1.02;
     margin-bottom:22px;
     text-shadow:0 2px 24px rgba(15,44,23,0.35);
 }
 .hero h1 .hero-punch {
-    font-style:italic; font-weight:400; color:#f28855;
+    font-style:normal; font-weight:inherit; color:#f28855;
     display:inline-block;
 }
 .hero-sub {
-    font-family:'Plus Jakarta Sans', sans-serif;
+    font-family:'Hanken Grotesk', sans-serif;
     font-size:clamp(1.05rem, 1.6vw, 1.3rem);
     color:rgba(253,249,238,0.9);
     margin:0 auto 36px; max-width:640px;
@@ -130,7 +130,7 @@ a { color:inherit; text-decoration:none; }
 .hero-primary-cta {
     display:inline-flex; align-items:center; gap:10px;
     padding:16px 32px; background:#1e5aa8; color:white;
-    border-radius:14px; font-family:'Plus Jakarta Sans', sans-serif;
+    border-radius:14px; font-family:'Hanken Grotesk', sans-serif;
     font-weight:700; font-size:1.05rem;
     box-shadow:0 8px 24px rgba(30,90,168,0.35);
     transition:transform 0.18s, box-shadow 0.18s;
@@ -188,13 +188,13 @@ a { color:inherit; text-decoration:none; }
 .dash-titlebar .dot-mac { width:11px; height:11px; border-radius:50%; background:var(--ink-300); }
 .dash-url {
     margin-left:14px; font-size:0.78rem; color:var(--ink-500);
-    font-family:'Plus Jakarta Sans', monospace;
+    font-family:'Hanken Grotesk', monospace;
     background:white; padding:4px 12px; border-radius:6px;
     max-width:280px;
 }
 .dash-body { padding:22px 22px 24px; }
 .dash-header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:16px; }
-.dash-hello { font-family:'Plus Jakarta Sans', sans-serif; font-size:1.3rem; font-weight:500; color:var(--forest-900); }
+.dash-hello { font-family:'Hanken Grotesk', sans-serif; font-size:1.3rem; font-weight:500; color:var(--forest-900); }
 .dash-hello-sub { font-size:0.82rem; color:var(--ink-500); margin-top:2px; }
 .dash-tabs { display:inline-flex; background:var(--cream-100); border-radius:8px; padding:3px; font-size:0.78rem; }
 .dash-tab { padding:6px 12px; color:var(--ink-700); font-weight:600; border-radius:6px; }
@@ -215,7 +215,7 @@ a { color:inherit; text-decoration:none; }
 }
 .retailer-card-name { font-size:0.82rem; font-weight:700; color:var(--forest-900); line-height:1.1; }
 .retailer-card-stores { font-size:0.66rem; color:var(--ink-500); font-weight:600; margin-top:2px; }
-.retailer-card-stat { font-family:'Plus Jakarta Sans', sans-serif; font-size:1.4rem; font-weight:600; color:var(--forest-900); line-height:1; margin-bottom:2px; }
+.retailer-card-stat { font-family:'Hanken Grotesk', sans-serif; font-size:1.4rem; font-weight:600; color:var(--forest-900); line-height:1; margin-bottom:2px; }
 .retailer-card-stat-lbl { font-size:0.66rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--ink-500); font-weight:700; }
 .retailer-card-next { margin-top:10px; padding-top:10px; border-top:1px dashed rgba(15,44,23,0.10); font-size:0.72rem; color:var(--ink-700); font-weight:500; }
 .retailer-card-next b { color:var(--forest-900); font-weight:700; }
@@ -246,14 +246,14 @@ a { color:inherit; text-decoration:none; }
 .section { padding:88px 0; }
 .section-eyebrow { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:0.22em; color:var(--clay-700); margin-bottom:14px; text-align:center; }
 .section-title {
-    font-family:'Instrument Serif', Georgia, serif;
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1;
     font-size:clamp(2.2rem, 4vw, 3.2rem);
-    font-weight:400; line-height:1.05;
+    font-weight:620; line-height:1.05;
     color:var(--forest-900); text-align:center;
     max-width:720px; margin:0 auto 18px;
     letter-spacing:-0.02em;
 }
-.section-title i { font-style:italic; color:var(--clay-bright); }
+.section-title i { font-style:normal; color:var(--clay-bright); }
 .section-sub {
     font-size:1.05rem; color:var(--ink-700);
     text-align:center; max-width:600px;
@@ -274,7 +274,7 @@ a { color:inherit; text-decoration:none; }
 }
 .value-icon svg { width:22px; height:22px; stroke:var(--forest-700); fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 .value-card h3 {
-    font-family:'Plus Jakarta Sans', sans-serif;
+    font-family:'Hanken Grotesk', sans-serif;
     font-size:1.35rem; font-weight:600; color:var(--forest-900);
     margin-bottom:8px; line-height:1.2;
 }
@@ -286,10 +286,10 @@ a { color:inherit; text-decoration:none; }
 @media (max-width:780px) { .how-grid { grid-template-columns:1fr; gap:24px; } }
 .how-step { text-align:left; }
 .how-num {
-    font-family:'Instrument Serif', Georgia, serif;
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1;
     font-size:3rem; color:var(--clay-bright);
-    font-weight:400; line-height:1; margin-bottom:8px;
-    font-style:italic;
+    font-weight:620; line-height:1; margin-bottom:8px;
+    font-style:normal;
 }
 .how-step h4 { font-size:1.05rem; font-weight:700; color:var(--forest-900); margin-bottom:8px; }
 .how-step p { font-size:0.94rem; color:var(--ink-700); line-height:1.5; }
@@ -323,7 +323,7 @@ a { color:inherit; text-decoration:none; }
 .faq details { padding:20px 0; border-bottom:1px solid rgba(15,44,23,0.08); }
 .faq details:last-of-type { border-bottom:0; }
 .faq summary {
-    font-family:'Plus Jakarta Sans', sans-serif;
+    font-family:'Hanken Grotesk', sans-serif;
     font-size:1.15rem; font-weight:600; color:var(--forest-900);
     cursor:pointer; list-style:none;
     display:flex; justify-content:space-between; align-items:center; gap:16px;
@@ -340,13 +340,13 @@ a { color:inherit; text-decoration:none; }
     padding:64px 24px; text-align:center;
 }
 .cta-band h2 {
-    font-family:'Instrument Serif', Georgia, serif;
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1;
     font-size:clamp(2rem, 3.5vw, 2.8rem);
-    font-weight:400; color:#fdf9ee;
+    font-weight:620; color:#fdf9ee;
     margin-bottom:14px; line-height:1.05;
     letter-spacing:-0.02em;
 }
-.cta-band h2 i { font-style:italic; color:#f28855; }
+.cta-band h2 i { font-style:normal; color:#f28855; }
 .cta-band p {
     color:rgba(253,249,238,0.78); font-size:1.02rem;
     margin-bottom:26px; max-width:540px; margin-left:auto; margin-right:auto;
@@ -476,7 +476,7 @@ footer a { color:var(--forest-700); text-decoration:none; }
     background:white; border-radius:14px;
     box-shadow:0 8px 32px rgba(15,44,23,0.15);
     padding:22px; max-width:560px; width:100%;
-    font-family:'Plus Jakarta Sans', system-ui, sans-serif;
+    font-family:'Hanken Grotesk', system-ui, sans-serif;
 }
 .tour-caption { padding:16px 24px 20px; border-top:1px solid var(--cream-200); background:white; flex-shrink:0; }
 .tour-caption-title { font-size:1.05rem; font-weight:700; color:var(--forest-900); margin-bottom:4px; }
@@ -513,7 +513,7 @@ footer a { color:var(--forest-700); text-decoration:none; }
 
 /* Brand-tour scene visuals */
 .b-tour-profile { display:flex; gap:14px; align-items:flex-start; margin-bottom:12px; }
-.b-tour-profile-avatar { width:52px; height:52px; border-radius:12px; background:linear-gradient(135deg, #ed682f, #a14e2a); display:grid; place-items:center; color:white; font-family:'Instrument Serif', serif; font-size:1.6rem; font-weight:400; flex-shrink:0; }
+.b-tour-profile-avatar { width:52px; height:52px; border-radius:12px; background:linear-gradient(135deg, #ed682f, #a14e2a); display:grid; place-items:center; color:white; font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-size:1.6rem; font-weight:620; flex-shrink:0; }
 .b-tour-profile-name { font-size:1.05rem; font-weight:700; color:var(--forest-900); line-height:1.2; }
 .b-tour-profile-meta { font-size:0.78rem; color:var(--ink-500); margin-top:2px; }
 .b-tour-fields { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; font-size:0.82rem; }
@@ -532,7 +532,7 @@ footer a { color:var(--forest-700); text-decoration:none; }
 .b-tour-retailer-name { font-size:0.82rem; font-weight:700; color:var(--forest-900); line-height:1.1; }
 .b-tour-retailer-sub { font-size:0.66rem; color:var(--ink-500); margin-top:1px; font-weight:600; }
 .b-tour-retailer-right { text-align:right; }
-.b-tour-retailer-count { font-family:'Plus Jakarta Sans', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); line-height:1; }
+.b-tour-retailer-count { font-family:'Hanken Grotesk', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); line-height:1; }
 .b-tour-retailer-lbl { font-size:0.62rem; color:var(--ink-500); text-transform:uppercase; letter-spacing:0.06em; font-weight:700; margin-top:2px; }
 .b-tour-coi { background:var(--forest-50); border:1px solid var(--forest-300); border-radius:8px; padding:12px 14px; display:flex; align-items:center; gap:12px; }
 .b-tour-coi-icon { width:36px; height:36px; border-radius:8px; background:var(--forest-100); display:grid; place-items:center; color:var(--forest-700); flex-shrink:0; }
@@ -548,8 +548,8 @@ footer a { color:var(--forest-700); text-decoration:none; }
 .b-tour-booking-val { color:var(--forest-900); font-weight:700; }
 .b-tour-booking-val small { display:inline-block; padding:2px 6px; border-radius:4px; background:var(--forest-100); color:var(--forest-800); font-size:0.62rem; margin-left:6px; text-transform:uppercase; letter-spacing:0.04em; }
 .b-tour-final { text-align:center; }
-.b-tour-final-headline { font-family:'Instrument Serif', Georgia, serif; font-size:1.8rem; color:var(--forest-900); line-height:1.1; margin-bottom:10px; }
-.b-tour-final-headline i { font-style:italic; color:var(--clay-bright); }
+.b-tour-final-headline { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-weight:620; font-size:1.8rem; color:var(--forest-900); line-height:1.1; margin-bottom:10px; }
+.b-tour-final-headline i { font-style:normal; color:var(--clay-bright); }
 .b-tour-final-sub { font-size:0.95rem; color:var(--ink-700); margin-bottom:22px; }
 .b-tour-final-cta {
     display:inline-flex; align-items:center; gap:10px;
@@ -576,6 +576,8 @@ footer a { color:var(--forest-700); text-decoration:none; }
 .hero-tour-cta { gap:10px !important; }
 .tour-band-cta { gap:8px !important; }
 .hero-product-play { padding:6px 12px 6px 6px !important; gap:6px !important; }
+/* Typography 2026-11: Fraunces headlines, Hanken Grotesk text. The logo wordmark keeps Plus Jakarta Sans 800. */
+h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; }
 </style>
 
 <!-- PostHog -->
@@ -876,7 +878,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <div class="tour-scene" data-scene="1">
                     <div class="tour-scene-inner">
                         <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:12px;">
-                            <div style="font-family:'Plus Jakarta Sans', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900);">Your retailers</div>
+                            <div style="font-family:'Hanken Grotesk', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900);">Your retailers</div>
                             <div style="font-size:0.72rem; color:var(--ink-500); font-weight:600;">12 demos scheduled</div>
                         </div>
                         <div class="b-tour-retailers-list">
@@ -926,7 +928,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <!-- Scene 3: COI on file, auto-attach -->
                 <div class="tour-scene" data-scene="2">
                     <div class="tour-scene-inner">
-                        <div style="font-family:'Plus Jakarta Sans', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); margin-bottom:12px;">Compliance, once and done</div>
+                        <div style="font-family:'Hanken Grotesk', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); margin-bottom:12px;">Compliance, once and done</div>
                         <div class="b-tour-coi">
                             <div class="b-tour-coi-icon">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15l2 2 4-4"/></svg>
@@ -948,7 +950,7 @@ posthog.init('phc_wkGnPQRvP3gdHLb4mgW6BTj7w9XibvppWBC3hxaA5mb3', {
                 <!-- Scene 4: Auto-fill every booking -->
                 <div class="tour-scene" data-scene="3">
                     <div class="tour-scene-inner">
-                        <div style="font-family:'Plus Jakarta Sans', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); margin-bottom:12px;">Book a demo at Harvest Lane Market</div>
+                        <div style="font-family:'Hanken Grotesk', sans-serif; font-size:1rem; font-weight:700; color:var(--forest-900); margin-bottom:12px;">Book a demo at Harvest Lane Market</div>
                         <div class="b-tour-booking-form">
                             <h5>Your info, pre-filled</h5>
                             <div class="b-tour-booking-row">

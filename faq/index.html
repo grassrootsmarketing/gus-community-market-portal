@@ -17,7 +17,7 @@
 <meta name="twitter:description" content="Common questions about how Demohub works for retailers and brands.">
 <meta name="twitter:image" content="https://demohubhq.com/og-faq.png">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..700,100,1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
 <style>
   :root {
     --forest-900:#0f2c17; --forest-800:#1a3d23; --forest-700:#2a5b32;
@@ -26,7 +26,7 @@
     --ink-700:#3a3a36; --ink-500:#6b6a64;
   }
   * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; background:var(--cream-50); color:var(--ink-700); font-family:'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; -webkit-font-smoothing:antialiased; }
+  html, body { margin:0; padding:0; background:var(--cream-50); color:var(--ink-700); font-family:'Hanken Grotesk', system-ui, -apple-system, sans-serif; -webkit-font-smoothing:antialiased; }
   .nav { display:flex; align-items:center; justify-content:space-between; padding:18px 32px; border-bottom:1px solid rgba(15,44,23,0.06); background:var(--cream-50); }
   .brand { display:flex; align-items:center; gap:10px; text-decoration:none;; cursor:pointer; user-select:none; }
   .brand-mark { width:32px; height:32px; }
@@ -36,7 +36,7 @@
 
   main { max-width:760px; margin:0 auto; padding:48px 24px 80px; }
   .eyebrow { font-size:13px; color:var(--clay-600); font-weight:700; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:8px; }
-  h1 { font-size:48px; margin:0 0 16px; color:var(--forest-900); letter-spacing:-0.03em; line-height:1.05; font-weight:800; }
+  h1 { font-size:48px; margin:0 0 16px; color:var(--forest-900); letter-spacing:-0.03em; line-height:1.05; font-weight:620; font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; }
   h1 em { font-style:normal; color:var(--clay-600); }
   .lede { font-size:18px; line-height:1.5; color:var(--ink-700); margin:0 0 40px; max-width:540px; }
 
@@ -141,18 +141,18 @@
     backdrop-filter:blur(6px); margin-bottom:28px !important;
 }
 .page-hero-wrap .hero h1 {
-    font-family:'Instrument Serif', Georgia, serif !important;
-    font-weight:400 !important; font-style:normal !important;
-    font-size:clamp(2.8rem, 6vw, 5.2rem) !important;
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif !important; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1 !important;
+    font-weight:620 !important; font-style:normal !important;
+    font-size:clamp(2.4rem, 4.6vw, 4rem) !important;
     line-height:1.02 !important; letter-spacing:-0.015em !important;
     color:#fdf9ee !important;
-    margin:0 auto 20px !important; max-width:920px !important;
+    margin:0 auto 20px !important; max-width:1040px !important;
     text-shadow:0 2px 24px rgba(15,44,23,0.35);
 }
-.page-hero-wrap .hero h1 .accent { color:#f28855 !important; font-style:italic !important; font-weight:400 !important; }
+.page-hero-wrap .hero h1 .accent { color:#f28855 !important; font-style:normal !important; font-weight:inherit !important; }
 .page-hero-wrap .hero .lede,
 .page-hero-wrap .hero p {
-    font-family:'Plus Jakarta Sans',sans-serif !important;
+    font-family:'Hanken Grotesk',sans-serif !important;
     font-size:clamp(1.02rem,1.5vw,1.2rem) !important;
     color:rgba(253,249,238,0.9) !important;
     max-width:640px !important; margin:0 auto !important; line-height:1.55 !important;
@@ -165,6 +165,8 @@
     .page-hero-wrap .hero h1 { font-size:clamp(2.2rem, 9vw, 3.4rem) !important; }
 }
 
+/* Typography 2026-11: Fraunces headlines, Hanken Grotesk text. The logo wordmark keeps Plus Jakarta Sans 800. */
+h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; }
 </style>
 </head>
 <body>

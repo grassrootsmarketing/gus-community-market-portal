@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Sign in · Demohub</title>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,500..700,100,1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@800&display=swap" rel="stylesheet">
 <style>
 :root {
   --forest-900: #0f2c17; --forest-700: #1f4a26; --forest-600: #2a5b32; --forest-500: #3a7142;
@@ -16,7 +16,7 @@
   --ink-900: #1c1c1a; --ink-700: #3a3a36; --ink-500: #6b6a64;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.55; min-height: 100vh; }
+body { font-family: 'Hanken Grotesk', -apple-system, sans-serif; background: var(--cream-50); color: var(--ink-900); line-height: 1.55; min-height: 100vh; }
 .nav { padding: 24px 32px; display: flex; align-items: center; justify-content: space-between; max-width: 1200px; margin: 0 auto; }
 .nav .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; ; cursor:pointer; user-select:none;}
 .nav .brand-mark { width: 32px; height: 32px; }
@@ -24,13 +24,13 @@ body { font-family: 'Plus Jakarta Sans', -apple-system, sans-serif; background: 
 .nav .signup-link { font-size: 0.9rem; color: var(--ink-500); text-decoration: none; }
 .container { max-width: 920px; margin: 60px auto 80px; padding: 0 24px; }
 .eyebrow { font-size: 1.25rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.22em; color: var(--clay-bright); margin-bottom: 22px; text-align: center; }
-h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); text-align: center; margin-bottom: 12px; }
+h1 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-size: 2.6rem; font-weight:620; line-height: 1.1; letter-spacing: -0.02em; color: var(--forest-900); text-align: center; margin-bottom: 12px; }
 .lede { font-size: 1.05rem; color: var(--ink-700); text-align: center; max-width: 520px; margin: 0 auto 40px; }
 .signin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 @media (max-width: 760px) { .signin-grid { grid-template-columns: 1fr; gap: 20px; } }
 .signin-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 36px 32px 28px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); display: flex; flex-direction: column; }
 .signin-card-eyebrow { font-size: 1rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.16em; color: var(--clay-700); margin-bottom: 18px; }
-.signin-card h2 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.7rem; font-weight: 700; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
+.signin-card h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; font-size: 1.7rem; font-weight:620; color: var(--forest-900); margin-bottom: 8px; line-height: 1.2; letter-spacing: -0.01em; }
 .signin-card .desc { font-size: 0.94rem; color: var(--ink-700); margin-bottom: 24px; line-height: 1.5; }
 .signin-card .form-body { flex: 1; display: flex; flex-direction: column; }
 .label { display: block; font-size: 0.82rem; font-weight: 600; color: var(--forest-900); margin-bottom: 6px; }
@@ -52,7 +52,7 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 /* ===== Recognized-user card (X-style repeat visitor) ===== */
 .recognized-card { background: white; border: 1px solid rgba(15,44,23,0.08); border-radius: 16px; padding: 32px 28px 24px; box-shadow: 0 1px 3px rgba(15,44,23,0.04); text-align: center; max-width: 420px; margin: 0 auto; }
 .recognized-avatar { width: 72px; height: 72px; border-radius: 50%; background: linear-gradient(135deg, #e8e4d8, #cec9bd); display: inline-flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 700; color: var(--forest-900); margin-bottom: 16px; letter-spacing: -0.02em; }
-.recognized-name { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 1.35rem; font-weight: 700; color: var(--forest-900); margin-bottom: 4px; letter-spacing: -0.01em; }
+.recognized-name { font-family: 'Hanken Grotesk', sans-serif; font-size: 1.35rem; font-weight: 700; color: var(--forest-900); margin-bottom: 4px; letter-spacing: -0.01em; }
 .recognized-email { font-size: 0.9rem; color: var(--ink-500); margin-bottom: 24px; }
 .recognized-btn { background: var(--forest-900); color: white; border: none; border-radius: 999px; padding: 13px 32px; font-size: 1rem; font-weight: 600; cursor: pointer; font-family: inherit; width: 100%; max-width: 300px; transition: background 0.15s; }
 .recognized-btn:hover { background: var(--forest-700); }
@@ -137,18 +137,18 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
     backdrop-filter:blur(6px); margin-bottom:28px !important;
 }
 .page-hero-wrap .hero h1 {
-    font-family:'Instrument Serif', Georgia, serif !important;
-    font-weight:400 !important; font-style:normal !important;
-    font-size:clamp(2.8rem, 6vw, 5.2rem) !important;
+    font-family:'Fraunces', Georgia, 'Times New Roman', serif !important; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1 !important;
+    font-weight:620 !important; font-style:normal !important;
+    font-size:clamp(2.4rem, 4.6vw, 4rem) !important;
     line-height:1.02 !important; letter-spacing:-0.015em !important;
     color:#fdf9ee !important;
-    margin:0 auto 20px !important; max-width:920px !important;
+    margin:0 auto 20px !important; max-width:1040px !important;
     text-shadow:0 2px 24px rgba(15,44,23,0.35);
 }
-.page-hero-wrap .hero h1 .accent { color:#f28855 !important; font-style:italic !important; font-weight:400 !important; }
+.page-hero-wrap .hero h1 .accent { color:#f28855 !important; font-style:normal !important; font-weight:inherit !important; }
 .page-hero-wrap .hero .lede,
 .page-hero-wrap .hero p {
-    font-family:'Plus Jakarta Sans',sans-serif !important;
+    font-family:'Hanken Grotesk',sans-serif !important;
     font-size:clamp(1.02rem,1.5vw,1.2rem) !important;
     color:rgba(253,249,238,0.9) !important;
     max-width:640px !important; margin:0 auto !important; line-height:1.55 !important;
@@ -167,6 +167,8 @@ h1 { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 2.6rem; font-weigh
 .page-hero-wrap.compact .hero .lede,
 .page-hero-wrap.compact .hero p { font-size:1.02rem !important; }
 
+/* Typography 2026-11: Fraunces headlines, Hanken Grotesk text. The logo wordmark keeps Plus Jakarta Sans 800. */
+h1, h2 { font-family:'Fraunces', Georgia, 'Times New Roman', serif; font-variation-settings:'opsz' 60, 'SOFT' 100, 'WONK' 1; }
 </style>
 
 <!-- PWA -->
